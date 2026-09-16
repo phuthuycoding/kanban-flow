@@ -1,85 +1,86 @@
 # kaban-flow
 
-Kanban workflow cho AI-assisted feature development — brainstorm → plan → implement → test → review → archive. Skills-based, dùng được trên mọi tool đọc `~/.claude/skills/` (opencode, Claude Code...).
+MỘT skill duy nhất điều khiển toàn bộ vòng đời feature: **brainstorm → plan → implement → test → review → archive**. Người dùng chỉ cần nghĩ và mô tả ý tưởng — agent tự quyết định mọi thứ còn lại.
 
 ## Install
 
-Repo private nên không dùng `curl | bash` được. Install bằng git clone:
+Repo private nên dùng git clone (không `curl | bash`):
 
 ```bash
 git clone git@github.com:phuthuycoding/kaban-flow.git /tmp/kaban-flow
-cd /tmp/kaban-flow
-./install.sh                 # global install (skills + templates + review rules vào ~/.claude/)
-cd /tmp && rm -rf kaban-flow  # xoá source (optional)
+cd /tmp/kaban-flow && ./install.sh
 ```
 
-Rồi init project:
+Init project:
 
 ```bash
 cd your-project
-bash <(git -C /tmp/kaban-flow show main:install.sh) init   # nếu còn giữ clone
-# hoặc đơn giản hơn: re-clone rồi chạy ./install.sh init
+/path/to/kaban-flow/install.sh init
 ```
 
 ## Usage
 
-**Manual mode** (6 bước riêng, gate tại mỗi bước):
+Gõ **MỘT lệnh duy nhất**:
+
 ```text
-1. /kanban-brainstorm {context} {feature}   → usecase spec + design + impact
-2. /kanban-plan      {context} {feature}    → test plan + tasks breakdown
-3. /kanban-implement  {context} {feature}   → spawn parallel agents, code
-4. /kanban-test       {context} {feature}   → chạy test theo plan
-5. /kanban-review     {context} {feature}   → review theo rules (global + project)
-6. /kanban-archive    {context} {feature}   → archive + sync docs
+kanban {context} {feature}
+# ví dụ: kanban auth user-login
 ```
 
-**Auto mode** (chỉ cần brainstorm + plan, còn lại chạy tự động):
-```text
-1. /kanban-brainstorm {context} {feature}   → usecase spec + design
-2. /kanban-plan      {context} {feature}    → test plan + tasks
-3. /kanban-run       {context} {feature}    → implement → test → review → archive TỰ ĐỘNG
-```
+Agent tự làm hết:
+1. Brainstorm — hỏi chỉ những gì thật sự mơ hồ, tạo spec + design + impact
+2. Plan — test plan (input/expected) + tasks breakdown
+3. Implement — spawn agent song song, tick tasks
+4. Test — chạy test, viết testing-report.md
+5. Review — load rules (global + project), viết review-report.md
+6. Archive — sync docs, commit
+
+Chỉ dừng lại khi **thật sự bị kẹt**: build fail (sau khi đã auto-fix), test fail, hoặc HIGH violations.
 
 ## How it works
 
-Feature là 1 folder di chuyển qua các trạng thái:
+Feature là 1 folder di chuyển qua các trạng thái trong `.works/`:
 
 ```
-.works/pending/ → .works/doing/ → .works/testing/ → .works/review/ → .works/dones/
+pending/ → doing/ → testing/ → review/ → dones/
 ```
 
-State tracking = filesystem location. Không cần DB, không cần config file.
+State tracking = filesystem location. Không DB, không config file.
 
-Mỗi feature folder trong `.works/{state}/{featureName}_{timestamp}/` chứa:
-- `test-plan.md` — test cases (Given/When/Then + Input + Expected Output)
-- `tasks.md` — checklist implement (checkbox `- [ ]` → `- [x]`)
-- `review-report.md` — kết quả review (sau bước 5)
+Mỗi feature folder `.works/{state}/{featureName}_{timestamp}/` chứa:
+- `usecase-spec.md`
+- `design.md`
+- `test-plan.md` — Given/When/Then + Input + Expected Output
+- `tasks.md` — checklist implement
+- `testing-report.md` — kết quả test (luôn tạo, PASS hay FAIL)
+- `review-report.md` — kết quả review
 
-Canonical spec lưu tại `docs/use-cases/{context}/{feature}.md`.
+Canonical spec: `docs/use-cases/{context}/{feature}.md`.
 
 ## Review rules
 
-Global rules: `~/.claude/kanban-flow/review/rules/`
-Project rules: `.claude/review/rules/` (override global nếu trùng tên file)
+- Global: `~/.claude/kanban-flow/review/rules/` (general, security, performance, + `{stack}.md`)
+- Project: `{project}/.claude/review/rules/*.md` — ghi đè global nếu trùng tên
 
 ## Structure
 
 ```
-~/.claude/kanban-flow/
-├── templates/          ← artifact templates (use-case, test-plan, tasks, review-report)
-└── review/rules/       ← general.md, security.md, performance.md, {stack}.md
+~/.claude/
+├── skills/kanban-flow/SKILL.md   ← skill duy nhất
+└── kanban-flow/
+    ├── templates/                ← usecase-spec, design, test-plan, tasks, testing-report, review-report
+    └── review/rules/             ← general, security, performance
 
 {project}/
-├── .works/
-│   ├── backlog/  pending/  doing/  testing/  review/  dones/
+├── .works/{backlog,pending,doing,testing,review,dones}/
 ├── docs/use-cases/{context}/{feature}.md
-├── .claude/review/rules/     ← project-specific rules
+└── .claude/review/rules/         ← project-specific rules
 ```
 
 ## Uninstall
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/phuthuycoding/kaban-flow/main/install.sh) uninstall
+/path/to/kaban-flow/install.sh uninstall
 ```
 
 ## License

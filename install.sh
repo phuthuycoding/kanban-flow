@@ -30,7 +30,7 @@ install_global() {
 
   # Skills
   mkdir -p "$KABAN_FLOW_HOME/skills"
-  for skill_dir in "$SCRIPT_DIR"/skills/kanban-*/; do
+  for skill_dir in "$SCRIPT_DIR"/skills/kanban-flow/; do
     local skill_name
     skill_name="$(basename "$skill_dir")"
     cp -r "$skill_dir" "$KABAN_FLOW_HOME/skills/$skill_name"
@@ -100,7 +100,7 @@ uninstall() {
   echo "Uninstalling kaban-flow..."
 
   # Remove skills
-  for skill_dir in "$KABAN_FLOW_HOME"/skills/kanban-*/; do
+  for skill_dir in "$KABAN_FLOW_HOME"/skills/kanban-flow/; do
     [ -d "$skill_dir" ] || continue
     local skill_name
     skill_name="$(basename "$skill_dir")"
