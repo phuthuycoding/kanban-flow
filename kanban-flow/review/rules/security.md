@@ -1,0 +1,26 @@
+# Security Review Rules
+
+## Secrets Management
+- No hardcoded credentials, API keys, or tokens
+- Use environment variables or secret managers
+- Never log sensitive data
+
+## Input Validation
+- Validate all external input at system boundary
+- Sanitize before using in queries, commands, templates
+- Use parameterized queries (no string concatenation for SQL)
+
+## Authentication & Authorization
+- Check auth before business logic
+- Use established auth patterns (not custom crypto)
+- Enforce least-privilege access
+
+## Dependencies
+- No known vulnerable dependencies
+- Review new dependencies before adding
+- Lock dependency versions
+
+## Data Protection
+- Encrypt sensitive data at rest and in transit
+- Mask sensitive data in logs
+- Apply rate limiting on public endpoints
