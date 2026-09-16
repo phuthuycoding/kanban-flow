@@ -23,20 +23,21 @@ bash <(git -C /tmp/kaban-flow show main:install.sh) init   # nếu còn giữ cl
 
 ## Usage
 
-Flow 6 bước, mỗi bước có gate (user approve trước khi qua bước kế):
-
+**Manual mode** (6 bước riêng, gate tại mỗi bước):
 ```text
 1. /kanban-brainstorm {context} {feature}   → usecase spec + design + impact
-       gate: user confirm
 2. /kanban-plan      {context} {feature}    → test plan + tasks breakdown
-       gate: user approve
 3. /kanban-implement  {context} {feature}   → spawn parallel agents, code
-       gate: build pass
 4. /kanban-test       {context} {feature}   → chạy test theo plan
-       gate: tests pass
 5. /kanban-review     {context} {feature}   → review theo rules (global + project)
-       gate: user approve
 6. /kanban-archive    {context} {feature}   → archive + sync docs
+```
+
+**Auto mode** (chỉ cần brainstorm + plan, còn lại chạy tự động):
+```text
+1. /kanban-brainstorm {context} {feature}   → usecase spec + design
+2. /kanban-plan      {context} {feature}    → test plan + tasks
+3. /kanban-run       {context} {feature}    → implement → test → review → archive TỰ ĐỘNG
 ```
 
 ## How it works
