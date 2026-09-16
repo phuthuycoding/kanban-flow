@@ -9,10 +9,11 @@ usage() {
 kaban-flow $KABAN_FLOW_VERSION — Kanban workflow for AI-assisted feature development
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/phuthuycoding/kaban-flow/main/install.sh | bash          # install globally
-  ./install.sh                  # install globally (same as above)
+  ./install.sh                  # install globally (skills + templates + review rules vào ~/.claude/)
   ./install.sh init             # init project: create .works/ + docs/use-cases/
   ./install.sh uninstall        # remove skills + kanban-flow config
+
+Lưu ý: repo private → clone về rồi chạy, không dùng curl | bash.
 
 Environment variables:
   KABAN_FLOW_HOME    Override base dir (default: ~/.claude)

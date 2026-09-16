@@ -4,16 +4,21 @@ Kanban workflow cho AI-assisted feature development — brainstorm → plan → 
 
 ## Install
 
+Repo private nên không dùng `curl | bash` được. Install bằng git clone:
+
 ```bash
-# Global install (skills + templates + review rules vào ~/.claude/)
-curl -fsSL https://raw.githubusercontent.com/phuthuycoding/kaban-flow/main/install.sh | bash
+git clone git@github.com:phuthuycoding/kaban-flow.git /tmp/kaban-flow
+cd /tmp/kaban-flow
+./install.sh                 # global install (skills + templates + review rules vào ~/.claude/)
+cd /tmp && rm -rf kaban-flow  # xoá source (optional)
 ```
 
 Rồi init project:
 
 ```bash
 cd your-project
-bash <(curl -fsSL https://raw.githubusercontent.com/phuthuycoding/kaban-flow/main/install.sh) init
+bash <(git -C /tmp/kaban-flow show main:install.sh) init   # nếu còn giữ clone
+# hoặc đơn giản hơn: re-clone rồi chạy ./install.sh init
 ```
 
 ## Usage
