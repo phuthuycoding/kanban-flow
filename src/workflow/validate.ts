@@ -35,6 +35,30 @@ export interface ValidationResult {
 const TEST_RESULTS = /^(PASS|FAIL|REJECT|BLOCKED)$/;
 const REVIEW_RESULTS = /^(PASS|FAIL|REJECT|REQUIREMENT_BUG)$/;
 
+const SECRET_PATTERNS = [
+  /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]{12,}/i,
+  /\bCookie\s*:\s*[^;\n]{12,}/i,
+  /\b(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*=\s*["']?[^\s"']{8,}/i,
+  /\b(?:ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{20,}/,
+  /\bsk-[A-Za-z0-9]{20,}/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+];
+
+const PLACEHOLDERISH = /\{[^}\n]{0,60}\}|<[a-z0-9_ -]+>|\*{3,}|x{4,}|\b(?:redacted|masked|example|changeme|placeholder|dummy|sample|your[_-])\b/i;
+
+/** Return lines that look like real secrets — placeholder-style values are ignored. */
+export function findSecretLike(content: string): string[] {
+  const hits: string[] = [];
+  for (const line of content.split("\n")) {
+    if (!SECRET_PATTERNS.some((p) => p.test(line))) continue;
+    if (PLACEHOLDERISH.test(line)) continue;
+    hits.push(line.trim().slice(0, 80));
+  }
+  return hits;
+}
+
 /** Checks for the CURRENT stage. If the feature can leave the current stage, all its gate artifacts must exist & be filled. */
 export function validateFeature(feature: Feature, strict = false, requireApproval = true): ValidationResult {
   const issues: Finding[] = [];
@@ -75,6 +99,17 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
         file: def.file,
         code: "artifact_unfilled",
         message: `${def.file} is empty or still contains template placeholders (needs real content)`,
+      });
+    }
+    const secrets = findSecretLike(content);
+    if (secrets.length > 0) {
+      issues.push({
+        severity: "ERROR",
+        feature: feature.name,
+        stage: feature.stage,
+        file: def.file,
+        code: "artifact_secret",
+        message: `${def.file} contains secret-like content (${secrets.length} line${secrets.length > 1 ? "s" : ""}) — remove credentials from workflow artifacts`,
       });
     }
   }

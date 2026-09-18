@@ -271,6 +271,24 @@ describe("requirement and approval gates", () => {
     await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), "");
     expect(validateFeature(feature()).issues.some((i) => i.code === "artifact_unfilled")).toBe(true);
   });
+
+  it("blocks artifacts containing secret-like content", async () => {
+    await planning();
+    await writeFile(
+      join(feature().dir, ARTIFACTS["spec-requirement"].file),
+      spec + "\nAuthorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+    );
+    expect(validateFeature(feature()).issues.some((i) => i.code === "artifact_secret")).toBe(true);
+  });
+
+  it("accepts placeholder and example secrets", async () => {
+    await planning();
+    await writeFile(
+      join(feature().dir, ARTIFACTS["spec-requirement"].file),
+      spec + "\nAPI_KEY={key}\nAuthorization: Bearer <token>\nTOKEN=changeme",
+    );
+    expect(validateFeature(feature()).issues.some((i) => i.code === "artifact_secret")).toBe(false);
+  });
 });
 
 describe("testing and review cycles", () => {

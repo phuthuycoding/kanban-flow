@@ -57,6 +57,8 @@ Feature planning tạo chuỗi truy vết:
 
 ID phải khớp chính xác; `FR-001` không được coi là `FR-0010`. Thiếu FR/UC reference trong TC, reference không tồn tại, duplicate TC ID, file rỗng hoặc placeholder chưa thay thế làm validation fail. Agent vẫn phải review nội dung section và tổng số trong bảng.
 
+Validator cũng quét nội dung artifact tìm secret thật (Bearer token, API key, private key, mật khẩu dạng `KEY=value`...) và fail với `artifact_secret` khi phát hiện — artifact không được chứa credential. Giá trị placeholder như `{key}`, `<token>`, `changeme`, `redacted` hay chuỗi `xxx...` không bị flag.
+
 Approval Phase 2 là fingerprint SHA-256 của requirement, 4 planning artifact và mọi file `use-cases/UC-###.md` với feature; bug fingerprint chỉ dựa trên bug report. Sau khi approval, sửa nội dung contract sẽ yêu cầu quay lại planning, hoàn thiện lại và approve lại.
 
 ## Force và recovery

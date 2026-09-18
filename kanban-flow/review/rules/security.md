@@ -2,8 +2,14 @@
 
 ## Secrets Management
 - No hardcoded credentials, API keys, or tokens
+- No secrets in workflow artifacts (specs, plans, reports) — `kf validate` rejects secret-like content
 - Use environment variables or secret managers
 - Never log sensitive data
+
+## Threat Model First
+- Before applying a security finding, state what the code stores, protects, and exposes
+- Fix the real failure mode, not the abstract pattern — a finding without a reachable attack path is LOW
+- Do not add auth/crypto/validation where the data is not sensitive and not externally reachable
 
 ## Input Validation
 - Validate all external input at system boundary

@@ -24,6 +24,17 @@
 - Comment only "why" (decisions, constraints, gotchas)
 - No TODO comments, no "changed by AI", no "removed old logic"
 
+## Review Discipline
+- Scout first: read the actual repo/code before asking the user or flagging — no findings based on guesses
+- Review only files that actually changed; verify claims against the real diff
+- Preserve verified decisions: do not reopen a decision already verified earlier without new evidence
+- Preserve user decisions: never silently undo user-chosen scope, libraries, or thresholds
+- Threat-model before applying a finding: state what the code stores, protects, and exposes; fix the real failure mode, not the abstract one
+
+## Stable Artifacts
+- Do not embed plan IDs, phase numbers, or finding codes (FR-001, TC-002, HIGH-1) in code comments, test names, or commit messages — they rot when the plan changes
+- Reference artifacts by stable names in docs; keep mutable anchors out of the codebase
+
 ## Security
 - Never commit secrets or keys
 - Never expose secrets in logs

@@ -27,6 +27,17 @@ kf stage {feature_name} review
 
 Review **only files actually changed**. Record findings with severity HIGH / MEDIUM / LOW. Reproduce plausible failures — don't infer.
 
+**AI-assisted code risk lens** — hunt for the failure modes AI-generated code produces most:
+
+- Phantom tests: tests that execute code but never assert the behavior the spec requires
+- Catch-and-swallow: catches that hide errors instead of handling or rethrowing with context
+- Generic helpers without a domain anchor: abstractions invented for one call site
+- Scope drift: changes outside the approved contract and task list
+- Unrelated broad rewrites: reformatting or refactoring files beyond the diff's purpose
+- Polished comments/commits that describe the change but never explain intent or risk
+
+Preserve decisions: do not reopen verified findings or silently undo user-chosen scope, libraries, or thresholds. Before applying a security finding, threat-model it — state what the code stores, protects, and exposes; a finding without a reachable attack path is LOW.
+
 Use the `## Baseline` recorded at the top of `tasks.md` (starting HEAD + pre-existing working-tree changes) to include committed, staged, unstaged and new untracked feature files. Preserve unrelated pre-existing changes. Verify the testing report is PASS for the current execution id. After any implementation fix, loop through testing again before writing a new review result.
 
 ## 3. Write review-report

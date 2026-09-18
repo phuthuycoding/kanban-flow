@@ -23,8 +23,27 @@ Create tasks.md if missing: `- [ ] 1. ...` checkboxes mapping tasks to the appro
 
 ## 2. Work by dependency order
 
-- Independent tasks → **parallelize via subagents**. Each subagent prompt: the plan excerpt + the exact task + the TC it must satisfy + reference files + repo conventions.
+- Independent tasks → **parallelize via subagents**.
 - Sequential / dependent tasks → main agent.
+
+**Subagent prompt contract** — every subagent prompt must state:
+
+- Task: the exact task + the TC it must satisfy
+- Files to read: plan excerpt, reference files, repo conventions
+- Files it may modify: explicit allowlist — nothing else
+- Acceptance criteria: what "done" means, verifiable
+- Constraints: no contract changes, no unrelated edits
+- Context: `.works/implementation/{feature}/` path (and reports path when applicable)
+
+**Subagent status protocol** — require every subagent to end with:
+
+```text
+Status: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+Summary: one or two sentences
+Concerns/Blockers: (optional)
+```
+
+Treat `DONE_WITH_CONCERNS` and `BLOCKED` as not-done: resolve the concern or unblock before ticking the task.
 
 ## 3. Tick tasks as they land; gate on build
 
