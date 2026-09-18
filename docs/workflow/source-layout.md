@@ -16,6 +16,7 @@ src/
 │       ├── stage.ts      # state transitions
 │       ├── approve.ts    # planning approval
 │       ├── rules.ts      # stack review-rule pack installation
+│       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
 │       └── archive.ts    # closure and canonical docs sync
 ├── workflow/             # domain state, artifacts and validation
 ├── project/              # project config and bootstrap prompts

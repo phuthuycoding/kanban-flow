@@ -67,7 +67,7 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
 }
 
 /** Arrow-key radio select on a TTY; digit keys also work. Returns the chosen index. */
-async function selectOption(question: string, options: string[]): Promise<number> {
+export async function selectOption(question: string, options: string[]): Promise<number> {
   return new Promise<number>((resolveP, reject) => {
     let idx = 0;
     let drawn = 0;

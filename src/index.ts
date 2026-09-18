@@ -5,6 +5,7 @@ import { cmdNew } from "./cli/commands/new.js";
 import { cmdList, cmdShow, cmdView, cmdStatus, cmdValidate } from "./cli/commands/inspect.js";
 import { cmdInstruct, cmdTemplates } from "./cli/commands/artifacts.js";
 import { cmdRules } from "./cli/commands/rules.js";
+import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
 import type { CmdResult } from "./cli/result.js";
 import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
@@ -82,10 +83,18 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdApprove(parsed, cwd);
     case "rules":
       return cmdRules(parsed, cwd);
+    case "autoconfig":
+      return cmdAutoconfig(parsed, cwd);
     case "install":
-      return cmdInstall(parseAgentIds(parsed.options.agent));
+      return cmdInstall(parseAgentIds(parsed.options.agent), { cwd, project: Boolean(parsed.options.project), all: Boolean(parsed.options.all) });
     case "uninstall":
-      return cmdUninstall(parseAgentIds(parsed.options.agent));
+      return cmdUninstall(parseAgentIds(parsed.options.agent), {
+        cwd,
+        project: Boolean(parsed.options.project),
+        all: Boolean(parsed.options.all),
+        purge: Boolean(parsed.options.purge),
+        force: Boolean(parsed.options.force),
+      });
     default:
       return { code: 1, stdout: commandHelp(parsed.command), stderr: `unknown command: ${parsed.command}` };
   }

@@ -55,6 +55,7 @@ kf stage {feature} {phase}              # move theo graph: forward + FAIL loop b
 kf validate --all                       # lỗi gì đang chặn gate / traceability lỏng
 kf archive {feature}                    # review(PASS) → dones + copy canonical docs
 kf rules [--stack {id}] [--list] [--force] # copy stack review rules vào .kf/review/rules (auto-detect)
+kf autoconfig                          # in briefing cho agent: context + checklist config + rules + workflow guide
 kf dashboard                           # KPI + charts, filter context/feature/bug (mặc định :8787, đổi bằng --port)
 ```
 
@@ -144,11 +145,18 @@ mỗi agent đều có 8 skills: kanban-flow + kanban-{bug,brainstorm,plan,imple
 
 ## Uninstall
 
+`kf install`/`kf uninstall` mặc định thao tác ở **user scope** (`~/...`); `--project` chọn **project scope** (`{project}/.claude/skills/...`, resolve về `.works/` root gần nhất); `--all` làm cả hai.
+
 ```bash
-kf uninstall                          # gỡ 8 skills khỏi ~/.claude/skills/ (mặc định claude)
+kf uninstall                          # gỡ 8 skills khỏi ~/.claude/skills/ (mặc định claude, user scope)
+kf uninstall --project                # gỡ skills mà kf init cài vào {project}/.claude/skills/
+kf uninstall --all                    # gỡ cả user lẫn project scope
+kf uninstall --purge                  # gỡ project skills + xoá .works/, .kf/, docs/{requirement,use-cases,testplan}/ (hỏi confirm; --force bỏ qua)
 kf uninstall --agent codex --agent kiro   # gỡ khỏi đúng agent đó
 npm rm -g kaban-flow                  # gỡ CLI
 ```
+
+Mặc định uninstall chỉ gỡ managed skills — `.works/`, `.kf/` và canonical docs là data của project nên giữ lại. `--purge` mới xoá hẳn (và luôn hỏi trước trên TTY).
 
 ## License
 

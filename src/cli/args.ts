@@ -136,16 +136,26 @@ const COMMANDS: Record<string, CmdSpec> = {
       force: { type: "boolean", short: "f" },
     },
   },
+  autoconfig: {
+    help: "Usage: kf autoconfig  — print a briefing for an agent to configure this project: context, setup checklist, effective review rules and the workflow guide",
+    options: {},
+  },
   install: {
-    help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into each agent's skill dir (default: claude). Agents: claude, codex, gemini, kiro, cursor, opencode",
+    help: "Usage: kf install [--agent <id> ...] [--project] [--all]  — copy the 8 kanban skills into agent skill dirs (default: claude, user scope). --project installs into {root}/.<agent>/skills; --all does both. Agents: claude, codex, gemini, kiro, cursor, opencode",
     options: {
       agent: { type: "string", multiple: true },
+      project: { type: "boolean" },
+      all: { type: "boolean" },
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...]  — remove the 8 kanban skills from each agent's skill dir (default: claude)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--project] [--all] [--purge] [--force]  — remove the 8 kanban skills from agent skill dirs (default: claude, user scope). --project removes {root}/.<agent>/skills; --all removes both. --purge also deletes .works/ and .kf/ (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
+      project: { type: "boolean" },
+      all: { type: "boolean" },
+      purge: { type: "boolean" },
+      force: { type: "boolean" },
     },
   },
   help: {
