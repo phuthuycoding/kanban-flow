@@ -31,7 +31,7 @@ Bug dùng template `phase-1-bug-report.md` nhưng vẫn lưu triage record tại
 | Execution | Testing và review phải cùng `executionId` của lần chạy hiện tại |
 | Bảng tổng hợp | Tổng số phải khớp với các dòng chi tiết, không chỉ ghi mô tả định tính |
 
-CLI kiểm tra file, placeholder, ID reference, approval fingerprint và execution/status của report. Tổng số trong bảng, coverage đo thực tế và chất lượng narrative cần agent kiểm tra khi planning/test/review; việc validator PASS không tự chứng minh các nội dung này.
+CLI kiểm tra file, placeholder, secret-like content, ID reference, approval fingerprint và execution/status của report. Tổng số trong bảng, coverage đo thực tế và chất lượng narrative cần agent kiểm tra khi planning/test/review; việc validator PASS không tự chứng minh các nội dung này.
 
 ## Khi archive vào `dones`
 

@@ -73,7 +73,7 @@ Không bao giờ `mv` folder thủ công — gate + hook sẽ chạy theo mỗi 
 | 5. Review | `phase-5-review-report.md` — chỉ `PASS` được archive; `REQUIREMENT_BUG` → STOP feature |
 | 6. Closure | Feature: viết `phase-6-feature-report.md`, CLI copy canonical docs khi archive. Bug: update docs liên quan nếu cần rồi archive |
 
-`kf stage` kiểm tra artifact tồn tại, có nội dung và không còn placeholder; directional gate chặn tiến khi report chưa PASS. Với feature, `kf validate` yêu cầu file UC riêng và từng section `## TC-XXX` tham chiếu FR có trong requirement và UC có file tương ứng. Agent kiểm tra tổng số và coverage trong bảng test plan. Bug chỉ cần bug report, testing result và review result; không bị ép tạo planning artifact của feature. Tasks chưa hoàn thành cũng chặn tiến.
+`kf stage` kiểm tra artifact tồn tại, có nội dung, không còn placeholder và không chứa secret thật (Bearer token, API key, private key — placeholder như `{key}`/`changeme` không bị flag); directional gate chặn tiến khi report chưa PASS. Với feature, `kf validate` yêu cầu file UC riêng và từng section `## TC-XXX` tham chiếu FR có trong requirement và UC có file tương ứng. Agent kiểm tra tổng số và coverage trong bảng test plan. Bug chỉ cần bug report, testing result và review result; không bị ép tạo planning artifact của feature. Tasks chưa hoàn thành cũng chặn tiến.
 
 `kf approve` chỉ duyệt khi requirement/bug report đã confirmed. Feature cần bốn artifact planning và các file UC; bug dùng bug report làm contract. Sau approve, agent hỏi triển khai ngay hay đưa vào backlog. Approval fingerprint bao gồm toàn bộ contract tương ứng; sửa contract sau approve sẽ chặn execution. Khi cần đổi scope theo chỉ đạo của người dùng, chạy `kf stage {feature} planning`, sửa contract và duyệt lại.
 
@@ -122,7 +122,7 @@ Stack best-practice packs (`node`, `go`, `rust`, `python`, `php`, `ruby`, `java`
 
 {project}/
 ├── .kf/                        ← project-scope config (kf init tạo)
-│   ├── config.json             ← defaultContext, stack, reviewer, agents
+│   ├── config.json             ← defaultContext, stacks, reviewer, agents
 │   ├── templates/              ← project overrides
 │   ├── hooks/                  ← phase hooks
 │   └── review/rules/           ← project review rules

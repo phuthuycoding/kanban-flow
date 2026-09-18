@@ -23,7 +23,7 @@ Binary chính là `kf`. Các lệnh tìm `.works/` từ thư mục hiện tại 
 | `kf status --all [--json]` | Xem toàn bộ work item, gồm cả `backlog` và `dones`. |
 | `kf instruct <artifact|use-case> [--change <feature>] [--id UC-###] [--json]` | Render template artifact; `use-case` tạo instruction cho đúng một file `use-cases/UC-###.md`. |
 | `kf templates [--json]` | Liệt kê template đang được resolve và nguồn của chúng. |
-| `kf validate --change <feature> [--strict] [--json]` | Kiểm tra artifact, placeholder, traceability và gate. Exit code `1` khi fail. |
+| `kf validate --change <feature> [--strict] [--json]` | Kiểm tra artifact, placeholder, secret-like content, traceability và gate. Exit code `1` khi fail. |
 | `kf validate --all [--strict] [--json]` | Validate toàn bộ feature. |
 | `kf approve <feature> [--by <name>]` | Human gate cho execution contract ở planning; lưu approver, thời điểm và contract hash. |
 | `kf stage <feature> <next-stage> [--force] [--skip-hooks]` | Thực hiện transition hợp lệ và chạy hook của state đích. Planning có thể vào `backlog` hoặc `implementation`; `dones` được chuyển qua archive. |
