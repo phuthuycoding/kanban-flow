@@ -4,6 +4,7 @@ import { cmdInit } from "./cli/commands/init.js";
 import { cmdNew } from "./cli/commands/new.js";
 import { cmdList, cmdShow, cmdView, cmdStatus, cmdValidate } from "./cli/commands/inspect.js";
 import { cmdInstruct, cmdTemplates } from "./cli/commands/artifacts.js";
+import { cmdRules } from "./cli/commands/rules.js";
 import type { CmdResult } from "./cli/result.js";
 import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
@@ -11,8 +12,11 @@ import { cmdApprove } from "./cli/commands/approve.js";
 import { cmdInstall, cmdUninstall } from "./integrations/install.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
 import { parseAgentIds } from "./integrations/agents.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { PKG_ROOT } from "./shared/paths.js";
 
-const PKG_VERSION = "0.0.1";
+const PKG_VERSION: string = (JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as { version?: string }).version ?? "0.0.0";
 
 function portFrom(parsed: ParsedArgs): number {
   if (parsed.options.port === undefined) return 8787;
@@ -76,6 +80,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdArchive(parsed, cwd);
     case "approve":
       return cmdApprove(parsed, cwd);
+    case "rules":
+      return cmdRules(parsed, cwd);
     case "install":
       return cmdInstall(parseAgentIds(parsed.options.agent));
     case "uninstall":

@@ -1,20 +1,10 @@
-import { findWorksRoot, findFeature, writeFeatureMeta, executionContractHash } from "../../workflow/features.js";
+import { findFeature, writeFeatureMeta, executionContractHash } from "../../workflow/features.js";
 import { validateFeature, renderValidateText } from "../../workflow/validate.js";
 import { readProjectConfig } from "../../project/config.js";
+import { nowTimestamp } from "../../shared/time.js";
+import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
-
-async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
-  const root = findWorksRoot(cwd);
-  if (!root) return { root: "", ok: false, err: "No .works found. Run: kf init" };
-  return { root, ok: true };
-}
-
-function nowTimestamp(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
-}
 
 /**
  * Human-in-the-Loop gate for Phase 2: the execution contract (implementation

@@ -17,7 +17,7 @@ Stand on quality, not survivor. Load layered review rules, audit the changes, an
 kf stage {feature_name} review
 ```
 
-(Already there → skip.)
+(Already there → skip. If the move is refused, run `kf validate --change {feature_name}` — a missing/stale or non-PASS testing report blocks this direction; loop back through kanban-test.)
 
 ## 2. Load review rules
 
@@ -26,7 +26,7 @@ kf stage {feature_name} review
 
 Review **only files actually changed**. Record findings with severity HIGH / MEDIUM / LOW. Reproduce plausible failures — don't infer.
 
-Use the implementation baseline to include committed, staged, unstaged and new untracked feature files. Preserve unrelated pre-existing changes. Verify the testing report is PASS for the current execution id. After any implementation fix, loop through testing again before writing a new review result.
+Use the `## Baseline` recorded at the top of `tasks.md` (starting HEAD + pre-existing working-tree changes) to include committed, staged, unstaged and new untracked feature files. Preserve unrelated pre-existing changes. Verify the testing report is PASS for the current execution id. After any implementation fix, loop through testing again before writing a new review result.
 
 ## 3. Write review-report
 

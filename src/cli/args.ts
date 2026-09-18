@@ -127,6 +127,14 @@ const COMMANDS: Record<string, CmdSpec> = {
       "skip-hooks": { type: "boolean" },
     },
   },
+  rules: {
+    help: "Usage: kf rules [--stack <id> ...] [--list] [--force]  — copy stack best-practice review rules into .kf/review/rules (auto-detects stack; packs: node, go, rust, python, php, ruby, java)",
+    options: {
+      stack: { type: "string", multiple: true },
+      list: { type: "boolean" },
+      force: { type: "boolean", short: "f" },
+    },
+  },
   install: {
     help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into each agent's skill dir (default: claude). Agents: claude, codex, gemini, kiro, cursor, opencode",
     options: {
@@ -148,9 +156,8 @@ const COMMANDS: Record<string, CmdSpec> = {
 
 export function parseArgsCli(argv: string[]): ParsedArgs {
   const command = argv[0] ?? "help";
-  const spec = COMMANDS[command] ?? {
-    help: `Unknown command: ${command}. Use "kf help".`,
-  };
+  const spec = COMMANDS[command];
+  if (!spec) return { command, positionals: argv.slice(1), options: {} };
   const opts: Record<string, OptDef> = {};
   for (const [k, v] of Object.entries(spec.options ?? {})) {
     const d: OptDef = { type: v.type };

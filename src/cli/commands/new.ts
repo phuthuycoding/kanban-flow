@@ -1,5 +1,5 @@
 import { mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ARTIFACTS, type WorkItemKind } from "../../workflow/schema.js";
 import { assertPathName, listFeatures, featureFolderName, writeFeatureMeta, stageDir } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
@@ -42,6 +42,7 @@ export async function cmdNew(args: ParsedArgs, cwd: string): Promise<CmdResult> 
   if (!tpl) return { code: 1, stdout: "Requirement template not found.", stderr: "no template" };
   const ts = nowTimestamp();
   const dir = join(stageDir(root.root, "brainstorm"), featureFolderName(feature, ts));
+  await mkdir(dirname(dir), { recursive: true });
   try {
     await mkdir(dir);
   } catch (err) {
@@ -59,14 +60,12 @@ export async function cmdNew(args: ParsedArgs, cwd: string): Promise<CmdResult> 
     goal: typeof args.options.goal === "string" ? args.options.goal : undefined,
   });
 
-  if (tpl) {
-    const rendered = tpl
-      .replaceAll("{feature_name}", feature)
-      .replaceAll("{Feature Name}", feature.split("-").map((w) => w[0]?.toUpperCase() + w.slice(1)).join(" "))
-      .replaceAll("{context}", ctx)
-      .replaceAll("{timestamp}", ts);
-    await writeFile(join(dir, ARTIFACTS["spec-requirement"].file), rendered, "utf8");
-  }
+  const rendered = tpl
+    .replaceAll("{feature_name}", feature)
+    .replaceAll("{Feature Name}", feature.split("-").map((w) => w[0]?.toUpperCase() + w.slice(1)).join(" "))
+    .replaceAll("{context}", ctx)
+    .replaceAll("{timestamp}", ts);
+  await writeFile(join(dir, ARTIFACTS["spec-requirement"].file), rendered, "utf8");
 
   const hook = runHook(root.root, {
     feature, context: ctx, dir, root: root.root, from: null, to: "brainstorm", approval: "pending",

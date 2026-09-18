@@ -3,19 +3,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE } from "../../workflow/schema.js";
-import { findWorksRoot, findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "../../workflow/features.js";
+import { findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "../../workflow/features.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js";
 import { writeFileAtomic } from "../../shared/paths.js";
 import { runHook } from "../../integrations/hooks.js";
+import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
-
-async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
-  const root = findWorksRoot(cwd);
-  if (!root) return { root: "", ok: false, err: "No .works found. Run: kf init" };
-  return { root, ok: true };
-}
 
 interface CanonicalCopy {
   destination: string;

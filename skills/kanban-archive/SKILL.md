@@ -27,9 +27,9 @@ If already in dones, complete only missing closure work and validate; never reim
 
 ## 2. Sync docs
 
-For a feature, let `kf archive` copy requirement, UC index/files/diagram and test plan/current result into canonical docs. Do not manually copy these files before archive or change approved source artifacts during closure. Update other affected docs from the plan's documentation impact as needed.
+For a feature, let `kf archive` copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement mirror under `docs/requirement/` was already written in Phase 1 — `kf archive` refreshes it and stamps `status: archived`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure. Update other affected docs from the plan's documentation impact as needed.
 
-For a bug, update existing related feature docs only when the fix changes documented behavior or reveals inaccurate documentation. Use the feature/context named in the bug report; do not overwrite feature docs with bug-report content. Record bug ID, fix summary and regression reference in the relevant change history when one exists. If behavior is already documented correctly, leave docs as-is and record “No documentation update required” with the reason in the review report. Bug archive does not automatically create canonical feature docs.
+For a bug, update existing related feature docs only when the fix changes documented behavior or reveals inaccurate documentation. Use the feature/context named in the bug report; do not overwrite feature docs with bug-report content. Record bug ID, fix summary and regression reference in the project's changelog or change-history section (e.g. CHANGELOG.md) when one exists. If behavior is already documented correctly, leave docs as-is and record “No documentation update required” with the reason in the review report. Bug archive does not automatically create canonical feature docs.
 
 ## 3. Archive and validate
 

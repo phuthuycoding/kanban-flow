@@ -31,6 +31,8 @@ export interface Feature {
   dir: string;
   folder: string;
   meta: FeatureMeta | null;
+  /** Set when .kfw.json exists but failed to parse/validate. */
+  metaError?: string;
 }
 
 /** Walk up from cwd to find the directory containing `.works/`. */
@@ -110,10 +112,10 @@ export function executionContractHash(dir: string, kind: WorkItemKind = "feature
   return hash.digest("hex");
 }
 
-/** List all features found under a `.works` root, newest stage first. */
+/** List all features found under a `.works` root, in stage order (brainstorm → dones). */
 export function listFeatures(root: string): Feature[] {
   const out: Feature[] = [];
-  // Stable stage order (pending → dones); within a stage sort by mtime desc.
+  // Within a stage, sort by folder name desc — the trailing timestamp approximates newest first.
   for (const stage of STAGES) {
     const stageDir = join(root, ".works", stage);
     if (!existsSync(stageDir)) continue;
@@ -122,8 +124,15 @@ export function listFeatures(root: string): Feature[] {
         const dir = join(stageDir, folder);
         if (!statSync(dir).isDirectory()) return null;
         const parsed = parseFolderName(folder);
-        const meta = readFeatureMeta(dir);
-        return { folder, dir, name: (meta && meta.feature) || parsed.name, meta };
+        let meta: FeatureMeta | null = null;
+        let metaError: string | undefined;
+        try {
+          meta = readFeatureMeta(dir);
+        } catch (err) {
+          metaError = err instanceof Error ? err.message : String(err);
+        }
+        if (!meta && !metaError && !parsed.ts) return null;
+        return { folder, dir, name: (meta && meta.feature) || parsed.name, meta, metaError };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
       .sort((a, b) => (b.folder.localeCompare(a.folder)));
@@ -135,6 +144,7 @@ export function listFeatures(root: string): Feature[] {
         dir: f.dir,
         folder: f.folder,
         meta: f.meta,
+        metaError: f.metaError,
       });
     }
   }

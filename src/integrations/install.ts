@@ -55,7 +55,7 @@ export async function copySkillsTo(skillsDir: string): Promise<CmdResult> {
   return { code: 0, stdout: `${copied.join(", ")} → ${skillsDir}/` };
 }
 
-/** Remove the 7 managed skills from the given skill dir (leaves others intact). */
+/** Remove the managed skills from the given skill dir (leaves others intact). */
 export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: string[] }> {
   const removed: string[] = [];
   for (const name of MANAGED_SKILLS) {

@@ -19,6 +19,8 @@ kf stage {feature_name} testing
 
 (Already there → skip.)
 
+If `kf stage` refuses the move, run `kf validate --change {feature_name}` to see what is missing — unfinished `tasks.md` checkboxes block entry to testing (DoD), so tick them in implementation first.
+
 Every entry to testing creates a new execution id. Keep old reports as evidence, but never reuse them as proof for the current implementation. Read the current id from `kf status` or `kf instruct ... --change`.
 
 ## 2. Run against the plan's test cases

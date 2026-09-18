@@ -4,18 +4,13 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { STAGES, TRANSITIONS, type Stage } from "../../workflow/schema.js";
-import { findWorksRoot, findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
+import { findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
 import { cmdArchive } from "./archive.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { runHook, type HookResult } from "../../integrations/hooks.js";
+import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
-
-async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
-  const root = findWorksRoot(cwd);
-  if (!root) return { root: "", ok: false, err: "No .works found. Run: kf init" };
-  return { root, ok: true };
-}
 
 export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const [name, toRaw] = args.positionals;

@@ -43,7 +43,10 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
   const addError = (file: string, code: string, message: string): void => {
     issues.push({ severity: "ERROR", feature: feature.name, stage: feature.stage, file, code, message });
   };
-  if (!feature.meta) addError(".kfw.json", "metadata_missing", "Feature metadata is required for approval and execution tracking.");
+  if (!feature.meta) {
+    addError(".kfw.json", feature.metaError ? "metadata_invalid" : "metadata_missing",
+      feature.metaError ?? "Feature metadata is required for approval and execution tracking.");
+  }
 
   // 1. Each artifact that is DUE at the current stage must exist & be filled.
   for (const id of Object.keys(ARTIFACTS) as ArtifactId[]) {
@@ -144,7 +147,7 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
         message: 'tasks.md has no task checkboxes ("- [ ] 1. Task description"); progress cannot be tracked',
       });
     }
-    if (stageIndex >= STAGE_INDEX.implementation && done < total) {
+    if (feature.stage === "dones" && done < total) {
       issues.push({
         severity: "ERROR",
         feature: feature.name,
@@ -272,7 +275,7 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
     });
     if (existsSync(tcPath)) {
       const tcs = readFileSync(tcPath, "utf8");
-      const cases = [...tcs.matchAll(/^##\s+(TC-\d+)\b[^\n]*\n([\s\S]*?)(?=^##\s+TC-\d+\b|(?![\s\S]))/gm)];
+      const cases = [...tcs.matchAll(/^##\s+(TC-\d+)\b[^\n]*(?:\n|$)([\s\S]*?)(?=^##\s+TC-\d+\b|(?![\s\S]))/gm)];
       if (cases.length === 0) {
         addError(ARTIFACTS["test-cases"].file, "no_test_cases", "Test cases must be defined in separate ## TC-XXX sections.");
       }
@@ -399,6 +402,24 @@ export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
     const { fm } = splitFrontmatter(readFileSync(p, "utf8"));
     return fm.status ?? null;
   };
+
+  // implementation → testing requires all tracked tasks done (DoD).
+  if (feature.stage === "implementation" && to === "testing") {
+    const tasksPath = join(feature.dir, "tasks.md");
+    if (existsSync(tasksPath)) {
+      const { done, total } = countTasks(readFileSync(tasksPath, "utf8"));
+      if (done < total) {
+        issues.push({
+          severity: "ERROR",
+          feature: feature.name,
+          stage: feature.stage,
+          file: "tasks.md",
+          code: "tasks_incomplete",
+          message: `Feature has unfinished tasks (${done}/${total} done) — complete them before testing`,
+        });
+      }
+    }
+  }
 
   // testing → review requires PASS; testing → implementation required on FAIL.
   if (feature.stage === "testing") {

@@ -28,6 +28,7 @@ Binary chính là `kf`. Các lệnh tìm `.works/` từ thư mục hiện tại 
 | `kf approve <feature> [--by <name>]` | Human gate cho execution contract ở planning; lưu approver, thời điểm và contract hash. |
 | `kf stage <feature> <next-stage> [--force] [--skip-hooks]` | Thực hiện transition hợp lệ và chạy hook của state đích. Planning có thể vào `backlog` hoặc `implementation`; `dones` được chuyển qua archive. |
 | `kf archive <feature> [--force] [--skip-specs] [--skip-hooks]` | Archive từ review sang dones và cập nhật metadata; feature nhận canonical copies, bug giữ docs hiện có. |
+| `kf rules [--stack <id> ...] [--list] [--force]` | Copy stack best-practice review rules vào `.kf/review/rules/`; tự detect stack, `--list` xem packs, `--force` ghi đè khi file đã sửa. |
 
 `--force` bỏ qua gate có chủ đích; khi archive lại work item trong `dones`, nó cũng cho phép ghi đè canonical docs đã được chỉnh sửa bằng snapshot archive. `--skip-hooks` bỏ qua hook phase đích; `--skip-specs` không chạm bất kỳ canonical doc nào khi archive.
 

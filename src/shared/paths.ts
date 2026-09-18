@@ -22,6 +22,7 @@ function findPackageRoot(): string {
 export const PKG_ROOT = findPackageRoot();
 export const PKG_TEMPLATES_DIR = join(PKG_ROOT, "kanban-flow", "templates");
 export const PKG_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "rules");
+export const PKG_STACK_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "stacks");
 
 export interface TemplateSource {
   name: string;

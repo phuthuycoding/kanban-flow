@@ -13,7 +13,7 @@ State is enforced by the `kf` CLI: artifact gates, approval fingerprints, execut
 
 **Human boundary:** user participates in **Phase 1 (brainstorm/bug triage)**, **Phase 2 (approval)** and the explicit **start-now vs backlog** decision. After the user chooses start, run everything autonomously within the approved scope. Stop and ask only for a decision on backlog start, REQUIREMENT_BUG or a scope change; do not ask "continue?" between normal phases.
 
-**Preflight:** if the project has no `.works/`, run `kf init` first. Detect project stack/tooling by READING the repository — never assume.
+**Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; use `kf init -i` when the user should answer the setup questions). Detect project stack/tooling by READING the repository — never assume.
 
 ---
 

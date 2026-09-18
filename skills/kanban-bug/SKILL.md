@@ -16,7 +16,7 @@ kf status --change {bug_name}
 kf show {bug_name}
 ```
 
-Chỉ dùng skill này khi metadata có `kind: bug` và feature đang ở `brainstorm`. Nếu bug đã ở `planning`, `backlog`, `implementation`, `testing` hoặc `review`, resume skill tương ứng; không tạo lại artifact.
+Chỉ dùng skill này khi metadata có `kind: bug` và work item đang ở `brainstorm`. Nếu bug đã ở `planning`, `backlog`, `implementation`, `testing` hoặc `review`, resume skill tương ứng; không tạo lại artifact.
 
 ## 2. Triage contract
 

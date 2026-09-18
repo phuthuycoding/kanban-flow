@@ -74,8 +74,3 @@ Use `N/A` with a reason when no related feature can be identified.
 
 ## Open Questions
 - {open_question}
-
-## Human Approval
-- Status: PENDING
-- Approved by:
-- Approved at:

@@ -22,7 +22,7 @@ Orientation before ideation. Cheap questions here prevent expensive ones later.
 1. **Read the repository.** Structure, stack, tooling, data model, conventions. Reading code beats asking — never make the user explain what the code already answers.
 2. **Read one similar existing feature** (if any) for house patterns.
 3. **Restate the challenge.** In one or two sentences, play the user's idea back: *"Bạn muốn X để đạt được Y trong bối cảnh Z — đúng không?"*. Fix misunderstandings before generating ideas against the wrong target.
-4. **If no `.works/` → `kf init`.**
+4. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
 
 Rules of engagement:
 - **Material ambiguity** (missing scope, unclear behavior, conflicting acceptance criteria) → ask **up to 3 focused questions**, then proceed. Each question names the decision it feeds.
@@ -243,9 +243,9 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
   - **Default quyết định từ bản chất feature** — đừng hỏi lại nếu feature rõ ràng (API CRUD → `unit+integration`; app có UI → `full`). Hỏi chỉ khi không tự quyết được.
 - **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Nếu `full`: ít nhất 1 criteria/FR phải kể được dưới dạng hành động UI (click, type, thấy gì trên màn hình).
 
-Set `status: draft` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation).
+Set `status: pending` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation).
 
-Mirror the requirement to `docs/requirement/{context}/{feature_name}.md` (canonical, human-readable).
+Mirror the requirement to `docs/requirement/{context}/{feature_name}.md` (canonical, human-readable; create the context dir if missing — `kf archive` refreshes it later).
 
 ```bash
 kf status --change {feature_name}
@@ -261,7 +261,7 @@ Present a tight summary (do not dump the whole file):
 
 ```text
 FEATURE: {name}  ({context})
-STATUS: draft
+STATUS: pending
 
 OBJECTIVE: {one line}
 

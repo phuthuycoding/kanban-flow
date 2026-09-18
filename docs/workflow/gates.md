@@ -38,7 +38,7 @@ Requirement canonical được ghi trạng thái `archived`; các artifact còn 
 flowchart LR
     B[brainstorm] -->|requirement confirmed| P[planning]
     P -->|feature: 4 artifacts + approval<br/>bug: bug report + approval| I[implementation]
-    I -->|implementation complete| T[testing]
+    I -->|implementation complete + tasks done| T[testing]
     T -->|PASS + current execution| R[review]
     T -->|FAIL/REJECT| I
     R -->|PASS + current execution<br/>feature additionally requires feature report| D[dones]
@@ -46,6 +46,8 @@ flowchart LR
     T -->|scope change| P
     R -->|scope change| P
 ```
+
+`implementation → testing` còn chặn khi `tasks.md` còn checkbox chưa hoàn tất (DoD). `tasks.md` không phải artifact bắt buộc — không có file thì không áp gate này.
 
 ## Contract và traceability
 

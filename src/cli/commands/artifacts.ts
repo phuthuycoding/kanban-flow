@@ -34,12 +34,12 @@ export async function cmdInstruct(args: ParsedArgs, cwd: string): Promise<CmdRes
     ? "phase-1-bug-report.md"
     : def!.template;
   const raw = await readTemplate(root, templateName);
-  const tpl = raw && feature ? raw
-    .replaceAll("{feature_name}", feature.name)
-    .replaceAll("{context}", feature.context ?? "app")
+  const tpl = raw
+    ?.replaceAll("{feature_name}", feature?.name ?? "{feature_name}")
+    .replaceAll("{context}", feature?.context ?? "{context}")
     .replaceAll("{timestamp}", nowTimestamp())
     .replaceAll("{use_case_id}", useCaseId ?? "{use_case_id}")
-    .replaceAll("{execution_id}", feature.meta?.executionId ?? "{execution_id}") : raw;
+    .replaceAll("{execution_id}", feature?.meta?.executionId ?? "{execution_id}");
   if (!tpl) {
     return { code: 1, stdout: `Template '${templateName}' not found anywhere (project → ~/.kf → package).`, stderr: "no template" };
   }

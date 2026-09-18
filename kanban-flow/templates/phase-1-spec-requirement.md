@@ -65,8 +65,3 @@ status: pending
 - UI Tests: {ui_test_scope}
 - Tools: {test_tools}
 - Coverage Target: {coverage_target}%
-
-## Human Approval
-- Status: PENDING
-- Approved by:
-- Approved at:

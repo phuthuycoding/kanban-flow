@@ -139,33 +139,39 @@ export async function cmdDashboard(port: number = DEFAULT_PORT): Promise<CmdResu
   }
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-    if (url.pathname === "/api/data") {
-      const kind = url.searchParams.get("kind");
-      if (kind !== null && kind !== "feature" && kind !== "bug") {
-        json(res, 400, { error: "kind must be feature or bug" });
+    try {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname === "/api/data") {
+        const kind = url.searchParams.get("kind");
+        if (kind !== null && kind !== "feature" && kind !== "bug") {
+          json(res, 400, { error: "kind must be feature or bug" });
+          return;
+        }
+        const context = url.searchParams.get("context");
+        const filters: DashboardFilters = {
+          kind: kind ?? undefined,
+          context: context === "__none__" ? null : context ?? undefined,
+        };
+        try {
+          json(res, 200, dashboardData(root, filters));
+        } catch (err) {
+          process.stderr.write(`Dashboard data failed: ${err instanceof Error ? err.stack : String(err)}\n`);
+          json(res, 500, { error: "Unable to read dashboard metrics. Check the server output." });
+        }
         return;
       }
-      const context = url.searchParams.get("context");
-      const filters: DashboardFilters = {
-        kind: kind ?? undefined,
-        context: context === "__none__" ? null : context ?? undefined,
-      };
-      try {
-        json(res, 200, dashboardData(root, filters));
-      } catch (err) {
-        process.stderr.write(`Dashboard data failed: ${err instanceof Error ? err.stack : String(err)}\n`);
-        json(res, 500, { error: "Unable to read dashboard metrics. Check the server output." });
+      if (url.pathname === "/" || url.pathname === "/favicon.ico") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(renderDashboardHtml());
+        return;
       }
-      return;
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    } catch (err) {
+      process.stderr.write(`Dashboard request failed: ${err instanceof Error ? err.stack : String(err)}\n`);
+      if (!res.headersSent) res.writeHead(500, { "content-type": "text/plain" });
+      res.end("internal error");
     }
-    if (url.pathname === "/" || url.pathname === "/favicon.ico") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(renderDashboardHtml());
-      return;
-    }
-    res.writeHead(404, { "content-type": "text/plain" });
-    res.end("not found");
   });
 
   const url = `http://localhost:${port}`;
@@ -174,8 +180,12 @@ export async function cmdDashboard(port: number = DEFAULT_PORT): Promise<CmdResu
     server.listen(port, "127.0.0.1", () => resolve());
   });
 
-  process.once("SIGINT", () => server.close(() => process.exit(0)));
-  process.once("SIGTERM", () => server.close(() => process.exit(0)));
+  const shutdown = (): void => {
+    server.close(() => process.exit(0));
+    server.closeAllConnections();
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 
   return {
     code: 0,

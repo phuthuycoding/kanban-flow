@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
+import { ensureWorksStructure, findFeature, listFeatures, readFeatureMeta, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdInstruct } from "../cli/commands/artifacts.js";
@@ -429,10 +429,23 @@ describe("CLI output and persisted data", () => {
   it("reports corrupt metadata and config instead of silently falling back", async () => {
     await planning();
     await writeFile(join(feature().dir, ".kfw.json"), "{");
-    expect(() => findFeature(root, "demo")).toThrow();
+    const corrupt = findFeature(root, "demo")!;
+    expect(corrupt.metaError).toContain("Invalid JSON");
+    const check = validateFeature(corrupt);
+    expect(check.valid).toBe(false);
+    expect(check.issues.some((i) => i.code === "metadata_invalid")).toBe(true);
+    expect((await cmdStatus(args("status", [], { all: true }), root)).code).toBe(0);
     await mkdir(join(root, ".kf"), { recursive: true });
     await writeFile(join(root, ".kf", "config.json"), "null");
     expect(() => readProjectConfig(root)).toThrow("Invalid project config");
+  });
+
+  it("skips stray directories that are not work items", async () => {
+    await mkdir(join(root, ".works", "testing", "scratchpad"));
+    await mkdir(join(root, ".works", "review", "notes.txt"));
+    expect(listFeatures(root)).toEqual([]);
+    await mkdir(join(root, ".works", "testing", "ghost_20200101_0000"));
+    expect(listFeatures(root).map((f) => f.folder)).toEqual(["ghost_20200101_0000"]);
   });
 
   it("preserves bootstrap defaults when initialized again", async () => {

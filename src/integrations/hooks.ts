@@ -1,25 +1,11 @@
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
-import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import type { Stage, ApprovalStatus } from "../workflow/schema.js";
 import { findWorksRoot } from "../workflow/features.js";
+import { PKG_ROOT, USER_KABAN_DIR } from "../shared/paths.js";
 
-function findPackageRoot(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 8; i += 1) {
-    if (existsSync(join(dir, "package.json"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return dir;
-}
-
-const USER_KABAN_DIR = resolve(homedir(), ".kf");
-const PKG_ROOT = findPackageRoot();
 const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");
 
 export interface HookSource {

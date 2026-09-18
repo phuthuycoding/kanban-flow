@@ -14,6 +14,10 @@ export interface ProjectConfig {
 
 export const CONFIG_FILE = "config.json";
 
+/** Stack ids that have a shipped review rule pack (kanban-flow/review/stacks/{id}.md). */
+export const STACK_IDS = ["node", "go", "rust", "python", "php", "ruby", "java"] as const;
+export type StackId = (typeof STACK_IDS)[number];
+
 export function projectKabanDir(root: string): string {
   return join(root, ".kf");
 }
