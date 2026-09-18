@@ -1,0 +1,38 @@
+{
+  "name": "kaban-flow",
+  "version": "0.0.1",
+  "description": "Kanban workflow CLI — artifact-gated feature pipeline (brainstorm → plan → implement → test → review → archive)",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "kf": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "docs",
+    "kanban-flow/templates",
+    "kanban-flow/review"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "oxlint": "^1.81.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

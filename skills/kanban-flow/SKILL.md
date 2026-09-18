@@ -1,238 +1,113 @@
 ---
 name: kanban-flow
-description: One-shot feature pipeline — brainstorm → plan → implement → test → review → archive, all in one pass. User describes the idea, agent decides everything. Use when user says "kanban", "kanban-flow", "làm feature", "build feature", "chạy feature", "feature này", "làm cái {feature}".
-args: "[CONTEXT] [FEATURE_NAME]"
+description: Drive a kanban feature or bug through brainstorm, planning approval, start-or-backlog decision, implementation, testing, review and archive using the kf CLI. Use when the user requests the kanban workflow or resumes a work item managed in .works. Delegates each phase to its dedicated skill.
 ---
 
-# Kanban Flow — One-shot Pipeline
+# Kanban Flow — Orchestrator
 
-One command drives the entire feature lifecycle. **The user describes the idea; the agent decides the rest.**
+**The user describes the idea; the agent decides the rest.** One command runs the whole lifecycle; each phase runs a dedicated skill.
 
-**ARGUMENTS:** `<context> <feature_name>` — e.g. `kanban auth user-login`
+**ARGUMENTS:** `<context> <feature_name>` — e.g. `kanban auth user-login` or `kanban billing payment-timeout --type bug`
+
+State is enforced by the `kf` CLI: artifact gates, approval fingerprints, execution ids, report statuses and traceability. The agent authors and verifies the content; file presence alone cannot prove that code was tested.
+
+**Human boundary:** user participates in **Phase 1 (brainstorm/bug triage)**, **Phase 2 (approval)** and the explicit **start-now vs backlog** decision. After the user chooses start, run everything autonomously within the approved scope. Stop and ask only for a decision on backlog start, REQUIREMENT_BUG or a scope change; do not ask "continue?" between normal phases.
+
+**Preflight:** if the project has no `.works/`, run `kf init` first. Detect project stack/tooling by READING the repository — never assume.
+
+---
+
+## Phase model & artifact contract
+
+```
+brainstorm → planning → implementation → testing → review → dones
+                 ↘ backlog ↗
+```
+
+Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follow `phase-{x}-{name}.md`.
+
+| Phase | Skill | Gate artifacts (filled to LEAVE) | Notes |
+|-------|-------|----------------------------------|-------|
+| 1. Brainstorm / Bug triage | `kanban-brainstorm` or `kanban-bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Human + agent refine requirement or reproduce bug |
+| 2. Planning | `kanban-plan` | Feature: four phase-2 files + `use-cases/UC-###.md`; bug: confirmed bug report | **Human approval, then start/backlog decision** |
+| Backlog | — | Approved planning contract remains intact | Waiting for explicit user decision to start |
+| 3. Implement | `kanban-implement` | — (tasks.md tracks) | Autonomous |
+| 4. Testing | `kanban-test` | `phase-4-testing-result.md` (`status: PASS`) | FAIL/REJECT → loop to implementation |
+| 5. Review | `kanban-review` | `phase-5-review-report.md` (`status: PASS`) | FAIL/REJECT → loop; REQUIREMENT_BUG → STOP |
+| 6. Closure | `kanban-archive` | Feature: `phase-6-feature-report.md`; bug: current test/review evidence | Feature canonical docs or affected bug docs, then archive |
+
+**Two gate layers on every move:**
+1. **Artifact gate** — files exist and contain no template placeholders.
+2. **Directional gate** — report `status` semantics: FAIL/REJECT blocks forward motion and forces a loop back to implementation; REQUIREMENT_BUG blocks **all** motion (STOP FEATURE — never silently rewrite the requirement).
+
+For features, `kf validate` checks each `## TC-###` for FR references and matching individual UC files. Approval fingerprints the requirement, four planning artifacts and individual UC files. For bugs, approval fingerprints only the bug report; feature planning artifacts and feature report are not required. A changed contract must return to planning for human approval. Each entry to testing creates a new execution id; testing and review reports must carry that id in `execution:`. Read templates with `kf instruct <artifact> --change <feature>` to obtain the current id and exact output path.
+
+Feature canonical docs are synced by the CLI on archive:
+- Requirement: `docs/requirement/{context}/{feature_name}.md`
+- Use cases: `docs/use-cases/{context}/{feature_name}/README.md`, one `UC-###.md` per use case and `diagram.md`
+- Test plan/result: `docs/testplan/{context}/{feature_name}.md` and `{feature_name}-result.md`
+
+Work item type is stored in `.kfw.json` as `kind: feature|bug`. Create a bug with `kf new <name> --type bug`; route it to `kanban-bug` for reproduction and triage before planning.
+
+Bug closure updates the existing related feature docs only if needed. Do not auto-create feature docs for a bug or overwrite a feature requirement with bug-report content.
+
+---
+
+## How to delegate phases
+
+The pipeline is ONE run but each phase has a specialist skill. Drive it like this:
+
+```bash
+kf status --all                # which phase is each feature in?
+kf status --change {feature}   # current phase + artifact checklist + Next: + Approval
+```
+
+Then **load the skill for the feature's CURRENT phase** and follow it to its endpoint (each skill ends pointing at the next one). Do not re-read old phase instructions you've already executed; go straight at the target.
+
+If planning is already approved and its fingerprint is unchanged, ask whether to start now or keep the item in backlog. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, hand off to kanban-archive. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
+
+If you are resuming mid-pipeline (the feature already exists), skip straight to the phase skill for its current phase. **Never trust a folder location alone — a stage folder is not "done"; artifact + report completeness is.**
 
 ---
 
 ## Interaction policy
 
 - User gives ONE command. Agent does everything else automatically.
-- Brainstorm asks user only about **material ambiguity** (scope, behavior, acceptance criteria). If details are minor, make a reasonable assumption and record it.
-- Do NOT ask "continue?" between steps. Proceed automatically.
+- Brainstorm asks about **material ambiguity** only (missing scope, unclear behavior, conflicting acceptance criteria). Minor details → reasonable assumption + record it in the spec.
+- Confirm the requirement in Phase 1, then obtain execution-contract approval in Phase 2. Present a tight summary + implementation plan and ask for approval. On approval run `kf approve`. Without approval, do not start autonomous execution.
+- If scope must change after approval, stop implementation and explain the change. On the user's direction run `kf stage <feature> planning`, revise the contract and obtain fresh approval. REQUIREMENT_BUG blocks this route too; report it and await a human decision.
 - Auto-fix benign blockers once. Stop + ask only when genuinely stuck.
+- Never bypass a failed gate with `--force` unless the user explicitly approves.
 
 ---
 
-## Feature folder
+## CLI reference
 
-Each feature is one folder that moves through `.works/`:
-
-```
-.works/pending/  →  .works/doing/  →  .works/testing/  →  .works/review/  →  .works/dones/
-```
-
-Folder name: `{feature_name}_{timestamp}` (timestamp = `YYYYMMDD_HHmm`).
-
-Artifacts inside (all use templates from `~/.claude/kanban-flow/templates/`):
-
-| Artifact | Template | Created at |
-|----------|----------|-----------|
-| `usecase-spec.md` | usecase-spec.md | Brainstorm |
-| `design.md` | design.md | Brainstorm |
-| `test-plan.md` | test-plan.md | Plan |
-| `tasks.md` | tasks.md | Plan |
-| `testing-report.md` | testing-report.md | Test |
-| `review-report.md` | review-report.md | Review |
-
-Canonical spec: `docs/use-cases/{context}/{feature_name}.md` (created at brainstorm, marked archived at the end).
-
----
-
-## Step 1: Brainstorm
-
-Understand the feature before writing anything.
-
-### 1a. Understand the request
-- If the request is clear → proceed.
-- If materially ambiguous (scope, behavior, acceptance criteria unclear) → ask up to 3 focused questions, then proceed.
-- Read project first: structure, stack, and 1 similar existing feature to learn patterns.
-
-### 1b. Write canonical spec
-`docs/use-cases/{context}/{feature_name}.md` using template `usecase-spec.md`:
-- user story, acceptance criteria, edge cases, constraints, dependencies
-
-### 1c. Write design + impact
-`docs/use-cases/{context}/{feature_name}.md` design section OR separate local `design.md`, using template `design.md`:
-- approach, mermaid diagram, data flow, files to create/modify, API contract, breaking changes
-- impact: which docs need updating later (README, API docs, CHANGELOG)
-
-**Progress, do not block:**
-```
-✓ Brainstorm → docs/use-cases/{context}/{feature_name}.md
+```text
+kf init                        # scaffold .works/ + hooks + docs
+kf new {feature} --context {ctx} [--type feature|bug]   # Phase 1: create feature/bug + seed spec
+kf status --change {feature}   # artefact checklist + Next: + approval state
+kf instruct {artifact} --change {feature}   # current execution id + exact output path
+kf approve {feature}           # Phase 2 HITL gate
+kf validate --change {feature}  # gate + traceability issues
+kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
+kf archive {feature}           # review(PASS) → dones + copy canonical docs
 ```
 
----
-
-## Step 2: Plan
-
-### 2a. Create feature folder
-```
-.works/pending/{feature_name}_{timestamp}/
-```
-
-### 2b. Write test-plan.md
-Template `test-plan.md`. For EACH acceptance criterion + each edge case:
-- a concrete scenario: Given / When / Then
-- `Input`: exact input data
-- `Expected Output`: exact expected result
-
-### 2c. Write tasks.md
-Template `tasks.md`. Break feature into phases (mirror project architecture — domain/infra/app/wiring/tests for DDD, else the project's real layers). Tasks are atomic, ordered by dependency. Each task references the test scenario it satisfies.
-
-**Progress, do not block:**
-```
-✓ Plan → {N} scenarios, {M} tasks
-```
-
----
-
-## Step 3: Implement
-
-### 3a. Move to doing
-```bash
-mv .works/pending/{feature_name}_{timestamp} .works/doing/
-```
-
-### 3b. Analyze parallelism
-- Independent tasks → parallel (spawn `Task` agents concurrently).
-- Dependent tasks → sequential after their dependencies.
-
-### 3c. Spawn agents
-Each parallel agent prompt must include:
-- the use case spec / design (path or excerpt)
-- the exact task(s) and the test scenario they must satisfy
-- reference file paths to read for patterns
-- constraints: follow existing patterns, minimal changes, no unnecessary abstraction
-
-Implement sequential tasks directly in the main agent.
-
-### 3d. Update tasks.md
-Tick `- [ ]` → `- [x]` as each task completes.
-
-### 3e. Build gate
-```bash
-{build_command} && echo PASS || echo FAIL
-```
-- **FAIL** → analyze, fix, re-run. If still failing → STOP, show error, ask user.
-- **PASS** → continue.
-
-```
-✓ Implement → {N}/{M} tasks
-```
-
----
-
-## Step 4: Test
-
-### 4a. Move to testing
-```bash
-mv .works/doing/{feature_name}_{timestamp} .works/testing/
-```
-
-### 4b. Run tests
-Detect test framework from project config. Run unit + integration + e2e per `test-plan.md`.
-
-### 4c. Fix and re-run once
-- Any failure → analyze root cause, fix (if unambiguous), re-run.
-- Still failing → STOP, show failed tests, ask user: fix / skip as known issue / abort.
-
-### 4d. Write testing-report.md (REQUIRED)
-Template `testing-report.md`. Always create it — PASS or FAIL:
-- summary, environment, per-scenario results (mapped to test-plan.md), failed details, coverage vs expected, overall status, conclusion
-
-```
-✓ Test → {N}/{N} passed
-📋 .works/testing/{feature_name}_{timestamp}/testing-report.md
-```
-
----
-
-## Step 5: Review
-
-### 5a. Move to review
-```bash
-mv .works/testing/{feature_name}_{timestamp} .works/review/
-```
-
-### 5b. Load rules (two layers)
-Global: `~/.claude/kanban-flow/review/rules/{general,security,performance}.md` + `{stack}.md` if it exists.
-Project: `{project_root}/.claude/review/rules/*.md` — overrides the same-named global file.
-
-### 5c. Review changed files
-For each created/modified file check the loaded rules. Record violations with severity:
-- HIGH — must fix (security, data loss, crash)
-- MEDIUM — should fix (perf, maintainability)
-- LOW — suggestion
-
-### 5d. Write review-report.md
-Template `review-report.md`: gate checklist, violations, files reviewed, score, decision.
-
-### 5e. Gate
-- No HIGH violations → continue automatically.
-- HIGH violations → auto-fix once (unambiguous), re-review. Still HIGH → STOP, ask user: fix / document as known issue / abort.
-
-```
-✓ Review → score {A/B}
-```
-
----
-
-## Step 6: Archive
-
-### 6a. Move to done
-```bash
-mv .works/review/{feature_name}_{timestamp} .works/dones/
-```
-
-### 6b. Sync docs
-- Mark `docs/use-cases/{context}/{feature_name}.md` as archived.
-- Update README / API docs / CHANGELOG per the impact assessment from Step 1.
-
-### 6c. Git commit (no push unless asked)
-```bash
-git add .
-git commit -m "feat({context}): {feature_name}"
-```
-
----
-
-## Step 7: Final report
-
-```
-## Pipeline Complete: {context}/{feature_name}
-
-1. ✓ Brainstorm — spec + design + impact
-2. ✓ Plan — {N} scenarios, {M} tasks
-3. ✓ Implement — {M}/{M} tasks
-4. ✓ Test — {N}/{N} passed
-5. ✓ Review — {A/B}
-6. ✓ Archive — docs synced, commit {sha}
-
-Artifacts: .works/dones/{feature_name}_{timestamp}/
-Docs: docs/use-cases/{context}/{feature_name}.md
-```
-
----
-
-## Resume behavior
-
-If interrupted (user stopped it, or it stopped at a blocker), re-invoking the skill resumes from the current state — detected solely from which `.works/` folder the feature is in.
+Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering a phase (project → user `~/.kf/hooks` → package precedence). Exit non-zero blocks the transition (`--skip-hooks` bypasses). The agent does NOT run hooks manually — `kf stage` does.
 
 ---
 
 ## Hard rules
 
-- Do NOT ask "continue to next step?" — everything is automatic.
-- Do NOT ask which command to run — just run it.
-- Brainstorm asks only material questions; never belabor minor details.
-- Always write `testing-report.md` and `review-report.md` — never skip reports.
+- Do NOT ask "continue to next step?" — autonomous after the user chooses start at the Phase 2 decision gate.
+- Obtain requirement confirmation and planning approval; after approval continue within the approved scope.
+- After planning approval, explicitly ask whether to start implementation now or move to backlog. Never infer this choice.
+- Never `mv` feature folders manually — always `kf stage` / `kf archive`.
+- Never bypass a failed gate with `--force` unless the user explicitly approves.
+- Always write `phase-4-testing-result.md` and `phase-5-review-report.md` — gates enforce it.
+- FAIL/REJECT loops back to implementation and re-testing before review. REQUIREMENT_BUG → STOP, never rewrite the requirement.
+- No scope creep beyond the approved plan.
+- Follow the project's AGENTS.md and the user's permissions. Autonomous execution does not authorize unrelated changes, database operations, deployment or messages to others.
 - Never silently swallow errors. If a step can't complete and can't be auto-fixed, STOP and report.
-- The user's single command IS authorization for the full pipeline.
+- The user's single command IS authorization for the full pipeline — up to the Phase 2 approval gate.
