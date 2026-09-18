@@ -5,7 +5,7 @@ import { assertPathName, ensureWorksStructure } from "../../workflow/features.js
 import { readProjectConfig } from "../../project/config.js";
 import { parseAgentIds } from "../../integrations/agents.js";
 import { installProjectSkills } from "../../integrations/install.js";
-import { bootstrapDefaults, promptAnswers, seedOverrides, saveConfig, appendIgnoreWorks, type BootstrapAnswers } from "../../project/bootstrap.js";
+import { bootstrapDefaults, onboardAnswers, seedOverrides, saveConfig, appendIgnoreWorks, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -15,11 +15,11 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const agents = parseAgentIds(args.options.agent);
   if (typeof args.options.context === "string") assertPathName(args.options.context, "context");
 
-  const interactive = Boolean(args.options.interactive);
+  const minimal = Boolean(args.options.minimal);
   const useDefaults = Boolean(args.options.defaults);
 
-  if (interactive || useDefaults) {
-    return cmdBootstrap(args, target, interactive);
+  if (!minimal) {
+    return cmdBootstrap(args, target, !useDefaults);
   }
 
   const cfg = readProjectConfig(target);
@@ -46,7 +46,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   if (interactive && !tty) {
     answers = bootstrapDefaults(target, typeof args.options.context === "string" ? args.options.context : undefined);
   } else if (interactive) {
-    answers = await promptAnswers(target, typeof args.options.context === "string" ? args.options.context : undefined);
+    answers = await onboardAnswers(target, typeof args.options.context === "string" ? args.options.context : undefined);
   } else {
     answers = bootstrapDefaults(target, typeof args.options.context === "string" ? args.options.context : undefined);
   }

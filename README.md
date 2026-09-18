@@ -17,13 +17,13 @@ Init project:
 
 ```bash
 cd your-project
-kf init                        # cấu trúc cơ bản (không hỏi) + cài skills project-level (mặc định cho claude)
+kf init                        # onboarding: hỏi câu hỏi trên TTY (context, stack, reviewer, agent, .gitignore, seed demo)
+kf init --defaults             # onboarding không hỏi — auto-detect + defaults (dùng cho agent/non-TTY)
 kf init --agent codex --agent kiro   # cài skills cho nhiều agent cùng lúc (.agents/skills, .kiro/skills...)
-kf init -i                     # bootstrap: hỏi câu hỏi (context, stack, reviewer, agent, .gitignore, seed demo)
-kf init --defaults             # bootstrap không hỏi — auto-detect + defaults
+kf init --minimal              # chỉ tạo .works/ + docs roots + cài skills; không seed config/templates
 ```
 
-`kf init -i` (interactive) hỏi và ghi vào `<project>/.kf/config.json`:
+`kf init` hỏi và ghi vào `<project>/.kf/config.json`:
 - **default context** cho `kf new` (default `app`)
 - **tech stack** (auto-detect từ manifests mong muốn cho review rules)
 - **reviewer mặc định** cho `kf approve --by` (default từ `git config user.name`)

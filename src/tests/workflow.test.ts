@@ -109,6 +109,17 @@ describe("feature creation and project resolution", () => {
     expect(await readdir(join(root, ".works", "brainstorm"))).toEqual([]);
   });
 
+  it("init onboards by default: seeds config, --minimal keeps the bare structure", async () => {
+    expect((await cmdInit(args("init"), root)).code).toBe(0);
+    const cfg = readProjectConfig(root);
+    expect(cfg.defaultContext).toBe("app");
+
+    const bare = await mkdtemp(join(tmpdir(), "kf-init-minimal-"));
+    expect((await cmdInit(args("init", [], { minimal: true }), bare)).code).toBe(0);
+    expect(readProjectConfig(bare).defaultContext).toBeUndefined();
+    await rm(bare, { recursive: true, force: true });
+  });
+
   it("resolves project templates, rules and blocking hooks from a subdirectory", async () => {
     const sub = join(root, "src");
     await mkdir(sub);

@@ -6,9 +6,9 @@ Binary chính là `kf`. Các lệnh tìm `.works/` từ thư mục hiện tại 
 
 | Lệnh | Tác dụng |
 | --- | --- |
-| `kf init [path]` | Tạo `.works/{brainstorm,planning,backlog,implementation,testing,review,dones}`, `docs/{requirement,use-cases,testplan}`, `.kf` và cài skill cấp project. |
-| `kf init -i` | Bootstrap tương tác; hỏi context, stack, reviewer, agent, gitignore và seed feature. |
-| `kf init --defaults` | Bootstrap không tương tác bằng giá trị mặc định. |
+| `kf init [path]` | Onboarding: trên TTY hỏi context, stack, reviewer, agent, gitignore và seed feature; non-TTY tự dùng defaults. Tạo `.works/`, `docs/{requirement,use-cases,testplan}`, `.kf` và cài skill cấp project. |
+| `kf init --defaults` | Onboarding không tương tác bằng giá trị mặc định (dùng cho agent/script). |
+| `kf init --minimal` | Chỉ tạo `.works/` + docs roots + cài skill; không seed config/templates. |
 | `kf new <feature> [--context <ctx>] [--goal <text>] [--type feature|bug]` | Tạo feature/bug ở `brainstorm`; bug dùng `kanban-bug`; tên feature/context chỉ nhận `[a-z0-9][a-z0-9_-]*`. |
 | `kf list [--json]` | Liệt kê work item, kind và state. |
 | `kf show <feature> [--json]` | Xem requirement/bug report của work item. |

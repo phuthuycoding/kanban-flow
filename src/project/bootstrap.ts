@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, copyFile, readdir } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -63,6 +64,59 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
     seedFeature: false,
     agents: cfg.agents?.length ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT],
   };
+}
+
+/** Arrow-key radio select on a TTY; digit keys also work. Returns the chosen index. */
+async function selectOption(question: string, options: string[]): Promise<number> {
+  return new Promise<number>((resolveP, reject) => {
+    let idx = 0;
+    let drawn = 0;
+    const draw = () => {
+      if (drawn > 0) output.write(`\x1b[${drawn}A\x1b[J`);
+      const text = `${question}\n${options.map((o, i) => ` ${i === idx ? "❯" : " "} ${o}`).join("\n")}`;
+      output.write(`${text}\n`);
+      drawn = text.split("\n").length;
+    };
+    const cleanup = () => {
+      input.setRawMode(false);
+      input.off("keypress", onKey);
+      input.pause();
+    };
+    const onKey = (_s: string, key: { name: string; ctrl?: boolean }) => {
+      if (key.name === "up") idx = (idx - 1 + options.length) % options.length;
+      else if (key.name === "down") idx = (idx + 1) % options.length;
+      else if (/^[1-9]$/.test(key.name) && Number(key.name) <= options.length) idx = Number(key.name) - 1;
+      else if (key.name === "return") { cleanup(); resolveP(idx); return; }
+      else if (key.name === "c" && key.ctrl) {
+        cleanup();
+        reject(new Error("Setup aborted (Ctrl+C). Re-run with --defaults to skip prompts."));
+        return;
+      } else return;
+      draw();
+    };
+    emitKeypressEvents(input);
+    input.setRawMode(true);
+    input.resume();
+    input.on("keypress", onKey);
+    draw();
+  });
+}
+
+/**
+ * Onboarding entry: let the user pick quick setup (defaults) or customize,
+ * then collect answers accordingly.
+ */
+export async function onboardAnswers(
+  root: string,
+  explicitContext?: string,
+): Promise<BootstrapAnswers> {
+  const d = bootstrapDefaults(root, explicitContext);
+  const mode = await selectOption("Setup mode (↑/↓ + Enter):", [
+    `Quick setup — defaults (context: ${d.defaultContext}, stack: ${d.stack ?? "unset"}, reviewer: ${d.reviewer}, agents: ${d.agents.join(", ")})`,
+    "Customize — answer each question",
+  ]);
+  if (mode === 0) return d;
+  return promptAnswers(root, explicitContext);
 }
 
 /**

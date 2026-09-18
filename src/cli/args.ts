@@ -28,12 +28,13 @@ type OptDef = {
 
 const COMMANDS: Record<string, CmdSpec> = {
   init: {
-    help: "Usage: kf init [path] [-i|--interactive] [--defaults] [--context <ctx>] [--agent <id> ...]  — create .works/ + canonical docs roots + bootstrap config (asks questions when -i) + install skills for each chosen agent",
+    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs skills; --minimal only creates .works/ + docs roots",
     allowPositionals: true,
     options: {
       context: { type: "string", short: "c" },
       interactive: { type: "boolean", short: "i" },
       defaults: { type: "boolean" },
+      minimal: { type: "boolean" },
       agent: { type: "string", multiple: true },
     },
   },
