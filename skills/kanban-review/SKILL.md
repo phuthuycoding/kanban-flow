@@ -23,6 +23,7 @@ kf stage {feature_name} review
 
 - Resolve rules per filename in project → user → package order. Include general, security and performance plus the project's stack rule when available.
 - Project: `{project_root}/.kf/review/rules/*.md`; user: `~/.kf/review/rules/*.md`; package: `kanban-flow/review/rules/*.md` beside the installed CLI's package.json. If no rule source is available, report the missing rules instead of silently skipping review.
+- Stack packs (`node`, `go`, `rust`, `python`, `php`, `ruby`, `java`) are opt-in: if the project's stack has no `{stack}.md`, suggest `kf rules` (auto-detect) or `kf rules --stack <id>` to install it — they are not auto-loaded from `kanban-flow/review/stacks/`.
 
 Review **only files actually changed**. Record findings with severity HIGH / MEDIUM / LOW. Reproduce plausible failures — don't infer.
 

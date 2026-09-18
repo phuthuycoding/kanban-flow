@@ -54,6 +54,7 @@ kf approve {feature}                    # Phase 2 HITL gate: chốt execution co
 kf stage {feature} {phase}              # move theo graph: forward + FAIL loop back
 kf validate --all                       # lỗi gì đang chặn gate / traceability lỏng
 kf archive {feature}                    # review(PASS) → dones + copy canonical docs
+kf rules [--stack {id}] [--list] [--force] # copy stack review rules vào .kf/review/rules (auto-detect)
 kf dashboard                           # KPI + charts, filter context/feature/bug (mặc định :8787, đổi bằng --port)
 ```
 
@@ -107,6 +108,8 @@ Env bơm vào hook: `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FEATURE_DIR`, `KFW_WORK_R
 - Global: `~/.kf/review/rules/` (general, security, performance, + `{stack}.md`)
 - Project: `{project}/.kf/review/rules/*.md` — ghi đè global nếu trùng tên
 - Package: `kanban-flow/review/rules/` — fallback khi project/user chưa có rules
+
+Stack best-practice packs (`node`, `go`, `rust`, `python`, `php`, `ruby`, `java`) ship sẵn trong package; cài vào project bằng `kf rules` (auto-detect từ manifest) hoặc `kf rules --stack go`. `kf rules --list` xem packs; `--force` ghi đè file project đã sửa tay. `kanban-review` load rules này tự động khi review.
 
 ## Structure
 

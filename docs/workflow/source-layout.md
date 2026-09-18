@@ -15,6 +15,7 @@ src/
 │       ├── artifacts.ts  # instruct and templates
 │       ├── stage.ts      # state transitions
 │       ├── approve.ts    # planning approval
+│       ├── rules.ts      # stack review-rule pack installation
 │       └── archive.ts    # closure and canonical docs sync
 ├── workflow/             # domain state, artifacts and validation
 ├── project/              # project config and bootstrap prompts
