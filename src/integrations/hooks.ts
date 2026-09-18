@@ -4,8 +4,8 @@ import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { Stage, ApprovalStatus } from "./schema.js";
-import { findWorksRoot } from "./features.js";
+import type { Stage, ApprovalStatus } from "../workflow/schema.js";
+import { findWorksRoot } from "../workflow/features.js";
 
 function findPackageRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));

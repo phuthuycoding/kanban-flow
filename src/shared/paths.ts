@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findWorksRoot } from "./features.js";
+import { findWorksRoot } from "../workflow/features.js";
 
 export const USER_KABAN_DIR = resolve(homedir(), ".kf");
 

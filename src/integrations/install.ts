@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { PKG_ROOT } from "./paths.js";
-import type { CmdResult } from "./commands.js";
+import { PKG_ROOT } from "../shared/paths.js";
+import type { CmdResult } from "../cli/result.js";
 import {
   AGENTS,
   DEFAULT_AGENT,

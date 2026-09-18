@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseArgsCli } from "./args.js";
+import { parseArgsCli } from "../cli/args.js";
 
 describe("CLI argument validation", () => {
   it("rejects misspelled flags instead of silently weakening gates", () => {

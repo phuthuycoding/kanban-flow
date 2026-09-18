@@ -3,8 +3,8 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { resolveHook, runHook } from "./hooks.js";
-import { ensureWorksStructure } from "./features.js";
+import { resolveHook, runHook } from "../integrations/hooks.js";
+import { ensureWorksStructure } from "../workflow/features.js";
 
 let root: string;
 

@@ -3,7 +3,7 @@ import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
-import { writeFileAtomic } from "./paths.js";
+import { writeFileAtomic } from "../shared/paths.js";
 
 export interface Approval {
   status: ApprovalStatus;

@@ -3,16 +3,16 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { STAGES, type Stage } from "./schema.js";
+import { STAGES, type Stage } from "../workflow/schema.js";
 import {
   ensureWorksStructure,
   listFeatures,
   findFeature,
   writeFeatureMeta,
   executionContractHash,
-} from "./features.js";
-import { computeStatus, statusToJson, renderStatusText } from "./status.js";
-import { validateFeature } from "./validate.js";
+} from "../workflow/features.js";
+import { computeStatus, statusToJson, renderStatusText } from "../workflow/status.js";
+import { validateFeature } from "../workflow/validate.js";
 
 let root: string;
 

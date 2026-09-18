@@ -4,8 +4,8 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { copySkillsTo, removeSkillsFrom, MANAGED_SKILLS } from "./install.js";
-import { parseAgentIds, DEFAULT_AGENT, userSkillsDir, projectSkillsDir, agentById } from "./agents.js";
+import { copySkillsTo, removeSkillsFrom, MANAGED_SKILLS } from "../integrations/install.js";
+import { parseAgentIds, DEFAULT_AGENT, userSkillsDir, projectSkillsDir, agentById } from "../integrations/agents.js";
 
 let dir: string;
 

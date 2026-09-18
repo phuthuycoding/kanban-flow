@@ -3,13 +3,13 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { STAGES, TRANSITIONS, type Stage } from "./schema.js";
-import { findWorksRoot, findFeature, stageDir, writeFeatureMeta } from "./features.js";
+import { STAGES, TRANSITIONS, type Stage } from "../../workflow/schema.js";
+import { findWorksRoot, findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
 import { cmdArchive } from "./archive.js";
-import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
-import { runHook, type HookResult } from "./hooks.js";
-import type { ParsedArgs } from "./args.js";
-import type { CmdResult } from "./commands.js";
+import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
+import { runHook, type HookResult } from "../../integrations/hooks.js";
+import type { ParsedArgs } from "../args.js";
+import type { CmdResult } from "../result.js";
 
 async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
   const root = findWorksRoot(cwd);

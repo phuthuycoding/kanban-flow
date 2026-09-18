@@ -10,7 +10,7 @@ import {
   type ArtifactId,
   type Stage,
 } from "./schema.js";
-import { splitFrontmatter, isFilledFile } from "./frontmatter.js";
+import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { executionContractHash, type Feature } from "./features.js";
 

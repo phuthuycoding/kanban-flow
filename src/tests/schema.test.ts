@@ -7,10 +7,10 @@ import {
   STAGE_INDEX,
   TRANSITIONS,
   type Stage,
-} from "./schema.js";
-import { splitFrontmatter, applyFrontmatter, hasUnresolvedPlaceholders, isFilledFile } from "./frontmatter.js";
-import { parseFolderName, featureFolderName } from "./features.js";
-import { countTasks } from "./status.js";
+} from "../workflow/schema.js";
+import { splitFrontmatter, applyFrontmatter, hasUnresolvedPlaceholders, isFilledFile } from "../shared/frontmatter.js";
+import { parseFolderName, featureFolderName } from "../workflow/features.js";
+import { countTasks } from "../workflow/status.js";
 
 describe("schema", () => {
   it("has workflow stages in pipeline order", () => {

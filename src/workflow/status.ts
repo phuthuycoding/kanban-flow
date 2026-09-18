@@ -9,7 +9,7 @@ import {
   PHASE_NAMES,
   type ArtifactId,
 } from "./schema.js";
-import { splitFrontmatter, isFilledFile } from "./frontmatter.js";
+import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
 import { executionContractHash } from "./features.js";
 

@@ -1,8 +1,8 @@
-import { findWorksRoot, findFeature, writeFeatureMeta, executionContractHash } from "./features.js";
-import { validateFeature, renderValidateText } from "./validate.js";
-import { readProjectConfig } from "./config.js";
-import type { ParsedArgs } from "./args.js";
-import type { CmdResult } from "./commands.js";
+import { findWorksRoot, findFeature, writeFeatureMeta, executionContractHash } from "../../workflow/features.js";
+import { validateFeature, renderValidateText } from "../../workflow/validate.js";
+import { readProjectConfig } from "../../project/config.js";
+import type { ParsedArgs } from "../args.js";
+import type { CmdResult } from "../result.js";
 
 async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
   const root = findWorksRoot(cwd);

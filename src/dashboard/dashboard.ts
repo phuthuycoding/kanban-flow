@@ -1,11 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import { STAGES, PHASE_NAMES, STAGE_INDEX, type WorkItemKind } from "./schema.js";
-import { listFeatures } from "./features.js";
-import { computeStatus, renderStatusText, approvalState } from "./status.js";
-import { readProjectConfig } from "./config.js";
-import { findWorksRoot } from "./features.js";
-import type { CmdResult } from "./commands.js";
+import { STAGES, PHASE_NAMES, STAGE_INDEX, type WorkItemKind } from "../workflow/schema.js";
+import { listFeatures } from "../workflow/features.js";
+import { computeStatus, renderStatusText, approvalState } from "../workflow/status.js";
+import { readProjectConfig } from "../project/config.js";
+import { findWorksRoot } from "../workflow/features.js";
+import type { CmdResult } from "../cli/result.js";
 import { renderDashboardHtml } from "./dashboard-view.js";
 
 export { renderDashboardHtml };

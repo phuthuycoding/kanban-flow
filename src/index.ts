@@ -1,23 +1,16 @@
 #!/usr/bin/env node
-import { parseArgsCli, allCommands, commandHelp, type ParsedArgs } from "./args.js";
-import {
-  cmdInit,
-  cmdNew,
-  cmdList,
-  cmdShow,
-  cmdView,
-  cmdStatus,
-  cmdInstruct,
-  cmdTemplates,
-  cmdValidate,
-  type CmdResult,
-} from "./commands.js";
-import { cmdStage } from "./stage.js";
-import { cmdArchive } from "./archive.js";
-import { cmdApprove } from "./approve.js";
-import { cmdInstall, cmdUninstall } from "./install.js";
-import { cmdDashboard } from "./dashboard.js";
-import { parseAgentIds } from "./agents.js";
+import { parseArgsCli, allCommands, commandHelp, type ParsedArgs } from "./cli/args.js";
+import { cmdInit } from "./cli/commands/init.js";
+import { cmdNew } from "./cli/commands/new.js";
+import { cmdList, cmdShow, cmdView, cmdStatus, cmdValidate } from "./cli/commands/inspect.js";
+import { cmdInstruct, cmdTemplates } from "./cli/commands/artifacts.js";
+import type { CmdResult } from "./cli/result.js";
+import { cmdStage } from "./cli/commands/stage.js";
+import { cmdArchive } from "./cli/commands/archive.js";
+import { cmdApprove } from "./cli/commands/approve.js";
+import { cmdInstall, cmdUninstall } from "./integrations/install.js";
+import { cmdDashboard } from "./dashboard/dashboard.js";
+import { parseAgentIds } from "./integrations/agents.js";
 
 const PKG_VERSION = "0.0.1";
 

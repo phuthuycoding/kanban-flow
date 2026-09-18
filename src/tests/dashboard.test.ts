@@ -3,9 +3,9 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { dashboardData, renderDashboardHtml } from "./dashboard.js";
-import { writeFeatureMeta, executionContractHash } from "./features.js";
-import { STAGES, type Stage, type WorkItemKind } from "./schema.js";
+import { dashboardData, renderDashboardHtml } from "../dashboard/dashboard.js";
+import { writeFeatureMeta, executionContractHash } from "../workflow/features.js";
+import { STAGES, type Stage, type WorkItemKind } from "../workflow/schema.js";
 import { runInNewContext } from "node:vm";
 
 let dir: string;

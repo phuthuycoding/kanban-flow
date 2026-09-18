@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertPathName } from "./features.js";
-import { parseAgentIds } from "./agents.js";
+import { assertPathName } from "../workflow/features.js";
+import { parseAgentIds } from "../integrations/agents.js";
 
 export interface ProjectConfig {
   schema: string;

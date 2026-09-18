@@ -5,9 +5,9 @@ import { stdin as input, stdout as output } from "node:process";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
-import { nowTimestamp } from "./commands.js";
+import { nowTimestamp } from "../shared/time.js";
 import { detectStack, writeProjectConfig, type ProjectConfig } from "./config.js";
-import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "./agents.js";
+import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "../integrations/agents.js";
 import { readProjectConfig } from "./config.js";
 
 export interface BootstrapAnswers {
@@ -143,7 +143,7 @@ export async function seedOverrides(root: string): Promise<void> {
   ];
   await Promise.all(dirs.map((d) => mkdir(d, { recursive: true })));
 
-  const { PKG_TEMPLATES_DIR, PKG_RULES_DIR } = await import("./paths.js");
+  const { PKG_TEMPLATES_DIR, PKG_RULES_DIR } = await import("../shared/paths.js");
   await copyDirInto(PKG_TEMPLATES_DIR, join(root, ".kf", "templates"));
   await copyDirInto(PKG_RULES_DIR, join(root, ".kf", "review", "rules"));
 }

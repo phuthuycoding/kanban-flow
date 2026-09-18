@@ -20,6 +20,7 @@ Feature và bug dùng chung state machine. Bug tạo bằng `kf new <name> --typ
 5. [CLI reference](cli-reference.md) — cú pháp lệnh để agent thao tác state.
 6. [Skill routing](skills.md) — skill nào được load ở mỗi state.
 7. [Dashboard](dashboard.md) — KPI, chart, filter và ý nghĩa số liệu.
+8. [Source layout](source-layout.md) — cấu trúc thư mục `src/` và hướng dẫn mở rộng.
 
 ## Các nguyên tắc bất biến
 

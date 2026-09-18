@@ -2,14 +2,14 @@ import { rename, rm } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { ARTIFACTS, METADATA_FILE } from "./schema.js";
-import { findWorksRoot, findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "./features.js";
-import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
-import { splitFrontmatter, applyFrontmatter } from "./frontmatter.js";
-import { writeFileAtomic } from "./paths.js";
-import { runHook } from "./hooks.js";
-import type { ParsedArgs } from "./args.js";
-import type { CmdResult } from "./commands.js";
+import { ARTIFACTS, METADATA_FILE } from "../../workflow/schema.js";
+import { findWorksRoot, findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "../../workflow/features.js";
+import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
+import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js";
+import { writeFileAtomic } from "../../shared/paths.js";
+import { runHook } from "../../integrations/hooks.js";
+import type { ParsedArgs } from "../args.js";
+import type { CmdResult } from "../result.js";
 
 async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
   const root = findWorksRoot(cwd);

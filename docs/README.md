@@ -10,6 +10,7 @@ Tài liệu của `kaban-flow` được chia theo mục đích:
 - [CLI reference](workflow/cli-reference.md) — lệnh, input, output và exit code.
 - [Dashboard analytics](workflow/dashboard.md) — KPI, biểu đồ và cách tính số liệu.
 - [Skill routing](workflow/skills.md) — trách nhiệm của orchestrator và từng phase skill.
+- [Source layout](workflow/source-layout.md) — cấu trúc mã nguồn và hướng dẫn đặt file mới.
 - `requirement/`, `use-cases/`, `testplan/` — canonical docs được copy khi feature vào `dones`; bug chỉ cập nhật docs liên quan nếu cần.
 
 Nguồn sự thật của state là filesystem `.works/`, metadata `.kfw.json`, config `.kf/config.json` và các artifact trong feature folder. Tài liệu này mô tả hành vi hiện tại của CLI trong `src/`.
