@@ -2,6 +2,19 @@
 
 **Skill orchestrator** điều khiển vòng đời feature/bug: **brainstorm → plan → backlog hoặc implement → test → review → archive**, được ép bởi CLI `kf`. Skill `kanban-flow` delegate từng phase sang skill con; bug đi qua `kanban-bug` để triage. Người dùng tham gia ở Phase 1, Phase 2 approval và quyết định triển khai ngay hay để backlog.
 
+## Why kaban-flow
+
+Workflow nhưng **fail-closed như CI** — artifact là contract, agent là executor, người quyết ở đúng 2 gate.
+
+- **Deterministic gates** — `kf stage` refuse transition khi artifact thiếu, rỗng, còn placeholder hoặc chứa secret thật (`artifact_secret`); report chưa `PASS` không cho tiến. State thật nằm ở `.works/` + `.kfw.json`, không dựa vào lời khai của agent.
+- **Contract fingerprint** — SHA-256 của requirement + planning artifacts + UC files; sửa contract sau `kf approve` → approval invalidate, phải quay lại planning duyệt lại. Mỗi lần vào testing tạo **execution id** mới → FAIL loop bắt buộc test lại thật, report cũ không ăn được.
+- **Traceability xuyên suốt** — `FR-### → UC-### → TC-### → implementation → test evidence → review finding`; validator check ID khớp chính xác (`FR-001` ≠ `FR-0010`), mỗi UC một file riêng.
+- **Human gates đúng chỗ** — chỉ confirm requirement (Phase 1) và approve contract + start/backlog (Phase 2). `REQUIREMENT_BUG` freeze pipeline báo user; agent không tự viết lại requirement.
+- **Skills có răng** — `kanban-review` săn AI-code risks (phantom tests, catch-and-swallow, scope drift), threat-model trước khi apply security finding; `kanban-implement` ép subagent prompt contract (task/files/acceptance/constraints) + status protocol.
+- **Onboarding thực dụng** — `kf init` hỏi đúng câu cần hỏi (TTY radio quick/custom); `kf rules` cài 7 stack packs, monorepo detect nhiều stacks; `kf autoconfig` in setup briefing cho agent mới vào project.
+- **Install/uninstall 2 scope** — user (`~/.claude/skills`) vs project (`{root}/.claude/skills`), 6 agents; uninstall chỉ gỡ managed skills, `--purge` có confirm mới xoá `.works/`/`.kf/`/docs.
+- **Hooks + dashboard** — phase hooks `.kf/hooks/{phase}.sh` resolve project → user → package, exit non-zero chặn transition; `kf dashboard` KPI + charts filter theo context/feature/bug.
+
 ## Install
 
 Repo private nên dùng git clone (không `curl | bash`):
