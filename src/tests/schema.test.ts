@@ -104,6 +104,12 @@ describe("placeholders", () => {
     expect(hasUnresolvedPlaceholders("## Goals\nReal content")).toBe(false);
   });
 
+  it("ignores {tokens} inside inline code and fenced blocks — they are literal content", () => {
+    expect(hasUnresolvedPlaceholders("prints tasks as `{id} [x] {text}`")).toBe(false);
+    expect(hasUnresolvedPlaceholders("```\n{json_shape}\n```\nreal prose")).toBe(false);
+    expect(hasUnresolvedPlaceholders("spec refs `{id}` but {open_question} remains")).toBe(true);
+  });
+
   it("isFilledFile rejects placeholder-only files", () => {
     expect(isFilledFile("---\nfm: yes\n---\nAs a {user_type} I want {goal}", "As a {user_type} I want {goal}")).toBe(false);
     expect(isFilledFile("---\nfm: yes\n---\nAs a user, I want milk", "As a user, I want milk")).toBe(true);

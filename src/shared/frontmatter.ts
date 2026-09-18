@@ -42,9 +42,12 @@ export function getFmValue(content: string, key: string): string | null {
   return fm[key] ?? null;
 }
 
-/** Returns true if the content still contains unresolved template placeholder tokens like `{feature_name}`. */
+/** Returns true if the content still contains unresolved template placeholder tokens like `{feature_name}`. Tokens inside code blocks and inline code are literal content, not placeholders. */
 export function hasUnresolvedPlaceholders(content: string): boolean {
-  return /\{[a-z0-9_-]+\}/i.test(content);
+  const stripped = content
+    .replace(/```[\s\S]*?(```|$)/g, "")
+    .replace(/`[^`\n]*`/g, "");
+  return /\{[a-z0-9_-]+\}/i.test(stripped);
 }
 
 /** True when an artifact file is considered "filled" — exists, non-empty, no template tokens left. */
