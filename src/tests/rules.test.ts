@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { cmdRules } from "../cli/commands/rules.js";
-import { detectStack } from "../project/config.js";
+import { detectStack, detectStacks } from "../project/config.js";
 import { PKG_STACK_RULES_DIR } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -53,6 +53,33 @@ describe("detectStack", () => {
   });
 });
 
+describe("detectStacks", () => {
+  it("finds multiple stacks in a monorepo layout", async () => {
+    await writeFile(join(root, "package.json"), "{}");
+    await mkdir(join(root, "services", "api"), { recursive: true });
+    await writeFile(join(root, "services", "api", "go.mod"), "module x\n");
+    await mkdir(join(root, "crates"), { recursive: true });
+    await writeFile(join(root, "crates", "Cargo.toml"), "");
+    expect(detectStacks(root).sort()).toEqual(["go", "node", "rust"]);
+  });
+
+  it("skips dependency and build dirs", async () => {
+    await writeFile(join(root, "package.json"), "{}");
+    for (const d of ["node_modules/dep", ".git", "dist"]) {
+      await mkdir(join(root, d), { recursive: true });
+      await writeFile(join(root, d, "go.mod"), "");
+    }
+    expect(detectStacks(root)).toEqual(["node"]);
+  });
+
+  it("detectStacks with maxDepth 0 behaves like detectStack", async () => {
+    await mkdir(join(root, "sub"), { recursive: true });
+    await writeFile(join(root, "sub", "go.mod"), "");
+    expect(detectStacks(root, 0)).toEqual([]);
+    expect(detectStacks(root, 1)).toEqual(["go"]);
+  });
+});
+
 describe("cmdRules", () => {
   it("installs the detected stack pack into .kf/review/rules", async () => {
     await writeFile(join(root, "package.json"), "{}");
@@ -60,6 +87,18 @@ describe("cmdRules", () => {
     expect(r.code).toBe(0);
     const pack = await readFile(join(PKG_STACK_RULES_DIR, "node.md"), "utf8");
     expect(await readFile(dest("node"), "utf8")).toBe(pack);
+  });
+
+  it("installs every detected pack in a monorepo", async () => {
+    await writeFile(join(root, "package.json"), "{}");
+    await mkdir(join(root, "services"), { recursive: true });
+    await writeFile(join(root, "services", "go.mod"), "module x\n");
+    const r = await cmdRules(args(), root);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("node: installed");
+    expect(r.stdout).toContain("go: installed");
+    expect(await readFile(dest("node"), "utf8")).toContain("Node.js");
+    expect(await readFile(dest("go"), "utf8")).toContain("Go Review Rules");
   });
 
   it("works before kf init by creating .kf/review/rules", async () => {

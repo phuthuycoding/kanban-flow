@@ -25,7 +25,7 @@ kf init --minimal              # chỉ tạo .works/ + docs roots + cài skills;
 
 `kf init` hỏi và ghi vào `<project>/.kf/config.json`:
 - **default context** cho `kf new` (default `app`)
-- **tech stack** (auto-detect từ manifests mong muốn cho review rules)
+- **tech stacks** (auto-detect từ manifests kể cả monorepo subdirs, dùng cho review rules)
 - **reviewer mặc định** cho `kf approve --by` (default từ `git config user.name`)
 - **agents** nào sẽ dùng skills (multi-select, comma-separated, default `claude`) — cài đúng thư mục từng agent
 - có thêm `.works/` vào `.gitignore` không (chỉ khi là git repo)

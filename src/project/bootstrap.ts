@@ -7,13 +7,13 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
-import { detectStack, writeProjectConfig, type ProjectConfig } from "./config.js";
+import { detectStacks, writeProjectConfig, type ProjectConfig } from "./config.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "../integrations/agents.js";
 import { readProjectConfig } from "./config.js";
 
 export interface BootstrapAnswers {
   defaultContext: string;
-  stack: string | null;
+  stacks: string[];
   reviewer: string;
   ignoreWorks: boolean;
   seedFeature: boolean;
@@ -58,7 +58,7 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
   const cfg = readProjectConfig(root);
   return {
     defaultContext: explicitContext || cfg.defaultContext || "app",
-    stack: cfg.stack ?? detectStack(root),
+    stacks: cfg.stacks?.length ? cfg.stacks : detectStacks(root),
     reviewer: cfg.reviewer ?? detectReviewer(root),
     ignoreWorks: shouldSuggestIgnoreWorks(root),
     seedFeature: false,
@@ -112,7 +112,7 @@ export async function onboardAnswers(
 ): Promise<BootstrapAnswers> {
   const d = bootstrapDefaults(root, explicitContext);
   const mode = await selectOption("Setup mode (↑/↓ + Enter):", [
-    `Quick setup — defaults (context: ${d.defaultContext}, stack: ${d.stack ?? "unset"}, reviewer: ${d.reviewer}, agents: ${d.agents.join(", ")})`,
+    `Quick setup — defaults (context: ${d.defaultContext}, stacks: ${d.stacks.join(", ") || "unset"}, reviewer: ${d.reviewer}, agents: ${d.agents.join(", ")})`,
     "Customize — answer each question",
   ]);
   if (mode === 0) return d;
@@ -150,16 +150,18 @@ async function askAll(
   const ctxRaw = (await rl.question(`Default context for new features [${d.defaultContext}]: `)).trim();
   const defaultContext = ctxRaw || d.defaultContext;
 
-  let stack = d.stack;
-  if (stack) {
-    const ok = await confirm(rl, `Detected stack: ${stack}. Use it?`, true);
+  let stacks = d.stacks;
+  const parseStacks = (raw: string): string[] =>
+    raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  if (stacks.length > 0) {
+    const ok = await confirm(rl, `Detected stacks: ${stacks.join(", ")}. Use them?`, true);
     if (!ok) {
-      const s = (await rl.question("Stack (node/go/rust/python/php/ruby/java/...): ")).trim();
-      stack = s || null;
+      const s = (await rl.question("Stacks (comma-separated, e.g. node,go — or skip): ")).trim();
+      stacks = parseStacks(s);
     }
   } else {
-    const s = (await rl.question("Stack (node/go/rust/python/... or skip): ")).trim();
-    stack = s || null;
+    const s = (await rl.question("Stacks (comma-separated, e.g. node,go — or skip): ")).trim();
+    stacks = parseStacks(s);
   }
 
   const rev = (await rl.question(`Default reviewer for kf approve [${d.reviewer}]: `)).trim();
@@ -174,7 +176,7 @@ async function askAll(
 
   const seedFeature = await confirm(rl, "Seed a demo feature to show the structure?", false);
 
-  return { defaultContext, stack, reviewer, ignoreWorks, seedFeature, agents };
+  return { defaultContext, stacks, reviewer, ignoreWorks, seedFeature, agents };
 }
 
 /** Multi-select agent prompt (comma-separated ids; Enter = default agent). */
@@ -219,7 +221,7 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
   const cfg: ProjectConfig = {
     schema: "kanban-flow",
     defaultContext: a.defaultContext,
-    stack: a.stack,
+    stacks: a.stacks,
     reviewer: a.reviewer,
     agents: a.agents,
     created: readProjectConfig(root).created ?? nowTimestamp(),

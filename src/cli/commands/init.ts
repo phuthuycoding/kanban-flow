@@ -68,7 +68,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   const out: string[] = [];
   out.push(`✓ Bootstrapped kaban-flow in ${target}${interactive && !tty ? " (non-interactive: using defaults)" : ""}`);
   out.push(`  .works/{${STAGES.join(",")}}`);
-  out.push(`  context: ${answers.defaultContext}   stack: ${answers.stack ?? "unset"}   reviewer: ${answers.reviewer}`);
+  out.push(`  context: ${answers.defaultContext}   stacks: ${answers.stacks.join(", ") || "unset"}   reviewer: ${answers.reviewer}`);
   out.push(`  agents: ${answers.agents.join(", ")}`);
   out.push(`  .kf/config.json (defaults for new features)`);
   out.push(`  .kf/{templates,hooks,review/rules} seeded from package`);

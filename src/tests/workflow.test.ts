@@ -462,7 +462,7 @@ describe("CLI output and persisted data", () => {
   it("preserves bootstrap defaults when initialized again", async () => {
     await mkdir(join(root, ".kf"), { recursive: true });
     await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ defaultContext: "auth", reviewer: "reviewer", agents: ["codex"], stack: "go" }));
-    expect(bootstrapDefaults(root)).toMatchObject({ defaultContext: "auth", reviewer: "reviewer", agents: ["codex"], stack: "go" });
+    expect(bootstrapDefaults(root)).toMatchObject({ defaultContext: "auth", reviewer: "reviewer", agents: ["codex"], stacks: ["go"] });
   });
 
   it("rejects ambiguous legacy names and allows exact folder selection", async () => {

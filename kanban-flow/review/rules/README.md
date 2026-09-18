@@ -12,9 +12,9 @@ Project-specific rules override global rules when same filename exists.
 
 ## Installing Stack Rules
 ```bash
-kf rules                                  # auto-detect stack from manifest files, install that pack
+kf rules                                  # auto-detect stacks from manifests (monorepo: installs every detected pack)
 kf rules --stack go --stack python        # install specific packs
-kf rules --list                           # list available packs and detected stack
+kf rules --list                           # list available packs and detected stacks
 kf rules --force                          # overwrite a project rule file that differs from the pack
 ```
 Without `--force`, an existing `.kf/review/rules/{stack}.md` that differs from the pack is skipped with a warning — project rules are user-owned. Re-running on an identical file reports "already installed". Works before `kf init`.
