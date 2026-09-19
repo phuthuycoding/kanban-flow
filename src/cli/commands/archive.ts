@@ -7,8 +7,8 @@ import { findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature }
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js";
 import { writeFileAtomic } from "../../shared/paths.js";
-import { runHook } from "../../integrations/hooks.js";
-import { findRoot } from "./helpers.js";
+import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
+import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -137,24 +137,32 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     };
   }
 
+  const force = Boolean(args.options.force);
+  const forcedCodes: string[] = [];
   const check = validateFeature({ ...f, stage: "dones" });
-  if (!check.valid && !(args.options.force as boolean)) {
-    return {
-      code: 1,
-      stdout: `Gate failed for '${name}'. Fix validation before archiving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`,
-      stderr: "gate failed",
-    };
+  if (!check.valid) {
+    if (!force) {
+      return {
+        code: 1,
+        stdout: `Gate failed for '${name}'. Fix validation before archiving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`,
+        stderr: "gate failed",
+      };
+    }
+    forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
   }
 
   // Directional gate: only a PASS review-report may enter dones.
   const direction = checkDirectionGate(f, "dones");
-  if (direction.length > 0 && !(args.options.force as boolean)) {
-    const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-    return {
-      code: 1,
-      stdout: `Cannot archive '${name}' — review result does not allow dones:\n\n${lines}\n\nOr re-run with --force.`,
-      stderr: "direction gate failed",
-    };
+  if (direction.length > 0) {
+    if (!force) {
+      const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
+      return {
+        code: 1,
+        stdout: `Cannot archive '${name}' — review result does not allow dones:\n\n${lines}\n\nOr re-run with --force.`,
+        stderr: "direction gate failed",
+      };
+    }
+    forcedCodes.push(...direction.map((i) => i.code));
   }
 
   const dest = stageDir(root.root, "dones");
@@ -165,6 +173,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
 
   // Phase hook: run the 'dones' hook before archiving (unless --skip-hooks).
   const skipHooks = Boolean(args.options["skip-hooks"]);
+  const skippedHook: HookSource | null = skipHooks ? resolveHook(root.root, "dones") : null;
   if (!skipHooks) {
     const hook = runHook(root.root, {
       feature: f.name,
@@ -186,8 +195,10 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
   }
 
   const afterHook = validateFeature({ ...f, stage: "dones" });
-  if (!afterHook.valid && !args.options.force) return { code: 1, stdout: renderValidateText(afterHook), stderr: "gate failed" };
+  if (!afterHook.valid && !force) return { code: 1, stdout: renderValidateText(afterHook), stderr: "gate failed" };
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
+  const recorded = recordBypasses(f.stage, "dones", forcedCodes, skippedHook);
+  const bypasses = recorded.length > 0 ? [...(f.meta.bypasses ?? []), ...recorded] : f.meta.bypasses;
   if (f.context) assertPathName(f.context, "context");
   assertPathName(f.name, "feature");
   const copies = args.options["skip-specs"] ? [] : prepareCanonicalCopies(root.root, f);
@@ -197,7 +208,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     await rename(f.dir, target);
     moved = true;
     await writeCanonicalCopies(copies);
-    await writeFeatureMeta(target, { ...f.meta, status: "archived" });
+    await writeFeatureMeta(target, { ...f.meta, bypasses, status: "archived" });
   } catch (err) {
     if (!moved) throw err;
     const rollback = await Promise.allSettled([
@@ -217,6 +228,6 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
   return {
     code: 0,
     stdout:
-      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}`,
+      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}${bypassNote(recorded)}`,
   };
 }

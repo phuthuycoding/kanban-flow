@@ -2,8 +2,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { findWorksRoot } from "../../workflow/features.js";
+import { commandHelp } from "../args.js";
 import { readProjectConfig, detectStacks, configPath, projectKabanDir } from "../../project/config.js";
-import { AGENTS, DEFAULT_AGENT, projectSkillsDir, userSkillsDir, type AgentId } from "../../integrations/agents.js";
+import { AGENTS, DEFAULT_AGENT, projectSkillsDir, type AgentId } from "../../integrations/agents.js";
 import { MANAGED_SKILLS } from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
 import type { CmdResult } from "../result.js";
@@ -15,15 +16,9 @@ interface CheckItem {
   action?: string;
 }
 
-function installedAgents(root: string): { project: AgentId[]; user: AgentId[] } {
+function installedAgents(root: string): AgentId[] {
   const has = (dir: string) => MANAGED_SKILLS.every((s) => existsSync(join(dir, s, "SKILL.md")));
-  const project: AgentId[] = [];
-  const user: AgentId[] = [];
-  for (const a of AGENTS) {
-    if (has(projectSkillsDir(a, root))) project.push(a.id);
-    if (has(userSkillsDir(a))) user.push(a.id);
-  }
-  return { project, user };
+  return AGENTS.filter((a) => has(projectSkillsDir(a, root))).map((a) => a.id);
 }
 
 function checklist(root: string, stacks: string[], agents: AgentId[]): CheckItem[] {
@@ -42,7 +37,7 @@ function checklist(root: string, stacks: string[], agents: AgentId[]): CheckItem
     items.push({
       done: MANAGED_SKILLS.every((s) => existsSync(join(projectSkillsDir(a, root), s, "SKILL.md"))),
       label: `Project skills for ${a.label} (${projectSkillsDir(a, root)}/)`,
-      action: `kf install --project --agent ${id}`,
+      action: `kf install --agent ${id}`,
     });
   }
 
@@ -106,7 +101,16 @@ function effectiveRules(cwd: string): Array<{ name: string; path: string; source
   return rules;
 }
 
-const WORKFLOW_GUIDE = `## Workflow guide
+/** Commands an agent drives the pipeline with, in the order they are used. */
+export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "archive", "rules", "install"] as const;
+
+/** The guide is generated from the registered help strings so it can never drift from the parser. */
+export function workflowGuide(): string {
+  const commands = AGENT_COMMANDS.map((cmd) => {
+    const [usage, description = ""] = commandHelp(cmd).replace(/^Usage:\s*/, "").split(/\s+—\s+/);
+    return `  ${usage}\n      ${description}`;
+  }).join("\n");
+  return `## Workflow guide
 
 Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> review -> dones
 
@@ -114,21 +118,16 @@ Human gates (only places the agent must stop for the user):
 1. brainstorm: confirm the requirement before planning
 2. planning: kf approve the contract + choose start-now vs backlog
 
-Commands the agent will use:
-  kf new <context> <name> [--type bug]   create a work item in brainstorm
-  kf status [--change <ctx/name>]        show pipeline + artifact gates
-  kf instruct --change <ctx/name>        print the phase instruction for the current stage
-  kf stage --to <stage> --change <c/n>   move a work item (gates enforced; --force to override)
-  kf approve --change <ctx/name>         approve the phase-2 contract (fingerprints artifacts)
-  kf validate [--change <ctx/name>]      explain which gates are missing
-  kf rules [--stack <id>] [--list]       install stack review packs into .kf/review/rules/
-  kf install [--project|--all]           install the 8 kanban skills for agents
-  kf archive --change <ctx/name>         close a PASS-reviewed item, sync canonical docs
+Commands the agent will use (run \`kf help <command>\` for every option):
+${commands}
 
 Skills installed per agent: kanban-flow (orchestrator), kanban-brainstorm, kanban-bug,
 kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-archive.
 Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
-with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.`;
+with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
+Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;
+every bypass is recorded in the work item's metadata and reported by kf status/validate.`;
+}
 
 /**
  * Print a self-contained briefing an agent can consume to configure this
@@ -138,7 +137,7 @@ with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.`;
 export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = findWorksRoot(cwd) ?? cwd;
   const cfg = readProjectConfig(root);
-  const stacks = detectStacks(root);
+  const stacks = cfg.stacks?.length ? cfg.stacks : detectStacks(root);
   const known = new Set(AGENTS.map((a) => a.id));
   const configured = (cfg.agents ?? []).filter((a): a is AgentId => known.has(a as AgentId));
   const agents: AgentId[] = configured.length > 0 ? configured : [DEFAULT_AGENT];
@@ -148,9 +147,9 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
     "## Project context",
     "",
     `- Root: ${root}`,
-    `- Detected stacks: ${stacks.length ? stacks.join(", ") : "none"}`,
+    `- ${cfg.stacks?.length ? "Configured" : "Detected"} stacks: ${stacks.length ? stacks.join(", ") : "none"}`,
     `- Config: ${existsSync(configPath(root)) ? `${configPath(root)} (context: ${cfg.defaultContext ?? "app"}, reviewer: ${cfg.reviewer ?? "unset"}, agents: ${agents.join(", ")})` : "missing — run kf init"}`,
-    `- Skills installed: project scope [${skills.project.join(", ") || "none"}], user scope [${skills.user.join(", ") || "none"}]`,
+    `- Skills installed (project scope): [${skills.join(", ") || "none"}]`,
   ].join("\n");
 
   const items = checklist(root, stacks, agents);
@@ -183,7 +182,7 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
     "",
     rulesSection,
     "",
-    WORKFLOW_GUIDE,
+    workflowGuide(),
   ].join("\n");
 
   return { code: 0, stdout: out };

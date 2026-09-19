@@ -73,7 +73,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   status: {
-    help: "Usage: kf status [--change <feature>] [--all] [--json]",
+    help: "Usage: kf status [--change <feature>] [--all] [--json]  — artifact checklist, Next step, approval state and recorded bypasses",
     options: {
       change: { type: "string" },
       all: { type: "boolean", short: "a" },
@@ -81,7 +81,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   instruct: {
-    help: "Usage: kf instruct <artifact|use-case> [--change <feature>] [--id UC-###]",
+    help: "Usage: kf instruct <artifact|use-case> [--change <feature>] [--id UC-###]  — print the template, current execution id and exact output path",
     allowPositionals: true,
     options: {
       change: { type: "string" },
@@ -96,7 +96,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   validate: {
-    help: "Usage: kf validate [--change <feature>] [--all] [--strict] [--json]",
+    help: "Usage: kf validate [--change <feature>] [--all] [--strict] [--json]  — report gate, traceability, secret and bypass issues (exit 1 on failure)",
     options: {
       change: { type: "string" },
       all: { type: "boolean", short: "a" },
@@ -141,19 +141,15 @@ const COMMANDS: Record<string, CmdSpec> = {
     options: {},
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...] [--project] [--all]  — copy the 8 kanban skills into agent skill dirs (default: claude, user scope). --project installs into {root}/.<agent>/skills; --all does both. Agents: claude, codex, gemini, kiro, cursor, opencode",
+    help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into project-level agent skill dirs {root}/.<agent>/skills (default: claude). Requires a kanban project (.works/). Agents: claude, codex, gemini, kiro, cursor, opencode",
     options: {
       agent: { type: "string", multiple: true },
-      project: { type: "boolean" },
-      all: { type: "boolean" },
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...] [--project] [--all] [--purge] [--force]  — remove the 8 kanban skills from agent skill dirs (default: claude, user scope). --project removes {root}/.<agent>/skills; --all removes both. --purge also deletes .works/ and .kf/ (asks first; --force skips the prompt)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--purge] [--force]  — remove the 8 kanban skills from project-level agent skill dirs {root}/.<agent>/skills (default: claude). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
-      project: { type: "boolean" },
-      all: { type: "boolean" },
       purge: { type: "boolean" },
       force: { type: "boolean" },
     },

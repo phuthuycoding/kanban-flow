@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { copySkillsTo, removeSkillsFrom, MANAGED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
-import { parseAgentIds, DEFAULT_AGENT, userSkillsDir, projectSkillsDir, agentById } from "../integrations/agents.js";
+import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
 
 let dir: string;
 
@@ -46,9 +46,10 @@ describe("copySkillsTo / removeSkillsFrom", () => {
   });
 });
 
-describe("install/uninstall scopes", () => {
-  it("cmdInstall --project copies skills into {root}/.claude/skills, not the user dir", async () => {
-    const res = await cmdInstall([], { cwd: dir, project: true });
+describe("install/uninstall (project scope)", () => {
+  it("cmdInstall copies skills into {root}/.claude/skills", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    const res = await cmdInstall([], { cwd: dir });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(join(dir, ".claude", "skills"));
     for (const name of MANAGED_SKILLS) {
@@ -56,11 +57,19 @@ describe("install/uninstall scopes", () => {
     }
   });
 
-  it("cmdUninstall --project removes project-level skills, leaving unrelated dirs intact", async () => {
-    await cmdInstall([], { cwd: dir, project: true });
+  it("cmdInstall refuses outside a kanban project", async () => {
+    const res = await cmdInstall([], { cwd: dir });
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("kf init");
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+  });
+
+  it("cmdUninstall removes project-level skills, leaving unrelated dirs intact", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
     await mkdir(join(dir, ".claude", "skills", "unrelated"), { recursive: true });
 
-    const res = await cmdUninstall([], { cwd: dir, project: true });
+    const res = await cmdUninstall([], { cwd: dir });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`removed ${MANAGED_SKILLS.length} skills`);
     expect(existsSync(join(dir, ".claude", "skills", "unrelated"))).toBe(true);
@@ -69,25 +78,27 @@ describe("install/uninstall scopes", () => {
     }
   });
 
-  it("project scope resolves the .works root, not the current subdirectory", async () => {
+  it("install resolves the .works root, not the current subdirectory", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     const nested = join(dir, "services", "api");
     await mkdir(nested, { recursive: true });
 
-    await cmdInstall([], { cwd: nested, project: true });
+    await cmdInstall([], { cwd: nested });
     expect(existsSync(join(dir, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
     expect(existsSync(join(nested, ".claude", "skills"))).toBe(false);
   });
 
-  it("cmdInstall --project with multiple agents installs each agent dir", async () => {
-    const res = await cmdInstall(["claude", "codex"], { cwd: dir, project: true });
+  it("cmdInstall with multiple agents installs each agent dir", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    const res = await cmdInstall(["claude", "codex"], { cwd: dir });
     expect(res.code).toBe(0);
     expect(existsSync(join(dir, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
     expect(existsSync(join(dir, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
   });
 
   it("uninstall --purge --force removes skills plus .works/, .kf/ and kanban doc dirs", async () => {
-    await cmdInstall([], { cwd: dir, project: true });
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
     await mkdir(join(dir, ".works", "dones", "x"), { recursive: true });
     await mkdir(join(dir, ".kf", "review", "rules"), { recursive: true });
     await mkdir(join(dir, "docs", "requirement"), { recursive: true });
@@ -104,8 +115,8 @@ describe("install/uninstall scopes", () => {
   });
 
   it("uninstall --purge without --force refuses on non-TTY and deletes nothing", async () => {
-    await cmdInstall([], { cwd: dir, project: true });
     await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
 
     const res = await cmdUninstall([], { cwd: dir, purge: true });
     expect(res.code).toBe(1);
@@ -126,9 +137,9 @@ describe("agents adapter", () => {
     expect(DEFAULT_AGENT).toBe("claude");
   });
 
-  it("maps each agent to its user and project skill dirs", () => {
-    expect(userSkillsDir(agentById("claude")!)).toMatch(/\.claude\/skills$/);
-    expect(userSkillsDir(agentById("codex")!)).toMatch(/\.agents\/skills$/);
+  it("maps each agent to its project skill dir", () => {
+    expect(projectSkillsDir(agentById("claude")!, dir)).toBe(join(dir, ".claude", "skills"));
+    expect(projectSkillsDir(agentById("codex")!, dir)).toBe(join(dir, ".agents", "skills"));
     expect(projectSkillsDir(agentById("kiro")!, dir)).toBe(join(dir, ".kiro", "skills"));
     expect(projectSkillsDir(agentById("opencode")!, dir)).toBe(join(dir, ".opencode", "skills"));
   });

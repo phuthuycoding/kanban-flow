@@ -2,10 +2,10 @@ import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
-import { readProjectConfig } from "../../project/config.js";
+import { readProjectConfig, detectStacks } from "../../project/config.js";
 import { parseAgentIds } from "../../integrations/agents.js";
 import { installProjectSkills } from "../../integrations/install.js";
-import { bootstrapDefaults, onboardAnswers, seedOverrides, saveConfig, appendIgnoreWorks, type BootstrapAnswers } from "../../project/bootstrap.js";
+import { bootstrapDefaults, onboardAnswers, seedOverrides, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -33,9 +33,10 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   }
   const skills = await installProjectSkills(target, agents.length ? agents : parseAgentIds(cfg.agents));
   if (skills.code !== 0) return skills;
+  const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {
     code: 0,
-    stdout: `✓ Initialized kaban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/{requirement,use-cases,testplan}/${ctx}\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n\n${skills.stdout}`,
+    stdout: `✓ Initialized kaban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/{requirement,use-cases,testplan}/${ctx}\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n  AGENTS.md: ${agentsFile === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}\n\n${skills.stdout}`,
   };
 }
 
@@ -73,6 +74,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   out.push(`  .kf/config.json (defaults for new features)`);
   out.push(`  .kf/{templates,hooks,review/rules} seeded from package`);
   out.push(skills.stdout);
+  out.push(`  AGENTS.md: ${seedAgentsFile(target, answers.stacks) === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}`);
 
   if (answers.ignoreWorks) {
     appendIgnoreWorks(target);

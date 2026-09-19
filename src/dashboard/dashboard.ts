@@ -57,6 +57,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
             next: st.next,
             taskProgress: st.taskProgress,
             approval: approvalState(f),
+            bypasses: f.meta?.bypasses?.length ?? 0,
             text: renderStatusText(st),
           };
         });
@@ -88,6 +89,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
       backlog: items.filter((item) => item.stage === "backlog").length,
       completed,
       completionRate: percentage(completed, items.length),
+      bypassed: items.filter((item) => item.bypasses > 0).length,
       tasks: {
         done: taskDone,
         total: taskTotal,

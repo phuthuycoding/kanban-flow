@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as fs from "node:fs";
@@ -20,7 +20,8 @@ describe("installation errors", () => {
     try {
       const original = await vi.importActual<typeof import("node:fs")>("node:fs");
       vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "skills") && original.existsSync(path));
-      expect((await cmdInstall(["claude"])).code).toBe(1);
+      await mkdir(join(root, ".works"), { recursive: true });
+      expect((await cmdInstall(["claude"], { cwd: root })).code).toBe(1);
       expect((await installProjectSkills(root, ["codex"])).code).toBe(1);
       expect((await cmdInit({ command: "init", positionals: [], options: {} }, root)).code).toBe(1);
     } finally {

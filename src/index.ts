@@ -86,12 +86,10 @@ async function main(argv: string[]): Promise<CmdResult> {
     case "autoconfig":
       return cmdAutoconfig(parsed, cwd);
     case "install":
-      return cmdInstall(parseAgentIds(parsed.options.agent), { cwd, project: Boolean(parsed.options.project), all: Boolean(parsed.options.all) });
+      return cmdInstall(parseAgentIds(parsed.options.agent), { cwd });
     case "uninstall":
       return cmdUninstall(parseAgentIds(parsed.options.agent), {
         cwd,
-        project: Boolean(parsed.options.project),
-        all: Boolean(parsed.options.all),
         purge: Boolean(parsed.options.purge),
         force: Boolean(parsed.options.force),
       });

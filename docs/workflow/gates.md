@@ -57,13 +57,26 @@ Feature planning tạo chuỗi truy vết:
 
 ID phải khớp chính xác; `FR-001` không được coi là `FR-0010`. Thiếu FR/UC reference trong TC, reference không tồn tại, duplicate TC ID, file rỗng hoặc placeholder chưa thay thế làm validation fail. Agent vẫn phải review nội dung section và tổng số trong bảng.
 
-Validator cũng quét nội dung artifact tìm secret thật (Bearer token, API key, private key, mật khẩu dạng `KEY=value`...) và fail với `artifact_secret` khi phát hiện — artifact không được chứa credential. Giá trị placeholder như `{key}`, `<token>`, `changeme`, `redacted` hay chuỗi `xxx...` không bị flag.
+Validator cũng quét nội dung artifact tìm secret thật (Bearer token, API key, private key, mật khẩu dạng `KEY=value`...) và fail với `artifact_secret` khi phát hiện — artifact không được chứa credential. Giá trị placeholder như `{key}`, `<token>`, `changeme`, `redacted` hay chuỗi `xxx...` không bị flag. Exemption áp lên **giá trị bắt được**, không áp lên cả dòng: `TOKEN=ghp_… # example` vẫn bị flag. Các format độ tin cậy cao (`ghp_`/`github_pat_`, `sk-`, `AKIA`, `xox*-`, header PRIVATE KEY) chỉ được miễn khi giá trị bị che bằng `xxxx`/`****`. Thông báo lỗi không echo giá trị secret.
+
+Report testing `status: PASS` còn phải có bảng dưới heading `## Commands and Evidence` với ít nhất một dòng lệnh và mọi ô Exit code bằng `0`; vi phạm là `testing_exit_code`. Rule này không chứng minh test đã chạy, nó chỉ chặn report PASS thiếu bằng chứng số. Report FAIL/REJECT/BLOCKED không bị ràng buộc.
 
 Approval Phase 2 là fingerprint SHA-256 của requirement, 4 planning artifact và mọi file `use-cases/UC-###.md` với feature; bug fingerprint chỉ dựa trên bug report. Sau khi approval, sửa nội dung contract sẽ yêu cầu quay lại planning, hoàn thiện lại và approve lại.
 
 ## Force và recovery
 
 `--force` chỉ là escape hatch có chủ đích để bỏ qua validation/directional gate. Không nên dùng cho luồng bình thường; khi dùng phải ghi rõ lý do trong review hoặc feature report.
+
+Mỗi lần `--force` bỏ qua một gate đang fail, hoặc `--skip-hooks` bỏ qua một hook thực sự tồn tại, `kf stage`/`kf archive` ghi một bản ghi vào `.kfw.json`:
+
+```json
+"bypasses": [
+  { "at": "20260919_1230", "from": "brainstorm", "to": "planning", "flag": "force", "codes": ["requirement_unconfirmed"] },
+  { "at": "20260919_1231", "from": "planning", "to": "backlog", "flag": "skip-hooks", "codes": ["hook:/path/.kf/hooks/backlog.sh"] }
+]
+```
+
+Flag không bỏ qua gì (gate đang pass, không có hook) thì không ghi. `kf validate` báo WARNING `gate_bypassed`, `kf status` in `Bypasses: N`, `kf view --json` và dashboard đếm số work item có bypass. CLI không có lệnh xoá bản ghi. Giới hạn: đây là truy vết cho người review, không phải bảo đảm — agent vẫn có thể sửa file JSON bằng tay.
 
 - Hook phase fail: transition bị từ chối; sửa hook hoặc dùng `--skip-hooks` khi đã hiểu tác động.
 - Testing/review `FAIL` hoặc `REJECT`: quay về implementation, sửa code rồi vào testing để nhận execution ID mới.

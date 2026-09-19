@@ -42,8 +42,10 @@ async function implementation(): Promise<void> {
   expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
 }
 
+const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
+
 async function report(id: "testing-result" | "review-report", status = "PASS", execution = feature().meta?.executionId): Promise<void> {
-  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n---\n# Evidence\nVerified current implementation.\n`);
+  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function review(): Promise<void> {

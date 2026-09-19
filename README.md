@@ -12,7 +12,7 @@ Workflow nhưng **fail-closed như CI** — artifact là contract, agent là exe
 - **Human gates đúng chỗ** — chỉ confirm requirement (Phase 1) và approve contract + start/backlog (Phase 2). `REQUIREMENT_BUG` freeze pipeline báo user; agent không tự viết lại requirement.
 - **Skills có răng** — `kanban-review` săn AI-code risks (phantom tests, catch-and-swallow, scope drift), threat-model trước khi apply security finding; `kanban-implement` ép subagent prompt contract (task/files/acceptance/constraints) + status protocol.
 - **Onboarding thực dụng** — `kf init` hỏi đúng câu cần hỏi (TTY radio quick/custom); `kf rules` cài 7 stack packs, monorepo detect nhiều stacks; `kf autoconfig` in setup briefing cho agent mới vào project.
-- **Install/uninstall 2 scope** — user (`~/.claude/skills`) vs project (`{root}/.claude/skills`), 6 agents; uninstall chỉ gỡ managed skills, `--purge` có confirm mới xoá `.works/`/`.kf/`/docs.
+- **Skills ở project scope** — `kf install`/`uninstall` chỉ đụng `{root}/.<agent>/skills`, 6 agents; uninstall chỉ gỡ managed skills, `--purge` có confirm mới xoá `.works/`/`.kf/`/docs.
 - **Hooks + dashboard** — phase hooks `.kf/hooks/{phase}.sh` resolve project → user → package, exit non-zero chặn transition; `kf dashboard` KPI + charts filter theo context/feature/bug.
 
 ## Install
@@ -21,10 +21,10 @@ Repo private nên dùng git clone (không `curl | bash`):
 
 ```bash
 git clone git@github.com:phuthuycoding/kaban-flow.git /tmp/kaban-flow
-cd /tmp/kaban-flow && npm install && npm run build && npm link && kf install
+cd /tmp/kaban-flow && npm install && npm run build && npm link
 ```
 
-`npm link` đưa CLI `kf` lên PATH; `kf install` copy 8 skills vào skill dir của từng agent (mặc định `claude` → `~/.claude/skills/`). Hỗ trợ 6 agent: `--agent claude --agent codex --agent gemini --agent kiro --agent cursor --agent opencode`. Yêu cầu Node >= 20.
+`npm link` đưa CLI `kf` lên PATH — đó là phần duy nhất sống global. Sau mỗi `git pull` chạy lại `npm run build` để `dist/` khớp source (`kf --version` phải in đúng version trong `package.json`). Thay đổi theo từng bản: [CHANGELOG.md](CHANGELOG.md). Skills được cài **per-project** bởi `kf init` (hoặc `kf install` sau này) vào `{project}/.<agent>/skills` — không ghi gì vào `~/`. Hỗ trợ 6 agent: `--agent claude --agent codex --agent gemini --agent kiro --agent cursor --agent opencode`. Yêu cầu Node >= 20.
 
 Init project:
 
@@ -43,6 +43,8 @@ kf init --minimal              # chỉ tạo .works/ + docs roots + cài skills;
 - **agents** nào sẽ dùng skills (multi-select, comma-separated, default `claude`) — cài đúng thư mục từng agent
 - có thêm `.works/` vào `.gitignore` không (chỉ khi là git repo)
 - có seed một feature demo để xem cấu trúc không
+
+`kf init` cũng tạo `AGENTS.md` ở root (build/test/lint commands đọc từ manifest + quy ước workflow) nếu chưa có `AGENTS.md`/`CLAUDE.md`; file đã có thì giữ nguyên.
 
 Mỗi câu có default — Enter để chấp nhận. Dùng `--defaults` trong agent/non-TTY (không treo prompt).
 
@@ -86,7 +88,7 @@ Không bao giờ `mv` folder thủ công — gate + hook sẽ chạy theo mỗi 
 | 5. Review | `phase-5-review-report.md` — chỉ `PASS` được archive; `REQUIREMENT_BUG` → STOP feature |
 | 6. Closure | Feature: viết `phase-6-feature-report.md`, CLI copy canonical docs khi archive. Bug: update docs liên quan nếu cần rồi archive |
 
-`kf stage` kiểm tra artifact tồn tại, có nội dung, không còn placeholder và không chứa secret thật (Bearer token, API key, private key — placeholder như `{key}`/`changeme` không bị flag); directional gate chặn tiến khi report chưa PASS. Với feature, `kf validate` yêu cầu file UC riêng và từng section `## TC-XXX` tham chiếu FR có trong requirement và UC có file tương ứng. Agent kiểm tra tổng số và coverage trong bảng test plan. Bug chỉ cần bug report, testing result và review result; không bị ép tạo planning artifact của feature. Tasks chưa hoàn thành cũng chặn tiến.
+`kf stage` kiểm tra artifact tồn tại, có nội dung, không còn placeholder và không chứa secret thật (Bearer token, API key, private key — placeholder như `{key}`/`changeme` không bị flag, nhưng chữ `example` trong comment cùng dòng không cứu được một token thật); directional gate chặn tiến khi report chưa PASS. Report testing `PASS` phải có bảng Commands and Evidence với ít nhất một lệnh và mọi exit code bằng `0`. Mỗi lần `--force`/`--skip-hooks` thực sự bỏ qua gate hoặc hook đều được ghi vào `.kfw.json` (`bypasses[]`), `kf validate` cảnh báo `gate_bypassed`, `kf status`/`kf view`/dashboard hiển thị — đây là truy vết, không phải bảo đảm. Với feature, `kf validate` yêu cầu file UC riêng và từng section `## TC-XXX` tham chiếu FR có trong requirement và UC có file tương ứng. Agent kiểm tra tổng số và coverage trong bảng test plan. Bug chỉ cần bug report, testing result và review result; không bị ép tạo planning artifact của feature. Tasks chưa hoàn thành cũng chặn tiến.
 
 `kf approve` chỉ duyệt khi requirement/bug report đã confirmed. Feature cần bốn artifact planning và các file UC; bug dùng bug report làm contract. Sau approve, agent hỏi triển khai ngay hay đưa vào backlog. Approval fingerprint bao gồm toàn bộ contract tương ứng; sửa contract sau approve sẽ chặn execution. Khi cần đổi scope theo chỉ đạo của người dùng, chạy `kf stage {feature} planning`, sửa contract và duyệt lại.
 
@@ -117,6 +119,8 @@ echo "planning entry: ${KFW_FEATURE} -> ${KFW_TO_STAGE}"
 
 Env bơm vào hook: `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_APPROVAL`. Hook exit non-zero → **transition bị chặn** (bỏ qua bằng `--skip-hooks`).
 
+Hook `.sh` chạy qua `bash` (`.js`/`.mjs`/`.cjs` qua `node`). Trên Windows cần WSL hoặc Git Bash có `bash` trên PATH; không có `bash` thì hook `.sh` fail và transition bị chặn.
+
 ## Review rules
 
 - Global: `~/.kf/review/rules/` (general, security, performance, + `{stack}.md`)
@@ -145,28 +149,26 @@ Stack best-practice packs (`node`, `go`, `rust`, `python`, `php`, `ruby`, `java`
     ├── use-cases/{context}/{feature}/README.md + UC-###.md + diagram.md
     └── testplan/{context}/{feature}{,-result}.md
 
-skills (mặc định cho claude; `--agent <id>` đổi agent):
-  claude   → ~/.claude/skills/  + {project}/.claude/skills/
-  codex    → ~/.agents/skills/  + {project}/.agents/skills/
-  gemini   → ~/.gemini/skills/  + {project}/.gemini/skills/
-  kiro     → ~/.kiro/skills/    + {project}/.kiro/skills/
-  cursor   → ~/.cursor/skills/  + {project}/.cursor/skills/
-  opencode → ~/.config/opencode/skills/ + {project}/.opencode/skills/
+skills (project scope, mặc định cho claude; `--agent <id>` đổi agent):
+  claude   → {project}/.claude/skills/
+  codex    → {project}/.agents/skills/
+  gemini   → {project}/.gemini/skills/
+  kiro     → {project}/.kiro/skills/
+  cursor   → {project}/.cursor/skills/
+  opencode → {project}/.opencode/skills/
 
 mỗi agent đều có 8 skills: kanban-flow + kanban-{bug,brainstorm,plan,implement,test,review,archive}/
 ```
 
 ## Uninstall
 
-`kf install`/`kf uninstall` mặc định thao tác ở **user scope** (`~/...`); `--project` chọn **project scope** (`{project}/.claude/skills/...`, resolve về `.works/` root gần nhất); `--all` làm cả hai.
+Skills luôn ở **project scope** — `kf uninstall` gỡ đúng 8 managed skills khỏi `{project}/.<agent>/skills` (resolve về `.works/` root gần nhất), không đụng skill khác hay thư mục `~/`.
 
 ```bash
-kf uninstall                          # gỡ 8 skills khỏi ~/.claude/skills/ (mặc định claude, user scope)
-kf uninstall --project                # gỡ skills mà kf init cài vào {project}/.claude/skills/
-kf uninstall --all                    # gỡ cả user lẫn project scope
-kf uninstall --purge                  # gỡ project skills + xoá .works/, .kf/, docs/{requirement,use-cases,testplan}/ (hỏi confirm; --force bỏ qua)
+kf uninstall                          # gỡ 8 skills khỏi {project}/.claude/skills/ (mặc định claude)
 kf uninstall --agent codex --agent kiro   # gỡ khỏi đúng agent đó
-npm rm -g kaban-flow                  # gỡ CLI
+kf uninstall --purge                  # gỡ project skills + xoá .works/, .kf/, docs/{requirement,use-cases,testplan}/ (hỏi confirm; --force bỏ qua)
+npm rm -g kaban-flow                  # gỡ CLI khỏi PATH
 ```
 
 Mặc định uninstall chỉ gỡ managed skills — `.works/`, `.kf/` và canonical docs là data của project nên giữ lại. `--purge` mới xoá hẳn (và luôn hỏi trước trên TTY).
