@@ -6,9 +6,12 @@ import { cmdList, cmdShow, cmdView, cmdStatus, cmdValidate } from "./cli/command
 import { cmdInstruct, cmdTemplates } from "./cli/commands/artifacts.js";
 import { cmdRules } from "./cli/commands/rules.js";
 import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
+import { cmdRun, cmdRuns } from "./cli/commands/run.js";
+import { cmdHarness } from "./cli/commands/harness.js";
 import type { CmdResult } from "./cli/result.js";
 import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
+import { cmdCancel } from "./cli/commands/cancel.js";
 import { cmdApprove } from "./cli/commands/approve.js";
 import { cmdInstall, cmdUninstall } from "./integrations/install.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
@@ -79,12 +82,20 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdStage(parsed, cwd);
     case "archive":
       return cmdArchive(parsed, cwd);
+    case "cancel":
+      return cmdCancel(parsed, cwd);
     case "approve":
       return cmdApprove(parsed, cwd);
     case "rules":
       return cmdRules(parsed, cwd);
     case "autoconfig":
       return cmdAutoconfig(parsed, cwd);
+    case "run":
+      return cmdRun(parsed, cwd);
+    case "runs":
+      return cmdRuns(parsed, cwd);
+    case "harness":
+      return cmdHarness(parsed, cwd);
     case "install":
       return cmdInstall(parseAgentIds(parsed.options.agent), { cwd });
     case "uninstall":

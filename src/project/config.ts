@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertPathName } from "../workflow/features.js";
 import { parseAgentIds } from "../integrations/agents.js";
+import { validateHarness, type HarnessConfig } from "../harness/config.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -11,6 +12,7 @@ export interface ProjectConfig {
   stack?: string | null;
   reviewer?: string;
   agents?: string[];
+  harness?: HarnessConfig;
   created: string;
 }
 
@@ -52,6 +54,7 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   if (cfg.stacks === undefined && typeof cfg.stack === "string") cfg.stacks = [cfg.stack];
   if (cfg.defaultContext !== undefined) assertPathName(cfg.defaultContext, "context");
   if (cfg.agents) parseAgentIds(cfg.agents);
+  if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   return cfg;
 }
 

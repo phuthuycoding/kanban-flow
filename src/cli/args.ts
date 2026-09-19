@@ -154,6 +154,44 @@ const COMMANDS: Record<string, CmdSpec> = {
       force: { type: "boolean" },
     },
   },
+  cancel: {
+    help: 'Usage: kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]  — stop a work item for good, recording who dropped it and why; reopen later with kf stage <feature> <its old stage>',
+    allowPositionals: true,
+    options: {
+      reason: { type: "string" },
+      by: { type: "string" },
+      "purge-docs": { type: "boolean" },
+      force: { type: "boolean", short: "f" },
+      "skip-hooks": { type: "boolean" },
+    },
+  },
+  run: {
+    help: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]  — run the roles assigned to the work item's stage (harness.stages) as worker agents, in order, and record each run",
+    allowPositionals: true,
+    options: {
+      stage: { type: "string" },
+      role: { type: "string" },
+      agent: { type: "string" },
+      fresh: { type: "boolean" },
+      detach: { type: "boolean" },
+      timeout: { type: "string" },
+      "dry-run": { type: "boolean" },
+      supervise: { type: "string" },
+    },
+  },
+  runs: {
+    help: "Usage: kf runs [<feature>] [--json]  — list worker runs (role, runner, stage, status, STATUS line) for one or all open work items",
+    allowPositionals: true,
+    options: {
+      json: { type: "boolean" },
+    },
+  },
+  harness: {
+    help: "Usage: kf harness [--json]  — show the multi-agent harness: stage to role chains, role to runner, and whether each runner CLI is on PATH",
+    options: {
+      json: { type: "boolean" },
+    },
+  },
   help: {
     help: "Usage: kf help [command]",
     allowPositionals: true,

@@ -17,6 +17,8 @@ src/
 │       ├── approve.ts    # planning approval
 │       ├── rules.ts      # stack review-rule pack installation
 │       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
+│       ├── run.ts        # kf run / kf runs (hand a stage to a worker agent)
+│       ├── harness.ts    # kf harness (effective harness config)
 │       └── archive.ts    # closure and canonical docs sync
 ├── workflow/             # domain state, artifacts and validation
 │   ├── schema.ts         # stages, artifacts, transitions
@@ -30,11 +32,14 @@ src/
 │   ├── validate-traceability.ts  # FR → UC → TC references
 │   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
 │   └── validate.ts       # facade: composes the checks, renders results, re-exports
+├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor
 ├── project/              # project config and bootstrap prompts
 ├── integrations/         # agents, skill installation and hooks
 ├── dashboard/            # analytics HTTP server and HTML view
 ├── shared/               # filesystem paths, frontmatter and time helpers
 └── tests/                # all Vitest tests, grouped separately from runtime
+    ├── helpers/          # fake agent CLIs and harness project fixture
+    └── setup/            # vitest globalSetup (builds dist for detached-run tests)
 ```
 
 Dependency direction is intentionally one-way: command handlers call workflow/project/integration services; workflow code does not import CLI handlers. Shared utilities contain no command dispatch. This keeps changes to the CLI surface isolated from state and artifact rules.

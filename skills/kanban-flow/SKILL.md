@@ -66,6 +66,23 @@ Then **load the skill for the feature's CURRENT phase** and follow it to its end
 
 If planning is already approved and its fingerprint is unchanged, ask whether to start now or keep the item in backlog. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, hand off to kanban-archive. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
 
+## Multi-agent harness
+
+If `.kf/config.json` has `harness.stages`, some stages are assigned to **roles** (writer, coder, tester…), each backed by a runner CLI. Before doing a stage's work yourself, read `kf status --change {feature} --json`: when `assignedRoles` is non-empty, you are the orchestrator for that stage — do not do the work, hand it off:
+
+```bash
+kf run {feature}            # blocking; runs the stage's whole role chain in order
+kf run {feature} --detach   # long stages (implementation): returns a chain id
+kf runs {feature}           # poll until the runs are done, then read their STATUS
+kf run {feature} --role writer   # re-run one role of the chain
+```
+
+A stage can list several roles (`brainstorm: ["researcher", "writer"]`); they run one after another and each gets told where the previous one wrote. If a role does not finish `DONE`/`DONE_WITH_CONCERNS`, the chain stops there and the later roles never run — read the log of the role that stopped, do not simply re-run the chain.
+
+When polling a detached chain, check the chain column in `kf runs` (`1/2`, `2/2`): a run marked `chain stopped 1/2` means the later roles never ran, so the stage is **not** done even though nothing is running. Treat it like a stopped chain: read that role's log before deciding.
+
+Then act on the worker's `STATUS:`: `DONE` → `kf validate --change {feature}` and decide the transition as usual (gates, not the worker's word, decide); `DONE_WITH_CONCERNS` → read the concerns in the run log, then decide; `BLOCKED` / `NEEDS_CONTEXT` → stop and ask the user. A run without a `STATUS:` line or with a non-zero exit is not done. Never do an assigned stage yourself unless the user says so. Human gates stay with you.
+
 If you are resuming mid-pipeline (the feature already exists), skip straight to the phase skill for its current phase. **Never trust a folder location alone — a stage folder is not "done"; artifact + report completeness is.**
 
 ---
@@ -91,6 +108,8 @@ kf instruct {artifact} --change {feature}   # current execution id + exact outpu
 kf approve {feature}           # Phase 2 HITL gate
 kf validate --change {feature}  # gate + traceability issues
 kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
+kf run {feature} [--detach]    # run the roles assigned to the current stage (harness.stages), in order
+kf runs {feature}              # worker run history (role, runner) + STATUS lines
 kf archive {feature}           # review(PASS) → dones + copy canonical docs
 ```
 
@@ -106,7 +125,7 @@ Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering 
 - Never `mv` feature folders manually — always `kf stage` / `kf archive`.
 - Never bypass a failed gate with `--force` unless the user explicitly approves. Every real bypass (`--force` on a failing gate, `--skip-hooks` on an existing hook) is recorded in `.kfw.json` and reported by `kf status`/`kf validate`.
 - Always write `phase-4-testing-result.md` and `phase-5-review-report.md` — gates enforce it.
-- FAIL/REJECT loops back to implementation and re-testing before review. REQUIREMENT_BUG → STOP, never rewrite the requirement.
+- FAIL/REJECT loops back to implementation and re-testing before review. REQUIREMENT_BUG → STOP, never rewrite the requirement. When the item should be dropped for good (requirement wrong at the root, work superseded, user says stop), **propose** `kf cancel {feature} --reason "<why>"` and let the user decide; never cancel on your own. Reopening later is `kf stage {feature} <the stage it was cancelled from>`.
 - No scope creep beyond the approved plan.
 - Follow the project's AGENTS.md and the user's permissions. Autonomous execution does not authorize unrelated changes, database operations, deployment or messages to others.
 - Never silently swallow errors. If a step can't complete and can't be auto-fixed, STOP and report.

@@ -203,6 +203,6 @@ describe("statusToJson", () => {
 
 describe("stage movement contract", () => {
   it("all workflow stages exist as folders", async () => {
-    expect(STAGES.length).toBe(7);
+    expect(STAGES.length).toBe(8);
   });
 });

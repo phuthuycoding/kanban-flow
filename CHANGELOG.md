@@ -4,6 +4,15 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 
 ## [Unreleased]
 
+### Added
+- **Multi-agent harness theo vai trò.** Block `harness` trong `.kf/config.json` với ba lớp `stage → role → runner`: `roles` map vai (writer, coder, tester…) tới runner kèm `brief` đưa vào prompt và `output` là file vai phải viết; `stages` gán một role hoặc **chuỗi role chạy tuần tự** cho từng stage; `runners` là argv template của từng CLI/model kèm cách lấy session và đọc usage. Đổi model cho một vai chỉ sửa một dòng, stage không đụng tới.
+- `kf run <feature>` chạy chuỗi role của stage hiện tại như worker headless (blocking hoặc `--detach` với supervisor), `--role` chạy một vai, `--fresh`, `--timeout`, `--dry-run`. Role không kết thúc `DONE` thì dừng chuỗi, các vai sau không chạy.
+- Session giữ theo **work item + role** (`.kfw.json.sessions`) nên vòng sửa resume đúng phiên và hai vai dùng chung một CLI không lẫn ngữ cảnh. `runs[]` ghi role, runner, vị trí trong chuỗi, exit code, `STATUS:` và usage khi CLI trả về.
+- `kf runs` liệt kê run kèm tiến độ chuỗi và đánh dấu `chain stopped i/n` khi một chuỗi đứt giữa chừng; `kf harness` in ba lớp và runner nào có CLI trên PATH; `kf status` in vai được gán; `kf view` gom `metrics.runs.byRole` và usage theo vai.
+- Preset runner cho claude, codex, devin (đã chạy thật ngày 2026-09-19), gemini, opencode; `kf init` seed sáu vai architect/researcher/writer/coder/tester/reviewer. Docs `docs/workflow/harness.md`.
+- **Stage `cancelled` và lệnh `kf cancel`.** Lối ra thứ hai cho work item: dừng hẳn với `--reason` bắt buộc, lưu `cancellation { at, by, reason, fromStage }` trong `.kfw.json`, mở lại bằng `kf stage <feature> <fromStage>`. Stage này nằm ngoài trục tuyến tính (`STAGE_INDEX = -1`) nên không bị đòi artifact, approval hay report; đổi lại thiếu lý do là `cancellation_missing`. Chặn khi còn worker run đang chạy, chạy hook `cancelled.sh`, liệt kê canonical docs của item đã archive và chỉ xoá khi `--purge-docs` kèm xác nhận. `kf view`/dashboard đếm riêng và loại cancelled khỏi mẫu số `completionRate`.
+- Vitest `globalSetup` build `dist/` trước khi test (test detach cần CLI thật).
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

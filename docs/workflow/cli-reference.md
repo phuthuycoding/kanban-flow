@@ -27,9 +27,13 @@ Binary chính là `kf`. Các lệnh tìm `.works/` từ thư mục hiện tại 
 | `kf validate --all [--strict] [--json]` | Validate toàn bộ feature. |
 | `kf approve <feature> [--by <name>]` | Human gate cho execution contract ở planning; lưu approver, thời điểm và contract hash. |
 | `kf stage <feature> <next-stage> [--force] [--skip-hooks]` | Thực hiện transition hợp lệ và chạy hook của state đích. Planning có thể vào `backlog` hoặc `implementation`; `dones` được chuyển qua archive. |
+| `kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]` | Dừng hẳn một work item và chuyển sang `.works/cancelled/`; lưu `cancellation { at, by, reason, fromStage }`. Chặn khi còn run đang chạy (trừ `--force`); item ở `dones` được liệt kê canonical docs, `--purge-docs` mới xoá (hỏi xác nhận trên TTY, non-TTY cần `--force`). Mở lại: `kf stage <feature> <fromStage>`. |
 | `kf archive <feature> [--force] [--skip-specs] [--skip-hooks]` | Archive từ review sang dones và cập nhật metadata; feature nhận canonical copies, bug giữ docs hiện có. |
 | `kf rules [--stack <id> ...] [--list] [--force]` | Copy stack best-practice review rules vào `.kf/review/rules/`; tự detect stacks (monorepo cài nhiều packs), `--list` xem packs, `--force` ghi đè khi file đã sửa. |
 | `kf autoconfig` | In ra stdout một briefing cho agent: project context, checklist config (done/missing kèm lệnh gợi ý), effective review rules và workflow guide — để agent tự config project. |
+| `kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <phút>] [--dry-run]` | Chạy tuần tự chuỗi role mà `harness.stages` gán cho stage hiện tại; ghi `runs[]` cho từng role, resume session theo work item + role; role nào không `DONE` thì dừng chuỗi; `--detach` trả về ngay và supervisor chạy nốt. Exit 1 khi chuỗi không hoàn tất. Xem [harness](harness.md). |
+| `kf runs [<feature>] [--json]` | Lịch sử worker run (role, runner, stage, mode, status, STATUS line), mới nhất trước. |
+| `kf harness [--json]` | Cấu hình harness hiệu lực: main role, stage → chuỗi role, role → runner (+ brief, output), runner nào có CLI trên PATH. |
 
 `--force` bỏ qua gate có chủ đích; khi archive lại work item trong `dones`, nó cũng cho phép ghi đè canonical docs đã được chỉnh sửa bằng snapshot archive. `--skip-hooks` bỏ qua hook phase đích; `--skip-specs` không chạm bất kỳ canonical doc nào khi archive. Khi `--force`/`--skip-hooks` thực sự bỏ qua gate hoặc hook, CLI ghi bản ghi vào `.kfw.json` (`bypasses[]`) và báo trong output; xem [gates](gates.md#force-và-recovery).
 

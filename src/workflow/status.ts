@@ -12,6 +12,7 @@ import {
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
 import { executionContractHash } from "./features.js";
+import type { HarnessConfig } from "../harness/config.js";
 
 export type ArtifactStatus = "done" | "missing" | "waiting";
 
@@ -36,6 +37,8 @@ export interface FeatureStatus {
   totalCount: number;
   next: ArtifactId | null;
   taskProgress: { done: number; total: number };
+  /** Roles assigned to the current stage, in run order; empty when the main role does it. */
+  assignedRoles: Array<{ role: string; runner: string }>;
 }
 
 function readArtifactContent(dir: string, file: string): string {
@@ -58,8 +61,14 @@ export function countTasks(content: string): { done: number; total: number } {
   return { done, total };
 }
 
+function assignedFor(feature: Feature, harness: HarnessConfig | undefined): Array<{ role: string; runner: string }> {
+  const chain = harness?.stages[feature.stage] ?? [];
+  if (chain.length === 1 && chain[0] === harness?.main) return [];
+  return chain.map((role) => ({ role, runner: harness?.roles[role]?.runner ?? "?" }));
+}
+
 /** Compute artifact completion status for a feature at its current stage. */
-export function computeStatus(feature: Feature): FeatureStatus {
+export function computeStatus(feature: Feature, harness?: HarnessConfig): FeatureStatus {
   const stageIndex = STAGE_INDEX[feature.stage];
   const artifacts: ArtifactState[] = [];
   let doneCount = 0;
@@ -111,6 +120,7 @@ export function computeStatus(feature: Feature): FeatureStatus {
     totalCount: artifacts.length,
     next,
     taskProgress,
+    assignedRoles: assignedFor(feature, harness),
   };
 }
 
@@ -130,6 +140,17 @@ export function renderStatusText(s: FeatureStatus): string {
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${b.to}`).join(", ")})`);
+  const cancellation = s.feature.meta?.cancellation;
+  if (cancellation) {
+    lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${cancellation.fromStage}) — ${cancellation.reason.split("\n")[0]}`);
+  }
+  if (s.assignedRoles.length > 0) lines.push(`Assigned: ${s.assignedRoles.map((a) => `${a.role} (${a.runner})`).join(" → ")} (kf run)`);
+  const runs = s.feature.meta?.runs ?? [];
+  if (runs.length > 0) {
+    const byRole = new Map<string, number>();
+    for (const r of runs) byRole.set(r.role, (byRole.get(r.role) ?? 0) + 1);
+    lines.push(`Runs: ${runs.length} (${[...byRole].map(([a, n]) => `${a}×${n}`).join(", ")})`);
+  }
   lines.push("");
 
   for (const a of s.artifacts) {
@@ -162,6 +183,9 @@ export function statusToJson(s: FeatureStatus) {
     approval: approvalState(s.feature),
     executionId: s.feature.meta?.executionId ?? null,
     bypasses: s.feature.meta?.bypasses ?? [],
+    cancellation: s.feature.meta?.cancellation ?? null,
+    assignedRoles: s.assignedRoles,
+    runs: s.feature.meta?.runs ?? [],
     artifacts: s.artifacts.map((a) => ({
       id: a.id,
       file: a.file,

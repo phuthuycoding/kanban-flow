@@ -25,6 +25,21 @@ function archivedDocument(raw: string): string {
   return applyFrontmatter(fm, body);
 }
 
+/** Canonical doc paths a feature owns, whether or not they exist on disk. */
+export function canonicalDocPaths(root: string, feature: Feature): string[] {
+  if (!feature.context || feature.meta?.kind === "bug") return [];
+  const base = join(root, "docs");
+  const { context, name } = { context: feature.context, name: feature.name };
+  const useCaseDir = join(base, "use-cases", context, name);
+  const files = [
+    join(base, "requirement", context, `${name}.md`),
+    join(base, "testplan", context, `${name}.md`),
+    join(base, "testplan", context, `${name}-result.md`),
+  ];
+  if (existsSync(useCaseDir)) files.push(useCaseDir);
+  return files.filter((p) => existsSync(p));
+}
+
 function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[] {
   if (!feature.context) return [];
   if (feature.meta?.kind === "bug") return [];
@@ -95,6 +110,9 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
   const f = findFeature(root.root, name);
   if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  if (f.stage === "cancelled") {
+    return { code: 1, stdout: `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${f.meta?.cancellation?.fromStage ?? "its stage"} first if you want to finish it.`, stderr: "cancelled" };
+  }
 
   // Only review → dones transition is archive-able. If already dones, refresh canonical docs idempotently.
   if (f.stage === "dones") {

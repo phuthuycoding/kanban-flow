@@ -6,6 +6,7 @@ export const STAGES = [
   "testing",
   "review",
   "dones",
+  "cancelled",
 ] as const;
 export type Stage = (typeof STAGES)[number];
 
@@ -126,6 +127,7 @@ export const STAGE_GATES: Record<Stage, ArtifactId[]> = {
   testing: ["testing-result"],
   review: ["review-report"],
   dones: [],
+  cancelled: [],
 };
 
 /**
@@ -141,6 +143,8 @@ export const TRANSITIONS: Record<Stage, Stage[]> = {
   testing: ["review", "implementation", "planning"],
   review: ["dones", "implementation", "planning"],
   dones: [],
+  // Entered through `kf cancel`, left only back to the stage it was cancelled from.
+  cancelled: [],
 };
 
 export const STAGE_INDEX: Record<Stage, number> = {
@@ -151,6 +155,9 @@ export const STAGE_INDEX: Record<Stage, number> = {
   testing: 4,
   review: 5,
   dones: 6,
+  /** Off the linear track on purpose: a negative index turns every "is this artifact due yet"
+   *  and "past planning" comparison false, so a cancelled item is never asked for anything. */
+  cancelled: -1,
 };
 
 /** Name used by `kf status` for the current phase. */
@@ -162,6 +169,7 @@ export const PHASE_NAMES: Record<Stage, string> = {
   testing: "Phase 4 — Testing",
   review: "Phase 5 — Review",
   dones: "Phase 6 — Artifact",
+  cancelled: "Cancelled — đã dừng, không tiếp tục",
 };
 
 export const METADATA_FILE = ".kfw.json";

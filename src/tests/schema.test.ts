@@ -22,6 +22,7 @@ describe("schema", () => {
       "testing",
       "review",
       "dones",
+      "cancelled",
     ]);
   });
 
@@ -66,11 +67,14 @@ describe("schema", () => {
     expect(TRANSITIONS.dones).toEqual([]);
   });
 
-  it("stage indexes are monotonic", () => {
-    const vals = STAGES.map((s) => STAGE_INDEX[s as Stage]);
+  it("stage indexes are monotonic along the pipeline, and cancelled sits off it", () => {
+    const pipeline = STAGES.filter((s) => s !== "cancelled");
+    const vals = pipeline.map((s) => STAGE_INDEX[s as Stage]);
     for (let i = 1; i < vals.length; i += 1) {
       expect(vals[i]).toBe(vals[i - 1] + 1);
     }
+    // Negative on purpose: it turns every "is this artifact due yet" comparison false.
+    expect(STAGE_INDEX.cancelled).toBe(-1);
   });
 });
 

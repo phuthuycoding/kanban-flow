@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
 import { detectStacks, writeProjectConfig, type ProjectConfig } from "./config.js";
+import { seedHarness } from "../harness/config.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "../integrations/agents.js";
 import { readProjectConfig } from "./config.js";
 
@@ -218,13 +219,15 @@ async function copyDirInto(src: string, dest: string): Promise<void> {
 
 /** Write .kf/config.json for this project. */
 export function saveConfig(root: string, a: BootstrapAnswers): void {
+  const existing = readProjectConfig(root);
   const cfg: ProjectConfig = {
     schema: "kanban-flow",
     defaultContext: a.defaultContext,
     stacks: a.stacks,
     reviewer: a.reviewer,
     agents: a.agents,
-    created: readProjectConfig(root).created ?? nowTimestamp(),
+    harness: existing.harness ?? seedHarness(a.agents),
+    created: existing.created ?? nowTimestamp(),
   };
   writeProjectConfig(root, cfg);
 }

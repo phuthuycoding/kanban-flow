@@ -9,6 +9,12 @@ Các hạng mục biết là còn mềm / muốn làm tiếp. Không theo thứ 
 
 ## P2 — Workflow gaps
 
+- [ ] **Bridge async giữa các agent.** Harness v1 chạy đồng bộ dưới main. Khi main không còn sống (Devin chạy cả giờ rồi mới báo lại) cần inbox file + đánh thức CLI bên kia theo session đã ghim (prototype bash `test-plan/bridge` bên moigo). Làm trên nền `harness.runners` + `sessions` đã có; chú ý hop limit chống lặp.
+- [ ] **`kf supersede <old> --by <new>`.** Liên kết hai work item thay thế nhau thay vì chỉ ghi lý do dạng chữ trong `kf cancel`; giúp truy ngược "ý tưởng này đã bị thay bằng cái gì".
+- [ ] **`kf run --task "<mô tả>" --out <file>`.** Việc ad-hoc ngoài 6 stage (ví dụ "khảo sát 3 thư viện rồi so sánh" trước khi plan). Cần thiết kế output path và cách ghi `runs[]` cho việc không thuộc stage nào.
+- [ ] **Harness: xác minh resume cho gemini/opencode.** gemini `-r` nhận `latest`/index, chưa rõ UUID; opencode `run -s <id>` có nhưng chưa biết cách lấy id. Có login thì thêm `resume` vào preset.
+- [ ] **Dùng harness thật trên một repo.** Bật `harness.stages` với hai vai khác model và chạy trọn một feature, để biết bảng role nên có những gì và chi phí thật ra sao.
+
 - [ ] **Locking cho concurrent agents.** File-based state chưa có lock — 2 agent cùng đụng 1 feature sẽ đạp nhau. Hiện single-flow nên chưa đau; khi nào có nhu cầu multi-agent thì làm `.kfw.lock` + stale-lock detection.
 - [ ] **Adversarial validation cho bug review** (ý tưởng từ ClaudeKit `adversarial-validation`): review bug report phải nêu reachable regressions + claims đã bị disprove — hiện bug flow nhẹ, chỉ check reproduction/regression scope.
 
@@ -25,6 +31,8 @@ Các hạng mục biết là còn mềm / muốn làm tiếp. Không theo thứ 
 - [ ] Docs/README đang trộn Việt-Anh — nếu plan public repo thì chọn 1 ngôn ngữ (gợi ý English cho README, giữ Việt trong docs/).
 
 ## Done / đã xong gần đây
+
+- [x] Multi-agent harness theo vai trò (2026-09-19): `stage → role → runner`, chuỗi role trong một stage, `kf run`/`runs`/`harness`, session theo work item + role, runs + usage, preset 5 CLI
 
 - [x] `workflow-hardening` (2026-09-19): autoconfig guide sinh từ parser, secret exemption theo value, bypass trail `--force`/`--skip-hooks`, `testing_exit_code`, CI (node 20/22) + typecheck test, tách `validate.ts`, `kf init` seed `AGENTS.md`, CHANGELOG + version 0.2.0
 
