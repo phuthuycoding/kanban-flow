@@ -62,7 +62,7 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const lines = [
     "kaban-flow analytics", "",
     `Total: ${m.total} (${m.features} features, ${m.bugs} bugs)`,
-    `Executing: ${m.executing}   Backlog: ${m.backlog}   Completed: ${m.completed}`,
+    `Executing: ${m.executing}   Backlog: ${m.backlog}   Completed: ${m.completed}   Bypassed: ${m.bypassed}`,
     `Completion rate: ${m.completionRate === null ? "N/A" : m.completionRate + "%"}`,
     `Executing tasks: ${m.tasks.done}/${m.tasks.total} (${m.tasks.completionRate === null ? "N/A" : m.tasks.completionRate + "%"})`,
     "", "By stage:",

@@ -45,7 +45,7 @@ async function makeFeature(name = "todo-list", stage: Stage = "brainstorm", ctx 
     await writeFile(join(dir, "use-cases", "UC-001.md"), "# UC-001\nreal content");
   }
   if (stage === "testing" || stage === "review" || stage === "dones") {
-    await writeFile(join(dir, "phase-4-testing-result.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Test\nreal content\nOverall: 85%");
+    await writeFile(join(dir, "phase-4-testing-result.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Test\nreal content\nOverall: 85%\n## Commands and Evidence\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |");
   }
   if (stage === "review" || stage === "dones") {
     await writeFile(join(dir, "phase-5-review-report.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Review\nreal content");

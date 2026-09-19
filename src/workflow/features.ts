@@ -12,6 +12,16 @@ export interface Approval {
   contractHash?: string;
 }
 
+/** One deliberate gate/hook bypass (`--force` / `--skip-hooks`), appended by the CLI and never removed by it. */
+export interface Bypass {
+  at: string;
+  from: Stage | null;
+  to: Stage;
+  flag: "force" | "skip-hooks";
+  /** Validation codes that were ignored, or `hook:<path>` for a skipped hook. */
+  codes: string[];
+}
+
 export interface FeatureMeta {
   schema: string;
   feature: string;
@@ -22,6 +32,7 @@ export interface FeatureMeta {
   approval?: Approval;
   executionId?: string;
   status?: "archived";
+  bypasses?: Bypass[];
 }
 
 export interface Feature {
@@ -69,12 +80,22 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
-      || (meta.approval.contractHash !== undefined && typeof meta.approval.contractHash !== "string")))) {
+      || (meta.approval.contractHash !== undefined && typeof meta.approval.contractHash !== "string")))
+    || (meta.bypasses !== undefined && (!Array.isArray(meta.bypasses) || !meta.bypasses.every(isBypass)))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");
   assertPathName(meta.context, "context");
   return meta;
+}
+
+function isBypass(value: unknown): value is Bypass {
+  if (!value || typeof value !== "object") return false;
+  const b = value as Partial<Bypass>;
+  return typeof b.at === "string" && (b.from === null || (typeof b.from === "string" && STAGES.includes(b.from)))
+    && typeof b.to === "string" && STAGES.includes(b.to)
+    && (b.flag === "force" || b.flag === "skip-hooks")
+    && Array.isArray(b.codes) && b.codes.every((c) => typeof c === "string");
 }
 
 export async function writeFeatureMeta(

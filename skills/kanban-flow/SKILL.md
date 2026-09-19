@@ -104,7 +104,7 @@ Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering 
 - Obtain requirement confirmation and planning approval; after approval continue within the approved scope.
 - After planning approval, explicitly ask whether to start implementation now or move to backlog. Never infer this choice.
 - Never `mv` feature folders manually — always `kf stage` / `kf archive`.
-- Never bypass a failed gate with `--force` unless the user explicitly approves.
+- Never bypass a failed gate with `--force` unless the user explicitly approves. Every real bypass (`--force` on a failing gate, `--skip-hooks` on an existing hook) is recorded in `.kfw.json` and reported by `kf status`/`kf validate`.
 - Always write `phase-4-testing-result.md` and `phase-5-review-report.md` — gates enforce it.
 - FAIL/REJECT loops back to implementation and re-testing before review. REQUIREMENT_BUG → STOP, never rewrite the requirement.
 - No scope creep beyond the approved plan.

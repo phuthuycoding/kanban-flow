@@ -32,7 +32,7 @@ export function renderDashboardHtml(): string {
   #root { font-size: 12px; overflow-wrap: anywhere; margin-top: 12px; }
   #error { background: #452028; color: #fecdd3; border: 1px solid #a94a5a; border-radius: 8px; padding: 12px; margin-bottom: 20px; }
   [hidden] { display: none !important; }
-  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
   .kpi, .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
   .kpi { padding: 18px; }
   .kpi-label { color: var(--muted); font-size: 12px; }
@@ -143,6 +143,7 @@ function render(data) {
     ['Đang thực thi', m.executing, 'Implementation · testing · review'],
     ['Backlog', m.backlog, 'Chờ quyết định bắt đầu'],
     ['Đã hoàn tất', m.completed, percent(m.completionRate) + ' tổng work item'],
+    ['Bypass gate', m.bypassed, 'Work item có --force / --skip-hooks'],
     ['Tiến độ task', percent(m.tasks.completionRate), m.tasks.done + '/' + m.tasks.total + ' task đã xong'],
   ];
   $('#kpis').innerHTML = kpis.map(([label, value, note]) => '<div class="kpi"><p class="kpi-label">'

@@ -44,7 +44,7 @@ Fill `phase-4-testing-result.md`, set frontmatter `status:` to exactly one of:
 - `REJECT` — feature does not meet acceptance criteria
 - `BLOCKED` — cannot test (env/tooling)
 
-Always write the report, including `execution:` from the current template. Include per-TC results, actual commands, evidence and coverage against the approved target. Keep status and conclusion consistent. Missing tooling, skipped required tests or unmeasured required coverage cannot count as PASS. Write outcomes here; keep phase-2-test-case.md unchanged.
+Always write the report, including `execution:` from the current template. Include per-TC results, actual commands, evidence and coverage against the approved target. In the "Commands and Evidence" table the Exit code column must be the real numeric exit code of each command you ran; `kf validate` rejects a `PASS` report that has no command row or any exit code other than `0` (`testing_exit_code`). Keep status and conclusion consistent. Missing tooling, skipped required tests or unmeasured required coverage cannot count as PASS. Write outcomes here; keep phase-2-test-case.md unchanged.
 
 ## 4. The directional gate decides
 

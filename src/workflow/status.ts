@@ -128,6 +128,8 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`${s.feature.meta?.kind === "bug" ? "Bug" : "Feature"}: ${s.feature.name} (${s.feature.context ?? "no-context"})`);
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
+  const bypasses = s.feature.meta?.bypasses ?? [];
+  if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${b.to}`).join(", ")})`);
   lines.push("");
 
   for (const a of s.artifacts) {
@@ -159,6 +161,7 @@ export function statusToJson(s: FeatureStatus) {
     stage: s.feature.stage,
     approval: approvalState(s.feature),
     executionId: s.feature.meta?.executionId ?? null,
+    bypasses: s.feature.meta?.bypasses ?? [],
     artifacts: s.artifacts.map((a) => ({
       id: a.id,
       file: a.file,

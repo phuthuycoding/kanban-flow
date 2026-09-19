@@ -19,6 +19,17 @@ src/
 │       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
 │       └── archive.ts    # closure and canonical docs sync
 ├── workflow/             # domain state, artifacts and validation
+│   ├── schema.ts         # stages, artifacts, transitions
+│   ├── features.ts       # .kfw.json metadata (approval, execution id, bypasses), feature listing
+│   ├── status.ts         # artifact checklist rendering
+│   ├── findings.ts       # Finding/ValidationResult types
+│   ├── secrets.ts        # secret-like content scan
+│   ├── validate-artifacts.ts     # due artifacts, stage gate, requirement confirmed
+│   ├── validate-approval.ts      # approval fingerprint, recorded bypasses
+│   ├── validate-reports.ts       # tasks.md, testing/review report semantics, exit codes
+│   ├── validate-traceability.ts  # FR → UC → TC references
+│   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
+│   └── validate.ts       # facade: composes the checks, renders results, re-exports
 ├── project/              # project config and bootstrap prompts
 ├── integrations/         # agents, skill installation and hooks
 ├── dashboard/            # analytics HTTP server and HTML view

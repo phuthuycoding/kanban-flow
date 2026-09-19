@@ -7,8 +7,8 @@ import { STAGES, TRANSITIONS, type Stage } from "../../workflow/schema.js";
 import { findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
 import { cmdArchive } from "./archive.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
-import { runHook, type HookResult } from "../../integrations/hooks.js";
-import { findRoot } from "./helpers.js";
+import { runHook, resolveHook, type HookResult, type HookSource } from "../../integrations/hooks.js";
+import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -45,32 +45,41 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   if (to === "dones") return cmdArchive({ ...args, command: "archive", positionals: [name] }, cwd);
 
   // Gate: feature must be valid for its CURRENT stage before leaving it.
+  const force = Boolean(args.options.force);
+  const forcedCodes: string[] = [];
   const check = to === "planning" && f.stage !== "brainstorm"
     ? validateFeature({ ...f, stage: "brainstorm" }, false, false)
     : validateFeature(f);
-  if (!check.valid && !(args.options.force as boolean)) {
-    return {
-      code: 1,
-      stdout: `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`,
-      stderr: "gate failed",
-    };
+  if (!check.valid) {
+    if (!force) {
+      return {
+        code: 1,
+        stdout: `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`,
+        stderr: "gate failed",
+      };
+    }
+    forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
   }
 
   // Directional gate: PASS/FAIL/REQUIREMENT_BUG semantics of the reports.
   const direction = checkDirectionGate(f, to);
-  if (direction.length > 0 && !(args.options.force as boolean)) {
-    const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-    return {
-      code: 1,
-      stdout: `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\nOr re-run with --force.`,
-      stderr: "direction gate failed",
-    };
+  if (direction.length > 0) {
+    if (!force) {
+      const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
+      return {
+        code: 1,
+        stdout: `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\nOr re-run with --force.`,
+        stderr: "direction gate failed",
+      };
+    }
+    forcedCodes.push(...direction.map((i) => i.code));
   }
 
   // Phase hook: run the hook of the stage we are entering (before the move).
   // If it exits non-zero the transition is refused, unless --skip-hooks.
   const skipHooks = Boolean(args.options["skip-hooks"]);
   let hookResult: HookResult | null = null;
+  const skippedHook: HookSource | null = skipHooks ? resolveHook(root.root, to) : null;
   if (!skipHooks) {
     hookResult = runHook(root.root, {
       feature: f.name,
@@ -97,13 +106,18 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     return { code: 1, stdout: `Target already exists: ${target}`, stderr: "target exists" };
   }
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
+  const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
   let metadataUpdated = false;
   try {
+    const meta = recorded.length > 0 ? { ...f.meta, bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : f.meta;
     if (to === "planning") {
-      await writeFeatureMeta(f.dir, { ...f.meta, approval: { status: "pending" }, executionId: undefined });
+      await writeFeatureMeta(f.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
       metadataUpdated = true;
     } else if (to === "testing" || to === "implementation") {
-      await writeFeatureMeta(f.dir, { ...f.meta, executionId: to === "testing" ? randomUUID() : undefined });
+      await writeFeatureMeta(f.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
+      metadataUpdated = true;
+    } else if (recorded.length > 0) {
+      await writeFeatureMeta(f.dir, meta);
       metadataUpdated = true;
     }
     await rename(f.dir, target);
@@ -120,6 +134,6 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
   return {
     code: 0,
-    stdout: `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${hookNote}`,
+    stdout: `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${hookNote}${bypassNote(recorded)}`,
   };
 }

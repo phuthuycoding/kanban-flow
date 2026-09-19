@@ -228,3 +228,55 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
   };
   writeProjectConfig(root, cfg);
 }
+
+const AGENT_SCRIPTS: Array<[string, string]> = [["Install", "ci"], ["Build", "build"], ["Typecheck", "typecheck"], ["Lint", "lint"], ["Test", "test"]];
+
+function nodeCommandRows(root: string): string[] {
+  const manifest = join(root, "package.json");
+  if (!existsSync(manifest)) return [];
+  let pkg: { scripts?: Record<string, string> };
+  try {
+    pkg = JSON.parse(readFileSync(manifest, "utf8")) as { scripts?: Record<string, string> };
+  } catch (err) {
+    if (err instanceof SyntaxError) throw new Error(`Invalid JSON in ${manifest}`, { cause: err });
+    throw err;
+  }
+  const scripts = pkg.scripts ?? {};
+  return AGENT_SCRIPTS
+    .filter(([, script]) => script === "ci" || script in scripts)
+    .map(([label, script]) => `| ${label} | \`${script === "ci" ? (existsSync(join(root, "package-lock.json")) ? "npm ci" : "npm install") : script === "test" ? "npm test" : `npm run ${script}`}\` |`);
+}
+
+/**
+ * Seed AGENTS.md at the project root so agents know the commands and the
+ * kaban-flow conventions. Never overwrites an existing AGENTS.md or CLAUDE.md.
+ */
+export function seedAgentsFile(root: string, stacks: string[]): "created" | "kept" {
+  if (existsSync(join(root, "AGENTS.md")) || existsSync(join(root, "CLAUDE.md"))) return "kept";
+  const rows = stacks.includes("node") ? nodeCommandRows(root) : [];
+  const commands = rows.length > 0
+    ? rows.join("\n")
+    : "| Build | `TODO: fill in` |\n| Test | `TODO: fill in` |\n| Lint | `TODO: fill in` |";
+  const content = `# AGENTS.md
+
+Conventions for AI coding agents working in this repository. Seeded by \`kf init\`; edit freely.
+
+## Commands
+
+| Task | Command |
+|---|---|
+${commands}
+
+Detect anything else by reading the repository, never by guessing.
+
+## Workflow (kaban-flow)
+
+- Start a feature with one command: \`kanban <context> <feature>\` (bug: \`kanban <context> <name> --type bug\`).
+- Only two human gates: confirm the requirement (Phase 1) and approve the plan + choose start-now vs backlog (Phase 2). Do not ask "continue?" between other phases.
+- Work item state lives in \`.works/\`; move items only with \`kf stage\` / \`kf archive\`, never by moving folders.
+- Never use \`--force\` or \`--skip-hooks\` without explicit user approval; every bypass is recorded in the work item's metadata.
+- Run \`kf autoconfig\` for the setup checklist and the review rules to apply as coding conventions.
+`;
+  writeFileSync(join(root, "AGENTS.md"), content, "utf8");
+  return "created";
+}
