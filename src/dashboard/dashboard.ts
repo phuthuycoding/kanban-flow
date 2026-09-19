@@ -35,7 +35,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
       const stageFeatures = features
         .filter((f) => f.stage === stage)
         .map((f) => {
-          const st = computeStatus(f);
+          const st = computeStatus(f, config.harness);
           return {
             name: st.feature.name,
             kind: st.feature.meta?.kind ?? "feature",
@@ -58,6 +58,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
             taskProgress: st.taskProgress,
             approval: approvalState(f),
             bypasses: f.meta?.bypasses?.length ?? 0,
+            runs: f.meta?.runs ?? [],
             text: renderStatusText(st),
           };
         });
@@ -71,6 +72,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
   const items = snapshot.stages.flatMap((stage) => stage.features);
   const executing = items.filter((item) => ["implementation", "testing", "review"].includes(item.stage));
   const completed = items.filter((item) => item.stage === "dones").length;
+  const cancelled = items.filter((item) => item.stage === "cancelled").length;
   const approvals = items.filter((item) => item.stage !== "brainstorm" && item.stage !== "dones");
   const taskDone = executing.reduce((sum, item) => sum + item.taskProgress.done, 0);
   const taskTotal = executing.reduce((sum, item) => sum + item.taskProgress.total, 0);
@@ -88,8 +90,11 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
       executing: executing.length,
       backlog: items.filter((item) => item.stage === "backlog").length,
       completed,
-      completionRate: percentage(completed, items.length),
+      cancelled,
+      // Dropped work must not drag the rate down, or nobody will admit to dropping anything.
+      completionRate: percentage(completed, items.length - cancelled),
       bypassed: items.filter((item) => item.bypasses > 0).length,
+      runs: runMetrics(items.flatMap((item) => item.runs)),
       tasks: {
         done: taskDone,
         total: taskTotal,
@@ -123,6 +128,24 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
       })),
     },
   };
+}
+
+function runMetrics(runs: Array<{ role: string; status: string; usage?: { input: number; output: number; costUsd?: number } }>) {
+  const byRole: Record<string, { runs: number; done: number; failed: number }> = {};
+  const usage: Record<string, { input: number; output: number; costUsd: number }> = {};
+  for (const r of runs) {
+    const a = (byRole[r.role] ??= { runs: 0, done: 0, failed: 0 });
+    a.runs += 1;
+    if (r.status === "done") a.done += 1;
+    if (r.status === "failed" || r.status === "timeout" || r.status === "reset") a.failed += 1;
+    if (r.usage) {
+      const u = (usage[r.role] ??= { input: 0, output: 0, costUsd: 0 });
+      u.input += r.usage.input;
+      u.output += r.usage.output;
+      u.costUsd += r.usage.costUsd ?? 0;
+    }
+  }
+  return { byRole, usage };
 }
 
 function json(res: ServerResponse, code: number, body: unknown): void {

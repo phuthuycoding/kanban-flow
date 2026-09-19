@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 
 import { findWorksRoot } from "../../workflow/features.js";
 import { commandHelp } from "../args.js";
-import { readProjectConfig, detectStacks, configPath, projectKabanDir } from "../../project/config.js";
+import { readProjectConfig, detectStacks, configPath, projectKabanDir, type ProjectConfig } from "../../project/config.js";
 import { AGENTS, DEFAULT_AGENT, projectSkillsDir, type AgentId } from "../../integrations/agents.js";
 import { MANAGED_SKILLS } from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
@@ -21,7 +21,7 @@ function installedAgents(root: string): AgentId[] {
   return AGENTS.filter((a) => has(projectSkillsDir(a, root))).map((a) => a.id);
 }
 
-function checklist(root: string, stacks: string[], agents: AgentId[]): CheckItem[] {
+function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Partial<ProjectConfig>): CheckItem[] {
   const items: CheckItem[] = [];
   const kf = projectKabanDir(root);
 
@@ -73,6 +73,13 @@ function checklist(root: string, stacks: string[], agents: AgentId[]): CheckItem
     action: "create AGENTS.md documenting the commands and conventions below",
   });
 
+  const assigned = Object.keys(cfg.harness?.stages ?? {}).length;
+  items.push({
+    done: cfg.harness !== undefined,
+    label: cfg.harness ? `Multi-agent harness: main ${cfg.harness.main}, ${assigned} stage${assigned === 1 ? "" : "s"} assigned (kf harness)` : "Multi-agent harness (harness block in .kf/config.json)",
+    action: cfg.harness ? undefined : "kf init --defaults (seeds runner presets)",
+  });
+
   const hooksDir = join(kf, "hooks");
   const hooks = existsSync(hooksDir) ? readdirSync(hooksDir).filter((f) => f !== ".gitkeep").length : 0;
   items.push({
@@ -102,7 +109,7 @@ function effectiveRules(cwd: string): Array<{ name: string; path: string; source
 }
 
 /** Commands an agent drives the pipeline with, in the order they are used. */
-export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "archive", "rules", "install"] as const;
+export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "run", "runs", "harness", "archive", "rules", "install"] as const;
 
 /** The guide is generated from the registered help strings so it can never drift from the parser. */
 export function workflowGuide(): string {
@@ -152,7 +159,7 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
     `- Skills installed (project scope): [${skills.join(", ") || "none"}]`,
   ].join("\n");
 
-  const items = checklist(root, stacks, agents);
+  const items = checklist(root, stacks, agents, cfg);
   const check = [
     "## Setup checklist",
     "",

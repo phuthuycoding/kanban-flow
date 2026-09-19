@@ -9,6 +9,8 @@ Argument: `<feature_name>`.
 
 Stand on quality, not survivor. Load layered review rules, audit the changes, and write a report whose `status:` is the truth `kf` trusts.
 
+**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, do not commit, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition.
+
 ---
 
 ## 1. Move to review

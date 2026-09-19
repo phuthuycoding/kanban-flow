@@ -9,6 +9,8 @@ Argument: `<feature_name>`.
 
 Prove the feature against the plan's test cases. The report's `status:` IS the decision — `kf stage` reads it and blocks the wrong direction.
 
+**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, do not commit, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition.
+
 ---
 
 ## 1. Move to testing

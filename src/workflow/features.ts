@@ -22,6 +22,43 @@ export interface Bypass {
   codes: string[];
 }
 
+/** Why a work item was stopped for good, and where it stood when that happened. */
+export interface Cancellation {
+  at: string;
+  by: string;
+  reason: string;
+  fromStage: Stage;
+}
+
+export type RunStatus = "running" | "done" | "failed" | "timeout" | "reset";
+
+/** One `kf run` invocation of a worker agent for a stage; appended by the CLI, updated when the worker exits. */
+export interface RunRecord {
+  id: string;
+  /** Job in the workflow (writer, coder…); also the session key for this work item. */
+  role: string;
+  /** Runner that actually executed the role, kept so a role can change model later. */
+  runner: string;
+  stage: Stage;
+  mode: "start" | "resume";
+  session?: string;
+  at: string;
+  /** Log path relative to the feature dir so it moves with the folder. */
+  log: string;
+  /** Position in the stage's role chain, so a chain that stopped early is visible. */
+  chain?: { id: string; index: number; total: number };
+  status: RunStatus;
+  exitCode?: number;
+  pid?: number;
+  supervisorPid?: number;
+  endedAt?: string;
+  statusLine?: string | null;
+  summary?: string;
+  warning?: string;
+  error?: string;
+  usage?: { input: number; output: number; costUsd?: number };
+}
+
 export interface FeatureMeta {
   schema: string;
   feature: string;
@@ -31,8 +68,12 @@ export interface FeatureMeta {
   goal?: string;
   approval?: Approval;
   executionId?: string;
-  status?: "archived";
+  status?: "archived" | "cancelled";
+  cancellation?: Cancellation;
   bypasses?: Bypass[];
+  /** Worker session per role, scoped to this work item. */
+  sessions?: Record<string, string>;
+  runs?: RunRecord[];
 }
 
 export interface Feature {
@@ -81,7 +122,12 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
       || (meta.approval.contractHash !== undefined && typeof meta.approval.contractHash !== "string")))
-    || (meta.bypasses !== undefined && (!Array.isArray(meta.bypasses) || !meta.bypasses.every(isBypass)))) {
+    || (meta.bypasses !== undefined && (!Array.isArray(meta.bypasses) || !meta.bypasses.every(isBypass)))
+    || (meta.sessions !== undefined && (!meta.sessions || typeof meta.sessions !== "object" || Array.isArray(meta.sessions)
+      || !Object.values(meta.sessions).every((s) => typeof s === "string")))
+    || (meta.runs !== undefined && (!Array.isArray(meta.runs) || !meta.runs.every(isRunRecord)))
+    || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
+    || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");
@@ -96,6 +142,26 @@ function isBypass(value: unknown): value is Bypass {
     && typeof b.to === "string" && STAGES.includes(b.to)
     && (b.flag === "force" || b.flag === "skip-hooks")
     && Array.isArray(b.codes) && b.codes.every((c) => typeof c === "string");
+}
+
+function isCancellation(value: unknown): value is Cancellation {
+  if (!value || typeof value !== "object") return false;
+  const c = value as Partial<Cancellation>;
+  return typeof c.at === "string" && typeof c.by === "string" && typeof c.reason === "string"
+    && typeof c.fromStage === "string" && STAGES.includes(c.fromStage);
+}
+
+const RUN_STATUSES = ["running", "done", "failed", "timeout", "reset"];
+
+function isRunRecord(value: unknown): value is RunRecord {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Partial<RunRecord>;
+  if (r.chain !== undefined && (typeof r.chain !== "object" || r.chain === null
+    || typeof r.chain.id !== "string" || typeof r.chain.index !== "number" || typeof r.chain.total !== "number")) return false;
+  return typeof r.id === "string" && typeof r.role === "string" && typeof r.runner === "string"
+    && typeof r.stage === "string" && STAGES.includes(r.stage)
+    && (r.mode === "start" || r.mode === "resume") && typeof r.at === "string" && typeof r.log === "string"
+    && typeof r.status === "string" && RUN_STATUSES.includes(r.status);
 }
 
 export async function writeFeatureMeta(

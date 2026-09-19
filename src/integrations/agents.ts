@@ -73,6 +73,12 @@ export function parseAgentIds(raw: unknown): AgentId[] {
   return [...seen];
 }
 
+/** Skills dir for any agent name: the adapter's dir when known, else the open `.agents/skills` standard. */
+export function skillsDirFor(name: string, root: string): string {
+  const adapter = agentById(name);
+  return join(root, adapter ? adapter.projectRel : ".agents/skills");
+}
+
 export function agentLabel(id: string): string {
   return agentById(id)?.label ?? id;
 }

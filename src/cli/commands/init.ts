@@ -2,7 +2,9 @@ import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
-import { readProjectConfig, detectStacks } from "../../project/config.js";
+import { readProjectConfig, detectStacks, writeProjectConfig } from "../../project/config.js";
+import { seedHarness } from "../../harness/config.js";
+import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
 import { installProjectSkills } from "../../integrations/install.js";
 import { bootstrapDefaults, onboardAnswers, seedOverrides, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
@@ -25,6 +27,10 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const cfg = readProjectConfig(target);
   const ctx = typeof args.options.context === "string" ? args.options.context : cfg.defaultContext ?? "app";
   ensureWorksStructure(target);
+  if (!cfg.harness) {
+    await mkdir(join(target, ".kf"), { recursive: true });
+    writeProjectConfig(target, { ...cfg, schema: "kanban-flow", created: cfg.created ?? nowTimestamp(), harness: seedHarness(agents.length ? agents : parseAgentIds(cfg.agents)) });
+  }
   await mkdir(join(target, ".kf", "templates"), { recursive: true });
   await mkdir(join(target, ".kf", "hooks"), { recursive: true });
   await mkdir(join(target, ".kf", "review", "rules"), { recursive: true });

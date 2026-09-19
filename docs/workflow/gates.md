@@ -63,6 +63,14 @@ Report testing `status: PASS` còn phải có bảng dưới heading `## Command
 
 Approval Phase 2 là fingerprint SHA-256 của requirement, 4 planning artifact và mọi file `use-cases/UC-###.md` với feature; bug fingerprint chỉ dựa trên bug report. Sau khi approval, sửa nội dung contract sẽ yêu cầu quay lại planning, hoàn thiện lại và approve lại.
 
+## Cancelled
+
+`cancelled` là stage duy nhất **không có gate artifact**: `STAGE_INDEX` của nó là `-1` nên mọi so sánh "artifact này đã tới hạn chưa" và "đã qua planning chưa" đều sai, kéo theo validator bỏ qua artifact, approval, traceability và report semantics. Đổi lại nó có đúng một yêu cầu riêng: `cancellation.reason` không được rỗng, thiếu là `cancellation_missing`.
+
+`kf cancel` chạy hook `cancelled.sh` như mọi transition khác, chặn khi còn worker run đang chạy (trừ `--force`), và với item đang ở `dones` thì **liệt kê** canonical docs chứ không xoá; `--purge-docs` mới xoá và vẫn hỏi xác nhận trên TTY. Việc xoá docs chỉ chạy **sau khi** work item đã chuyển sang `.works/cancelled/` thành công, để một lỗi ở bước chuyển không làm mất tài liệu. Item đã cancelled không archive được.
+
+Số liệu: cancelled bị loại khỏi mẫu số của `completionRate` để việc đánh dấu bỏ không làm xấu tỷ lệ, và `kf runs` không liệt kê run của item đã bỏ trừ khi gọi đích danh `kf runs <feature>` (giống item ở `dones`).
+
 ## Force và recovery
 
 `--force` chỉ là escape hatch có chủ đích để bỏ qua validation/directional gate. Không nên dùng cho luồng bình thường; khi dùng phải ghi rõ lý do trong review hoặc feature report.

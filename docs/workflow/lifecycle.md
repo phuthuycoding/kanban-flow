@@ -53,6 +53,8 @@ flowchart TD
     AE --> AF([dones: archive hoàn tất])
 ```
 
+Ngoài luồng trên còn một lối ra thứ hai: `kf cancel <feature> --reason "<why>"` dừng hẳn một work item ở bất kỳ stage nào (kể cả `dones` khi nó bị thay thế). Lý do là bắt buộc và được lưu trong `.kfw.json` cùng stage lúc bị dừng, nên mở lại bằng `kf stage <feature> <stage đó>`. Đây là quyết định của người dùng: agent chỉ đề xuất khi gặp `REQUIREMENT_BUG` hoặc scope chết.
+
 Phase 1, approval Phase 2 và quyết định start/backlog là các điểm cần người dùng quyết định. Feature tạo đủ bốn planning artifact; bug chỉ dùng bug report làm triage contract và không tạo use case/test-plan của feature. Nếu phát sinh hành vi mới ngoài fix scope, báo người dùng quyết định trước khi lập feature riêng. Sau khi chọn start, agent tự chạy trong execution contract. Hai ngoại lệ vẫn cần người dùng: `REQUIREMENT_BUG` và thay đổi scope.
 
 ## Sequence khi bắt đầu feature

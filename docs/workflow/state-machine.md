@@ -17,6 +17,15 @@ stateDiagram-v2
     review --> implementation: review FAIL/REJECT
     review --> planning: scope change
     dones --> [*]
+    brainstorm --> cancelled: kf cancel --reason
+    planning --> cancelled: kf cancel --reason
+    backlog --> cancelled: kf cancel --reason
+    implementation --> cancelled: kf cancel --reason
+    testing --> cancelled: kf cancel --reason
+    review --> cancelled: kf cancel --reason
+    dones --> cancelled: kf cancel --reason
+    cancelled --> brainstorm: reopen at cancellation.fromStage
+    cancelled --> [*]
 
     state testing {
         [*] --> execution
@@ -38,7 +47,8 @@ stateDiagram-v2
 | `implementation` | Agent thực thi theo contract đã duyệt | `testing`, `planning` |
 | `testing` | Chạy test theo test case và ghi kết quả | `review`, `implementation`, `planning` |
 | `review` | Review code, scope, architecture và ghi báo cáo | `dones`, `implementation`, `planning` |
-| `dones` | Đã archive, trạng thái terminal | Không có |
+| `dones` | Đã archive, trạng thái terminal | `cancelled` (qua `kf cancel`) |
+| `cancelled` | Đã dừng hẳn, không tiếp tục; nằm ngoài trục tuyến tính nên không bị đòi artifact nào | Chỉ quay về đúng `cancellation.fromStage` |
 
 CLI chỉ cho phép các cạnh trên. Không di chuyển thư mục `.works/` thủ công.
 
@@ -49,6 +59,7 @@ CLI chỉ cho phép các cạnh trên. Không di chuyển thư mục `.works/` t
 - Mỗi lần vào `testing` tạo `executionId` mới. `phase-4-testing-result.md` và `phase-5-review-report.md` phải chứa đúng ID hiện tại.
 - `FAIL`/`REJECT` quay về `implementation`. `BLOCKED` dừng luồng. `REQUIREMENT_BUG` là stop condition ở review; không được tự rewrite requirement hoặc tự chuyển state.
 - Chỉ review `PASS` và testing/review đúng execution mới được vào `dones`; feature cần thêm `phase-6-feature-report.md`, bug không cần file này.
+- Vào `cancelled` chỉ qua `kf cancel` và bắt buộc có `--reason`; ra khỏi `cancelled` chỉ về đúng stage đã bị dừng (`cancellation.fromStage`), lúc đó `cancellation` và `status` được xoá khỏi metadata. `kf archive` từ chối item đã cancelled.
 
 Metadata tối thiểu có dạng:
 

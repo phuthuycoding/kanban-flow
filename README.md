@@ -69,6 +69,7 @@ kf approve {feature}                    # Phase 2 HITL gate: chốt execution co
 kf stage {feature} {phase}              # move theo graph: forward + FAIL loop back
 kf validate --all                       # lỗi gì đang chặn gate / traceability lỏng
 kf archive {feature}                    # review(PASS) → dones + copy canonical docs
+kf cancel {feature} --reason "<why>"    # dừng hẳn một work item, giữ lý do; --purge-docs để xoá canonical docs
 kf rules [--stack {id}] [--list] [--force] # copy stack review rules vào .kf/review/rules (auto-detect)
 kf autoconfig                          # in briefing cho agent: context + checklist config + rules + workflow guide
 kf dashboard                           # KPI + charts, filter context/feature/bug (mặc định :8787, đổi bằng --port)
@@ -87,6 +88,7 @@ Không bao giờ `mv` folder thủ công — gate + hook sẽ chạy theo mỗi 
 | 4. Testing | `phase-4-testing-result.md` — chỉ `PASS` được vào Review |
 | 5. Review | `phase-5-review-report.md` — chỉ `PASS` được archive; `REQUIREMENT_BUG` → STOP feature |
 | 6. Closure | Feature: viết `phase-6-feature-report.md`, CLI copy canonical docs khi archive. Bug: update docs liên quan nếu cần rồi archive |
+| Cancelled | Lối ra thứ hai: `kf cancel {feature} --reason "<why>"` dừng hẳn, lưu lý do và stage cũ; mở lại bằng `kf stage {feature} {stage cũ}`. Không bị đòi artifact, không tính vào tỷ lệ hoàn tất |
 
 `kf stage` kiểm tra artifact tồn tại, có nội dung, không còn placeholder và không chứa secret thật (Bearer token, API key, private key — placeholder như `{key}`/`changeme` không bị flag, nhưng chữ `example` trong comment cùng dòng không cứu được một token thật); directional gate chặn tiến khi report chưa PASS. Report testing `PASS` phải có bảng Commands and Evidence với ít nhất một lệnh và mọi exit code bằng `0`. Mỗi lần `--force`/`--skip-hooks` thực sự bỏ qua gate hoặc hook đều được ghi vào `.kfw.json` (`bypasses[]`), `kf validate` cảnh báo `gate_bypassed`, `kf status`/`kf view`/dashboard hiển thị — đây là truy vết, không phải bảo đảm. Với feature, `kf validate` yêu cầu file UC riêng và từng section `## TC-XXX` tham chiếu FR có trong requirement và UC có file tương ứng. Agent kiểm tra tổng số và coverage trong bảng test plan. Bug chỉ cần bug report, testing result và review result; không bị ép tạo planning artifact của feature. Tasks chưa hoàn thành cũng chặn tiến.
 
@@ -120,6 +122,29 @@ echo "planning entry: ${KFW_FEATURE} -> ${KFW_TO_STAGE}"
 Env bơm vào hook: `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_APPROVAL`. Hook exit non-zero → **transition bị chặn** (bỏ qua bằng `--skip-hooks`).
 
 Hook `.sh` chạy qua `bash` (`.js`/`.mjs`/`.cjs` qua `node`). Trên Windows cần WSL hoặc Git Bash có `bash` trên PATH; không có `bash` thì hook `.sh` fail và transition bị chặn.
+
+## Multi-agent harness
+
+Điều phối theo **vai trò**, không theo tên hãng: `stage → role → runner`. Mỗi model mạnh một kiểu (chiều rộng khảo sát, văn phong, code, review), nên stage gán cho role và role trỏ tới runner (CLI + model + quyền). Đổi model chỉ sửa một dòng ở lớp role, stage giữ nguyên.
+
+```json
+"harness": {
+  "main": "architect",
+  "roles": { "researcher": "codex", "writer": "gemini", "coder": "claude-opus", "tester": "devin" },
+  "stages": { "brainstorm": ["researcher", "writer"], "implementation": "coder", "testing": "tester" },
+  "runners": { "codex": { "start": ["codex", "exec", "--json", "{prompt}"], ... } }
+}
+```
+
+Một stage chạy được **chuỗi role** tuần tự (khảo sát rồi mới viết); kết quả bước trước truyền qua file `output` trên đĩa. Role nào không kết thúc `DONE` thì dừng chuỗi, role sau không chạy. Session giữ **theo work item + role** để vòng sửa resume đúng phiên, hai role dùng chung một CLI vẫn không lẫn ngữ cảnh.
+
+```text
+kf harness                     # main role, stage → chuỗi role, role → runner, runner nào có CLI trên PATH
+kf run {feature} [--detach]    # chạy chuỗi role của stage hiện tại; --detach cho step dài, poll bằng kf runs
+kf runs [{feature}] [--json]   # lịch sử run kèm role và runner, STATUS line, usage
+```
+
+Preset runner cho claude, codex, devin (đã chạy thật), gemini, opencode; thêm model mới bằng một entry JSON. Không gán stage nào thì hành vi như cũ. Chi tiết, chi phí token và lưu ý điều khoản: [docs/workflow/harness.md](docs/workflow/harness.md).
 
 ## Review rules
 

@@ -33,8 +33,19 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     return { code: 1, stdout: `Feature '${name}' is already archived (dones).`, stderr: "already dones" };
   }
 
+  // A cancelled item has exactly one way back: the stage it was cancelled from.
+  if (f.stage === "cancelled") {
+    const from = f.meta?.cancellation?.fromStage;
+    if (!from) {
+      return { code: 1, stdout: `'${name}' is cancelled but its metadata has no fromStage, so kf cannot tell where it belongs. Re-run with --force to place it anywhere.`, stderr: "cancellation missing" };
+    }
+    if (to !== from && !(args.options.force as boolean)) {
+      return { code: 1, stdout: `Cancelled '${name}' can only be reopened at ${from} (where it was cancelled). Run: kf stage ${name} ${from}`, stderr: "wrong reopen stage" };
+    }
+  }
+
   const allowed = TRANSITIONS[f.stage];
-  if (!allowed.includes(to)) {
+  if (f.stage !== "cancelled" && !allowed.includes(to)) {
     const desc = allowed.join(", ");
     return {
       code: 1,
@@ -109,14 +120,15 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
   let metadataUpdated = false;
   try {
-    const meta = recorded.length > 0 ? { ...f.meta, bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : f.meta;
+    let meta = recorded.length > 0 ? { ...f.meta, bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : f.meta;
+    if (f.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: undefined };
     if (to === "planning") {
       await writeFeatureMeta(f.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
       metadataUpdated = true;
     } else if (to === "testing" || to === "implementation") {
       await writeFeatureMeta(f.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
       metadataUpdated = true;
-    } else if (recorded.length > 0) {
+    } else if (recorded.length > 0 || f.stage === "cancelled") {
       await writeFeatureMeta(f.dir, meta);
       metadataUpdated = true;
     }

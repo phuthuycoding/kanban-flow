@@ -5,6 +5,7 @@ import { findFeature, listFeatures } from "../../workflow/features.js";
 import { computeStatus, renderStatusText, statusToJson } from "../../workflow/status.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
+import { readProjectConfig } from "../../project/config.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -62,9 +63,12 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const lines = [
     "kaban-flow analytics", "",
     `Total: ${m.total} (${m.features} features, ${m.bugs} bugs)`,
-    `Executing: ${m.executing}   Backlog: ${m.backlog}   Completed: ${m.completed}   Bypassed: ${m.bypassed}`,
-    `Completion rate: ${m.completionRate === null ? "N/A" : m.completionRate + "%"}`,
+    `Executing: ${m.executing}   Backlog: ${m.backlog}   Completed: ${m.completed}   Cancelled: ${m.cancelled}   Bypassed: ${m.bypassed}`,
+    `Completion rate: ${m.completionRate === null ? "N/A" : m.completionRate + "%"} (cancelled work excluded)`,
     `Executing tasks: ${m.tasks.done}/${m.tasks.total} (${m.tasks.completionRate === null ? "N/A" : m.tasks.completionRate + "%"})`,
+    ...(Object.keys(m.runs.byRole).length > 0
+      ? ["", "Worker runs by role:", ...Object.entries(m.runs.byRole).map(([role, r]) => `  ${role.padEnd(12)} ${r.runs} runs (${r.done} done, ${r.failed} failed)${m.runs.usage[role] ? `  ${m.runs.usage[role].input} in / ${m.runs.usage[role].output} out` : ""}`)]
+      : []),
     "", "By stage:",
     ...data.charts.byStage.map((row) => `  ${row.id.padEnd(14)} ${row.count} (${row.features} features, ${row.bugs} bugs)`),
     "", "By context:",
@@ -93,7 +97,8 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (change && features.length === 0) {
     return { code: 1, stdout: `Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
   }
-  const statuses = features.map((f) => computeStatus(f));
+  const harness = readProjectConfig(root.root).harness;
+  const statuses = features.map((f) => computeStatus(f, harness));
   if (json) {
     return {
       code: 0,
