@@ -1,0 +1,12 @@
+{
+  "schema": "kanban-flow",
+  "defaultContext": "app",
+  "stacks": [
+    "node"
+  ],
+  "reviewer": "Quyền",
+  "agents": [
+    "claude"
+  ],
+  "created": "20260919_1205"
+}
