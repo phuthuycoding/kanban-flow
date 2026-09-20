@@ -34,7 +34,7 @@ export interface HookResult {
 
 /**
  * Resolve a per-phase hook script. Precedence: project → user → package.
- * Hook file layout: {kaban-dir}/hooks/{phase}.sh
+ * Hook file layout: {kanban-dir}/hooks/{phase}.sh
  */
 export function resolveHook(
   cwd: string,

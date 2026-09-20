@@ -1,33 +1,33 @@
-# Dashboard số liệu và chart
+# Dashboard metrics and charts
 
-Chạy `kf dashboard` rồi mở `http://localhost:8787`. Đổi cổng bằng `--port`. Dashboard tự làm mới mỗi 5 giây, có nút làm mới thủ công và bộ lọc context/feature/bug.
+Run `kf dashboard` and open `http://localhost:8787`. Change the port with `--port`. The dashboard refreshes every 5 seconds, has a manual refresh button and filters by context and by work item kind.
 
 ## KPI
 
-| Số liệu | Cách tính |
+| Metric | How it is computed |
 |---|---|
-| Tổng work item | Toàn bộ feature/bug khớp bộ lọc, gồm `dones` |
-| Đang thực thi | Item ở `implementation`, `testing`, `review` |
-| Backlog | Item ở `backlog` |
-| Đã hoàn tất | Item ở `dones`; tỷ lệ = số dones / tổng item |
-| Tiến độ task | Tổng checkbox hoàn tất / tổng checkbox của item đang thực thi |
+| Work items | Every feature and bug matching the filter, `dones` included |
+| In execution | Items in `implementation`, `testing` or `review` |
+| Backlog | Items in `backlog` |
+| Completed | Items in `dones`; the rate is dones divided by total items |
+| Task progress | Completed checkboxes divided by all checkboxes across the items in execution |
 
-Khi không có item hoặc task để tính tỷ lệ, hiển thị `—`. Item đang thực thi chưa có checkbox task được đếm riêng; không bị mặc định thành đã xong. Tiến độ task không phải test pass rate hay code coverage.
+With no items or no tasks to divide by, the figure shows as `—`. An item in execution with no task checkboxes is counted separately and never defaults to done. Task progress is not a test pass rate and not code coverage.
 
-## Biểu đồ
+## Charts
 
-- Bar chart theo stage: tổng item và phân chia feature/bug ở mỗi trạng thái.
-- Donut feature/bug: tỷ trọng loại work item theo bộ lọc.
-- Bar chart theo context: khối lượng item giữa các context, xếp giảm dần theo tổng số.
-- Bar chart approval: pending/approved/changed của item từ planning đến review, gồm backlog; không tính brainstorm và dones.
-- Thanh tiến độ task: số task hoàn tất, item có task và item chưa có task trong các stage đang thực thi.
+- Bars by stage: the total per state and the feature/bug split within it.
+- Feature and bug donut: the share of each work item kind under the current filter.
+- Bars by context: item volume across contexts, ordered by total, largest first.
+- Approval bars: pending, approved and changed for items from planning through review, backlog included; brainstorm and dones are left out.
+- Task progress bar: tasks done, items that have tasks and items that do not, across the stages in execution.
 
-Biểu đồ thể hiện snapshot filesystem hiện tại. Workflow chưa lưu lịch sử chuyển stage, vì vậy dashboard không suy diễn throughput, lead time hay xu hướng theo thời gian từ các count này.
+The charts show the filesystem as it is right now. The workflow keeps no history of stage transitions, so the dashboard infers no throughput, no lead time and no trend over time from these counts.
 
-## CLI và API
+## CLI and API
 
-`kf view` in thống kê tổng hợp ở terminal. `kf view --json` và `/api/data` trả `metrics`, `charts`, `availableContexts` cùng chi tiết `stages` để giữ khả năng đọc bằng agent/tool hiện có.
+`kf view` prints the same summary in the terminal. `kf view --json` and `/api/data` return `metrics`, `charts`, `availableContexts` and `stages`, so existing agents and tools can still read it.
 
-API hỗ trợ `?kind=feature|bug&context=<slug>`. Bỏ tham số để xem tất cả. `context=__none__` chọn các item cũ không có context. Danh sách context dùng cho filter vẫn lấy trên toàn bộ project.
+The API takes `?kind=feature|bug&context=<slug>`. Drop a parameter to see everything. `context=__none__` selects older items that carry no context. The context list behind the filter is always drawn from the whole project.
 
-Nếu API lỗi, dashboard hiện thông báo và giữ snapshot trước đó kèm cảnh báo số liệu có thể đã cũ; không biến lỗi thành số liệu 0.
+When the API fails, the dashboard says so and keeps the previous snapshot with a warning that the numbers may be stale. It never turns an error into a zero.

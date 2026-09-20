@@ -10,8 +10,8 @@ Thumbs.db
 # Node
 node_modules/
 dist/
-# kaban-flow
+# kanban-flow
 .works/
 
-# kaban-flow: skills are installed per project by kf init; this repo ships them in skills/
+# kanban-flow: skills are installed per project by kf init; this repo ships them in skills/
 .claude/skills/

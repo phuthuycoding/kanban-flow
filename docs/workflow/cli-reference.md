@@ -1,55 +1,55 @@
 # CLI reference
 
-Binary chính là `kf`. Các lệnh tìm `.works/` từ thư mục hiện tại đi ngược lên project root, vì vậy có thể chạy từ root hoặc subdirectory.
+The binary is `kf`. Every command looks for `.works/` from the current directory upwards to the project root, so you can run it from the root or from any subdirectory.
 
-## Khởi tạo và feature
+## Setting up and creating work
 
-| Lệnh | Tác dụng |
+| Command | What it does |
 | --- | --- |
-| `kf init [path]` | Onboarding: trên TTY hỏi context, stack, reviewer, agent, gitignore và seed feature; non-TTY tự dùng defaults. Tạo `.works/`, `docs/{requirement,use-cases,testplan}`, `.kf`, cài skill cấp project và seed `AGENTS.md` nếu chưa có `AGENTS.md`/`CLAUDE.md`. |
-| `kf init --defaults` | Onboarding không tương tác bằng giá trị mặc định (dùng cho agent/script). |
-| `kf init --minimal` | Chỉ tạo `.works/` + docs roots + cài skill; không seed config/templates. |
-| `kf new <feature> [--context <ctx>] [--goal <text>] [--type feature|bug]` | Tạo feature/bug ở `brainstorm`; bug dùng `kanban-bug`; tên feature/context chỉ nhận `[a-z0-9][a-z0-9_-]*`. |
-| `kf list [--json]` | Liệt kê work item, kind và state. |
-| `kf show <feature> [--json]` | Xem requirement/bug report của work item. |
-| `kf view [--json]` | Thống kê workflow ở terminal; JSON gồm metrics, charts và chi tiết stages. |
-| `kf dashboard [--port <1-65535>]` | Dashboard KPI + charts có filter context/feature/bug, mặc định cổng `8787`; xem [cách tính số liệu](dashboard.md). |
+| `kf init [path]` | Onboarding. On a TTY it asks for the context, the stack, the reviewer, the agents, the gitignore entry and whether to seed a demo feature; without a TTY it takes the defaults. Creates `.works/`, `docs/{requirement,use-cases,testplan}` and `.kf`, installs the project-scope skills, and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists. |
+| `kf init --defaults` | Non-interactive onboarding on default values, for agents and scripts. |
+| `kf init --minimal` | Creates only `.works/`, the docs roots and the skills; seeds no config or templates. |
+| `kf new <feature> [--context <ctx>] [--goal <text>] [--type feature\|bug]` | Creates a feature or bug in `brainstorm`; a bug routes through `kanban-bug`. Feature and context names must match `[a-z0-9][a-z0-9_-]*`. |
+| `kf list [--json]` | Lists every work item with its kind and state. |
+| `kf show <feature> [--json]` | Shows a work item's requirement or bug report. |
+| `kf view [--json]` | Workflow statistics in the terminal; the JSON carries metrics, charts and the per-stage detail. |
+| `kf dashboard [--port <1-65535>]` | KPI and chart dashboard with context and kind filters, on port `8787` by default. See [how each number is computed](dashboard.md). |
 
-## Điều hành workflow
+## Driving the workflow
 
-| Lệnh | Tác dụng |
+| Command | What it does |
 | --- | --- |
-| `kf status --change <feature> [--json]` | Xem trạng thái một feature, gồm số lần bypass gate/hook đã ghi. |
-| `kf status --all [--json]` | Xem toàn bộ work item, gồm cả `backlog` và `dones`. |
-| `kf instruct <artifact|use-case> [--change <feature>] [--id UC-###] [--json]` | Render template artifact; `use-case` tạo instruction cho đúng một file `use-cases/UC-###.md`. |
-| `kf templates [--json]` | Liệt kê template đang được resolve và nguồn của chúng. |
-| `kf validate --change <feature> [--strict] [--json]` | Kiểm tra artifact, placeholder, secret-like content, traceability và gate. Exit code `1` khi fail. |
-| `kf validate --all [--strict] [--json]` | Validate toàn bộ feature. |
-| `kf approve <feature> [--by <name>]` | Human gate cho execution contract ở planning; lưu approver, thời điểm và contract hash. |
-| `kf stage <feature> <next-stage> [--force] [--skip-hooks]` | Thực hiện transition hợp lệ và chạy hook của state đích. Planning có thể vào `backlog` hoặc `implementation`; `dones` được chuyển qua archive. |
-| `kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]` | Dừng hẳn một work item và chuyển sang `.works/cancelled/`; lưu `cancellation { at, by, reason, fromStage }`. Chặn khi còn run đang chạy (trừ `--force`); item ở `dones` được liệt kê canonical docs, `--purge-docs` mới xoá (hỏi xác nhận trên TTY, non-TTY cần `--force`). Mở lại: `kf stage <feature> <fromStage>`. |
-| `kf archive <feature> [--force] [--skip-specs] [--skip-hooks]` | Archive từ review sang dones và cập nhật metadata; feature nhận canonical copies, bug giữ docs hiện có. |
-| `kf rules [--stack <id> ...] [--list] [--force]` | Copy stack best-practice review rules vào `.kf/review/rules/`; tự detect stacks (monorepo cài nhiều packs), `--list` xem packs, `--force` ghi đè khi file đã sửa. |
-| `kf autoconfig` | In ra stdout một briefing cho agent: project context, checklist config (done/missing kèm lệnh gợi ý), effective review rules và workflow guide — để agent tự config project. |
-| `kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <phút>] [--dry-run]` | Chạy tuần tự chuỗi role mà `harness.stages` gán cho stage hiện tại; ghi `runs[]` cho từng role, resume session theo work item + role; role nào không `DONE` thì dừng chuỗi; `--detach` trả về ngay và supervisor chạy nốt. Exit 1 khi chuỗi không hoàn tất. Xem [harness](harness.md). |
-| `kf runs [<feature>] [--json]` | Lịch sử worker run (role, runner, stage, mode, status, STATUS line), mới nhất trước. |
-| `kf harness [--json]` | Cấu hình harness hiệu lực: main role, stage → chuỗi role, role → runner (+ brief, output), runner nào có CLI trên PATH. |
+| `kf status --change <feature> [--json]` | One work item's state, including how many gate or hook bypasses have been recorded. |
+| `kf status --all [--json]` | Every work item, `backlog` and `dones` included. |
+| `kf instruct <artifact\|use-case> [--change <feature>] [--id UC-###] [--json]` | Renders an artifact template; `use-case` produces the instruction for exactly one `use-cases/UC-###.md`. |
+| `kf templates [--json]` | Lists the templates currently resolved and where each came from. |
+| `kf validate --change <feature> [--strict] [--json]` | Checks artifacts, placeholders, secret-like content, traceability and the gates. Exits `1` on failure. |
+| `kf validate --all [--strict] [--json]` | Validates every work item. |
+| `kf approve <feature> [--by <name>]` | The human gate on the execution contract in planning; records the approver, the moment and the contract hash. |
+| `kf stage <feature> <next-stage> [--force] [--skip-hooks]` | Performs a legal transition and runs the destination state's hook. Planning may go to `backlog` or to `implementation`; `dones` is reached through archive. |
+| `kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]` | Stops a work item for good and moves it to `.works/cancelled/`, recording `cancellation { at, by, reason, fromStage }`. Refuses while a run is live unless `--force`. An item in `dones` has its canonical docs listed, and only `--purge-docs` deletes them, asking first on a TTY and requiring `--force` without one. Reopen with `kf stage <feature> <fromStage>`. |
+| `kf archive <feature> [--force] [--skip-specs] [--skip-hooks]` | Archives from review into dones and updates the metadata; a feature receives the canonical copies, a bug keeps its existing docs. |
+| `kf rules [--stack <id> ...] [--list] [--force]` | Copies the stack best-practice review rules into `.kf/review/rules/`. Detects the stacks automatically, installing several packs in a monorepo; `--list` shows the packs and `--force` overwrites files you have edited. |
+| `kf autoconfig` | Prints a briefing for an agent on stdout: the project context, a config checklist of what is done and what is missing with the command to fix it, the effective review rules and the workflow guide, so the agent can configure the project itself. |
+| `kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <minutes>] [--dry-run]` | Runs, in order, the role chain that `harness.stages` assigns to the current stage. Records a `runs[]` entry per role and resumes the session per work item and role. A role that does not finish `DONE` stops the chain. `--detach` returns immediately and leaves a supervisor to finish. Exits 1 when the chain does not complete. See [harness](harness.md). |
+| `kf runs [<feature>] [--json]` | Worker run history with role, runner, stage, mode, status and STATUS line, newest first. |
+| `kf harness [--json]` | The harness in effect: the main role, stage to role chain, role to runner with its brief and output, and which runner CLIs are on PATH. |
 
-`--force` bỏ qua gate có chủ đích; khi archive lại work item trong `dones`, nó cũng cho phép ghi đè canonical docs đã được chỉnh sửa bằng snapshot archive. `--skip-hooks` bỏ qua hook phase đích; `--skip-specs` không chạm bất kỳ canonical doc nào khi archive. Khi `--force`/`--skip-hooks` thực sự bỏ qua gate hoặc hook, CLI ghi bản ghi vào `.kfw.json` (`bypasses[]`) và báo trong output; xem [gates](gates.md#force-và-recovery).
+`--force` deliberately skips a gate; when re-archiving a work item in `dones` it also allows the archive snapshot to overwrite canonical docs that were edited. `--skip-hooks` skips the destination phase's hook. `--skip-specs` touches no canonical doc during archive. Whenever `--force` or `--skip-hooks` actually skips something, the CLI writes a record into `.kfw.json` under `bypasses[]` and says so in its output. See [gates](gates.md#force-and-recovery).
 
 ## Skill installation
 
-Skills luôn ở **project scope** (`{root}/.claude/skills`, `{root}/.agents/skills`, ...) — CLI `kf` là thứ duy nhất sống global (qua `npm link`). `kf init` cài skills khi khởi tạo; `kf install`/`kf uninstall` thao tác trên project root resolve từ `.works/` gần nhất từ cwd. Không lệnh nào ghi vào `~/`.
+Skills always live at **project scope** (`{root}/.claude/skills`, `{root}/.agents/skills` and so on). The `kf` CLI is the only thing installed globally, through `npm link`. `kf init` installs the skills during setup; `kf install` and `kf uninstall` work on the project root resolved from the nearest `.works/` above the working directory. Neither writes anything into `~/`.
 
-| Lệnh | Tác dụng |
+| Command | What it does |
 | --- | --- |
-| `kf install [--agent <id> ...]` | Cài 8 skill vào `{root}/.<agent>/skills`; mặc định `claude`. Cần chạy trong kanban project (có `.works/`) — chưa có thì `kf init` trước. Agent hỗ trợ: `claude`, `codex`, `gemini`, `kiro`, `cursor`, `opencode`. |
-| `kf uninstall [--agent <id> ...] [--purge] [--force]` | Gỡ đúng 8 skill do kaban-flow quản lý khỏi project, không xóa skill khác. `--purge` xoá thêm `.works/`, `.kf/`, `docs/{requirement,use-cases,testplan}/` — hỏi xác nhận trên TTY, non-TTY bắt buộc `--force`. |
+| `kf install [--agent <id> ...]` | Installs the 8 skills into `{root}/.<agent>/skills`, defaulting to `claude`. Must run inside a kanban project, which means a `.works/` exists; run `kf init` first if it does not. Supported agents: `claude`, `codex`, `gemini`, `kiro`, `cursor`, `opencode`. |
+| `kf uninstall [--agent <id> ...] [--purge] [--force]` | Removes exactly the 8 skills that kanban-flow manages, leaving every other skill alone. `--purge` also deletes `.works/`, `.kf/` and `docs/{requirement,use-cases,testplan}/`, asking first on a TTY and requiring `--force` without one. |
 
-Uninstall chỉ gỡ skill; gỡ hẳn CLI khỏi PATH: `npm rm -g kaban-flow`.
+Uninstall only removes skills. To take the CLI off PATH: `npm rm -g kanban-flow`.
 
-## Quy ước lỗi
+## Error conventions
 
-- Thành công trả exit code `0`; input sai, gate fail, hook fail, feature không tồn tại hoặc exception trả `1` và thông báo ở stderr.
-- CLI không tự chạy migration, update database, deploy hay publish.
-- Hook resolve theo thứ tự project `.kf/hooks` → user `~/.kf/hooks` → package hooks. Environment truyền vào hook gồm `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT` và `KFW_APPROVAL`.
+- Success exits `0`. Bad input, a failed gate, a failed hook, a missing work item or an exception exits `1` and reports on stderr.
+- The CLI never runs a migration, updates a database, deploys or publishes on its own.
+- Hooks resolve in order: the project `.kf/hooks`, then the user's `~/.kf/hooks`, then the package hooks. The environment handed to a hook carries `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT` and `KFW_APPROVAL`.

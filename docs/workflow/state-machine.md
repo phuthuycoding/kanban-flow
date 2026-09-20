@@ -37,31 +37,31 @@ stateDiagram-v2
     }
 ```
 
-## State và transition
+## States and transitions
 
-| State | Ý nghĩa | Transition hợp lệ |
+| State | What it means | Allowed transitions |
 | --- | --- | --- |
-| `brainstorm` | Làm rõ requirement với người dùng | `planning` |
-| `planning` | Feature: chốt execution contract; bug: xác nhận triage contract; sau đó approval và quyết định start/backlog | `backlog`, `implementation` |
-| `backlog` | Contract đã duyệt nhưng chưa triển khai | `implementation`, `planning` |
-| `implementation` | Agent thực thi theo contract đã duyệt | `testing`, `planning` |
-| `testing` | Chạy test theo test case và ghi kết quả | `review`, `implementation`, `planning` |
-| `review` | Review code, scope, architecture và ghi báo cáo | `dones`, `implementation`, `planning` |
-| `dones` | Đã archive, trạng thái terminal | `cancelled` (qua `kf cancel`) |
-| `cancelled` | Đã dừng hẳn, không tiếp tục; nằm ngoài trục tuyến tính nên không bị đòi artifact nào | Chỉ quay về đúng `cancellation.fromStage` |
+| `brainstorm` | Working the requirement out with the user | `planning` |
+| `planning` | A feature settles its execution contract, a bug confirms its triage contract; then approval, then the start or backlog decision | `backlog`, `implementation` |
+| `backlog` | The contract is approved but work has not started | `implementation`, `planning` |
+| `implementation` | The agent executes against the approved contract | `testing`, `planning` |
+| `testing` | Run the tests from the test plan and record the outcome | `review`, `implementation`, `planning` |
+| `review` | Review the code, the scope and the architecture, and write the report | `dones`, `implementation`, `planning` |
+| `dones` | Archived; a terminal state | `cancelled`, via `kf cancel` |
+| `cancelled` | Stopped for good; it sits off the linear track, so no artifact is ever demanded of it | Back to `cancellation.fromStage` only |
 
-CLI chỉ cho phép các cạnh trên. Không di chuyển thư mục `.works/` thủ công.
+The CLI allows only the edges above. Never move a `.works/` folder by hand.
 
-## Guard quan trọng
+## The guards that matter
 
-- Requirement/bug report phải được điền và đánh dấu đã xác nhận trước khi rời `brainstorm`.
-- Rời `planning` cần đủ 4 artifact planning và các file UC với feature; bug chỉ cần bug report đã filled và approval của người thật. Approval lưu fingerprint của contract tương ứng; sửa nội dung sau approval sẽ làm contract stale.
-- Mỗi lần vào `testing` tạo `executionId` mới. `phase-4-testing-result.md` và `phase-5-review-report.md` phải chứa đúng ID hiện tại.
-- `FAIL`/`REJECT` quay về `implementation`. `BLOCKED` dừng luồng. `REQUIREMENT_BUG` là stop condition ở review; không được tự rewrite requirement hoặc tự chuyển state.
-- Chỉ review `PASS` và testing/review đúng execution mới được vào `dones`; feature cần thêm `phase-6-feature-report.md`, bug không cần file này.
-- Vào `cancelled` chỉ qua `kf cancel` và bắt buộc có `--reason`; ra khỏi `cancelled` chỉ về đúng stage đã bị dừng (`cancellation.fromStage`), lúc đó `cancellation` và `status` được xoá khỏi metadata. `kf archive` từ chối item đã cancelled.
+- The requirement or bug report must be filled in and marked confirmed before it leaves `brainstorm`.
+- Leaving `planning` needs all four planning artifacts and the UC files for a feature; a bug needs only a filled bug report and a real human's approval. The approval stores a fingerprint of the matching contract, so editing the contents afterwards makes it stale.
+- Every entry into `testing` mints a new `executionId`. Both `phase-4-testing-result.md` and `phase-5-review-report.md` must carry the current one.
+- `FAIL` and `REJECT` return to `implementation`. `BLOCKED` stops the flow. `REQUIREMENT_BUG` is a stop condition in review: never rewrite the requirement or move the state on your own.
+- Only a `PASS` review whose testing and review match the current execution reaches `dones`. A feature also needs `phase-6-feature-report.md`; a bug does not.
+- The only way into `cancelled` is `kf cancel`, and `--reason` is mandatory. The only way out is back to the stage it stopped in (`cancellation.fromStage`), at which point `cancellation` and `status` are cleared from the metadata. `kf archive` refuses a cancelled item.
 
-Metadata tối thiểu có dạng:
+The minimum metadata looks like this:
 
 ```json
 {
@@ -75,8 +75,8 @@ Metadata tối thiểu có dạng:
     "at": "20260917_1430",
     "contractHash": "sha256:..."
   },
-  "executionId": "uuid-cua-lan-testing-hien-tai"
+  "executionId": "uuid-of-the-current-testing-run"
 }
 ```
 
-`executionId` được reset khi quay lại planning và được cấp lại khi bắt đầu một execution testing mới. Bug report lưu tại `phase-1-spec-requirement.md` bằng template bug; không cần planning artifact của feature. Nếu phát sinh hành vi mới ngoài fix scope, báo người dùng quyết định trước khi lập feature riêng.
+The `executionId` is reset on a return to planning and reissued when a new testing execution begins. A bug report lives in `phase-1-spec-requirement.md` using the bug template; it needs none of the feature planning artifacts. If new behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature.

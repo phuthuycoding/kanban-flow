@@ -164,12 +164,12 @@ export const STAGE_INDEX: Record<Stage, number> = {
 export const PHASE_NAMES: Record<Stage, string> = {
   brainstorm: "Phase 1 — Brainstorming",
   planning: "Phase 2 — Planning",
-  backlog: "Backlog — Chờ quyết định triển khai",
+  backlog: "Backlog — Awaiting a decision to start",
   implementation: "Phase 3 — Implement",
   testing: "Phase 4 — Testing",
   review: "Phase 5 — Review",
   dones: "Phase 6 — Artifact",
-  cancelled: "Cancelled — đã dừng, không tiếp tục",
+  cancelled: "Cancelled — stopped for good",
 };
 
 export const METADATA_FILE = ".kfw.json";

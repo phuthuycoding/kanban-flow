@@ -61,7 +61,7 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (args.options.json) return { code: 0, stdout: JSON.stringify(data, null, 2) };
   const m = data.metrics;
   const lines = [
-    "kaban-flow analytics", "",
+    "kanban-flow analytics", "",
     `Total: ${m.total} (${m.features} features, ${m.bugs} bugs)`,
     `Executing: ${m.executing}   Backlog: ${m.backlog}   Completed: ${m.completed}   Cancelled: ${m.cancelled}   Bypassed: ${m.bypassed}`,
     `Completion rate: ${m.completionRate === null ? "N/A" : m.completionRate + "%"} (cancelled work excluded)`,

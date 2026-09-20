@@ -308,7 +308,7 @@ describe("cancelled work stays visible without skewing the numbers", () => {
     });
     expect((await cmdRuns(args("runs"), root)).stdout).not.toContain("old");
     expect((await cmdRuns(args("runs", ["dropped"]), root)).stdout).toContain("old");
-    expect(renderDashboardHtml()).toContain("Đã huỷ");
+    expect(renderDashboardHtml()).toContain("Cancelled");
   });
 
   it("reports N/A when every item was cancelled", async () => {

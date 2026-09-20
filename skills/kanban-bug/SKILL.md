@@ -3,11 +3,11 @@ name: kanban-bug
 description: 'Kanban bug workflow — triage and document a defect with reproduction, expected/actual result, severity, root cause and regression coverage before handing off to kanban-plan. Use when a work item has kind: bug.'
 ---
 
-# Kanban Bug — Triage và sửa defect
+# Kanban Bug — Triage and fix a defect
 
 Argument: `<bug_name>`.
 
-Bug vẫn đi qua cùng state machine và approval gate với feature, nhưng Phase 1 bắt buộc ghi nhận đủ thông tin để tái hiện và ngăn regression.
+A bug goes through the same state machine and approval gate as a feature, but Phase 1 must record enough to reproduce it and to stop it coming back.
 
 ## 1. Verify
 
@@ -16,36 +16,36 @@ kf status --change {bug_name}
 kf show {bug_name}
 ```
 
-Chỉ dùng skill này khi metadata có `kind: bug` và work item đang ở `brainstorm`. Nếu bug đã ở `planning`, `backlog`, `implementation`, `testing` hoặc `review`, resume skill tương ứng; không tạo lại artifact.
+Only use this skill when the metadata says `kind: bug` and the work item is in `brainstorm`. If the bug is already in `planning`, `backlog`, `implementation`, `testing` or `review`, resume the matching skill; do not recreate artifacts.
 
 ## 2. Triage contract
 
-Đọc và điền `phase-1-spec-requirement.md` bằng template bug (`kf instruct spec-requirement --change {bug_name}`):
+Read and fill `phase-1-spec-requirement.md` using the bug template (`kf instruct spec-requirement --change {bug_name}`):
 
-- Severity và môi trường bị ảnh hưởng.
-- Các bước reproduce đủ deterministic.
-- Actual result và expected result.
-- Phạm vi fix in/out và acceptance criteria cho hành vi regression cần bảo vệ.
-- Suspected root cause nếu đã có bằng chứng; nếu chưa biết, ghi rõ chưa xác định.
-- Regression test strategy và acceptance criteria có thể kiểm chứng.
-- Related feature nếu xác định được; docs impact: cần sửa file nào và vì sao, hoặc không cần cập nhật docs.
+- Severity and the affected environments.
+- Reproduction steps that are deterministic enough to follow.
+- Actual result and expected result.
+- What the fix covers and what it does not, plus acceptance criteria for the behaviour a regression must protect.
+- Suspected root cause when there is evidence for one; when there is not, say it is undetermined.
+- Regression test strategy and acceptance criteria that can be checked.
+- The related feature when you can identify it, and the docs impact: which file needs changing and why, or that no docs change is needed.
 
-Không đoán root cause để làm đẹp báo cáo. Nếu chưa reproduce được, báo rõ blocker và không giả định bug đã PASS.
+Do not guess a root cause to make the report look finished. If you cannot reproduce it, report the blocker plainly and never assume the bug is PASS.
 
 ## 3. Human confirmation
 
-Tóm tắt bug, severity, reproduction, impact, expected fix và regression test cho người dùng. Chỉ khi người dùng xác nhận mới đổi frontmatter `status: confirmed` và chạy:
+Summarise the bug, its severity, the reproduction, the impact, the expected fix and the regression test for the user. Only once the user confirms do you set the frontmatter to `status: confirmed` and run:
 
 ```bash
 kf stage {bug_name} planning
 ```
 
-Sau đó load `kanban-plan` theo nhánh bug. Bug report là execution contract; không tạo implementation plan, use-case index/narratives/diagram, test plan hay feature report. Planning vẫn phải được human approve và người dùng chọn start/backlog.
+Then load `kanban-plan` on its bug branch. The bug report is the execution contract: do not create an implementation plan, a use-case index, narratives, a diagram, a test plan or a feature report. Planning still needs human approval, and the user still chooses start or backlog.
 
 ## 4. Handoff
 
 ```text
-Bug report đã confirmed. Load kanban-plan theo nhánh bug để approve triage contract và hỏi start/backlog; giữ reproduction và regression test trong phạm vi đã duyệt.
+Bug report confirmed. Load kanban-plan on the bug branch to approve the triage contract and ask start or backlog; keep the reproduction and the regression test inside the approved scope.
 ```
 
-FAIL/REJECT trong testing hoặc review quay về implementation. `REQUIREMENT_BUG` vẫn dừng để người dùng quyết định; không dùng nó thay cho bug report.
+A FAIL or a REJECT, in testing or in review, sends the item back to implementation. `REQUIREMENT_BUG` still stops for the user to decide; do not use it in place of a bug report.

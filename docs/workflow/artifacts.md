@@ -1,60 +1,60 @@
-# Artifact contract và cấu trúc đọc
+# The artifact contract and how to read it
 
-Artifact được viết trong work item folder dưới `.works/`. Mỗi file trả lời một câu hỏi khác nhau; không dùng một report để thay thế report của phase khác.
+Artifacts are written inside the work item folder under `.works/`. Each file answers a different question; never use one report in place of another phase's.
 
-## Thứ tự đọc trong work item
+## Reading order inside a work item
 
 ```text
 phase-1-spec-requirement.md
 ├── phase-2-implementation-plan.md       (feature only)
 ├── phase-2-use-case-specification.md    (feature only: index + coverage)
-├── use-cases/UC-###.md                   (feature only: mỗi UC một file)
+├── use-cases/UC-###.md                   (feature only: one file per UC)
 ├── phase-2-use-case-diagram.md           (feature only)
-└── phase-2-test-case.md                  (feature only: test contract)
-    └── phase-4-testing-result.md         (kết quả một execution)
-        └── phase-5-review-report.md      (review cùng execution)
-            └── phase-6-feature-report.md (feature only: bàn giao)
+└── phase-2-test-case.md                  (feature only: the test contract)
+    └── phase-4-testing-result.md         (the outcome of one execution)
+        └── phase-5-review-report.md      (review of that same execution)
+            └── phase-6-feature-report.md (feature only: the handover)
 ```
 
-Bug dùng template `phase-1-bug-report.md` nhưng vẫn lưu triage record tại `phase-1-spec-requirement.md` để tương thích CLI. Ngoài hồ sơ này, bug chỉ cần testing/review report; không bắt buộc bộ planning hay feature report. Nếu phát sinh hành vi mới ngoài phạm vi sửa defect, báo thay đổi scope để người dùng quyết định có lập feature riêng hay không.
+A bug uses the `phase-1-bug-report.md` template but still stores its triage record at `phase-1-spec-requirement.md` so the CLI keeps working. Beyond that record a bug needs only the testing and review reports; the planning set and the feature report are not required. If behaviour appears beyond the scope of the defect fix, report the scope change and let the user decide whether a separate feature is warranted.
 
-`phase-2-use-case-specification.md` chỉ là index. Narrative của feature phải nằm trong `use-cases/UC-###.md`, với ID trong tên file trùng ID được khai báo bên trong file. Test case phải liên kết được `FR-###` → `UC-###`.
+`phase-2-use-case-specification.md` is only an index. A feature's narrative belongs in `use-cases/UC-###.md`, and the ID in the file name must match the ID declared inside it. Every test case must trace `FR-###` → `UC-###`.
 
-## Quy ước chung
+## Shared conventions
 
-| Quy ước | Ý nghĩa |
+| Convention | What it means |
 |---|---|
-| Frontmatter | Nhận diện work item, context, status và execution hiện tại |
-| Placeholder | Chỉ tồn tại trong template; trước gate phải thay toàn bộ bằng nội dung thật |
-| ID | `FR-###`, `UC-###`, `TC-###`; dùng nhất quán trong mọi artifact |
-| Status report | Testing: `PASS/FAIL/REJECT/BLOCKED`; review: `PASS/FAIL/REJECT/REQUIREMENT_BUG` |
-| Execution | Testing và review phải cùng `executionId` của lần chạy hiện tại |
-| Bảng tổng hợp | Tổng số phải khớp với các dòng chi tiết, không chỉ ghi mô tả định tính |
+| Frontmatter | Identifies the work item, its context, its status and the current execution |
+| Placeholder | Lives only in the template; every one must be replaced with real content before a gate |
+| ID | `FR-###`, `UC-###`, `TC-###`, used consistently across every artifact |
+| Report status | Testing: `PASS/FAIL/REJECT/BLOCKED`; review: `PASS/FAIL/REJECT/REQUIREMENT_BUG` |
+| Execution | Testing and review must carry the same `executionId` as the current run |
+| Summary tables | Totals must match the detail rows, not merely describe them |
 
-CLI kiểm tra file, placeholder, secret-like content, ID reference, approval fingerprint và execution/status của report. Tổng số trong bảng, coverage đo thực tế và chất lượng narrative cần agent kiểm tra khi planning/test/review; việc validator PASS không tự chứng minh các nội dung này.
+The CLI checks the files, the placeholders, secret-like content, ID references, the approval fingerprint and each report's execution and status. Table totals, measured coverage and the quality of the narrative are the agent's job during planning, testing and review; a passing validator proves none of them.
 
-## Khi archive vào `dones`
+## On archive into `dones`
 
-`kf archive` giữ nguyên bộ artifact trong `.works/dones/{feature}_{timestamp}/` để audit. Với feature, CLI copy tài liệu người đọc thường xuyên sang canonical docs:
+`kf archive` leaves the artifact set in `.works/dones/{feature}_{timestamp}/` for audit. For a feature, the CLI copies the documents people actually read into the canonical docs:
 
-| Canonical doc | Nội dung |
+| Canonical doc | Contents |
 |---|---|
-| `docs/requirement/{context}/{feature}.md` | Requirement đã archive |
-| `docs/use-cases/{context}/{feature}/README.md` | Index và coverage UC |
-| `docs/use-cases/{context}/{feature}/UC-###.md` | Narrative từng use case |
-| `docs/use-cases/{context}/{feature}/diagram.md` | Sơ đồ actor/use case |
-| `docs/testplan/{context}/{feature}.md` | Test plan và ma trận coverage |
-| `docs/testplan/{context}/{feature}-result.md` | Kết quả execution gần nhất |
+| `docs/requirement/{context}/{feature}.md` | The archived requirement |
+| `docs/use-cases/{context}/{feature}/README.md` | The UC index and coverage |
+| `docs/use-cases/{context}/{feature}/UC-###.md` | Each use case narrative |
+| `docs/use-cases/{context}/{feature}/diagram.md` | The actor and use case diagram |
+| `docs/testplan/{context}/{feature}.md` | The test plan and the coverage matrix |
+| `docs/testplan/{context}/{feature}-result.md` | The most recent execution result |
 
-Với bug, archive không tự tạo hoặc ghi đè docs feature cũ. Skill archive chỉ cập nhật docs liên quan khi bug report ghi rõ docs impact; nếu không, nêu rõ “No documentation update required” trong closure/review.
+For a bug, archive neither creates nor overwrites an existing feature's docs. The archive skill updates the related docs only when the bug report states a docs impact; when there is none, it says "No documentation update required" in the closure or review.
 
-Archive lại feature đã ở `dones` sẽ từ chối ghi đè canonical docs có thay đổi so với snapshot, để giữ các cập nhật từ bug hoặc tài liệu bổ sung. Dùng `--skip-specs` để giữ nguyên docs; `--force` chỉ khi có chủ đích khôi phục snapshot cũ.
+Archiving a feature that is already in `dones` refuses to overwrite canonical docs that have changed since the snapshot, so updates from a bug or from extra documentation survive. Use `--skip-specs` to leave the docs alone; use `--force` only when restoring the old snapshot is what you actually want.
 
-## Checklist trước khi đóng
+## Checklist before closing
 
-- [ ] Requirement/bug report đã `confirmed` và không còn placeholder.
-- [ ] Feature: bốn planning artifact, các file UC riêng và ma trận test khớp ID.
-- [ ] Bug: triage record đủ reproduction, severity và regression strategy.
-- [ ] Testing và review là `PASS`, cùng execution hiện tại.
-- [ ] Feature report đã ghi thay đổi thực tế, test, docs và giới hạn còn lại (bug không bắt buộc).
-- [ ] Canonical docs đã sync khi cần; không có thao tác database, deploy hoặc publish ngoài scope được duyệt.
+- [ ] The requirement or bug report is `confirmed` and free of placeholders.
+- [ ] Feature: four planning artifacts, one file per UC, and a test matrix whose IDs line up.
+- [ ] Bug: a triage record carrying the reproduction, the severity and the regression strategy.
+- [ ] Testing and review both `PASS`, on the current execution.
+- [ ] The feature report records what changed, which tests ran, which docs moved and what limits remain. Not required for a bug.
+- [ ] Canonical docs synced where needed, and no database, deploy or publish action outside the approved scope.

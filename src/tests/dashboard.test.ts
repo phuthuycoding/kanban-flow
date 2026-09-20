@@ -65,7 +65,7 @@ describe("dashboardData", () => {
 
   it("renders an html page", () => {
     expect(renderDashboardHtml()).toContain("<!doctype html>");
-    expect(renderDashboardHtml()).toContain("kaban-flow dashboard");
+    expect(renderDashboardHtml()).toContain("kanban-flow dashboard");
   });
 
   it("aggregates snapshots by stage, kind and context with weighted execution task progress", async () => {
@@ -112,7 +112,7 @@ describe("dashboardData", () => {
     await mkdir(join(dir, ".works", "brainstorm", "legacy_20260917_1200"));
     const data = dashboardData(dir, { context: null });
     expect(data.metrics.total).toBe(1);
-    expect(data.charts.byContext).toEqual([{ id: null, label: "Không xác định", count: 1, features: 1, bugs: 0 }]);
+    expect(data.charts.byContext).toEqual([{ id: null, label: "Unassigned", count: 1, features: 1, bugs: 0 }]);
   });
 
   it("renders chart labels and context options as escaped text", async () => {

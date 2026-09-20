@@ -177,9 +177,9 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
   ].join("\n");
 
   const out = [
-    "# kaban-flow agent setup briefing",
+    "# kanban-flow agent setup briefing",
     "",
-    `> You are configuring the project at ${basename(root)} for the kaban-flow workflow.`,
+    `> You are configuring the project at ${basename(root)} for the kanban-flow workflow.`,
     "> Work through the checklist, adopt the rules below as conventions, and use the",
     "> workflow guide as your reference for driving features through the pipeline.",
     "",

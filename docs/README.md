@@ -1,16 +1,16 @@
 # Documentation
 
-Tài liệu của `kaban-flow` được chia theo mục đích:
+The `kanban-flow` documentation is split by purpose:
 
-- [Workflow guide](workflow/README.md) — cách pipeline vận hành, state machine, gate, CLI và skill routing.
-- [Workflow lifecycle](workflow/lifecycle.md) — luồng thực thi feature/bug từ requirement hoặc triage đến archive.
-- [State diagram](workflow/state-machine.md) — các state, transition hợp lệ và điều kiện chuyển.
-- [Gate và artifact contract](workflow/gates.md) — điều kiện bắt buộc ở từng phase.
-- [Artifact contract và cấu trúc đọc](workflow/artifacts.md) — cách đọc artifact, traceability và bộ docs sau archive.
-- [CLI reference](workflow/cli-reference.md) — lệnh, input, output và exit code.
-- [Dashboard analytics](workflow/dashboard.md) — KPI, biểu đồ và cách tính số liệu.
-- [Skill routing](workflow/skills.md) — trách nhiệm của orchestrator và từng phase skill.
-- [Source layout](workflow/source-layout.md) — cấu trúc mã nguồn và hướng dẫn đặt file mới.
-- `requirement/`, `use-cases/`, `testplan/` — canonical docs được copy khi feature vào `dones`; bug chỉ cập nhật docs liên quan nếu cần.
+- [Workflow guide](workflow/README.md) — how the pipeline runs: state machine, gates, CLI and skill routing.
+- [Workflow lifecycle](workflow/lifecycle.md) — a feature or bug from requirement or triage through to archive.
+- [State diagram](workflow/state-machine.md) — the states, the legal transitions and what each one requires.
+- [Gates and the artifact contract](workflow/gates.md) — what every phase demands before it lets go.
+- [Artifacts and how to read them](workflow/artifacts.md) — artifact structure, traceability and the docs left behind after archive.
+- [CLI reference](workflow/cli-reference.md) — commands, inputs, outputs and exit codes.
+- [Dashboard analytics](workflow/dashboard.md) — the KPIs, the charts and how each number is computed.
+- [Skill routing](workflow/skills.md) — what the orchestrator owns and what each phase skill owns.
+- [Source layout](workflow/source-layout.md) — the shape of the source tree and where a new file belongs.
+- `requirement/`, `use-cases/`, `testplan/` — canonical docs copied out when a feature reaches `dones`; a bug only updates the related docs when it needs to.
 
-Nguồn sự thật của state là filesystem `.works/`, metadata `.kfw.json`, config `.kf/config.json` và các artifact trong feature folder. Tài liệu này mô tả hành vi hiện tại của CLI trong `src/`.
+The source of truth for state is the `.works/` filesystem, the `.kfw.json` metadata, the `.kf/config.json` config and the artifacts inside each work item folder. These documents describe what the CLI in `src/` does today.

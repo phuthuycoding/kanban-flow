@@ -42,7 +42,7 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {
     code: 0,
-    stdout: `✓ Initialized kaban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/{requirement,use-cases,testplan}/${ctx}\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n  AGENTS.md: ${agentsFile === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}\n\n${skills.stdout}`,
+    stdout: `✓ Initialized kanban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/{requirement,use-cases,testplan}/${ctx}\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n  AGENTS.md: ${agentsFile === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}\n\n${skills.stdout}`,
   };
 }
 
@@ -73,7 +73,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   }
 
   const out: string[] = [];
-  out.push(`✓ Bootstrapped kaban-flow in ${target}${interactive && !tty ? " (non-interactive: using defaults)" : ""}`);
+  out.push(`✓ Bootstrapped kanban-flow in ${target}${interactive && !tty ? " (non-interactive: using defaults)" : ""}`);
   out.push(`  .works/{${STAGES.join(",")}}`);
   out.push(`  context: ${answers.defaultContext}   stacks: ${answers.stacks.join(", ") || "unset"}   reviewer: ${answers.reviewer}`);
   out.push(`  agents: ${answers.agents.join(", ")}`);

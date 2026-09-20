@@ -39,7 +39,7 @@ kf instruct use-case --change {feature_name} --id UC-001
 - Scope: now / supporting / future / not-in-scope
 - `TASK-###` breakdown, complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
 - Testing strategy incl. **coverage target from the spec's Test Strategy (default >= 80%)** and Definition of Done
-- Nếu Test Level là `full`: khai báo rõ framework UI/E2E sẽ dùng (Playwright/Cypress/...) + bộ test nào chạy luồng critical, test nào phủ toàn bộ.
+- When Test Level is `full`: name the UI/E2E framework you will use (Playwright, Cypress and so on) and say which suite covers the critical flows and which covers everything.
 
 ### use-case-specification
 - Use `phase-2-use-case-specification.md` only as an index and coverage summary.
@@ -51,13 +51,13 @@ kf instruct use-case --change {feature_name} --id UC-001
 - Mermaid `graph TD` / `flowchart`: actors → use cases (one box per UC-###)
 
 ### test-cases
-- **Sinh TC theo Test Level từ spec (unit | unit+integration | full):**
-  - `unit` → chỉ TC `Unit`, mỗi acceptance criterion + edge case một TC, gắn FR/UC.
-  - `unit+integration` → thêm TC `Integration` cho phần giao hệ thống/DB/API.
-  - `full` → thêm TC **`UI / E2E`** cho luồng user-facing: click/type/thấy gì trên màn hình, theo `UI Tests` scope (critical/all). Tạo thêm các section `## TC-###` theo template chi tiết, với reference khớp scope.
+- **Generate test cases from the spec's Test Level (unit | unit+integration | full):**
+  - `unit` → `Unit` cases only, one per acceptance criterion and per edge case, each tied to an FR and a UC.
+  - `unit+integration` → add `Integration` cases wherever the change meets another system, the database or an API.
+  - `full` → add **`UI / E2E`** cases for the user-facing flows: what is clicked, what is typed, what appears on screen, following the `UI Tests` scope (critical or all). Add the matching `## TC-###` sections from the detailed template, with references that match that scope.
 - Keep the plan table-driven: fill overall totals, per-type counts, use-case coverage matrix and requirement coverage matrix before the detailed `## TC-###` tables.
 - Define each test in a `## TC-###` section referencing `FR-###` (spec) and `UC-###` (the matching individual use-case file). `kf validate` blocks missing or unknown references before approval.
-- Nếu user muốn điều chỉnh mức test ở Phase 2 (hiếm): cập nhật Test Strategy trong `phase-1-spec-requirement.md` trước khi sinh TC, và ghi rõ trong phần trình bày approval.
+- If the user wants to change the test level during Phase 2, which is rare: update the Test Strategy in `phase-1-spec-requirement.md` before generating the cases, and say so when you present the contract for approval.
 
 ## 3. Human approval gate
 
@@ -84,7 +84,7 @@ kf approve {feature_name}
 
 Approval means the contract is valid; it does not mean implementation must start immediately. Ask the user once:
 
-**"Plan đã xong. Đại ca muốn triển khai ngay hay đưa vào backlog?"**
+**"The plan is ready. Start implementation now, or put it in the backlog?"**
 
 - Start now → `kf stage {feature_name} implementation`
 - Defer → `kf stage {feature_name} backlog`

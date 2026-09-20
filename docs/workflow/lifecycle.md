@@ -1,63 +1,63 @@
 # Workflow Lifecycle
 
-## Luồng tổng thể
+## The whole flow
 
 ```mermaid
 flowchart TD
-    A([User mô tả feature hoặc bug]) --> B{Project có .works?}
-    B -- Không --> C[kf init]
-    B -- Có --> D[Đọc repo và chọn phase hiện tại]
+    A([User describes a feature or a bug]) --> B{Does the project have .works?}
+    B -- No --> C[kf init]
+    B -- Yes --> D[Read the repo and pick the current phase]
     C --> D
-    D --> E{Work item là bug?}
-    E -- Không --> F[Brainstorm: làm rõ scope và acceptance]
-    E -- Có --> G[Bug triage: reproduce + actual/expected + severity]
+    D --> E{Is the work item a bug?}
+    E -- No --> F[Brainstorm: pin down scope and acceptance]
+    E -- Yes --> G[Bug triage: reproduce, actual vs expected, severity]
     F --> H[kf new + phase-1-spec-requirement.md]
     G --> H
     H --> I{Requirement confirmed?}
-    I -- Chưa --> E
-    I -- Rồi --> J[kf stage item planning]
+    I -- Not yet --> E
+    I -- Yes --> J[kf stage item planning]
     J --> K{Work item kind?}
-    K -- Feature --> KP[Planning: implementation plan + từng UC file + diagram + test plan]
+    K -- Feature --> KP[Planning: implementation plan + one file per UC + diagram + test plan]
     K -- Bug --> KB[Planning: triage report + fix scope + regression strategy]
-    KP --> L{Human approve execution contract?}
+    KP --> L{Human approves the execution contract?}
     KB --> L
-    L -- Chưa --> K
-    L -- Rồi --> M[kf approve: lưu contract fingerprint]
-    M --> N{User muốn triển khai ngay?}
-    N -- Có --> O[Implementation: tasks.md + code]
-    N -- Chưa --> P[Backlog: giữ contract đã duyệt]
-    P --> Q{User chọn bắt đầu?}
-    Q -- Chưa --> P
-    Q -- Có --> O
-    O --> R{Build và tasks đạt?}
-    R -- Chưa --> O
-    R -- Rồi --> S[kf stage item testing]
-    S --> T[Tạo execution id mới]
-    T --> U[Chạy test theo Test Strategy]
-    U --> V[Viết testing-result với execution id]
+    L -- Not yet --> K
+    L -- Yes --> M[kf approve: store the contract fingerprint]
+    M --> N{Start implementation now?}
+    N -- Yes --> O[Implementation: tasks.md + code]
+    N -- Not yet --> P[Backlog: hold the approved contract]
+    P --> Q{User chooses to start?}
+    Q -- Not yet --> P
+    Q -- Yes --> O
+    O --> R{Build green and tasks done?}
+    R -- Not yet --> O
+    R -- Yes --> S[kf stage item testing]
+    S --> T[Mint a new execution id]
+    T --> U[Run the tests from the Test Strategy]
+    U --> V[Write testing-result carrying the execution id]
     V --> W{Testing PASS?}
     W -- FAIL/REJECT --> O
-    W -- BLOCKED --> X([Dừng và báo blocker])
+    W -- BLOCKED --> X([Stop and report the blocker])
     W -- PASS --> Y[kf stage item review]
-    Y --> Z[Review changed files với rules project → user → package]
-    Z --> AA[Viết review-report với execution id]
+    Y --> Z[Review changed files against rules: project, then user, then package]
+    Z --> AA[Write review-report carrying the execution id]
     AA --> AB{Review result?}
     AB -- FAIL/REJECT --> O
-    AB -- REQUIREMENT_BUG --> AC([Dừng, hỏi user quyết định])
+    AB -- REQUIREMENT_BUG --> AC([Stop and ask the user to decide])
     AB -- PASS --> AD{Work item kind?}
-    AD -- Feature --> FC[Viết feature-report]
-    FC --> AE[kf archive: copy requirement/use-case/testplan docs]
-    AD -- Bug --> BC[Cập nhật docs feature liên quan nếu cần]
-    BC --> BA[kf archive: giữ hồ sơ bug + test/review]
+    AD -- Feature --> FC[Write feature-report]
+    FC --> AE[kf archive: copy requirement, use-case and testplan docs]
+    AD -- Bug --> BC[Update the related feature docs if needed]
+    BC --> BA[kf archive: keep the bug record with its test and review]
     BA --> AF
-    AE --> AF([dones: archive hoàn tất])
+    AE --> AF([dones: archive complete])
 ```
 
-Ngoài luồng trên còn một lối ra thứ hai: `kf cancel <feature> --reason "<why>"` dừng hẳn một work item ở bất kỳ stage nào (kể cả `dones` khi nó bị thay thế). Lý do là bắt buộc và được lưu trong `.kfw.json` cùng stage lúc bị dừng, nên mở lại bằng `kf stage <feature> <stage đó>`. Đây là quyết định của người dùng: agent chỉ đề xuất khi gặp `REQUIREMENT_BUG` hoặc scope chết.
+There is a second way out of this flow: `kf cancel <feature> --reason "<why>"` stops a work item for good at any stage, `dones` included when something supersedes it. The reason is mandatory and is stored in `.kfw.json` together with the stage it stopped in, so reopening it is `kf stage <feature> <that stage>`. This is the user's decision; the agent only suggests it on a `REQUIREMENT_BUG` or a dead scope.
 
-Phase 1, approval Phase 2 và quyết định start/backlog là các điểm cần người dùng quyết định. Feature tạo đủ bốn planning artifact; bug chỉ dùng bug report làm triage contract và không tạo use case/test-plan của feature. Nếu phát sinh hành vi mới ngoài fix scope, báo người dùng quyết định trước khi lập feature riêng. Sau khi chọn start, agent tự chạy trong execution contract. Hai ngoại lệ vẫn cần người dùng: `REQUIREMENT_BUG` và thay đổi scope.
+Phase 1, the Phase 2 approval and the start-or-backlog decision are the points where the user decides. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once start is chosen the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
 
-## Sequence khi bắt đầu feature
+## Starting a feature, step by step
 
 ```mermaid
 sequenceDiagram
@@ -66,42 +66,42 @@ sequenceDiagram
     participant CLI as kf
     participant FS as .works/.kf/docs
 
-    User->>Orchestrator: Mô tả context và feature
-    Orchestrator->>CLI: kf init nếu thiếu .works
+    User->>Orchestrator: Describes the context and the feature
+    Orchestrator->>CLI: kf init when .works is missing
     Orchestrator->>CLI: kf new item --context context [--type bug]
-    CLI->>FS: Tạo brainstorm folder, metadata và spec/bug template
-    Orchestrator->>User: Tóm tắt requirement hoặc bug triage + câu hỏi mơ hồ
-    User-->>Orchestrator: Xác nhận hoặc chỉnh scope
-    Orchestrator->>FS: Ghi status: confirmed trong requirement/bug report
+    CLI->>FS: Create the brainstorm folder, the metadata and the spec or bug template
+    Orchestrator->>User: Summarise the requirement or the triage, plus the open questions
+    User-->>Orchestrator: Confirms, or adjusts the scope
+    Orchestrator->>FS: Write status: confirmed into the requirement or bug report
     Orchestrator->>CLI: kf stage feature planning
-    Orchestrator->>User: Tóm tắt execution contract
+    Orchestrator->>User: Summarise the execution contract
     User-->>Orchestrator: approve
     Orchestrator->>CLI: kf approve item
-    CLI->>FS: Lưu approval contractHash
-    Orchestrator->>User: Hỏi triển khai ngay hay đưa backlog
+    CLI->>FS: Store the approval contractHash
+    Orchestrator->>User: Start now, or send to backlog?
     User-->>Orchestrator: start now / defer
-    Orchestrator->>CLI: kf stage item implementation hoặc backlog
+    Orchestrator->>CLI: kf stage item implementation or backlog
 ```
 
-## Sequence khi sửa lỗi
+## Fixing a failure, step by step
 
 ```mermaid
 sequenceDiagram
     participant Test as kanban-test
     participant CLI as kf
     participant Impl as kanban-implement
-    participant FS as Feature folder
+    participant FS as Work item folder
 
     Test->>CLI: kf stage feature review
-    CLI-->>Test: Block nếu testing report không PASS/current
-    Test->>FS: Ghi testing-result status FAIL/REJECT
+    CLI-->>Test: Refused when the testing report is not PASS on the current execution
+    Test->>FS: Write testing-result with status FAIL or REJECT
     Test->>CLI: kf stage feature implementation
-    CLI->>FS: Vô hiệu hóa execution id hiện tại
-    Impl->>FS: Sửa code và tick tasks
+    CLI->>FS: Retire the current execution id
+    Impl->>FS: Fix the code and tick the tasks
     Impl->>CLI: kf stage feature testing
-    CLI->>FS: Tạo execution id mới
-    Test->>FS: Ghi testing-result execution mới
+    CLI->>FS: Mint a new execution id
+    Test->>FS: Write testing-result for the new execution
     Test->>CLI: kf stage feature review
 ```
 
-Report cũ được giữ làm evidence nhưng không được dùng làm kết quả cho execution mới.
+An old report is kept as evidence, but it can never stand in as the result of a new execution.

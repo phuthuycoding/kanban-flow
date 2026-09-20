@@ -24,7 +24,7 @@ describe("cmdAutoconfig", () => {
     await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
     const res = await cmdAutoconfig(parsed, dir);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("# kaban-flow agent setup briefing");
+    expect(res.stdout).toContain("# kanban-flow agent setup briefing");
     expect(res.stdout).toContain("## Project context");
     expect(res.stdout).toContain("Detected stacks: node");
     expect(res.stdout).toContain("## Setup checklist");

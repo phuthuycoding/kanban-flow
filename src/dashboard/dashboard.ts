@@ -82,7 +82,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
   return {
     ...snapshot,
     filters: { context: filters.context, kind: filters.kind ?? null },
-    availableContexts: contexts.map((context) => ({ id: context, label: context ?? "Không xác định" })),
+    availableContexts: contexts.map((context) => ({ id: context, label: context ?? "Unassigned" })),
     metrics: {
       total: items.length,
       features: items.filter((item) => item.kind === "feature").length,
@@ -116,14 +116,14 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
       byContext: contexts.map((context) => {
         const contextItems = items.filter((item) => item.context === context);
         return {
-          id: context, label: context ?? "Không xác định", count: contextItems.length,
+          id: context, label: context ?? "Unassigned", count: contextItems.length,
           features: contextItems.filter((item) => item.kind === "feature").length,
           bugs: contextItems.filter((item) => item.kind === "bug").length,
         };
       }).filter((context) => context.count > 0).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
       approvals: (["pending", "approved", "changed"] as const).map((approval) => ({
         id: approval,
-        label: { pending: "Chờ duyệt", approved: "Đã duyệt", changed: "Contract đã đổi" }[approval],
+        label: { pending: "Awaiting approval", approved: "Approved", changed: "Contract changed" }[approval],
         count: approvals.filter((item) => item.approval === approval).length,
       })),
     },
@@ -214,7 +214,7 @@ export async function cmdDashboard(port: number = DEFAULT_PORT): Promise<CmdResu
 
   return {
     code: 0,
-    stdout: `kaban-flow dashboard running at ${url}\n\nOpen ${url} in your browser. Press Ctrl+C to stop.`,
+    stdout: `kanban-flow dashboard running at ${url}\n\nOpen ${url} in your browser. Press Ctrl+C to stop.`,
   };
 }
 

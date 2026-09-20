@@ -1,10 +1,10 @@
 export function renderDashboardHtml(): string {
   return `<!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kaban-flow dashboard</title>
+<title>kanban-flow dashboard</title>
 <style>
   :root { color-scheme: dark; --bg: #0b1120; --panel: #111c30; --border: #2b3a52;
     --text: #e8eef8; --muted: #a9b8ce; --feature: #22d3ee; --bug: #fbbf24; }
@@ -82,38 +82,38 @@ export function renderDashboardHtml(): string {
 <body>
 <main>
   <header>
-    <div><div class="eyebrow">kaban-flow / Analytics</div><h1>Tổng quan workflow</h1>
-      <p class="muted">Số liệu feature, bug và tiến độ thực thi.</p><p class="muted" id="root"></p></div>
-    <button id="refresh" type="button">Làm mới số liệu</button>
+    <div><div class="eyebrow">kanban-flow / Analytics</div><h1>Workflow overview</h1>
+      <p class="muted">Feature and bug counts, and how far execution has got.</p><p class="muted" id="root"></p></div>
+    <button id="refresh" type="button">Refresh</button>
   </header>
   <div class="toolbar">
-    <label>Context<select id="context"><option value="">Tất cả context</option></select></label>
-    <label>Loại work item<select id="kind"><option value="">Feature và bug</option><option value="feature">Feature</option><option value="bug">Bug</option></select></label>
-    <p class="updated">Cập nhật <span id="ts">—</span> · tự làm mới mỗi 5 giây</p>
+    <label>Context<select id="context"><option value="">All contexts</option></select></label>
+    <label>Work item kind<select id="kind"><option value="">Features and bugs</option><option value="feature">Feature</option><option value="bug">Bug</option></select></label>
+    <p class="updated">Updated <span id="ts">—</span> · refreshes every 5 seconds</p>
   </div>
   <div id="error" role="alert" hidden></div>
-  <section class="kpis" id="kpis" aria-label="Số liệu tổng quan"><p class="muted">Đang tải số liệu…</p></section>
+  <section class="kpis" id="kpis" aria-label="Summary metrics"><p class="muted">Loading metrics…</p></section>
   <div class="charts">
     <section class="panel" aria-labelledby="stages-title">
-      <div class="panel-heading"><h2 id="stages-title">Phân bố theo stage</h2><p class="caption">Số work item hiện tại ở từng trạng thái.</p></div>
+      <div class="panel-heading"><h2 id="stages-title">By stage</h2><p class="caption">How many work items sit in each stage right now.</p></div>
       <div class="legend"><span><i class="swatch feature"></i>Feature</span><span><i class="swatch bug"></i>Bug</span></div>
       <div class="bars" id="stage-chart"></div>
     </section>
     <section class="panel" aria-labelledby="kind-title">
-      <div class="panel-heading"><h2 id="kind-title">Feature và bug</h2><p class="caption">Tỷ trọng theo bộ lọc đang chọn.</p></div>
+      <div class="panel-heading"><h2 id="kind-title">Features and bugs</h2><p class="caption">The split under the current filter.</p></div>
       <div class="donut-layout" id="kind-chart"></div>
       <div class="task-summary" id="task-chart"></div>
     </section>
     <section class="panel" aria-labelledby="context-title">
-      <div class="panel-heading"><h2 id="context-title">Phân bố theo context</h2><p class="caption">So sánh khối lượng feature/bug giữa các context.</p></div>
+      <div class="panel-heading"><h2 id="context-title">By context</h2><p class="caption">Feature and bug volume compared across contexts.</p></div>
       <div class="bars scroll-chart" id="context-chart"></div>
     </section>
     <section class="panel" aria-labelledby="approval-title">
-      <div class="panel-heading"><h2 id="approval-title">Trạng thái approval</h2><p class="caption">Work item từ planning đến review, gồm backlog.</p></div>
+      <div class="panel-heading"><h2 id="approval-title">Approval state</h2><p class="caption">Work items from planning through review, backlog included.</p></div>
       <div class="bars" id="approval-chart"></div>
     </section>
   </div>
-  <footer>Số liệu là snapshot từ .works/. Tiến độ task tính trên các item ở implementation, testing và review có tasks.md. Đây không phải tỷ lệ test pass hay coverage.</footer>
+  <footer>These numbers are a snapshot of .works/. Task progress counts only items in implementation, testing and review that have a tasks.md. It is not a test pass rate or coverage.</footer>
 </main>
 <script>
 const $ = (selector) => document.querySelector(selector);
@@ -139,22 +139,22 @@ function bars(rows, stacked) {
 function render(data) {
   const m = data.metrics;
   const kpis = [
-    ['Tổng work item', m.total, m.features + ' feature · ' + m.bugs + ' bug'],
-    ['Đang thực thi', m.executing, 'Implementation · testing · review'],
-    ['Backlog', m.backlog, 'Chờ quyết định bắt đầu'],
-    ['Đã hoàn tất', m.completed, percent(m.completionRate) + ' tổng work item'],
-    ['Đã huỷ', m.cancelled, 'Không tính vào tỷ lệ hoàn tất'],
-    ['Bypass gate', m.bypassed, 'Work item có --force / --skip-hooks'],
-    ['Tiến độ task', percent(m.tasks.completionRate), m.tasks.done + '/' + m.tasks.total + ' task đã xong'],
+    ['Work items', m.total, m.features + ' feature · ' + m.bugs + ' bug'],
+    ['In execution', m.executing, 'Implementation · testing · review'],
+    ['Backlog', m.backlog, 'Awaiting a decision to start'],
+    ['Completed', m.completed, percent(m.completionRate) + ' of work items'],
+    ['Cancelled', m.cancelled, 'Left out of the completion rate'],
+    ['Gate bypasses', m.bypassed, 'Work items using --force / --skip-hooks'],
+    ['Task progress', percent(m.tasks.completionRate), m.tasks.done + '/' + m.tasks.total + ' tasks done'],
   ];
   $('#kpis').innerHTML = kpis.map(([label, value, note]) => '<div class="kpi"><p class="kpi-label">'
     + escapeHtml(label) + '</p><p class="kpi-value">' + escapeHtml(value)
     + '</p><p class="kpi-note">' + escapeHtml(note) + '</p></div>').join('');
   $('#stage-chart').innerHTML = bars(data.charts.byStage, true);
   $('#context-chart').innerHTML = data.charts.byContext.length
-    ? bars(data.charts.byContext, true) : '<p class="empty">Chưa có work item trong bộ lọc này.</p>';
+    ? bars(data.charts.byContext, true) : '<p class="empty">No work item matches this filter.</p>';
   $('#approval-chart').innerHTML = data.charts.approvals.some((row) => row.count)
-    ? bars(data.charts.approvals, false) : '<p class="empty">Chưa có work item cần approval.</p>';
+    ? bars(data.charts.approvals, false) : '<p class="empty">No work item needs approval yet.</p>';
   const circumference = 2 * Math.PI * 62;
   let offset = 0;
   const arcs = data.charts.byKind.map((row) => {
@@ -172,13 +172,13 @@ function render(data) {
     + m.features + ' feature, ' + m.bugs + ' bug"><circle cx="90" cy="90" r="62" fill="none" stroke="#26354c" stroke-width="18"></circle>'
     + arcs + '<text x="90" y="91" class="donut-total">' + m.total
     + '</text><text x="90" y="111" class="donut-label">WORK ITEMS</text></svg><div class="kind-legend">' + legend + '</div>';
-  $('#task-chart').innerHTML = '<div class="task-line"><span>Task đang thực thi</span><strong>'
+  $('#task-chart').innerHTML = '<div class="task-line"><span>Tasks in execution</span><strong>'
     + m.tasks.done + '/' + m.tasks.total + '</strong></div><div class="track" role="img" aria-label="'
-    + m.tasks.done + ' trên ' + m.tasks.total + ' task đã hoàn tất"><i class="segment feature" style="width:'
+    + m.tasks.done + ' of ' + m.tasks.total + ' tasks done"><i class="segment feature" style="width:'
     + (m.tasks.completionRate ?? 0) + '%"></i></div><p class="caption">'
-    + m.tasks.itemsTracked + ' item có task · ' + m.tasks.itemsUntracked + ' item chưa có task</p>';
+    + m.tasks.itemsTracked + ' items with tasks · ' + m.tasks.itemsUntracked + ' items without</p>';
   $('#root').textContent = data.root;
-  $('#ts').textContent = new Date(data.updatedAt).toLocaleTimeString('vi-VN');
+  $('#ts').textContent = new Date(data.updatedAt).toLocaleTimeString();
 }
 function query() {
   const params = new URLSearchParams();
@@ -193,12 +193,12 @@ function updateContexts(data) {
     value: context.id === null ? '__none__' : context.id, label: context.label
   }));
   if (selected && !options.some((option) => option.value === selected)) {
-    options.push({ value: selected, label: selected === '__none__' ? 'Không xác định' : selected });
+    options.push({ value: selected, label: selected === '__none__' ? 'Unassigned' : selected });
   }
   const key = JSON.stringify(options);
   if (key === contextOptionsKey) return;
   contextOptionsKey = key;
-  $('#context').innerHTML = '<option value="">Tất cả context</option>' + options.map((option) =>
+  $('#context').innerHTML = '<option value="">All contexts</option>' + options.map((option) =>
     '<option value="' + escapeHtml(option.value) + '">' + escapeHtml(option.label) + '</option>').join('');
   $('#context').value = selected;
 }
@@ -218,8 +218,8 @@ async function refresh() {
     render(data);
     $('#error').hidden = true;
   } catch (error) {
-    $('#error').textContent = 'Không tải được số liệu (' + (error instanceof Error ? error.message : String(error))
-      + '). Số liệu đang hiển thị có thể đã cũ. Kiểm tra đầu ra server rồi làm mới.';
+    $('#error').textContent = 'Could not load the metrics (' + (error instanceof Error ? error.message : String(error))
+      + '). What is on screen may be stale. Check the server output, then refresh.';
     $('#error').hidden = false;
   } finally {
     loading = false;

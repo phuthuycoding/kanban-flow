@@ -1,9 +1,33 @@
 {
-  "name": "kaban-flow",
-  "version": "0.2.0",
+  "name": "kanban-flow",
+  "version": "0.3.0",
   "description": "Kanban workflow CLI — artifact-gated feature pipeline (brainstorm → plan → implement → test → review → archive)",
   "type": "module",
   "license": "MIT",
+  "author": "Quyen (phuthuycoding)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phuthuycoding/kaban-flow.git"
+  },
+  "homepage": "https://github.com/phuthuycoding/kaban-flow#readme",
+  "bugs": {
+    "url": "https://github.com/phuthuycoding/kaban-flow/issues"
+  },
+  "keywords": [
+    "kanban",
+    "workflow",
+    "cli",
+    "ai-agents",
+    "spec-driven",
+    "traceability",
+    "agentic",
+    "code-review",
+    "requirements",
+    "test-plan"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "kf": "dist/index.js"
   },
@@ -13,7 +37,7 @@
   "files": [
     "dist",
     "skills",
-    "docs",
+    "docs/workflow",
     "kanban-flow/templates",
     "kanban-flow/review"
   ],

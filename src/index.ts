@@ -38,7 +38,7 @@ async function help(parts: string[]): Promise<CmdResult> {
   const cmds = allCommands().map((c) => `  ${c.padEnd(12)} ${commandHelp(c).split("\n")[0]}`).join("\n");
   return {
     code: 0,
-    stdout: `kaban-flow CLI v${PKG_VERSION}\n\nUsage: kf <command> [args]\n\nCommands:\n${cmds}\n\nRun "kf help <command>" for details.`,
+    stdout: `kanban-flow CLI v${PKG_VERSION}\n\nUsage: kf <command> [args]\n\nCommands:\n${cmds}\n\nRun "kf help <command>" for details.`,
   };
 }
 

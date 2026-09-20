@@ -79,7 +79,7 @@ describe("gate bypass audit trail", () => {
     expect(dashboardData(root, { context: "other" }).metrics.bypassed).toBe(0);
     expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).metrics.bypassed).toBe(1);
     expect((await cmdView(args("view"), root)).stdout).toContain("Bypassed: 1");
-    expect(renderDashboardHtml()).toContain("Bypass gate");
+    expect(renderDashboardHtml()).toContain("Gate bypasses");
   });
 
   it("treats missing bypasses as none and rejects a malformed list", async () => {

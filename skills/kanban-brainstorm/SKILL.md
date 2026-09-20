@@ -21,7 +21,7 @@ Orientation before ideation. Cheap questions here prevent expensive ones later.
 
 1. **Read the repository.** Structure, stack, tooling, data model, conventions. Reading code beats asking — never make the user explain what the code already answers.
 2. **Read one similar existing feature** (if any) for house patterns.
-3. **Restate the challenge.** In one or two sentences, play the user's idea back: *"Bạn muốn X để đạt được Y trong bối cảnh Z — đúng không?"*. Fix misunderstandings before generating ideas against the wrong target.
+3. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target.
 4. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
 
 Rules of engagement:
@@ -234,14 +234,14 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
 - **Main Use Cases** — one line each with `UC-###` ids (full narratives live in Phase 2).
 - **Constraints / Assumptions / Edge Cases / Open Questions** — edge cases should feel adversarial: empty states, concurrency, permissions, partial failure, boundary values.
 - **Test Strategy** — onboard the user on how deep to test (this locks what Phase 2 must produce):
-  - Ask: *"Bạn muốn test đến mức nào cho feature này?"* with concrete options:
-    - `unit` — chỉ unit test (logic/state). Mặc định khi feature thuần backend/utility.
-    - `unit+integration` — unit + test phần giao hệ thống/DB/API. Mặc định cho API/datastore.
-    - `full` — unit + integration + **UI/E2E** (Playwright/Cypress/Detox...). Mặc định cho mọi feature có giao diện người dùng hoặc luồng critical (todo-list web, login, checkout...).
-  - Khi user chọn `full`, hỏi thêm phạm vi UI: *"UI test toàn bộ luồng hay chỉ critical flows?"* → `{test_level}: full`, `{ui_test_scope}: critical|all`.
-  - Ghi đúng vào spec: `Test Level`, `UI Tests`, `Tools` (tên framework + file chạy), `Coverage Target` (mặc định 80%).
-  - **Default quyết định từ bản chất feature** — đừng hỏi lại nếu feature rõ ràng (API CRUD → `unit+integration`; app có UI → `full`). Hỏi chỉ khi không tự quyết được.
-- **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Nếu `full`: ít nhất 1 criteria/FR phải kể được dưới dạng hành động UI (click, type, thấy gì trên màn hình).
+  - Ask: *"How far do you want this feature tested?"* with concrete options:
+    - `unit` — unit tests only, for logic and state. The default for a pure backend or utility feature.
+    - `unit+integration` — unit tests plus tests where the change meets another system, the database or an API. The default for an API or a datastore.
+    - `full` — unit, integration and **UI/E2E** (Playwright, Cypress, Detox and so on). The default for anything with a user interface or a critical flow, such as a web todo list, a login or a checkout.
+  - When the user picks `full`, ask how wide the UI coverage goes: *"UI tests for every flow, or only the critical ones?"* → `{test_level}: full`, `{ui_test_scope}: critical|all`.
+  - Record it in the spec exactly: `Test Level`, `UI Tests`, `Tools` (the framework name and the file that runs it) and `Coverage Target` (80% by default).
+  - **Let the nature of the feature set the default.** Do not ask again when the answer is obvious: a CRUD API is `unit+integration`, an app with a UI is `full`. Ask only when you genuinely cannot decide.
+- **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Under `full`, at least one criterion per FR must read as a UI action: what is clicked, what is typed, what appears on screen.
 
 Set `status: pending` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation).
 

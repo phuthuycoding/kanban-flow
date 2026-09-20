@@ -173,7 +173,7 @@ export function harnessPresets(): Record<string, RunnerConfig> {
   };
 }
 
-/** Default roles: the jobs a kaban pipeline actually has, all pointing at one runner until the user splits them. */
+/** Default roles: the jobs a kanban pipeline actually has, all pointing at one runner until the user splits them. */
 export const ROLE_BRIEFS: Record<string, string> = {
   architect: "Orchestrates the pipeline and keeps the human gates. Decides transitions; does not do a stage's work when that stage has its own role.",
   researcher: "Explores breadth: prior art, libraries, existing code paths, comparable features. Reports findings and trade-offs; does not design or write the spec.",

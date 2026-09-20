@@ -43,7 +43,7 @@ export function shouldSuggestIgnoreWorks(root: string): boolean {
 
 export function appendIgnoreWorks(root: string): void {
   const gi = join(root, ".gitignore");
-  const add = "\n# kaban-flow\n.works/\n";
+  const add = "\n# kanban-flow\n.works/\n";
   if (!existsSync(gi)) writeFileSync(gi, add, "utf8");
   else writeFileSync(gi, readFileSync(gi, "utf8") + add, "utf8");
 }
@@ -252,7 +252,7 @@ function nodeCommandRows(root: string): string[] {
 
 /**
  * Seed AGENTS.md at the project root so agents know the commands and the
- * kaban-flow conventions. Never overwrites an existing AGENTS.md or CLAUDE.md.
+ * kanban-flow conventions. Never overwrites an existing AGENTS.md or CLAUDE.md.
  */
 export function seedAgentsFile(root: string, stacks: string[]): "created" | "kept" {
   if (existsSync(join(root, "AGENTS.md")) || existsSync(join(root, "CLAUDE.md"))) return "kept";
@@ -272,7 +272,7 @@ ${commands}
 
 Detect anything else by reading the repository, never by guessing.
 
-## Workflow (kaban-flow)
+## Workflow (kanban-flow)
 
 - Start a feature with one command: \`kanban <context> <feature>\` (bug: \`kanban <context> <name> --type bug\`).
 - Only two human gates: confirm the requirement (Phase 1) and approve the plan + choose start-now vs backlog (Phase 2). Do not ask "continue?" between other phases.

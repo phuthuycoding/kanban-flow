@@ -1,27 +1,27 @@
 # Multi-agent harness
 
-Một **role** (vai trò) làm một việc trong pipeline; mỗi role trỏ tới một **runner** (CLI + model + quyền). Stage gán cho role, không gán cho hãng. Không gán stage nào thì mọi thứ như cũ: main tự làm hết.
+A **role** does one job in the pipeline, and each role points at a **runner**: a CLI, a model and its permission flags. Stages are assigned to roles, never to vendors. Assign no stages and nothing changes: the main agent does everything itself.
 
-## Vì sao ba lớp
+## Why three layers
 
 ```
 stage  →  role       →  runner
-testing   tester        gemini (CLI + model + cờ quyền)
+testing   tester        gemini (CLI + model + permission flags)
 ```
 
-- **Stage → role gần như không bao giờ đổi.** Testing luôn cần tester, review luôn cần reviewer. Viết một lần.
-- **Role → runner là chỗ đổi khi đổi ý về model.** Thấy một model viết hợp hơn thì đổi `writer` một dòng, không đụng stage nào.
-- **Runner → CLI + cờ** là chỗ chịu ảnh hưởng khi hãng đổi giao diện. Hỏng một runner không kéo theo phần còn lại.
+- **Stage to role almost never changes.** Testing always wants a tester, review always wants a reviewer. Write it once.
+- **Role to runner is where you change your mind about a model.** Find one that writes better and `writer` becomes a one-line edit, with no stage touched.
+- **Runner to CLI and flags** is what breaks when a vendor changes its interface. One broken runner does not take the rest down with it.
 
-Mỗi model mạnh một kiểu: chiều rộng khảo sát, văn phong, code, review. Role là cách nói "việc này cần thế mạnh nào" mà không gắn cứng vào tên hãng.
+Every model is strong at something different: breadth of research, prose, code, review. A role is how you say "this job needs that strength" without hard-wiring a vendor's name into the pipeline.
 
-## Vì sao không cần "resume session gần nhất"
+## Why "resume the latest session" is never needed
 
-kaban-flow để state trong file (`.works/`, artifact, `.kfw.json`), không dựa vào trí nhớ hội thoại. Worker cho một stage là một session headless mới với context = skill của stage + artifact trên đĩa. Session chỉ được giữ lại **theo work item + role** để vòng sửa (FAIL → implement) tiếp tục đúng phiên đã làm, và id đó do kf tạo hoặc lấy về xác định, không bao giờ đoán "gần nhất". Hai role dùng chung một runner vẫn có hai session riêng, nên `coder` và `reviewer` trên cùng một CLI không lẫn ngữ cảnh của nhau.
+kanban-flow keeps its state in files: `.works/`, the artifacts and `.kfw.json`. It never relies on what a conversation remembers. A worker for a stage is a fresh headless session whose context is that stage's skill plus the artifacts on disk. A session is kept **per work item and per role**, so the repair loop from FAIL back to implement continues in the session that did the work, and that id is either minted by kf or fetched deterministically, never guessed as "the latest". Two roles sharing one runner still get two separate sessions, so `coder` and `reviewer` on the same CLI never see each other's context.
 
 ## Config
 
-Block `harness` trong `.kf/config.json` (`kf init` seed sẵn, `kf harness` để xem):
+The `harness` block in `.kf/config.json`, which `kf init` seeds and `kf harness` displays:
 
 ```json
 "harness": {
@@ -64,81 +64,81 @@ Block `harness` trong `.kf/config.json` (`kf init` seed sẵn, `kf harness` đ�
 }
 ```
 
-- `main`: role mà agent điều phối đóng. Phải là role, không phải runner.
-- `roles.<role>`: tên runner (dạng ngắn) hoặc `{ runner, brief?, output? }`.
-  - `brief`: một hai câu mô tả vai, được chèn vào prompt để worker biết nó được gọi làm gì.
-  - `output`: file phụ role phải viết trong thư mục work item (ví dụ `research.md`), để role sau đọc. Đường dẫn phải nằm trong thư mục work item.
-- `stages.<stage>`: một role hoặc **mảng role chạy tuần tự**. Stage `backlog` không gán được. Stage không khai báo thì main làm.
-- `runners.<runner>`: xem bảng dưới. Quyền (`--permission-mode`, `--approval-mode`, `--sandbox`) nằm trong template; kf không bơm cờ nào.
+- `main`: the role the orchestrating agent plays. It must be a role, not a runner.
+- `roles.<role>`: a runner name in short form, or `{ runner, brief?, output? }`.
+  - `brief`: a sentence or two describing the role, injected into the prompt so the worker knows what it was called for.
+  - `output`: an extra file the role must write inside the work item folder, such as `research.md`, for the next role to read. The path has to stay inside the work item folder.
+- `stages.<stage>`: one role, or **an array of roles run in order**. The `backlog` stage cannot be assigned. Any stage left undeclared is handled by the main agent.
+- `runners.<runner>`: see the table below. Permissions (`--permission-mode`, `--approval-mode`, `--sandbox`) live in the template; kf injects no flags of its own.
 
-Thêm model mới = thêm một runner rồi trỏ role vào đó. Cùng một CLI hai model (`claude-opus`, `claude-haiku`) là hai runner, gán cho role đắt và role rẻ.
+Adding a model means adding a runner and pointing a role at it. Two models on one CLI, such as `claude-opus` and `claude-haiku`, are two runners, assigned to the expensive role and the cheap one.
 
-### Runner
+### Runner fields
 
-| Trường | Ý nghĩa |
+| Field | What it means |
 |---|---|
-| `start` | argv session mới; `{prompt}` bắt buộc. `{session}` chỉ dùng khi `session: "provided"` (kf tự sinh UUID trước khi chạy) |
-| `resume` | argv tiếp session đã lưu, phải có `{session}`. Không có → role luôn chạy mới |
-| `session` | `"provided"`, `{ "stdout": "<regex nhóm 1>" }`, hoặc `{ "command", "idField", "matchField" }` (chạy lệnh trả JSON mảng, chọn phần tử có `matchField` chứa marker `kf-run:<id>` mà kf đặt đầu prompt) |
-| `usage` | `"json"`: parse `usage.input_tokens/output_tokens` (và `total_cost_usd` nếu có) từ JSON trên stdout |
-| `skillsDir` | Thư mục skill của runner; mặc định theo `kf install` (`.claude/skills`, `.agents/skills`, `.gemini/skills`, `.opencode/skills`; tên lạ → `.agents/skills`) |
-| `resumeFailure` | Regex nhận biết resume hỏng (mặc định `session\|not found\|no such\|unknown\|does not exist`) |
+| `start` | The argv for a fresh session. `{prompt}` is mandatory. `{session}` is allowed only under `session: "provided"`, where kf mints a UUID before running |
+| `resume` | The argv to continue a stored session; it must contain `{session}`. Without it the role always starts fresh |
+| `session` | `"provided"`, `{ "stdout": "<regex, group 1>" }`, or `{ "command", "idField", "matchField" }`, which runs a command returning a JSON array and picks the entry whose `matchField` contains the `kf-run:<id>` marker kf puts at the head of the prompt |
+| `usage` | `"json"` parses `usage.input_tokens` and `usage.output_tokens`, plus `total_cost_usd` when present, from JSON on stdout |
+| `skillsDir` | The runner's skills directory. Defaults follow `kf install`: `.claude/skills`, `.agents/skills`, `.gemini/skills`, `.opencode/skills`, and any unfamiliar name falls back to `.agents/skills` |
+| `resumeFailure` | A regex that recognises a failed resume; the default is `session\|not found\|no such\|unknown\|does not exist` |
 
-### Preset đã kiểm chứng (2026-09-19)
+### Presets, as verified on 2026-09-19
 
-| Runner | Session | Kiểm chứng |
+| Runner | Session | What was verified |
 |---|---|---|
-| claude | kf sinh UUID (`--session-id`), resume `-r`; usage + cost từ JSON | Chạy thật: start + resume OK |
-| codex | `thread_id` trong JSONL của `exec --json`, resume `exec resume <id>`; usage từ `turn.completed` | Chạy thật: start + resume OK |
-| devin | `devin list --format json` khớp `title` với marker; resume `-r <id>` | Chạy thật: start + list + resume OK. Devin từ chối thư mục chưa trust: mở `devin` tương tác một lần trong repo |
-| gemini | không có resume | Không login được trên máy kiểm chứng; `-r` nhận `latest`/số thứ tự, chưa rõ nhận UUID |
-| opencode | không có resume | Chưa kiểm chứng cách lấy id; `run -s <id>` tồn tại |
+| claude | kf mints the UUID via `--session-id`, resumes with `-r`; usage and cost come from the JSON | Run for real: start and resume both work |
+| codex | `thread_id` from the JSONL of `exec --json`, resumes with `exec resume <id>`; usage from `turn.completed` | Run for real: start and resume both work |
+| devin | `devin list --format json` matched on `title` against the marker; resumes with `-r <id>` | Run for real: start, list and resume all work. Devin refuses an untrusted directory, so open `devin` interactively once inside the repo |
+| gemini | no resume | Could not log in on the verification machine. `-r` accepts `latest` or an index; whether it accepts a UUID is unknown |
+| opencode | no resume | How to obtain the id is unverified; `run -s <id>` does exist |
 
 ## Flow
 
-1. Main agent (skill `kanban-flow`) trước mỗi stage đọc `kf status --change <f> --json`. Có `assignedRoles` → chạy `kf run <f>` (thêm `--detach` cho stage dài như implementation rồi poll `kf runs <f>`).
-2. `kf run` giải chuỗi role của stage rồi chạy **tuần tự**. Với mỗi role, prompt gồm: vai + `brief`, work item, stage, folder, đường dẫn `SKILL.md` của phase cho runner đó, gợi ý `kf status`/`kf instruct`, yêu cầu ghi `output` nếu role có, mục "Previous step" (role trước, file output, log) từ bước thứ hai, và contract: chỉ làm việc của stage, **không** `kf stage`/`kf approve`/`kf archive`/`kf run`, không sửa contract đã approve, không commit, kết thúc bằng `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` + `Summary:`.
-3. Mỗi role là một run riêng: process group riêng, log riêng `runs/<id>.log`, một bản ghi trong `.kfw.json.runs[]` có cả `role` và `runner`.
-4. Role không kết thúc `DONE`/`DONE_WITH_CONCERNS` → **dừng chuỗi**, các role sau không chạy, `kf run` exit 1 và nêu role nào dừng cùng role nào bị bỏ.
-5. Main đọc `STATUS`/`Summary` (đuôi log, không nuốt transcript), chạy `kf validate`, quyết chuyển stage. Gate không tin lời khai của worker.
-6. Vòng sửa: `kf run` lần sau resume đúng session của role đó cho work item đó; prompt thêm đường dẫn report FAIL hiện tại. `--fresh` ép session mới.
+1. Before each stage, the main agent, running the `kanban-flow` skill, reads `kf status --change <f> --json`. When `assignedRoles` is present it runs `kf run <f>`, adding `--detach` for a long stage such as implementation and then polling `kf runs <f>`.
+2. `kf run` resolves the stage's role chain and runs it **in order**. Each role's prompt carries: the role and its `brief`, the work item, the stage, the folder, the path to that runner's phase `SKILL.md`, pointers to `kf status` and `kf instruct`, the requirement to write `output` when the role has one, a "Previous step" section naming the previous role, its output file and its log from the second step onward, and the contract: do only this stage's work, never run `kf stage`, `kf approve`, `kf archive` or `kf run`, never edit an approved contract, never commit, and finish with `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` followed by `Summary:`.
+3. Each role is its own run: its own process group, its own `runs/<id>.log`, and one entry in `.kfw.json.runs[]` carrying both `role` and `runner`.
+4. A role that does not end in `DONE` or `DONE_WITH_CONCERNS` **stops the chain**. The roles after it do not run, `kf run` exits 1, and it names which role stopped and which were skipped.
+5. The main agent reads `STATUS` and `Summary` from the tail of the log, without swallowing the transcript, runs `kf validate` and decides on the transition. The gate does not take the worker's word for anything.
+6. On the repair loop, the next `kf run` resumes that role's session for that work item, and the prompt gains the path to the current FAIL report. `--fresh` forces a new session.
 
-`kf run --role <name>` chạy đúng một role trong chuỗi. `--dry-run` in kế hoạch cả chuỗi (mỗi role một khối argv + prompt). Timeout mặc định 30 phút (`--timeout <phút>`, `0` = không giới hạn); quá hạn kill cả process group, run `timeout`. Không tự retry; resume hỏng thì reset session đúng một lần rồi chạy mới. Một work item chỉ một run `running` tại một thời điểm.
+`kf run --role <name>` runs exactly one role from the chain. `--dry-run` prints the plan for the whole chain, one argv and prompt block per role. The timeout is 30 minutes by default (`--timeout <minutes>`, `0` for none); on expiry the whole process group is killed and the run is marked `timeout`. There is no automatic retry: a failed resume resets the session exactly once and starts fresh. A work item has at most one `running` run at a time.
 
-`--detach`: kf ghi kế hoạch chuỗi rồi spawn một tiến trình `kf run --supervise <id>` tách rời làm supervisor, trả về ngay. Supervisor chạy cả chuỗi và tìm lại folder theo tên work item trước khi ghi kết quả; folder biến mất → ghi `.works/harness/orphan-<id>.json`. `kf runs` báo `failed (supervisor lost)` khi record còn `running` mà pid đã chết, không tự sửa metadata.
+With `--detach`, kf writes the chain plan, spawns a detached `kf run --supervise <id>` as the supervisor and returns immediately. The supervisor runs the whole chain and finds the folder again by work item name before writing results; when the folder is gone it writes `.works/harness/orphan-<id>.json`. `kf runs` reports `failed (supervisor lost)` when a record is still `running` but its pid is dead, and it never repairs the metadata on its own.
 
-## Quan sát
+## Observability
 
-- `kf harness [--json]`: main role, stage → chuỗi role, role → runner (+ brief, output), runner → CLI/PATH/resume/session.
-- `kf status --change <f>`: `Assigned: researcher (codex) → writer (gemini) (kf run)`, `Runs: N (role×n, …)`; `--json` có `assignedRoles`, `runs[]`.
-- `kf runs [<f>] [--json]`: mọi run kèm role, runner và vị trí trong chuỗi (`2/2`), mới nhất trước. Run nào kết thúc một chuỗi khi chưa tới role cuối và không còn run nào đang chạy sẽ hiển thị `chain stopped 1/2` kèm cảnh báo bên dưới; `--json` có `chainBroken`. Đây là cách phát hiện chuỗi đứt (supervisor chết, Ctrl+C) thay vì tưởng stage đã xong.
+- `kf harness [--json]`: the main role, stage to role chain, role to runner with brief and output, and runner to CLI, PATH, resume and session.
+- `kf status --change <f>`: `Assigned: researcher (codex) → writer (gemini) (kf run)` and `Runs: N (role×n, …)`; the JSON carries `assignedRoles` and `runs[]`.
+- `kf runs [<f>] [--json]`: every run with its role, its runner and its place in the chain, such as `2/2`, newest first. A run that ends a chain before the last role while nothing else is running shows `chain stopped 1/2` with a warning underneath, and the JSON carries `chainBroken`. This is how you spot a broken chain, from a dead supervisor or a Ctrl+C, instead of assuming the stage finished.
 
-Gõ nhầm tên runner vào `stages` được báo rõ thay vì "unknown role":
+Typing a runner name into `stages` gets a message that says so, rather than "unknown role":
 
 ```
 Invalid project config: .kf/config.json — harness.stages.testing "gemini" is a runner,
 not a role; declare a role in harness.roles that points at it
 ```
-- `kf view [--json]`: `metrics.runs.byRole` `{ runs, done, failed }` và `metrics.runs.usage` theo role.
+- `kf view [--json]`: `metrics.runs.byRole` as `{ runs, done, failed }`, and `metrics.runs.usage` broken down by role.
 
-## Chi phí token
+## Token cost
 
-- Công việc thật (đọc code, sửa, chạy test) không đổi, chỉ chuyển sang quota của runner được gán.
-- Đội lên: mỗi lần bàn giao worker phải đọc lại skill + artifact + code liên quan (ước 10-30k token). **Chuỗi role nhân phần này theo số bước**: brainstorm hai role tốn hai lần bàn giao. Chỉ xếp chuỗi khi hai vai thật sự khác việc.
-- Vòng sửa tốn thêm lần nữa nếu runner không resume được.
-- Main rẻ đi: lúc worker chạy main không tốn gì; chỉ đọc đuôi log.
-- Chặn lãng phí: prompt chỉ trỏ đường dẫn; chuỗi dừng ngay khi một role hỏng; worker không in `STATUS` bị coi là chưa xong; không retry.
-- Đo: runner có `usage: "json"` ghi token và cost vào `runs[]`, `kf view` cộng dồn **theo role** nên so sánh được vai nào đắt.
+- The real work of reading code, changing it and running tests does not grow. It simply moves onto the assigned runner's quota.
+- What does grow: every handover makes a worker re-read the skill, the artifacts and the relevant code, roughly 10 to 30 thousand tokens. **A role chain multiplies that by its length**: a two-role brainstorm pays for two handovers. Chain roles only when the two jobs are genuinely different.
+- The repair loop costs another handover when the runner cannot resume.
+- The main agent gets cheaper: it spends nothing while a worker runs, and only reads the tail of the log.
+- Waste is held down: prompts carry paths rather than content, the chain stops the moment a role fails, a worker that prints no `STATUS` counts as unfinished, and nothing retries.
+- Measurement: a runner with `usage: "json"` records tokens and cost into `runs[]`, and `kf view` totals them **by role**, so you can see which role is the expensive one.
 
-## Giới hạn
+## Limits
 
-- Contract "không chuyển stage" là hợp đồng trong prompt, kf không chặn kỹ thuật được (worker có `kf` trên PATH). `runs[]` + `bypasses[]` để soi.
-- Chuỗi luôn tuần tự, không song song. Dừng giữa chừng để lại trạng thái nửa vời: role đầu đã ghi file, role sau chưa chạy. `kf run` in rõ, `kf runs` đánh dấu `chain stopped i/n`, và gate artifact của stage vẫn là thứ quyết định.
-- Kill process group dùng `process.kill(-pid)` (POSIX). Trên Windows kf không dọn được con của worker.
-- `.kfw.json` được ghi lại bởi supervisor và bởi `kf stage` của main; kf đọc lại trước khi ghi và ghi atomic, nhưng không có lock.
-- Log worker có thể chứa nội dung nhạy cảm mà CLI in ra; `.works/` thường được ignore, giữ vậy.
-- Chưa có bridge async (đánh thức khi main không còn sống) và chưa có `kf run --task` cho việc ad-hoc ngoài stage.
+- The "do not move the stage" rule is a contract in the prompt, not something kf can enforce, because the worker has `kf` on its PATH. `runs[]` and `bypasses[]` are there to check against.
+- Chains are always sequential, never parallel. Stopping midway leaves a half-done state: the first role wrote its file, the next never ran. `kf run` says so, `kf runs` marks it `chain stopped i/n`, and the stage's artifact gate is still what decides.
+- Killing a process group uses `process.kill(-pid)`, which is POSIX. On Windows, kf cannot clean up a worker's children.
+- `.kfw.json` is written both by the supervisor and by the main agent's `kf stage`. kf re-reads before writing and writes atomically, but there is no lock.
+- A worker log can contain whatever sensitive content the CLI printed. `.works/` is usually gitignored; keep it that way.
+- There is no async bridge yet, meaning nothing wakes the main agent once it is gone, and no `kf run --task` for ad-hoc work outside a stage.
 
-## Điều khoản sử dụng
+## Terms of use
 
-kf chỉ spawn CLI chính thức của từng hãng bằng cờ headless mà hãng công bố (`claude -p`, `codex exec`, `gemini -p`, `devin -p`, `opencode run`), dưới tài khoản đã login trên máy của người chạy. kf **không** đọc, lưu hay chuyển tiếp credential/token của bất kỳ CLI nào, không gọi API hãng trực tiếp, không retry dồn dập. Mỗi người dùng chịu trách nhiệm với điều khoản gói mình dùng (dùng cho dự án thương mại, chia sẻ tài khoản, giới hạn tần suất); tài liệu này không phải kết luận pháp lý.
+kf only spawns each vendor's official CLI using the headless flags that vendor documents (`claude -p`, `codex exec`, `gemini -p`, `devin -p`, `opencode run`), under the account already logged in on the machine running it. kf **never** reads, stores or forwards any CLI's credentials or tokens, never calls a vendor API directly and never retries in bursts. Each user remains responsible for the terms of the plan they are on, covering commercial use, account sharing and rate limits. This document is not legal advice.

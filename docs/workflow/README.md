@@ -1,39 +1,39 @@
 # Kanban Flow Workflow
 
-`kaban-flow` điều khiển vòng đời feature bằng CLI `kf` và các skill phase:
+`kanban-flow` drives a feature's life cycle through the `kf` CLI and the phase skills:
 
 ```text
 brainstorm → planning → implementation → testing → review → dones
                  ↘ backlog ↗
 ```
 
-Mục tiêu của pipeline là biến một ý tưởng thành một execution contract được duyệt, thực thi có traceability, test và review đúng phiên bản trước khi archive.
+The pipeline exists to turn an idea into an approved execution contract, then execute it with traceability, and test and review the right version of it before archiving.
 
-Feature và bug dùng chung state machine. Bug tạo bằng `kf new <name> --type bug`, đi qua `kanban-bug` để triage/reproduce trước khi vào planning.
+Features and bugs share one state machine. Create a bug with `kf new <name> --type bug`; it goes through `kanban-bug` for triage and reproduction before it reaches planning.
 
-## Đọc nhanh
+## Where to start
 
-1. [Lifecycle](lifecycle.md) — ai làm gì và thứ tự ra sao.
-2. [State machine](state-machine.md) — state và transition được phép.
-3. [Gates](gates.md) — artifact, approval, execution id và report status.
-4. [Artifact contract](artifacts.md) — cấu trúc file, traceability và canonical output.
-5. [CLI reference](cli-reference.md) — cú pháp lệnh để agent thao tác state.
-6. [Skill routing](skills.md) — skill nào được load ở mỗi state.
-7. [Dashboard](dashboard.md) — KPI, chart, filter và ý nghĩa số liệu.
-8. [Source layout](source-layout.md) — cấu trúc thư mục `src/` và hướng dẫn mở rộng.
+1. [Lifecycle](lifecycle.md) — who does what, and in what order.
+2. [State machine](state-machine.md) — the states and the transitions each one allows.
+3. [Gates](gates.md) — artifacts, approval, execution ids and report status.
+4. [Artifact contract](artifacts.md) — file structure, traceability and the canonical output.
+5. [CLI reference](cli-reference.md) — the command syntax an agent uses to move state.
+6. [Skill routing](skills.md) — which skill loads in which state.
+7. [Dashboard](dashboard.md) — the KPIs, the charts, the filters and what each number means.
+8. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
 
-## Các nguyên tắc bất biến
+## The rules that never bend
 
-- Không di chuyển folder thủ công; dùng `kf stage` hoặc `kf archive`.
-- Requirement/bug report phải `status: confirmed` trước khi rời brainstorm.
-- Sau khi planning được approve, người dùng chọn triển khai ngay hoặc đưa feature/bug vào `backlog`.
-- Planning phải được human approve. Feature fingerprint gồm requirement, bốn planning artifacts và các file UC; bug fingerprint chỉ gồm bug report.
-- Sửa execution contract sau approval buộc quay lại planning và approve lại.
-- Mỗi lần vào testing tạo execution id mới. Testing và review report phải tham chiếu đúng id đó.
-- FAIL/REJECT quay về implementation rồi phải testing lại. BLOCKED dừng pipeline.
-- REQUIREMENT_BUG dừng mọi transition thông thường để người dùng quyết định.
-- Feature report phải được viết trước archive; CLI sync canonical docs khi archive feature. Bug chỉ cập nhật docs liên quan khi có docs impact.
-- Pipeline không tự cấp quyền cho database, deployment, publish, message hoặc thay đổi ngoài scope được duyệt.
+- Never move a folder by hand; use `kf stage` or `kf archive`.
+- The requirement or bug report must be `status: confirmed` before it leaves brainstorm.
+- Once planning is approved, the user chooses to start now or to send the item to `backlog`.
+- Planning needs human approval. A feature's fingerprint covers the requirement, the four planning artifacts and every UC file; a bug's fingerprint covers only the bug report.
+- Editing the execution contract after approval forces a return to planning and a fresh approval.
+- Every entry into testing mints a new execution id. The testing and review reports must reference that exact id.
+- A FAIL or a REJECT returns to implementation and must be tested again. BLOCKED stops the pipeline.
+- REQUIREMENT_BUG stops every ordinary transition so the user can decide.
+- The feature report must be written before archive; the CLI syncs the canonical docs when a feature is archived. A bug only updates the related docs when there is a docs impact.
+- The pipeline grants itself no access to a database, a deployment, a publish, a message or any change outside the approved scope.
 
 ## Filesystem model
 
@@ -58,4 +58,4 @@ project/
     └── testplan/{context}/{feature}{,-result}.md
 ```
 
-Mỗi feature folder có tên `{feature}_{YYYYMMDD_HHmm}` và metadata `.kfw.json`. Các artifact chuẩn dùng prefix `phase-{number}-`.
+Each work item folder is named `{feature}_{YYYYMMDD_HHmm}` and carries a `.kfw.json`. The standard artifacts all use the `phase-{number}-` prefix.

@@ -7,7 +7,7 @@ status: planning
 
 # Use Case Index
 
-Mỗi use case là một file riêng trong thư mục `use-cases/`, không viết narrative gộp trong file này.
+Every use case is its own file under `use-cases/`. Do not write a combined narrative here.
 
 ## Use Case Files
 

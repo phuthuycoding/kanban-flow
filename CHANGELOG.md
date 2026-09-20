@@ -13,6 +13,16 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 - **Stage `cancelled` và lệnh `kf cancel`.** Lối ra thứ hai cho work item: dừng hẳn với `--reason` bắt buộc, lưu `cancellation { at, by, reason, fromStage }` trong `.kfw.json`, mở lại bằng `kf stage <feature> <fromStage>`. Stage này nằm ngoài trục tuyến tính (`STAGE_INDEX = -1`) nên không bị đòi artifact, approval hay report; đổi lại thiếu lý do là `cancellation_missing`. Chặn khi còn worker run đang chạy, chạy hook `cancelled.sh`, liệt kê canonical docs của item đã archive và chỉ xoá khi `--purge-docs` kèm xác nhận. `kf view`/dashboard đếm riêng và loại cancelled khỏi mẫu số `completionRate`.
 - Vitest `globalSetup` build `dist/` trước khi test (test detach cần CLI thật).
 
+### Changed
+- **Đổi tên gói `kaban-flow` → `kanban-flow`**, version `0.3.0`. Binary vẫn là `kf`, thư mục dữ liệu vẫn là `.kf/` và `.works/`. Gỡ CLI: `npm rm -g kanban-flow`.
+- **Bề mặt người dùng chuyển hết sang tiếng Anh**: `PHASE_NAMES` cho `backlog`/`cancelled`, nhãn context và approval của dashboard, toàn bộ HTML dashboard (`lang="en"`), ba skill `kanban-bug`/`kanban-brainstorm`/`kanban-plan`, template `phase-2-use-case-specification.md`, `README.md`, `docs/README.md`, `kanban-flow/README.md` và chín file `docs/workflow/`.
+- **README viết lại**: mở bằng vấn đề (agent tự khai đã test) trước khi nói cơ chế, cài một dòng, và phần khác biệt trung thực theo khảo sát thị trường — không tuyên bố độc quyền cho những mechanic đã có người làm, chỉ nêu execution id và tổ hợp.
+- `files` trong `package.json` chỉ còn `docs/workflow`, nên 35 file canonical docs nội bộ (~220KB) không còn lọt vào gói npm.
+- Dashboard hiển thị giờ theo locale của trình duyệt thay vì cố định `vi-VN`.
+
+### Added
+- `LICENSE` MIT ở root, và metadata publish trong `package.json`: `author`, `repository`, `homepage`, `bugs`, `keywords`, `publishConfig.access`.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

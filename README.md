@@ -1,203 +1,119 @@
-# kaban-flow
+# kanban-flow
 
-**Skill orchestrator** điều khiển vòng đời feature/bug: **brainstorm → plan → backlog hoặc implement → test → review → archive**, được ép bởi CLI `kf`. Skill `kanban-flow` delegate từng phase sang skill con; bug đi qua `kanban-bug` để triage. Người dùng tham gia ở Phase 1, Phase 2 approval và quyết định triển khai ngay hay để backlog.
+An AI coding agent will tell you the tests passed, the plan was followed, the
+edge cases are covered. Sometimes it is right, and you cannot tell which time
+from the transcript, because the transcript is written by the same thing you are
+checking. kanban-flow moves the proof into files on disk: the gates do not read
+the agent's summary, they read `.works/`.
 
-## Why kaban-flow
+## How it works
 
-Workflow nhưng **fail-closed như CI** — artifact là contract, agent là executor, người quyết ở đúng 2 gate.
+Every work item walks one pipeline, and only the CLI moves it between stages:
 
-- **Deterministic gates** — `kf stage` refuse transition khi artifact thiếu, rỗng, còn placeholder hoặc chứa secret thật (`artifact_secret`); report chưa `PASS` không cho tiến. State thật nằm ở `.works/` + `.kfw.json`, không dựa vào lời khai của agent.
-- **Contract fingerprint** — SHA-256 của requirement + planning artifacts + UC files; sửa contract sau `kf approve` → approval invalidate, phải quay lại planning duyệt lại. Mỗi lần vào testing tạo **execution id** mới → FAIL loop bắt buộc test lại thật, report cũ không ăn được.
-- **Traceability xuyên suốt** — `FR-### → UC-### → TC-### → implementation → test evidence → review finding`; validator check ID khớp chính xác (`FR-001` ≠ `FR-0010`), mỗi UC một file riêng.
-- **Human gates đúng chỗ** — chỉ confirm requirement (Phase 1) và approve contract + start/backlog (Phase 2). `REQUIREMENT_BUG` freeze pipeline báo user; agent không tự viết lại requirement.
-- **Skills có răng** — `kanban-review` săn AI-code risks (phantom tests, catch-and-swallow, scope drift), threat-model trước khi apply security finding; `kanban-implement` ép subagent prompt contract (task/files/acceptance/constraints) + status protocol.
-- **Onboarding thực dụng** — `kf init` hỏi đúng câu cần hỏi (TTY radio quick/custom); `kf rules` cài 7 stack packs, monorepo detect nhiều stacks; `kf autoconfig` in setup briefing cho agent mới vào project.
-- **Skills ở project scope** — `kf install`/`uninstall` chỉ đụng `{root}/.<agent>/skills`, 6 agents; uninstall chỉ gỡ managed skills, `--purge` có confirm mới xoá `.works/`/`.kf/`/docs.
-- **Hooks + dashboard** — phase hooks `.kf/hooks/{phase}.sh` resolve project → user → package, exit non-zero chặn transition; `kf dashboard` KPI + charts filter theo context/feature/bug.
+```text
+brainstorm → planning → implementation → testing → review → dones
+                 ↘ backlog ↗                 ↺ FAIL loops back
+any stage → cancelled, with a reason on the record
+```
+
+Most stages owe an artifact. A transition is refused when that artifact is
+missing, empty, still full of template placeholders, or carrying a real secret.
+A testing report that does not say `PASS` does not reach review; a review report
+that does not say `PASS` does not archive. `--force` overrides a gate and is
+recorded in `.kfw.json` where a reviewer will find it.
+
+Three decisions belong to a human: marking the requirement `status: confirmed`,
+approving the execution contract, and choosing whether to start now or hold it
+in backlog. The approval is bound to a SHA-256 fingerprint of the contract, so
+editing the plan invalidates it, and no stage further forward accepts the item
+until it returns to planning and is approved again.
 
 ## Install
 
-Repo private nên dùng git clone (không `curl | bash`):
+Not on npm yet, so install from source. Needs Node 20 or newer.
 
 ```bash
-git clone git@github.com:phuthuycoding/kaban-flow.git /tmp/kaban-flow
-cd /tmp/kaban-flow && npm install && npm run build && npm link
+git clone https://github.com/phuthuycoding/kaban-flow.git
+cd kaban-flow && npm install && npm run build && npm link
 ```
 
-`npm link` đưa CLI `kf` lên PATH — đó là phần duy nhất sống global. Sau mỗi `git pull` chạy lại `npm run build` để `dist/` khớp source (`kf --version` phải in đúng version trong `package.json`). Thay đổi theo từng bản: [CHANGELOG.md](CHANGELOG.md). Skills được cài **per-project** bởi `kf init` (hoặc `kf install` sau này) vào `{project}/.<agent>/skills` — không ghi gì vào `~/`. Hỗ trợ 6 agent: `--agent claude --agent codex --agent gemini --agent kiro --agent cursor --agent opencode`. Yêu cầu Node >= 20.
+Once it is published the one-liner will be `npm install -g kanban-flow`.
 
-Init project:
+## A run, end to end
+
+The agent runs the commands and writes the artifacts between them, taking every
+template and path from `kf instruct`. `kf status` shows the artifact checklist;
+`kf validate` reports what is actually blocking a gate, traceability included.
 
 ```bash
 cd your-project
-kf init                        # onboarding: hỏi câu hỏi trên TTY (context, stack, reviewer, agent, .gitignore, seed demo)
-kf init --defaults             # onboarding không hỏi — auto-detect + defaults (dùng cho agent/non-TTY)
-kf init --agent codex --agent kiro   # cài skills cho nhiều agent cùng lúc (.agents/skills, .kiro/skills...)
-kf init --minimal              # chỉ tạo .works/ + docs roots + cài skills; không seed config/templates
+kf init                             # asks a few questions, seeds .kf/, installs the skills
+kf new user-login --context auth    # opens Phase 1 in brainstorm
+kf instruct spec-requirement --change user-login
+# write the requirement, set its frontmatter to status: confirmed — decision one
+kf stage user-login planning
+# write the plan, the use-case index, one file per UC, the diagram, the test plan
+kf approve user-login               # decision two; fingerprints all of it
+kf stage user-login implementation  # or backlog — decision three
+kf stage user-login testing         # mints a fresh execution id
+# write the testing report, carrying that id and real exit codes
+kf stage user-login review          # refused unless that report says PASS
+# write the review report, then the feature report
+kf archive user-login               # refused unless the review says PASS
 ```
 
-`kf init` hỏi và ghi vào `<project>/.kf/config.json`:
-- **default context** cho `kf new` (default `app`)
-- **tech stacks** (auto-detect từ manifests kể cả monorepo subdirs, dùng cho review rules)
-- **reviewer mặc định** cho `kf approve --by` (default từ `git config user.name`)
-- **agents** nào sẽ dùng skills (multi-select, comma-separated, default `claude`) — cài đúng thư mục từng agent
-- có thêm `.works/` vào `.gitignore` không (chỉ khi là git repo)
-- có seed một feature demo để xem cấu trúc không
+## What is actually different
 
-`kf init` cũng tạo `AGENTS.md` ở root (build/test/lint commands đọc từ manifest + quy ước workflow) nếu chưa có `AGENTS.md`/`CLAUDE.md`; file đã có thì giữ nguyên.
+Most of the mechanics here exist elsewhere: requirement-to-test traceability as
+a CI gate, role-to-runner configuration, hash-bound plan approval, a cancelled
+state with a mandatory reason, blocking placeholders. No claim to inventing them.
 
-Mỗi câu có default — Enter để chấp nhận. Dùng `--defaults` trong agent/non-TTY (không treo prompt).
-
-Tài liệu workflow chi tiết, state diagram, gate, CLI và skill routing: [docs/workflow/README.md](docs/workflow/README.md).
-
-## Usage
-
-Gõ **MỘT lệnh duy nhất**:
-
-```text
-kanban {context} {feature}
-# ví dụ: kanban auth user-login
-```
-
-Agent thao tác state qua `kf`:
-
-```text
-kf new {feature} --context {context} [--type feature|bug] # mở Phase 1: tạo work item ở brainstorm
-kf status --change {feature}            # checklist artifact + Next: + Approval state
-kf instruct {artifact} --change {feature} # template, execution id và đường dẫn file cần viết
-kf approve {feature}                    # Phase 2 HITL gate: chốt execution contract
-kf stage {feature} {phase}              # move theo graph: forward + FAIL loop back
-kf validate --all                       # lỗi gì đang chặn gate / traceability lỏng
-kf archive {feature}                    # review(PASS) → dones + copy canonical docs
-kf cancel {feature} --reason "<why>"    # dừng hẳn một work item, giữ lý do; --purge-docs để xoá canonical docs
-kf rules [--stack {id}] [--list] [--force] # copy stack review rules vào .kf/review/rules (auto-detect)
-kf autoconfig                          # in briefing cho agent: context + checklist config + rules + workflow guide
-kf dashboard                           # KPI + charts, filter context/feature/bug (mặc định :8787, đổi bằng --port)
-```
-
-Không bao giờ `mv` folder thủ công — gate + hook sẽ chạy theo mỗi transition.
-
-## Phases & artifact gates
-
-| Phase | Artifact (bắt buộc để rời phase) |
-|-------|---------------------------------|
-| 1. Brainstorm | `phase-1-spec-requirement.md` với `status: confirmed` |
-| 2. Planning | Feature: four phase-2 files + `use-cases/UC-###.md`; bug: confirmed bug report. **Human approval** (`kf approve`) cho cả hai |
-| Backlog | Contract đã approve nhưng chưa triển khai; chờ user chọn start |
-| 3. Implement | tự do (tasks.md để track) |
-| 4. Testing | `phase-4-testing-result.md` — chỉ `PASS` được vào Review |
-| 5. Review | `phase-5-review-report.md` — chỉ `PASS` được archive; `REQUIREMENT_BUG` → STOP feature |
-| 6. Closure | Feature: viết `phase-6-feature-report.md`, CLI copy canonical docs khi archive. Bug: update docs liên quan nếu cần rồi archive |
-| Cancelled | Lối ra thứ hai: `kf cancel {feature} --reason "<why>"` dừng hẳn, lưu lý do và stage cũ; mở lại bằng `kf stage {feature} {stage cũ}`. Không bị đòi artifact, không tính vào tỷ lệ hoàn tất |
-
-`kf stage` kiểm tra artifact tồn tại, có nội dung, không còn placeholder và không chứa secret thật (Bearer token, API key, private key — placeholder như `{key}`/`changeme` không bị flag, nhưng chữ `example` trong comment cùng dòng không cứu được một token thật); directional gate chặn tiến khi report chưa PASS. Report testing `PASS` phải có bảng Commands and Evidence với ít nhất một lệnh và mọi exit code bằng `0`. Mỗi lần `--force`/`--skip-hooks` thực sự bỏ qua gate hoặc hook đều được ghi vào `.kfw.json` (`bypasses[]`), `kf validate` cảnh báo `gate_bypassed`, `kf status`/`kf view`/dashboard hiển thị — đây là truy vết, không phải bảo đảm. Với feature, `kf validate` yêu cầu file UC riêng và từng section `## TC-XXX` tham chiếu FR có trong requirement và UC có file tương ứng. Agent kiểm tra tổng số và coverage trong bảng test plan. Bug chỉ cần bug report, testing result và review result; không bị ép tạo planning artifact của feature. Tasks chưa hoàn thành cũng chặn tiến.
-
-`kf approve` chỉ duyệt khi requirement/bug report đã confirmed. Feature cần bốn artifact planning và các file UC; bug dùng bug report làm contract. Sau approve, agent hỏi triển khai ngay hay đưa vào backlog. Approval fingerprint bao gồm toàn bộ contract tương ứng; sửa contract sau approve sẽ chặn execution. Khi cần đổi scope theo chỉ đạo của người dùng, chạy `kf stage {feature} planning`, sửa contract và duyệt lại.
-
-Mỗi lần vào testing tạo execution id mới. Report testing/review phải có `execution:` khớp id này; lấy template qua `kf instruct ... --change {feature}`. FAIL/REJECT quay về implementation, sửa rồi vào testing lại; report cũ được giữ nhưng không qua gate. BLOCKED dừng để xử lý môi trường. REQUIREMENT_BUG chặn mọi chuyển stage thông thường và phải báo lại người dùng.
-
-`kf stage {feature} dones` dùng cùng logic với `kf archive`: kiểm tra reports, chạy hook và cập nhật metadata. Feature cần feature report và được copy canonical docs; bug chỉ cập nhật docs liên quan nếu cần, CLI không tự copy bug report vào docs feature. Tên feature/context chỉ gồm chữ, số, `-`, `_` và bắt đầu bằng chữ hoặc số; không tạo trùng tên. `kf status --all` bao gồm cả dones, `kf view --json` trả metrics/charts và chi tiết stages, và validation thất bại trả exit code 1 ở cả text lẫn JSON.
-
-Dashboard hiển thị số liệu và chart theo stage, loại work item, context, approval cùng tiến độ task đang thực thi. Xem [dashboard analytics](docs/workflow/dashboard.md) để hiểu công thức và phạm vi thống kê.
-
-Feature từ phiên bản cũ thiếu fingerprint hoặc có fingerprint chưa bao gồm file UC phải quay về planning để duyệt lại; report thiếu execution id phải được tạo lại qua testing. Agent vẫn phải chạy test thật và ghi evidence: CLI kiểm tra hợp đồng artifact, không tự chứng minh kết quả test hoặc coverage.
-
-## Phase hooks
-
-Mỗi phase có thể đính kèm hook script chạy **trước khi feature enter phase đó** (resolve precedence: project → user → package):
-
-```text
-{root}/.kf/hooks/{phase}.sh     # project (ưu tiên nhất)
-~/.kf/hooks/{phase}.sh
-{package}/kanban-flow/hooks/{phase}.sh
-```
-
-phase = `brainstorm | planning | backlog | implementation | testing | review | dones`. Ví dụ file `planning.sh`:
-
-```bash
-#!/usr/bin/env bash
-echo "planning entry: ${KFW_FEATURE} -> ${KFW_TO_STAGE}"
-```
-
-Env bơm vào hook: `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_APPROVAL`. Hook exit non-zero → **transition bị chặn** (bỏ qua bằng `--skip-hooks`).
-
-Hook `.sh` chạy qua `bash` (`.js`/`.mjs`/`.cjs` qua `node`). Trên Windows cần WSL hoặc Git Bash có `bash` trên PATH; không có `bash` thì hook `.sh` fail và transition bị chặn.
+One mechanic I have not found anywhere else: **every entry into testing mints a
+fresh execution id**, and a report is accepted only when its `execution:` field
+matches the current one. Fix a failure, go round again, and yesterday's green
+report is inert. Stale test evidence stops being a way to pass. The rest of the
+case is the combination: a gate reading files instead of claims, an approval
+bound to the bytes it approved, evidence that expires.
 
 ## Multi-agent harness
 
-Điều phối theo **vai trò**, không theo tên hãng: `stage → role → runner`. Mỗi model mạnh một kiểu (chiều rộng khảo sát, văn phong, code, review), nên stage gán cho role và role trỏ tới runner (CLI + model + quyền). Đổi model chỉ sửa một dòng ở lớp role, stage giữ nguyên.
+Stages route to **roles**, roles point at **runners**. A runner is one way to
+invoke a CLI: its argv, its permission flags, how its session resumes. A role is
+a job such as researcher or tester. Pointing a role at an existing runner is one
+line; a runner nobody has declared yet is a few more.
 
 ```json
 "harness": {
   "main": "architect",
-  "roles": { "researcher": "codex", "writer": "gemini", "coder": "claude-opus", "tester": "devin" },
-  "stages": { "brainstorm": ["researcher", "writer"], "implementation": "coder", "testing": "tester" },
-  "runners": { "codex": { "start": ["codex", "exec", "--json", "{prompt}"], ... } }
+  "roles": { "architect": "claude", "researcher": "codex", "writer": "gemini", "coder": "claude" },
+  "stages": { "brainstorm": ["researcher", "writer"], "implementation": "coder" },
+  "runners": {
+    "claude": { "start": ["claude", "-p", "{prompt}"] },
+    "codex":  { "start": ["codex", "exec", "{prompt}"] },
+    "gemini": { "start": ["gemini", "-p", "{prompt}"] }
+  }
 }
 ```
 
-Một stage chạy được **chuỗi role** tuần tự (khảo sát rồi mới viết); kết quả bước trước truyền qua file `output` trên đĩa. Role nào không kết thúc `DONE` thì dừng chuỗi, role sau không chạy. Session giữ **theo work item + role** để vòng sửa resume đúng phiên, hai role dùng chung một CLI vẫn không lẫn ngữ cảnh.
-
-```text
-kf harness                     # main role, stage → chuỗi role, role → runner, runner nào có CLI trên PATH
-kf run {feature} [--detach]    # chạy chuỗi role của stage hiện tại; --detach cho step dài, poll bằng kf runs
-kf runs [{feature}] [--json]   # lịch sử run kèm role và runner, STATUS line, usage
-```
-
-Preset runner cho claude, codex, devin (đã chạy thật), gemini, opencode; thêm model mới bằng một entry JSON. Không gán stage nào thì hành vi như cũ. Chi tiết, chi phí token và lưu ý điều khoản: [docs/workflow/harness.md](docs/workflow/harness.md).
-
-## Review rules
-
-- Global: `~/.kf/review/rules/` (general, security, performance, + `{stack}.md`)
-- Project: `{project}/.kf/review/rules/*.md` — ghi đè global nếu trùng tên
-- Package: `kanban-flow/review/rules/` — fallback khi project/user chưa có rules
-
-Stack best-practice packs (`node`, `go`, `rust`, `python`, `php`, `ruby`, `java`) ship sẵn trong package; cài vào project bằng `kf rules` (auto-detect từ manifest) hoặc `kf rules --stack go`. `kf rules --list` xem packs; `--force` ghi đè file project đã sửa tay. `kanban-review` load rules này tự động khi review.
-
-## Structure
-
-```
-~/.kf/                          ← user-scope config (optional overrides)
-├── templates/                  ← phase-1..phase-6 templates
-├── hooks/                      ← phase hooks
-└── review/rules/               ← general, security, performance
-
-{project}/
-├── .kf/                        ← project-scope config (kf init tạo)
-│   ├── config.json             ← defaultContext, stacks, reviewer, agents
-│   ├── templates/              ← project overrides
-│   ├── hooks/                  ← phase hooks
-│   └── review/rules/           ← project review rules
-├── .works/{brainstorm,planning,backlog,implementation,testing,review,dones}/
-└── docs/
-    ├── requirement/{context}/{feature}.md
-    ├── use-cases/{context}/{feature}/README.md + UC-###.md + diagram.md
-    └── testplan/{context}/{feature}{,-result}.md
-
-skills (project scope, mặc định cho claude; `--agent <id>` đổi agent):
-  claude   → {project}/.claude/skills/
-  codex    → {project}/.agents/skills/
-  gemini   → {project}/.gemini/skills/
-  kiro     → {project}/.kiro/skills/
-  cursor   → {project}/.cursor/skills/
-  opencode → {project}/.opencode/skills/
-
-mỗi agent đều có 8 skills: kanban-flow + kanban-{bug,brainstorm,plan,implement,test,review,archive}/
-```
-
-## Uninstall
-
-Skills luôn ở **project scope** — `kf uninstall` gỡ đúng 8 managed skills khỏi `{project}/.<agent>/skills` (resolve về `.works/` root gần nhất), không đụng skill khác hay thư mục `~/`.
+A stage runs its roles in order, and a role that declares an `output` file hands
+it to the next one. A role reporting neither `DONE` nor `DONE_WITH_CONCERNS`
+stops the chain. Sessions are kept per work item and per role, so two roles on
+one CLI never share context.
 
 ```bash
-kf uninstall                          # gỡ 8 skills khỏi {project}/.claude/skills/ (mặc định claude)
-kf uninstall --agent codex --agent kiro   # gỡ khỏi đúng agent đó
-kf uninstall --purge                  # gỡ project skills + xoá .works/, .kf/, docs/{requirement,use-cases,testplan}/ (hỏi confirm; --force bỏ qua)
-npm rm -g kaban-flow                  # gỡ CLI khỏi PATH
+kf harness                     # stage → role chain, role → runner, which CLIs are on PATH
+kf run user-login --detach     # run the current stage's chain; poll with kf runs
+kf runs user-login --json      # each run: role, runner, status, usage where reported
 ```
 
-Mặc định uninstall chỉ gỡ managed skills — `.works/`, `.kf/` và canonical docs là data của project nên giữ lại. `--purge` mới xoá hẳn (và luôn hỏi trước trên TTY).
+Presets ship for claude, codex, devin, gemini and opencode. Assign no stages and the harness stays out of the way.
 
-## License
+## Documentation
 
-MIT
+The full reference lives in [docs/workflow](docs/workflow/README.md): the [state
+machine](docs/workflow/state-machine.md), every [gate](docs/workflow/gates.md), the
+[artifacts](docs/workflow/artifacts.md), the [CLI reference](docs/workflow/cli-reference.md),
+the [harness](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
+notes: [CHANGELOG.md](CHANGELOG.md), still in Vietnamese.
+
+## License — MIT

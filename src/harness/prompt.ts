@@ -121,7 +121,7 @@ export function buildWorkerPrompt(input: PromptInput): string {
   const dir = relative(root, feature.dir);
   const lines = [
     runMarker(runId),
-    `You are the "${assignment.role}" worker for the kaban-flow ${kind} "${feature.name}" (context ${feature.context ?? "n/a"}) at stage "${assignment.stage}".`,
+    `You are the "${assignment.role}" worker for the kanban-flow ${kind} "${feature.name}" (context ${feature.context ?? "n/a"}) at stage "${assignment.stage}".`,
   ];
   if (assignment.brief) lines.push(`Your role: ${assignment.brief}`);
   lines.push(
