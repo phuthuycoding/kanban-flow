@@ -30,7 +30,11 @@ Read and fill `phase-1-spec-requirement.md` using the bug template (`kf instruct
 - Regression test strategy and acceptance criteria that can be checked.
 - The related feature when you can identify it, and the docs impact: which file needs changing and why, or that no docs change is needed.
 
+- **Sibling entry points**: list what else reaches the broken code. Review will ask which of them the fix covers, so naming them here is cheaper than discovering them later.
+
 Do not guess a root cause to make the report look finished. If you cannot reproduce it, report the blocker plainly and never assume the bug is PASS.
+
+Write the reproduction so someone else can run it and watch it fail. Review re-runs it rather than trusting the report, so steps that only work on your machine come back as a finding.
 
 ## 3. Human confirmation
 

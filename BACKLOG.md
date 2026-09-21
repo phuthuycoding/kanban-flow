@@ -17,7 +17,7 @@ Các hạng mục biết là còn mềm / muốn làm tiếp. Không theo thứ 
 - [ ] **Dùng harness thật trên một repo.** Bật `harness.stages` với hai vai khác model và chạy trọn một feature, để biết bảng role nên có những gì và chi phí thật ra sao.
 
 - [ ] **Locking cho concurrent agents.** File-based state chưa có lock — 2 agent cùng đụng 1 feature sẽ đạp nhau. Hiện single-flow nên chưa đau; khi nào có nhu cầu multi-agent thì làm `.kfw.lock` + stale-lock detection.
-- [ ] **Adversarial validation cho bug review** (ý tưởng từ ClaudeKit `adversarial-validation`): review bug report phải nêu reachable regressions + claims đã bị disprove — hiện bug flow nhẹ, chỉ check reproduction/regression scope.
+- [x] ~~**Adversarial validation cho bug review.**~~ Đã thêm vào `kanban-review`: mỗi bug review phải nêu **reachable regressions** (cái gì khác gọi vào mã vừa sửa, và với mỗi đường đó đã kiểm hay chưa — cấm viết "no regressions" suông) và **claims đã bị disprove** (ít nhất một khẳng định của người triển khai mà reviewer đã thử phá và không phá được; tự chạy lại reproduction thay vì tin báo cáo; comment giải thích thì đi kiểm chứ đừng đọc). Thêm luật: một test xanh không chứng minh nó sẽ đỏ khi gỡ bản vá — gỡ hoặc đảo predicate và xác nhận có test đỏ; không có thì chính đó là finding. `kanban-bug` được bổ sung tương ứng: liệt kê sibling entry point ngay từ triage, vì review sẽ hỏi.
 
 ## P2b — Docs debt (soi ra khi review `open-source-ready`, đều là sai sót có sẵn)
 

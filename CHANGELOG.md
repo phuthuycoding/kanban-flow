@@ -34,6 +34,8 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 - `kf autoconfig` thêm một dòng checklist cho `contexts`, và lấy context mặc định từ cùng một nguồn với `kf new` thay vì đọc thẳng `defaultContext`.
 
 ### Changed
+- **`kanban-review` nay review bug một cách đối kháng.** Mỗi bug review phải nêu ra hai thứ, và "không có" chỉ được chấp nhận khi nói rõ đã soi những gì: *reachable regressions* (cái gì khác gọi vào mã vừa sửa; một guard thêm cho một lối vào hiếm khi che hết các lối còn lại) và *claims đã bị disprove* (reviewer tự chạy lại reproduction thay vì tin báo cáo, và đi kiểm những comment đang gánh lý lẽ cho bản vá). Kèm một luật mới: một test xanh **không** chứng minh nó sẽ đỏ khi bản vá bị gỡ — gỡ hoặc đảo predicate rồi xác nhận có test đỏ; không có thì chính đó là finding. `kanban-bug` được bổ sung tương ứng để liệt kê sibling entry point ngay từ triage.
+
 - **Đổi tên gói `kaban-flow` → `kanban-flow`**, version `0.3.0`. Binary vẫn là `kf`, thư mục dữ liệu vẫn là `.kf/` và `.works/`. Gỡ CLI: `npm rm -g kanban-flow`.
 - **Bề mặt người dùng chuyển hết sang tiếng Anh**: `PHASE_NAMES` cho `backlog`/`cancelled`, nhãn context và approval của dashboard, toàn bộ HTML dashboard (`lang="en"`), ba skill `kanban-bug`/`kanban-brainstorm`/`kanban-plan`, template `phase-2-use-case-specification.md`, `README.md`, `docs/README.md`, `kanban-flow/README.md` và chín file `docs/workflow/`.
 - **README viết lại**: mở bằng vấn đề (agent tự khai đã test) trước khi nói cơ chế, cài một dòng, và phần khác biệt trung thực theo khảo sát thị trường — không tuyên bố độc quyền cho những mechanic đã có người làm, chỉ nêu execution id và tổ hợp.

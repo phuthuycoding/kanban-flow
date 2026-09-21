@@ -46,6 +46,13 @@ Use the `## Baseline` recorded at the top of `tasks.md` (starting HEAD + pre-exi
 
 For `kind: bug`, review against the bug report and existing feature behavior. Check reproduction evidence, regression tests and fix scope; do not demand feature planning artifacts. Record the verified root cause and whether related feature docs need an update. If no documentation changes are needed, say why.
 
+A bug fix is reviewed adversarially, because a narrow fix is the most common way a bug comes back wearing different clothes. Two things go in every bug review report, and "none" is a valid answer only when you say what you looked at:
+
+- **Reachable regressions.** Name what else calls the code you changed, and what a plausible caller passes that the fix did not consider. A guard added for one entry point rarely covers the others — list the sibling paths and say, for each, whether you checked it or not. Do not write "no regressions"; write what you reached for.
+- **Claims you disproved.** State at least one thing the implementer asserted that you tried to break and could not — the root cause, the blast radius, a "this cannot happen" in a comment. Re-run the reproduction yourself rather than trusting the report, and if an explanation in a comment is load-bearing, verify it instead of reading it. Comments that justify a fix have been wrong in exactly the direction that made the fix look correct.
+
+A test that passes proves the code does something; it does not prove the test would fail if the fix were removed. When a fix turns on one predicate, delete or invert it and confirm a test goes red. A test that stays green under that is not protecting anything, and should be reported as a finding.
+
 ```bash
 kf instruct review-report --change {feature_name}
 ```
