@@ -102,6 +102,7 @@ If you are resuming mid-pipeline (the feature already exists), skip straight to 
 
 ```text
 kf init                        # scaffold .works/ + hooks + docs
+kf contexts [--json]           # declared contexts + counts, or a survey brief when none
 kf new {feature} --context {ctx} [--type feature|bug]   # Phase 1: create feature/bug + seed spec
 kf status --change {feature}   # artefact checklist + Next: + approval state
 kf instruct {artifact} --change {feature}   # current execution id + exact output path
@@ -112,6 +113,8 @@ kf run {feature} [--detach]    # run the roles assigned to the current stage (ha
 kf runs {feature}              # worker run history (role, runner) + STATUS lines
 kf archive {feature}           # review(PASS) → dones + copy canonical docs
 ```
+
+Contexts: a project may declare the ones it uses in `.kf/config.json`, and the first entry is the default. `kf new` refuses a context outside that list and names the nearest declared one; a case-only variant is refused too. Run `kf contexts --json` before `kf new` and use a declared name exactly. When `restricted` is false nothing is declared and any valid name works. Never add a context to the config to get past a refusal — naming a business domain is the human's call.
 
 Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering a phase (project → user `~/.kf/hooks` → package precedence). Exit non-zero blocks the transition (`--skip-hooks` bypasses). The agent does NOT run hooks manually — `kf stage` does.
 

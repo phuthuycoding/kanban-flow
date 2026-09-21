@@ -208,6 +208,17 @@ REMAINING BLIND SPOTS: [what we could not evaluate cheaply at Phase 1]
 
 Check `kf list --json` first. If the feature already exists, resume its requirement; do not run `kf new` again. Feature and context names use letters, digits, hyphens or underscores and start with a letter or digit.
 
+**Pick the context before you run `kf new`.** A project may declare the contexts it uses in `.kf/config.json`, and `kf new` refuses anything outside that list:
+
+```bash
+kf contexts --json   # declared: [...], restricted: true|false
+```
+
+- `restricted: true` — use one of the declared names, spelled exactly. `Auth` is refused next to `auth`, because accepting both is how a second docs tree appears.
+- `restricted: false` — nothing is declared; any valid name works, and the `brief` field tells you how to propose a list. Proposing one is a suggestion for the human to confirm, never something to write into the config yourself.
+
+If `kf new` refuses the name, it prints the nearest declared one. Take that suggestion or ask the human — do not invent a new context to get past the refusal, and do not add one to `.kf/config.json`.
+
 ```bash
 kf new {feature_name} --context {context}
 ```
