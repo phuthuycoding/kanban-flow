@@ -28,7 +28,7 @@ type OptDef = {
 
 const COMMANDS: Record<string, CmdSpec> = {
   init: {
-    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs skills; --minimal only creates .works/ + docs roots",
+    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs skills; --minimal skips the questions, not the scaffolding (still writes .kf config, skills and AGENTS.md; only the template/hook/rule files are left out)",
     allowPositionals: true,
     options: {
       context: { type: "string", short: "c" },

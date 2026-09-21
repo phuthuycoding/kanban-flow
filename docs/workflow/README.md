@@ -5,6 +5,8 @@
 ```text
 brainstorm → planning → implementation → testing → review → dones
                  ↘ backlog ↗
+
+any stage ──kf cancel──→ cancelled ──back to the stage it stopped in──→ (resumes)
 ```
 
 The pipeline exists to turn an idea into an approved execution contract, then execute it with traceability, and test and review the right version of it before archiving.
@@ -20,11 +22,13 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 5. [CLI reference](cli-reference.md) — the command syntax an agent uses to move state.
 6. [Skill routing](skills.md) — which skill loads in which state.
 7. [Dashboard](dashboard.md) — the KPIs, the charts, the filters and what each number means.
-8. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
+8. [Agent harness](harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`.
+9. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
 
 ## The rules that never bend
 
-- Never move a folder by hand; use `kf stage` or `kf archive`.
+- Never move a folder by hand; use `kf stage`, `kf cancel` or `kf archive`.
+- `kf cancel` is the second way out. It needs `--reason`, moves the item to `.works/cancelled/`, and the only way back is the stage it stopped in.
 - The requirement or bug report must be `status: confirmed` before it leaves brainstorm.
 - Once planning is approved, the user chooses to start now or to send the item to `backlog`.
 - Planning needs human approval. A feature's fingerprint covers the requirement, the four planning artifacts and every UC file; a bug's fingerprint covers only the bug report.
@@ -33,7 +37,8 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 - A FAIL or a REJECT returns to implementation and must be tested again. BLOCKED stops the pipeline.
 - REQUIREMENT_BUG stops every ordinary transition so the user can decide.
 - The feature report must be written before archive; the CLI syncs the canonical docs when a feature is archived. A bug only updates the related docs when there is a docs impact.
-- The pipeline grants itself no access to a database, a deployment, a publish, a message or any change outside the approved scope.
+
+One rule in that list is not like the others: the pipeline granting itself no access to a database, a deployment, a publish or a message is a **policy carried in the skill prompts**, not a gate. Nothing in `src/` enforces it, and the runner presets start workers with edits auto-accepted. It bends exactly as far as the worker does.
 
 ## Filesystem model
 
@@ -51,6 +56,7 @@ project/
 │   ├── implementation/
 │   ├── testing/
 │   ├── review/
+│   ├── cancelled/
 │   └── dones/
 └── docs/
     ├── requirement/{context}/{feature}.md

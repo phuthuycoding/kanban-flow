@@ -1,6 +1,8 @@
 # Gates and the artifact contract
 
-A gate is checked on the way out of the current state. `kf validate` runs the same validator so you see the failures early; `kf stage` and `kf archive` refuse the transition when a gate does not hold.
+A gate is checked on the way out of the current state. `kf validate` runs most of the same checks so you see the failures early; `kf stage` and `kf archive` refuse the transition when a gate does not hold.
+
+One group is not shared: the *direction* gate, which decides where a PASS or FAIL report may send an item. `validateFeature` does not call it, so `tasks_incomplete` and `testing_already_pass` never appear in `kf validate` and first surface when `kf stage` refuses the move. A clean `kf validate` is therefore not a promise that the next transition will be allowed.
 
 ## Required artifacts
 
@@ -45,6 +47,10 @@ flowchart LR
     R -->|FAIL/REJECT| I
     T -->|scope change| P
     R -->|scope change| P
+    P -->|hold: no gate| BL[backlog]
+    BL -->|start: same gate as planning| I
+    BL -->|scope change| P
+    I -->|scope change| P
 ```
 
 `implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply.
@@ -67,7 +73,7 @@ The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four plann
 
 `cancelled` is the one stage with **no artifact gate**. Its `STAGE_INDEX` is `-1`, so every "is this artifact due yet" and "are we past planning" comparison comes out false, and the validator skips artifacts, approval, traceability and report semantics entirely. In exchange it has exactly one requirement of its own: `cancellation.reason` must not be empty, and a missing one is `cancellation_missing`.
 
-`kf cancel` runs the `cancelled.sh` hook like any other transition, refuses while a worker run is live unless `--force`, and for an item in `dones` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes, and it still asks on a TTY. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
+`kf cancel` runs the `cancelled.sh` hook like any other transition, refuses while a worker run is live unless `--force`, and for an item in `dones` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
 
 On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate, and `kf runs` leaves out the runs of a dropped item unless you name it directly with `kf runs <feature>`, exactly as it treats an item in `dones`.
 

@@ -2,6 +2,8 @@
 
 `kanban-flow` is the orchestrator. Each phase skill owns only that phase's work; the real state stays with the CLI and the filesystem.
 
+The orchestrator also owns the harness: when `.kf/config.json` assigns roles to a stage, `kf run` hands that stage to worker sessions instead of the orchestrator doing the work itself. The routing below still decides *which skill* loads; the harness decides *who runs it*. See [the harness guide](harness.md).
+
 ```mermaid
 flowchart TD
     O[kanban-flow orchestrator] --> B[kanban-brainstorm]
@@ -34,7 +36,7 @@ flowchart TD
 | `kanban-implement` | Execute the tasks in the contract, hold the scope, update code and tests; subagents run under a prompt contract of task, files, acceptance and constraints, plus the status protocol | Never widen the scope or skip the plan without returning to planning |
 | `kanban-test` | Run the tests, record the execution id and the evidence, classify as PASS, FAIL, REJECT or BLOCKED | Never turn a BLOCKED into a PASS |
 | `kanban-review` | Review the implementation, the tests, the architecture, the security and the scope, including the AI-risk lens: phantom tests, catch-and-swallow, scope drift | Never archive when the report is not PASS |
-| `kanban-archive` | For a feature, write the feature report and sync the canonical docs; for a bug, settle the docs impact and update only the related docs when needed, then call the archive command | Never delete data, never deploy or publish on its own |
+| `kanban-archive` | For a feature, write the feature report and then call `kf archive`, which is what copies the canonical docs; for a bug, settle the docs impact and update only the related docs when needed | Never copy the canonical docs by hand — that skips the link rewrite and the `status: archived` stamp, and the next archive refuses. Never delete data, never deploy or publish on its own |
 
 ## Resuming and handing off
 

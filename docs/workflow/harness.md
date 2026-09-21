@@ -21,7 +21,7 @@ kanban-flow keeps its state in files: `.works/`, the artifacts and `.kfw.json`. 
 
 ## Config
 
-The `harness` block in `.kf/config.json`, which `kf init` seeds and `kf harness` displays:
+The `harness` block in `.kf/config.json`, which `kf harness` displays. This example is a **hand-tuned** one, spreading roles across several runners. What `kf init` seeds is deliberately plainer: all six roles on the single agent you chose, and `"stages": {}` — so nothing is routed to a worker until you assign it:
 
 ```json
 "harness": {
@@ -81,7 +81,7 @@ Adding a model means adding a runner and pointing a role at it. Two models on on
 | `resume` | The argv to continue a stored session; it must contain `{session}`. Without it the role always starts fresh |
 | `session` | `"provided"`, `{ "stdout": "<regex, group 1>" }`, or `{ "command", "idField", "matchField" }`, which runs a command returning a JSON array and picks the entry whose `matchField` contains the `kf-run:<id>` marker kf puts at the head of the prompt |
 | `usage` | `"json"` parses `usage.input_tokens` and `usage.output_tokens`, plus `total_cost_usd` when present, from JSON on stdout |
-| `skillsDir` | The runner's skills directory. Defaults follow `kf install`: `.claude/skills`, `.agents/skills`, `.gemini/skills`, `.opencode/skills`, and any unfamiliar name falls back to `.agents/skills` |
+| `skillsDir` | The runner's skills directory. Defaults follow `kf install`: `.claude/skills`, `.agents/skills` (codex), `.gemini/skills`, `.kiro/skills`, `.cursor/skills`, `.opencode/skills`, and any unfamiliar name falls back to `.agents/skills` |
 | `resumeFailure` | A regex that recognises a failed resume; the default is `session\|not found\|no such\|unknown\|does not exist` |
 
 ### Presets, as verified on 2026-09-19

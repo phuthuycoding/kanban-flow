@@ -250,7 +250,7 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
     - `unit+integration` — unit tests plus tests where the change meets another system, the database or an API. The default for an API or a datastore.
     - `full` — unit, integration and **UI/E2E** (Playwright, Cypress, Detox and so on). The default for anything with a user interface or a critical flow, such as a web todo list, a login or a checkout.
   - When the user picks `full`, ask how wide the UI coverage goes: *"UI tests for every flow, or only the critical ones?"* → `{test_level}: full`, `{ui_test_scope}: critical|all`.
-  - Record it in the spec exactly: `Test Level`, `UI Tests`, `Tools` (the framework name and the file that runs it) and `Coverage Target` (80% by default).
+  - Record it in the spec under the labels that template actually uses: `Level` in the feature template, `Test Level` in the bug template, plus `UI Tests`, `Tools` (the framework name and the file that runs it) and `Coverage Target` (80% by default).
   - **Let the nature of the feature set the default.** Do not ask again when the answer is obvious: a CRUD API is `unit+integration`, an app with a UI is `full`. Ask only when you genuinely cannot decide.
 - **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Under `full`, at least one criterion per FR must read as a UI action: what is clicked, what is typed, what appears on screen.
 
@@ -306,5 +306,5 @@ Please confirm the requirement.
 The requirement is confirmed and mirrored. Hand off to **Phase 2 — Planning**:
 
 ```text
-Load the kanban-plan skill and write the four plan artifacts (implementation-plan, use-case-specification, use-case-diagram, test-cases). The use-case narratives and FR/UC ids from phase-1-spec-requirement.md are the input — do not re-derive from scratch.
+Load the kanban-plan skill and write the four plan artifacts (implementation-plan, use-case-specification, use-case-diagram, test-cases). The one-line use-case summaries and the FR/UC ids from phase-1-spec-requirement.md are the input — the full narratives are written in Phase 2, not carried over from Phase 1. Do not re-derive the ids from scratch.
 ```

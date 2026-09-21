@@ -23,7 +23,7 @@ Read work item kind from `kf status --change {feature_name} --json`. For `kind: 
 
 ## 2. Write the four plan artifacts (in order)
 
-Read the confirmed Test Strategy from `phase-1-spec-requirement.md` (`Test Level`, `UI Tests`, `Tools`, `Coverage Target`) — it was agreed with the human in Phase 1. Everything below must honour it.
+Read the confirmed Test Strategy from `phase-1-spec-requirement.md` (`Level` in a feature spec, `Test Level` in a bug report, plus `UI Tests`, `Tools`, `Coverage Target`) — it was agreed with the human in Phase 1. Everything below must honour it.
 
 Print each template and fill the file at its path:
 

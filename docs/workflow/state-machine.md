@@ -69,6 +69,7 @@ The minimum metadata looks like this:
   "kind": "feature",
   "feature": "payment-retry",
   "context": "billing",
+  "created": "20260917_1405",
   "approval": {
     "status": "approved",
     "by": "human",
@@ -79,4 +80,4 @@ The minimum metadata looks like this:
 }
 ```
 
-The `executionId` is reset on a return to planning and reissued when a new testing execution begins. A bug report lives in `phase-1-spec-requirement.md` using the bug template; it needs none of the feature planning artifacts. If new behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature.
+The `executionId` is cleared on a return to planning **and on every entry into implementation**, then reissued when a new testing execution begins. The implementation reset is the one that matters in a FAIL loop: it is what stops the old testing evidence from counting for the repaired code. A bug report lives in `phase-1-spec-requirement.md` using the bug template; it needs none of the feature planning artifacts. If new behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature.
