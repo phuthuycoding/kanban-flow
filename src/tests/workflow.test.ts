@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
+import { symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureWorksStructure, findFeature, listFeatures, readFeatureMeta, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdInstruct } from "../cli/commands/artifacts.js";
-import { cmdValidate, cmdStatus, cmdView } from "../cli/commands/inspect.js";
+import { cmdValidate, cmdStatus, cmdView, cmdList } from "../cli/commands/inspect.js";
+import { cmdContexts } from "../cli/commands/contexts.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdArchive } from "../cli/commands/archive.js";
@@ -443,6 +445,46 @@ describe("archive consistency", () => {
     expect(feature().stage).toBe("review");
     expect(await readFile(canonical, "utf8")).toBe(spec);
     expect(await readFile(join(feature().dir, ".kfw.json"), "utf8")).toBe(originalMeta);
+  });
+});
+
+describe("listing features over a damaged .works tree", () => {
+  it("survives a dangling symlink and still shows the item as invalid", async () => {
+    // statSync follows symlinks, so one dead link used to throw a raw ENOENT out of every
+    // command that lists features — including `kf list`, the command you run to find out what
+    // is wrong. Four commands died over one stray link.
+    await mkdir(join(root, ".works", "brainstorm"), { recursive: true });
+    symlinkSync(join(root, "no-such-target"), join(root, ".works", "brainstorm", "ghost_20260921_1200"));
+
+    const names = listFeatures(root).map((f) => f.name);
+    expect(names, "the dead link must not vanish silently").toContain("ghost");
+    expect((await cmdList(args("list"), root)).code).toBe(0);
+    expect((await cmdContexts(args("contexts"), root)).code).toBe(0);
+    // Surfacing it as invalid is the point: the owner learns the item is unreadable.
+    const ghost = listFeatures(root).find((f) => f.name === "ghost")!;
+    expect(validateFeature(ghost).issues.map((i) => i.code)).toContain("metadata_missing");
+  });
+
+  it("still follows a symlink whose target is a real work item", async () => {
+    // Someone may symlink a work item on purpose. The guard is for missing targets only.
+    await planning();
+    const real = feature().dir;
+    await mkdir(join(root, ".works", "backlog"), { recursive: true });
+    symlinkSync(real, join(root, ".works", "backlog", "linked_20260921_1200"));
+    const linked = listFeatures(root).find((f) => f.stage === "backlog");
+    expect(linked, "a live link is still a work item").toBeDefined();
+    expect(linked!.meta?.feature).toBe("demo");
+  });
+
+  it("does not swallow a stat failure that is not a missing target", async () => {
+    // A blanket try/catch here would hide a real filesystem problem. A symlink loop gives
+    // ELOOP, not ENOENT, and must still reach the caller.
+    await mkdir(join(root, ".works", "brainstorm"), { recursive: true });
+    const a = join(root, ".works", "brainstorm", "loop-a_20260921_1200");
+    const b = join(root, ".works", "brainstorm", "loop-b_20260921_1200");
+    symlinkSync(b, a);
+    symlinkSync(a, b);
+    expect(() => listFeatures(root)).toThrow(/ELOOP/);
   });
 });
 

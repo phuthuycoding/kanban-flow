@@ -209,7 +209,16 @@ export function listFeatures(root: string): Feature[] {
     const folders = readdirSync(stageDir)
       .map((folder) => {
         const dir = join(stageDir, folder);
-        if (!statSync(dir).isDirectory()) return null;
+        // `throwIfNoEntry: false` covers exactly one case: a symlink whose target is gone. That
+        // used to throw a raw ENOENT out of every command that lists features, so one dangling
+        // link made `kf list` — the command you run to find out what is wrong — unusable. Any
+        // other stat failure (EACCES, ELOOP) still propagates; this is not a blanket guard.
+        //
+        // A missing target falls through rather than returning null: if the name looks like a
+        // work item it is reported with no metadata, so `kf validate` calls it invalid instead
+        // of the item silently disappearing.
+        const stats = statSync(dir, { throwIfNoEntry: false });
+        if (stats && !stats.isDirectory()) return null;
         const parsed = parseFolderName(folder);
         let meta: FeatureMeta | null = null;
         let metaError: string | undefined;
