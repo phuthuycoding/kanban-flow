@@ -22,7 +22,7 @@ The binary is `kf`. Every command *except* `kf init` looks for `.works/` from th
 
 | Command | What it does |
 | --- | --- |
-| `kf status --change <feature> [--json]` | One work item's state, including how many gate or hook bypasses have been recorded. |
+| `kf status --change <feature> [--json]` | One work item's state, including how many gate or hook bypasses have been recorded, and any blocking findings the validator raises. The artifact checklist only says which files exist and are filled; the blocking list is what `kf approve` or `kf stage` would refuse on, so the two cannot disagree. The human approval gate is reported by the `Approval:` field rather than counted as a blocker. |
 | `kf status --all [--json]` | Every work item, `backlog` and `dones` included. |
 | `kf instruct <artifact\|use-case> [--change <feature>] [--id UC-###] [--json]` | Renders an artifact template; `use-case` produces the instruction for exactly one `use-cases/UC-###.md`. |
 | `kf templates [--json]` | Lists the templates currently resolved and where each came from. |

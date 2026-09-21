@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -115,6 +115,88 @@ describe("computeStatus", () => {
     for (const id of ["testing-result", "review-report", "feature-report"]) {
       expect(s.artifacts.filter((a) => a.id === id)[0].status).toBe("missing");
     }
+  });
+});
+
+describe("kf status tells the truth about what is blocking", () => {
+  it("names the findings kf approve would refuse on, instead of pointing at kf approve", async () => {
+    // The original defect: five artifacts present and filled, so status printed `Artifacts: 5/5`
+    // and `Next: … kf approve`, and kf approve then failed on four traceability findings status
+    // never looked at. Worse for workers — harness/prompt.ts tells every one of them to run
+    // kf status for the checklist.
+    await makeFeature("todo-list", "planning");
+    const dir = findFeature(root, "todo-list")!.dir;
+    await writeFile(join(dir, "phase-2-test-case.md"), "# Cases\n## TC-001\nFR-999 UC-001\nreal content");
+
+    const s = computeStatus(findFeature(root, "todo-list")!);
+    expect(s.artifacts.filter((a) => a.due && a.status !== "done"), "every artifact still looks done").toEqual([]);
+    expect(s.blockers.map((b) => b.code)).toContain("fr_ref_missing");
+
+    const text = renderStatusText(s);
+    expect(text).toContain("fr_ref_missing");
+    expect(text).toContain("Next: clear the blocking findings");
+    expect(text, "must not send anyone at a command that will refuse").not.toContain('kf approve "todo-list"');
+  });
+
+  it("leaves a correctly prepared item exactly as it was", async () => {
+    // The check only earns its place if silence means something. An item awaiting approval is
+    // not a broken item, and must not grow a red ERROR block.
+    await makeFeature("todo-list", "planning");
+    const s = computeStatus(findFeature(root, "todo-list")!);
+    expect(s.blockers).toEqual([]);
+    const text = renderStatusText(s);
+    expect(text).not.toContain("Blocking");
+    expect(text).toContain('Next: human approval, then kf approve "todo-list"');
+  });
+
+  it("does not count the human approval gate as something to fix", async () => {
+    // approval_required is not a defect in the artifacts, it is the gate itself, and the
+    // `Approval:` field already reports it. Listing it would flag every well-prepared item.
+    await makeFeature("todo-list", "planning");
+    const f = findFeature(root, "todo-list")!;
+    expect(validateFeature(f).issues.map((i) => i.code), "the validator does raise it").toContain("approval_required");
+    expect(computeStatus(f).blockers.map((b) => b.code), "status does not show it as a blocker").not.toContain("approval_required");
+  });
+
+  it("does not put a warning under a heading that says Blocking", async () => {
+    // A warning does not block anything. Listing one as blocking would send someone hunting for
+    // a problem the CLI is perfectly willing to move past — the mirror image of the original bug.
+    await makeFeature("todo-list", "implementation");
+    // A tasks.md with prose but no checkboxes is the cheapest WARNING-without-ERROR state.
+    await writeFile(join(findFeature(root, "todo-list")!.dir, "tasks.md"), "# Tasks\nWrite the parser.\n");
+    const f = findFeature(root, "todo-list")!;
+    const severities = validateFeature(f).issues.map((i) => i.severity);
+    expect(severities, "the fixture must actually raise a warning for this to prove anything").toContain("WARNING");
+    expect(severities).not.toContain("ERROR");
+    expect(computeStatus(f).blockers).toEqual([]);
+    expect(renderStatusText(computeStatus(f))).not.toContain("Blocking");
+  });
+
+  it("gives --json the same list as the text", async () => {
+    // Splitting these is how the contexts brief drifted: a warning in one mode, missing in the
+    // other, and --json is the mode an agent reads.
+    await makeFeature("todo-list", "planning");
+    const dir = findFeature(root, "todo-list")!.dir;
+    await writeFile(join(dir, "phase-2-test-case.md"), "# Cases\n## TC-001\nFR-999 UC-001\nreal content");
+    const s = computeStatus(findFeature(root, "todo-list")!);
+    const json = statusToJson(s);
+    expect(json.blockers.map((b) => b.code)).toEqual(s.blockers.map((b) => b.code));
+    expect(json.blockers.length).toBeGreaterThan(0);
+  });
+
+  it("stays quiet for a cancelled item rather than inventing warnings", async () => {
+    // validateFeature skips almost everything for cancelled; status must not add its own noise.
+    await makeFeature("todo-list", "planning");
+    const src = findFeature(root, "todo-list")!.dir;
+    const dest = join(root, ".works", "cancelled", "todo-list_20260916_1800");
+    await mkdir(join(root, ".works", "cancelled"), { recursive: true });
+    await rename(src, dest);
+    await writeFeatureMeta(dest, {
+      schema: "kanban-flow", feature: "todo-list", context: "app", created: "20260916_1800",
+      status: "cancelled",
+      cancellation: { at: "20260916_1900", by: "human", reason: "dropped", fromStage: "planning" },
+    });
+    expect(computeStatus(findFeature(root, "todo-list")!).blockers).toEqual([]);
   });
 });
 

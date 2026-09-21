@@ -13,6 +13,8 @@ import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
 import { executionContractHash } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
+import { validateFeature } from "./validate.js";
+import type { Finding } from "./findings.js";
 
 export type ArtifactStatus = "done" | "missing" | "waiting";
 
@@ -36,6 +38,15 @@ export interface FeatureStatus {
   dueCount: number;
   totalCount: number;
   next: ArtifactId | null;
+  /**
+   * Blocking ERRORs from the real validator, not a second set of rules. The artifact list above
+   * answers only "which files exist and are filled", but it is read as a readiness checklist —
+   * and every worker is told to run `kf status` for exactly that. Without these an item could
+   * print `Artifacts: 5/5` and `Next: kf approve`, then fail `kf approve` on four findings.
+   *
+   * Same list the text and `--json` renderings use, so the two cannot drift apart.
+   */
+  blockers: Finding[];
   taskProgress: { done: number; total: number };
   /** Roles assigned to the current stage, in run order; empty when the main role does it. */
   assignedRoles: Array<{ role: string; runner: string }>;
@@ -110,6 +121,12 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
 
   const next =
     artifacts.find((a) => a.due && a.status !== "done")?.id ?? null;
+  // Straight from the real validator — no second set of rules. `approval_required` is the one
+  // ERROR left out: it is not a defect in the artifacts but the human gate, and the `Approval:`
+  // field and the `Next:` line below already say so. Listing it here would put a red ERROR on
+  // every correctly-prepared item sitting in planning, which is exactly where the signal matters.
+  const blockers = validateFeature(feature).issues
+    .filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
 
   return {
     feature,
@@ -119,6 +136,7 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
     dueCount,
     totalCount: artifacts.length,
     next,
+    blockers,
     taskProgress,
     assignedRoles: assignedFor(feature, harness),
   };
@@ -160,9 +178,19 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`${mark} ${a.id}${suffix}`);
   }
 
+  if (s.blockers.length > 0) {
+    lines.push("");
+    lines.push(`Blocking (${s.blockers.length}) — kf validate --change "${s.feature.name}" for the full report:`);
+    for (const b of s.blockers) lines.push(`  [ERROR] ${b.file}: ${b.message} (${b.code})`);
+  }
+
   if (s.next) {
     lines.push("");
     lines.push(`Next: kf instruct ${s.next} --change "${s.feature.name}"`);
+  } else if (s.blockers.length > 0) {
+    // Naming a next step that is going to be refused is the whole bug. Say what to fix instead.
+    lines.push("");
+    lines.push(`Next: clear the blocking findings above, then re-run kf status.`);
   } else if (s.feature.stage === "planning" && approval !== "approved") {
     lines.push(`Next: human approval, then kf approve "${s.feature.name}"`);
   } else if (s.feature.stage === "planning" && approval === "approved") {
@@ -198,6 +226,7 @@ export function statusToJson(s: FeatureStatus) {
     dueCount: s.dueCount,
     totalCount: s.totalCount,
     next: s.next,
+    blockers: s.blockers,
     tasks: s.taskProgress,
   };
 }
