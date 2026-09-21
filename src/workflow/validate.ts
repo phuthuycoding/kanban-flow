@@ -1,7 +1,7 @@
 import { STAGES } from "./schema.js";
 import { finding, type Finding, type ValidationResult } from "./findings.js";
 import type { Feature } from "./features.js";
-import { checkDueArtifacts, checkStageGate } from "./validate-artifacts.js";
+import { checkDueArtifacts, checkStageGate, checkSecrets } from "./validate-artifacts.js";
 import { checkApproval, checkBypasses } from "./validate-approval.js";
 import { checkTasks, checkTestingResult, checkReviewReport, checkDonesArtifacts } from "./validate-reports.js";
 import { checkTraceability } from "./validate-traceability.js";
@@ -29,10 +29,11 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
   // what someone did, not a demand on the item, and three places promise it shows up on every
   // validation. Everything else is, including the `no_tasks` warning.
   //
-  // Not covered, and not a decision made here: a secret sitting in a cancelled item's artifact
-  // still goes unreported, because the index guard inside checkDueArtifacts swallows it even if
-  // that check is put back. It predates this rule; both it and the reopen-into-planning
-  // inconsistency are recorded in BACKLOG.
+  // Secrets are the one thing every stage owes, cancelled included. checkSecrets therefore sits
+  // OUTSIDE the branch, so neither side can drop it: it used to live inside checkDueArtifacts,
+  // where `STAGE_INDEX = -1` skipped it along with everything else, and cancelling an item was
+  // the quietest way to take a committed token off the radar while leaving it in the repo.
+  issues.push(...checkSecrets(feature));
   issues.push(...(feature.stage === "cancelled"
     ? [...checkCancellation(feature), ...checkBypasses(feature)]
     : [

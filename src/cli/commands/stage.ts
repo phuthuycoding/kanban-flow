@@ -64,7 +64,12 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   // Gate: feature must be valid for its CURRENT stage before leaving it.
   const force = Boolean(args.options.force);
   const forcedCodes: string[] = [];
-  const check = to === "planning" && f.stage !== "brainstorm"
+  // Returning to planning is checked against the brainstorm gate: the requirement must still be
+  // confirmed. A cancelled item is exempt — pretending it sits in brainstorm walked straight past
+  // the `cancelled` shortcut inside validateFeature, so `kf validate` called the item valid while
+  // `kf stage` refused the very reopen `kf cancel` prints, and blamed a stage it was not in. The
+  // only way through was --force, which stamps a permanent bypass for a gate that should not hold.
+  const check = to === "planning" && f.stage !== "brainstorm" && f.stage !== "cancelled"
     ? validateFeature({ ...f, stage: "brainstorm" }, false, false)
     : validateFeature(f);
   if (!check.valid) {

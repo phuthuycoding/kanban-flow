@@ -349,6 +349,110 @@ describe("the requirement-confirmed gate belongs to brainstorm only", () => {
   });
 });
 
+describe("what a cancelled item is still asked for", () => {
+  // Built from parts so the literal never sits in the file as one string — this repo's own
+  // artifact gate scans its work items, and a whole token here would trip it.
+  const ghp = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+
+  it("reports a secret inside a cancelled item's artifact", async () => {
+    // STAGE_INDEX = -1 made checkDueArtifacts skip every artifact, and the secret scan lived
+    // inside that loop — so cancelling an item was the quietest way to take a committed token
+    // off the radar while leaving it in the repo.
+    const dir = await addItem("leaky", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "human", reason: "superseded", fromStage: "brainstorm" },
+    });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"),
+      `---\nstatus: confirmed\n---\n# Spec\n## FR-001\nReal content.\ntoken = ${ghp}\n`);
+    const codes = validateFeature(feature("leaky")).issues.map((i) => i.code);
+    expect(codes).toContain("artifact_secret");
+  });
+
+  it("reports a secret in an artifact the stage has not reached yet", async () => {
+    // The same guard hid this for live items too: a credential in a file that exists is a
+    // credential, whether or not the workflow has reached the phase that asks for the file.
+    const dir = await addItem("early", "planning");
+    await writeFile(join(dir, "phase-4-testing-result.md"),
+      `---\nstatus: PASS\n---\n# Evidence\nkey = ${ghp}\n`);
+    const secrets = validateFeature(feature("early")).issues.filter((i) => i.code === "artifact_secret");
+    expect(secrets.map((i) => i.file)).toEqual(["phase-4-testing-result.md"]);
+  });
+
+  it("reports a secret in a due artifact exactly once", async () => {
+    // The scan moved out of the due-artifact loop; leaving it in both places would double-report.
+    const dir = await addItem("dupe", "planning");
+    await writeFile(join(dir, "phase-1-spec-requirement.md"),
+      `---\nstatus: confirmed\n---\n# Spec\n## FR-001\nReal content.\ntoken = ${ghp}\n`);
+    const secrets = validateFeature(feature("dupe")).issues.filter((i) => i.code === "artifact_secret");
+    expect(secrets).toHaveLength(1);
+  });
+
+  it("says nothing about secrets when a cancelled item has clean artifacts", async () => {
+    await addItem("clean", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "human", reason: "dropped", fromStage: "brainstorm" },
+    });
+    expect(validateFeature(feature("clean")).issues.map((i) => i.code)).not.toContain("artifact_secret");
+  });
+});
+
+describe("reopening a cancelled item into planning", () => {
+  it("succeeds even when the spec was reset to pending while it sat cancelled", async () => {
+    // kf cancel prints this exact command. It used to be refused: the move to planning was
+    // validated as if the item were in brainstorm, which walked past the cancelled shortcut and
+    // re-raised requirement_unconfirmed. The only way through was --force, which stamps a
+    // permanent bypass record for a gate that should never have held.
+    const dir = await addItem("reworked", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "human", reason: "superseded", fromStage: "planning" },
+    });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"),
+      "---\nstatus: pending\n---\n# Spec\n## FR-001\nReworked while the item was stopped.");
+
+    expect(validateFeature(feature("reworked")).valid, "kf validate calls it valid").toBe(true);
+    const res = await cmdStage(args("stage", ["reworked", "planning"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature("reworked").stage).toBe("planning");
+    // And no bypass was invented on the way, which --force would have recorded forever.
+    expect(feature("reworked").meta?.bypasses ?? []).toEqual([]);
+  });
+
+  it("does not blame a stage the item is not in when it does refuse", async () => {
+    // The refusal report used to print "stage brainstorm" for an item sitting in cancelled.
+    const dir = await addItem("mismatch", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "human", reason: "superseded", fromStage: "planning" },
+    });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: pending\n---\n# Spec\n## FR-001\nOk.");
+    const res = await cmdStage(args("stage", ["mismatch", "planning"]), root);
+    expect(res.stdout).not.toContain("stage brainstorm");
+  });
+
+  it("still checks a live item against the brainstorm gate on its way back to planning", async () => {
+    // The exemption is for cancelled only. Loosening it for every return to planning would drop
+    // the one check that reads the spec's status.
+    const dir = await addItem("live", "implementation");
+    await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: pending\n---\n# Spec\n## FR-001\nOk.");
+    const res = await cmdStage(args("stage", ["live", "planning"]), root);
+    expect(res.code, "a live item still owes a confirmed requirement").toBe(1);
+    expect(res.stdout).toContain("requirement_unconfirmed");
+  });
+
+  it("leaves the reopened item awaiting approval, which is the point of planning", async () => {
+    // Recorded on purpose rather than treated as a defect: arriving in planning means the
+    // contract has to be approved again, so approval_required is the correct next thing to see.
+    const dir = await addItem("reapprove", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "human", reason: "superseded", fromStage: "planning" },
+      approval: { status: "approved", contractHash: "h" },
+    });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: confirmed\n---\n# Spec\n## FR-001\nOk.");
+    expect((await cmdStage(args("stage", ["reapprove", "planning"]), root)).code).toBe(0);
+    expect(feature("reapprove").meta?.approval?.status, "the move resets approval").toBe("pending");
+    expect(validateFeature(feature("reapprove")).issues.map((i) => i.code)).toContain("approval_required");
+  });
+});
+
 describe("a cancelled item owes nothing, whatever stage it was dropped from", () => {
   /** Cancelling out of brainstorm is the common case, and there the spec is still `pending`. */
   async function unconfirmedItem(name: string): Promise<string> {

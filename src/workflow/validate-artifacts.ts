@@ -27,7 +27,27 @@ export function checkDueArtifacts(feature: Feature): Finding[] {
       issues.push(finding(feature, "ERROR", def.file, "artifact_unfilled",
         `${def.file} is empty or still contains template placeholders (needs real content)`));
     }
-    const secrets = findSecretLike(content);
+  }
+  return issues;
+}
+
+/**
+ * Secrets in any artifact that is on disk, whatever stage the item is in.
+ *
+ * This deliberately does NOT share the `dueFromStage` guard above. A credential is a credential
+ * whether or not the workflow has reached the phase that asks for the file, and `cancelled` sits
+ * at `STAGE_INDEX = -1`, which made that guard skip every artifact — so cancelling an item was
+ * the quietest way to take a committed token off the radar while leaving it in the repo.
+ */
+export function checkSecrets(feature: Feature): Finding[] {
+  const issues: Finding[] = [];
+  const isBug = feature.meta?.kind === "bug";
+  for (const id of Object.keys(ARTIFACTS) as ArtifactId[]) {
+    const def = ARTIFACTS[id];
+    if (isBug && FEATURE_ONLY_ARTIFACTS.includes(id)) continue;
+    const path = join(feature.dir, def.file);
+    if (!existsSync(path)) continue;
+    const secrets = findSecretLike(readFileSync(path, "utf8"));
     if (secrets.length > 0) {
       issues.push(finding(feature, "ERROR", def.file, "artifact_secret",
         `${def.file} contains secret-like content (${secrets.length} line${secrets.length > 1 ? "s" : ""}) — remove credentials from workflow artifacts`));
