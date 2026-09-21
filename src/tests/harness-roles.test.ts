@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,6 +8,13 @@ import { cmdStatus, cmdView } from "../cli/commands/inspect.js";
 import { readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { harnessProject, harnessWith, type HarnessProject } from "./helpers/harness-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
+
+// These tests spawn real worker processes, so each one legitimately costs hundreds of
+// milliseconds to a couple of seconds. Vitest's 5s default left almost no headroom: on a loaded
+// machine they failed in a batch at ~5025ms — a timeout, not a defect. The raise is scoped to
+// this file on purpose, so the fast unit suites keep the strict default and a genuine hang there
+// still surfaces in five seconds rather than thirty.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 const CHAIN = { brainstorm: ["researcher", "writer"] };
