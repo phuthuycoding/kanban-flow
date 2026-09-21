@@ -3,9 +3,13 @@ import { join } from "node:path";
 import { assertPathName } from "../workflow/features.js";
 import { parseAgentIds } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
+import { normalizeContext } from "./contexts.js";
 
 export interface ProjectConfig {
   schema: string;
+  /** Declared context list. Absent means unrestricted, as before. First entry is the default. */
+  contexts?: string[];
+  /** @deprecated superseded by `contexts[0]`; still read for projects that predate `contexts` */
   defaultContext?: string;
   stacks?: string[];
   /** @deprecated legacy single-stack field — migrated to `stacks` on read */
@@ -50,6 +54,18 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
     || (cfg.stacks !== undefined && (!Array.isArray(cfg.stacks) || !cfg.stacks.every((s) => typeof s === "string")))
     || (cfg.agents !== undefined && (!Array.isArray(cfg.agents) || !cfg.agents.every((a) => typeof a === "string")))) {
     throw new Error(`Invalid project config: ${f}`);
+  }
+  if (cfg.contexts !== undefined) {
+    if (!Array.isArray(cfg.contexts) || cfg.contexts.length === 0 || !cfg.contexts.every((c) => typeof c === "string")) {
+      throw new Error(`Invalid project config: ${f} — contexts must be a non-empty array of strings`);
+    }
+    for (const c of cfg.contexts) assertPathName(c, "context");
+    const seen = new Set<string>();
+    for (const c of cfg.contexts) {
+      const key = normalizeContext(c);
+      if (seen.has(key)) throw new Error(`Invalid project config: ${f} — contexts lists "${c}" twice (names are compared case-insensitively)`);
+      seen.add(key);
+    }
   }
   if (cfg.stacks === undefined && typeof cfg.stack === "string") cfg.stacks = [cfg.stack];
   if (cfg.defaultContext !== undefined) assertPathName(cfg.defaultContext, "context");

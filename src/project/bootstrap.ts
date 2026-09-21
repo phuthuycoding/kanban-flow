@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { mkdir, copyFile, readdir } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { emitKeypressEvents } from "node:readline";
@@ -7,13 +7,20 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
-import { detectStacks, writeProjectConfig, type ProjectConfig } from "./config.js";
+import { detectStacks, writeProjectConfig, configPath, type ProjectConfig } from "./config.js";
+import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
+import { STAGES } from "../workflow/schema.js";
+import { assertPathName } from "../workflow/features.js";
 import { seedHarness } from "../harness/config.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "../integrations/agents.js";
 import { readProjectConfig } from "./config.js";
 
 export interface BootstrapAnswers {
+  /** Declared contexts; the first is the default. Empty means "leave the project unrestricted". */
+  contexts: string[];
   defaultContext: string;
+  /** True when a person named the default. False when the tool fell back to it. */
+  defaultContextStated: boolean;
   stacks: string[];
   reviewer: string;
   ignoreWorks: boolean;
@@ -55,10 +62,58 @@ async function confirm(rl: ReturnType<typeof createInterface>, q: string, def: b
   return ans === "y" || ans === "yes";
 }
 
+/** Drop case-insensitive repeats, keeping the first spelling: the config reader refuses them. */
+function dedupeContexts(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    const key = normalizeContext(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/**
+ * Does `.works/` hold any work item folder? Deliberately only reads directory entries: reading
+ * work item metadata would make `kf init` die on a half-broken project, which is the one moment
+ * someone reaches for it. An empty `.works/` is not an existing project.
+ */
+export function hasWorkItems(root: string): boolean {
+  for (const stage of STAGES) {
+    let entries: string[];
+    try {
+      entries = readdirSync(join(root, ".works", stage));
+    } catch (err) {
+      // Missing means nothing to count. Anything else — unreadable, not a directory — means we
+      // cannot tell, and the safe answer is "existing": declaring a list would be the change
+      // that locks someone out, while declining to declare one changes nothing.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      return true;
+    }
+    // A work item is a folder named `<feature>_<timestamp>`. A .gitkeep or a .DS_Store is not one,
+    // and counting it would silently suppress the list — the very failure this check exists for.
+    if (entries.some((name) => /_\d{8}_\d{4}$/.test(name))) return true;
+  }
+  return false;
+}
+
 export function bootstrapDefaults(root: string, explicitContext?: string): BootstrapAnswers {
   const cfg = readProjectConfig(root);
+  const defaultContext = explicitContext || effectiveDefaultContext(cfg);
+  // Declaring a list is a decision, and `--defaults` means nobody made one, so only an explicit
+  // --context declares. Even then, not on a project that already exists: declaring one name there
+  // would lock out every context its work items already use, which is what FR-007 forbids. An
+  // existing project declares by answering on a TTY, or by hand.
+  const isNewProject = !existsSync(configPath(root)) && !hasWorkItems(root);
+  const declared = cfg.contexts?.length ? cfg.contexts
+    : explicitContext && isNewProject ? [explicitContext]
+    : [];
   return {
-    defaultContext: explicitContext || cfg.defaultContext || "app",
+    contexts: declared,
+    defaultContext,
+    defaultContextStated: Boolean(explicitContext) || cfg.contexts !== undefined || cfg.defaultContext !== undefined,
     stacks: cfg.stacks?.length ? cfg.stacks : detectStacks(root),
     reviewer: cfg.reviewer ?? detectReviewer(root),
     ignoreWorks: shouldSuggestIgnoreWorks(root),
@@ -141,15 +196,28 @@ export async function promptAnswers(
   }
 }
 
-async function askAll(
+/**
+ * Exported for tests: the interactive branch is otherwise unreachable without a TTY, and it owns
+ * the context-list dedupe and the empty-answer fallback, both of which must not regress silently.
+ */
+export async function askAll(
   rl: ReturnType<typeof createInterface>,
   root: string,
   explicitContext?: string,
 ): Promise<BootstrapAnswers> {
   const d = bootstrapDefaults(root, explicitContext);
 
-  const ctxRaw = (await rl.question(`Default context for new features [${d.defaultContext}]: `)).trim();
-  const defaultContext = ctxRaw || d.defaultContext;
+  // One question, not two: the list declares the default by position, so there is no second
+  // field to keep in step with it.
+  //
+  // On a project that is already unrestricted, `d.contexts` is empty and the prompt says so:
+  // pressing Enter there must leave it unrestricted. Enter is not a decision, and declaring a
+  // list on someone's behalf would lock out every context their work items already use.
+  const hint = d.contexts.length > 0 ? d.contexts.join(",") : "leave empty to keep this project unrestricted";
+  const ctxRaw = (await rl.question(`Contexts, comma separated, first is the default [${hint}]: `)).trim();
+  const typed = ctxRaw.split(/[\s,]+/).map((c) => c.trim()).filter(Boolean);
+  const contexts = typed.length > 0 ? dedupeContexts(typed) : d.contexts;
+  const defaultContext = contexts[0] ?? d.defaultContext;
 
   let stacks = d.stacks;
   const parseStacks = (raw: string): string[] =>
@@ -177,7 +245,10 @@ async function askAll(
 
   const seedFeature = await confirm(rl, "Seed a demo feature to show the structure?", false);
 
-  return { defaultContext, stacks, reviewer, ignoreWorks, seedFeature, agents };
+  // Typing a list is a decision; pressing Enter is not. Recording Enter as one would repoint
+  // every future context-less `kf new` at the invented fallback, on the one path where the
+  // prompt has just promised "leave empty to keep this project unrestricted".
+  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, ignoreWorks, seedFeature, agents };
 }
 
 /** Multi-select agent prompt (comma-separated ids; Enter = default agent). */
@@ -220,9 +291,31 @@ async function copyDirInto(src: string, dest: string): Promise<void> {
 /** Write .kf/config.json for this project. */
 export function saveConfig(root: string, a: BootstrapAnswers): void {
   const existing = readProjectConfig(root);
+  // Both halves of the rule live here, not at a caller: this is the one point every set of
+  // answers passes through, so no producer — present or future — can write a contexts list that
+  // readProjectConfig then refuses. Dedupe covers the repeat rule; assertPathName covers names.
+  const contexts = dedupeContexts(a.contexts);
+  for (const c of contexts) assertPathName(c, "context");
+  // `contexts[0]` is the default once a list exists, so a second field would only drift. With no
+  // list, keep whatever the project already stated and invent nothing: a default the tool made up
+  // would make `kf new`'s guess-from-work-items arm unreachable.
+  // Four cases, and each one matters:
+  //   named by a person      → write it, or `--context X` would seed docs/X and then send every
+  //                            new item somewhere else
+  //   already in the config  → counts as named: `defaultContextStated` is true whenever the
+  //                            config already carried context information, so this is the same
+  //                            branch. A separate `existing.defaultContext ??` fallback here
+  //                            would be unreachable, since both read the same file.
+  //   nothing, no work items → write the fallback; on a fresh project there is nothing to
+  //                            override, and the field is how someone discovers it exists
+  //   nothing, but work items exist → write nothing, or the invented default would make
+  //                            `kf new`'s guess-from-work-items arm unreachable
+  const keepDefault = a.defaultContextStated ? a.defaultContext : hasWorkItems(root) ? undefined : a.defaultContext;
+  const legacyDefault = contexts.length === 0 && keepDefault ? { defaultContext: keepDefault } : {};
   const cfg: ProjectConfig = {
     schema: "kanban-flow",
-    defaultContext: a.defaultContext,
+    ...(contexts.length > 0 ? { contexts } : {}),
+    ...legacyDefault,
     stacks: a.stacks,
     reviewer: a.reviewer,
     agents: a.agents,

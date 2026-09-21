@@ -33,7 +33,7 @@ src/
 │   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
 │   └── validate.ts       # facade: composes the checks, renders results, re-exports
 ├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor
-├── project/              # project config and bootstrap prompts
+├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation and hooks
 ├── dashboard/            # analytics HTTP server and HTML view
 ├── shared/               # filesystem paths, frontmatter and time helpers

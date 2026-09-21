@@ -8,9 +8,10 @@ The binary is `kf`. Every command looks for `.works/` from the current directory
 | --- | --- |
 | `kf init [path]` | Onboarding. On a TTY it asks for the context, the stack, the reviewer, the agents, the gitignore entry and whether to seed a demo feature; without a TTY it takes the defaults. Creates `.works/`, `docs/{requirement,use-cases,testplan}` and `.kf`, installs the project-scope skills, and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists. |
 | `kf init --defaults` | Non-interactive onboarding on default values, for agents and scripts. |
-| `kf init --minimal` | Creates only `.works/`, the docs roots and the skills; seeds no config or templates. |
-| `kf new <feature> [--context <ctx>] [--goal <text>] [--type feature\|bug]` | Creates a feature or bug in `brainstorm`; a bug routes through `kanban-bug`. Feature and context names must match `[a-z0-9][a-z0-9_-]*`. |
+| `kf init --minimal` | Creates `.works/`, the docs roots and the skills, plus a `.kf/config.json` carrying the schema and the runner presets. Seeds no templates, hooks or review rules. With `--context` on a genuinely new project it declares that context, exactly as the full path does. |
+| `kf new <feature> [--context <ctx>] [--goal <text>] [--type feature\|bug]` | Creates a feature or bug in `brainstorm`; a bug routes through `kanban-bug`. Feature and context names must match `[a-z0-9][a-z0-9_-]*`. When the project declares contexts, an undeclared one is refused with the nearest declared name. |
 | `kf list [--json]` | Lists every work item with its kind and state. |
+| `kf contexts [--json]` | Lists the declared contexts with a work-item count each, marks any context in use but not declared, and prints a survey brief when none are declared. Read-only. See [contexts](#contexts). |
 | `kf show <feature> [--json]` | Shows a work item's requirement or bug report. |
 | `kf view [--json]` | Workflow statistics in the terminal; the JSON carries metrics, charts and the per-stage detail. |
 | `kf dashboard [--port <1-65535>]` | KPI and chart dashboard with context and kind filters, on port `8787` by default. See [how each number is computed](dashboard.md). |
@@ -53,3 +54,22 @@ Uninstall only removes skills. To take the CLI off PATH: `npm rm -g kanban-flow`
 - Success exits `0`. Bad input, a failed gate, a failed hook, a missing work item or an exception exits `1` and reports on stderr.
 - The CLI never runs a migration, updates a database, deploys or publishes on its own.
 - Hooks resolve in order: the project `.kf/hooks`, then the user's `~/.kf/hooks`, then the package hooks. The environment handed to a hook carries `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT` and `KFW_APPROVAL`.
+
+## Contexts
+
+A context groups work items and their canonical docs by business domain: `docs/requirement/{context}/`, and the same under `use-cases` and `testplan`.
+
+A project may declare which contexts exist, in `.kf/config.json`:
+
+```json
+"contexts": ["auth", "billing", "catalog"]
+```
+
+Two things follow from that list, and nothing follows without it:
+
+- **The first entry is the default context** for `kf new` without `--context`. There is no separate default field to keep in step with the list. `defaultContext` is still read for projects created before `contexts` existed, and is ignored once a list is declared.
+- **`kf new` refuses a context that is not on the list**, naming the nearest declared spelling. A name differing only in case is refused too, because accepting `Auth` beside `auth` is how a second docs tree appears on a case-sensitive filesystem.
+
+A project with no `contexts` key is unrestricted. Re-running `kf init` there does not add the key, and neither does a project that has work items but no config file yet: a project counts as existing if it has either. `kf init` writes the list only for a genuinely new project, or when you answer its question on a terminal. The one behaviour that did change for an unrestricted project: `kf new` now reads the config on every path, so a malformed config fails loudly instead of only when `--context` was omitted.
+
+`kf contexts` reports each in-use context with the spelling found on disk, not a lowercased one. Where an undeclared spelling differs from a declared one only by case, it says so instead of telling you to add it, because the config reader refuses that repeat: rename the work items, or change the declared entry. It never writes anything. When no list is declared it prints a brief for an agent to survey the repo and propose one, which a human then confirms and writes.

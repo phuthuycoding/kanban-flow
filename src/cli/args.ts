@@ -186,6 +186,12 @@ const COMMANDS: Record<string, CmdSpec> = {
       json: { type: "boolean" },
     },
   },
+  contexts: {
+    help: "Usage: kf contexts [--json]  — list the declared contexts and the ones work items actually use; prints a survey brief when none are declared",
+    options: {
+      json: { type: "boolean" },
+    },
+  },
   harness: {
     help: "Usage: kf harness [--json]  — show the multi-agent harness: stage to role chains, role to runner, and whether each runner CLI is on PATH",
     options: {

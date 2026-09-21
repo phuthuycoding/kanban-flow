@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 
 import { findWorksRoot } from "../../workflow/features.js";
 import { commandHelp } from "../args.js";
+import { effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, configPath, projectKabanDir, type ProjectConfig } from "../../project/config.js";
 import { AGENTS, DEFAULT_AGENT, projectSkillsDir, type AgentId } from "../../integrations/agents.js";
 import { MANAGED_SKILLS } from "../../integrations/install.js";
@@ -71,6 +72,15 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     done: existsSync(join(root, "AGENTS.md")) || existsSync(join(root, "CLAUDE.md")),
     label: "AGENTS.md (build/test/lint commands, conventions) at root",
     action: "create AGENTS.md documenting the commands and conventions below",
+  });
+
+  const declared = cfg.contexts ?? [];
+  items.push({
+    done: declared.length > 0,
+    label: declared.length > 0
+      ? `Declared contexts: ${declared.join(", ")} (first is the default)`
+      : "Declared contexts (contexts in .kf/config.json) — kf new accepts any context until one is declared",
+    action: declared.length > 0 ? undefined : "kf contexts (prints a survey brief; the human confirms the list)",
   });
 
   const assigned = Object.keys(cfg.harness?.stages ?? {}).length;
@@ -155,7 +165,7 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
     "",
     `- Root: ${root}`,
     `- ${cfg.stacks?.length ? "Configured" : "Detected"} stacks: ${stacks.length ? stacks.join(", ") : "none"}`,
-    `- Config: ${existsSync(configPath(root)) ? `${configPath(root)} (context: ${cfg.defaultContext ?? "app"}, reviewer: ${cfg.reviewer ?? "unset"}, agents: ${agents.join(", ")})` : "missing — run kf init"}`,
+    `- Config: ${existsSync(configPath(root)) ? `${configPath(root)} (context: ${effectiveDefaultContext(cfg)}, reviewer: ${cfg.reviewer ?? "unset"}, agents: ${agents.join(", ")})` : "missing — run kf init"}`,
     `- Skills installed (project scope): [${skills.join(", ") || "none"}]`,
   ].join("\n");
 

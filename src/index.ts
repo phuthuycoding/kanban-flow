@@ -8,6 +8,7 @@ import { cmdRules } from "./cli/commands/rules.js";
 import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
 import { cmdRun, cmdRuns } from "./cli/commands/run.js";
 import { cmdHarness } from "./cli/commands/harness.js";
+import { cmdContexts } from "./cli/commands/contexts.js";
 import type { CmdResult } from "./cli/result.js";
 import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
@@ -96,6 +97,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdRuns(parsed, cwd);
     case "harness":
       return cmdHarness(parsed, cwd);
+    case "contexts":
+      return cmdContexts(parsed, cwd);
     case "install":
       return cmdInstall(parseAgentIds(parsed.options.agent), { cwd });
     case "uninstall":

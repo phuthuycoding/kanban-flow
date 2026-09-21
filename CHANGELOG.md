@@ -18,6 +18,13 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 - Mở lại một item huỷ từ `dones` từng **kẹt vĩnh viễn**: `kf stage <x> dones` định tuyến sang archive, mà archive từ chối item đã huỷ trước cả khi nhìn tới `--force`. Nay mở lại là trả item về chỗ cũ: `status: "archived"` được khôi phục và canonical docs được archive re-sync, vì `--purge-docs` có thể đã xoá chúng.
 - `requirement_unconfirmed` không còn bắn nhầm ở `dones`, `review` và `backlog` với câu chữ "before leaving brainstorm", nhưng vẫn giữ nguyên độ chặt ở `planning`, nơi `kf approve` validate.
 
+### Added
+- **Danh sách context khai báo trước.** `.kf/config.json` nhận `contexts`, và **phần tử đầu chính là context mặc định** — không còn trường thứ hai để lệch khỏi danh sách, nên không tồn tại cấu hình mà mặc định bị chính rào chắn của nó từ chối. `defaultContext` giữ lại để đọc project cũ và bị bỏ qua khi đã khai `contexts`.
+- `kf new` từ chối context không có trong danh sách, nêu tên gần đúng nhất. Tên chỉ khác hoa thường cũng bị từ chối, vì nhận `Auth` cạnh `auth` đúng là cách sinh ra cây docs thứ hai trên filesystem phân biệt hoa thường.
+- Lệnh `kf contexts [--json]`: liệt kê context đã khai kèm số work item, đánh dấu context đang dùng mà chưa khai, và in bản brief để agent khảo sát repo khi chưa khai gì. Lệnh chỉ đọc, không bao giờ ghi.
+- `kf init` gộp câu hỏi context thành một câu nhận danh sách, không thêm câu hỏi mới. Chạy lại `kf init` trên project đã có config mà chưa khai `contexts` **không** ghi thêm trường đó: nâng cấp công cụ không được phép bắt đầu từ chối những context mà project đang dùng.
+- `kf autoconfig` thêm một dòng checklist cho `contexts`, và lấy context mặc định từ cùng một nguồn với `kf new` thay vì đọc thẳng `defaultContext`.
+
 ### Changed
 - **Đổi tên gói `kaban-flow` → `kanban-flow`**, version `0.3.0`. Binary vẫn là `kf`, thư mục dữ liệu vẫn là `.kf/` và `.works/`. Gỡ CLI: `npm rm -g kanban-flow`.
 - **Bề mặt người dùng chuyển hết sang tiếng Anh**: `PHASE_NAMES` cho `backlog`/`cancelled`, nhãn context và approval của dashboard, toàn bộ HTML dashboard (`lang="en"`), ba skill `kanban-bug`/`kanban-brainstorm`/`kanban-plan`, template `phase-2-use-case-specification.md`, `README.md`, `docs/README.md`, `kanban-flow/README.md` và chín file `docs/workflow/`.

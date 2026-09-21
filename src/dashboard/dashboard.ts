@@ -4,6 +4,7 @@ import { STAGES, PHASE_NAMES, STAGE_INDEX, type WorkItemKind } from "../workflow
 import { listFeatures } from "../workflow/features.js";
 import { computeStatus, renderStatusText, approvalState } from "../workflow/status.js";
 import { readProjectConfig } from "../project/config.js";
+import { declaredDefaultContext } from "../project/contexts.js";
 import { findWorksRoot } from "../workflow/features.js";
 import type { CmdResult } from "../cli/result.js";
 import { renderDashboardHtml } from "./dashboard-view.js";
@@ -29,7 +30,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
     && (filters.kind === undefined || (feature.meta?.kind ?? "feature") === filters.kind));
   const snapshot = {
     root,
-    context: config.defaultContext ?? null,
+    context: declaredDefaultContext(config),
     updatedAt: new Date().toISOString(),
     stages: STAGES.map((stage) => {
       const stageFeatures = features
