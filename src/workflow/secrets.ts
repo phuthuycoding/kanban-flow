@@ -14,6 +14,21 @@ const SECRET_PATTERNS: SecretPattern[] = [
   { re: /\b(AKIA[0-9A-Z]{16})\b/, high: true },
   { re: /\b(xox[baprs]-[A-Za-z0-9-]{10,})/, high: true },
   { re: /(-----BEGIN [A-Z ]*PRIVATE KEY-----)/, high: true },
+  // A JWT needs all three base64url segments. `eyJ` alone is just base64 for `{"`, which any
+  // encoded JSON blob starts with, so matching the prefix on its own would fire on harmless data.
+  { re: /\b(eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})/, high: true },
+  { re: /\b(https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/+_-]{20,})/, high: true },
+  { re: /\b(https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]+\/[A-Za-z0-9_-]{20,})/, high: true },
+  // Group 1 is the password, not the whole URL, so the placeholder exemption and the masking
+  // done on output both land on the part that actually matters. A URL with no password is not a
+  // secret: `postgres://localhost/db` has nothing to leak.
+  //
+  // This one is NOT high-confidence, unlike the three above. Those match a prefix that only a
+  // real credential carries — `ghp_`, `eyJ…`, the Slack host — so no wording on the line should
+  // excuse them. A connection string has no such marker: it is pure URL shape, which a perfectly
+  // honest template like `scheme://user:<password>@host` also has. Marking it high made the
+  // scanner reject documentation for describing the very format it was taught to find.
+  { re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]*:([^\s:@/]{3,})@/, high: false },
 ];
 
 const PLACEHOLDERISH = /\{[^}\n]{0,60}\}|<[a-z0-9_ -]+>|\*{3,}|x{4,}|\b(?:redacted|masked|example|changeme|placeholder|dummy|sample)\b|\byour[_-]/i;

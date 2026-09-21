@@ -5,7 +5,8 @@ Các hạng mục biết là còn mềm / muốn làm tiếp. Không theo thứ 
 ## P1 — Trust & evidence
 
 - [ ] **`kf` tự chạy test command để verify evidence.** Hiện CLI chỉ check hợp đồng artifact (file tồn tại, status hợp lệ, execution id khớp) — agent xấu vẫn bịa được report PASS. Hướng: `kf test --run "<cmd>"` chạy lệnh thật, ghi exit code + output hash vào report, hoặc `kf stage` đối chiếu command log. Scope to — quyết định tin agent tới mức nào trước.
-- [ ] **Secret scan nâng cấp.** Exemption đã áp lên value (2026-09-19), nhưng vẫn regex-based nên lọt format lạ/obfuscated. Cân nhắc entropy check cho `KEY=value` + thêm pattern (JWT `eyJ`, Slack webhook URL, connection string `://user:pass@`). Giữ nguyên tắc: không flag placeholder, không echo giá trị secret.
+- [x] ~~**Secret scan nâng cấp** — phần định dạng.~~ Đã thêm bốn mẫu: JWT ba đoạn, Slack webhook, Discord webhook, connection string mang mật khẩu. Không false positive trên 206 file thật của repo (có test canh). Rút ra một nguyên tắc phân loại viết vào mã: **high-confidence khi và chỉ khi mẫu có tiền tố mà chỉ credential thật mới mang** — nên connection string *không* high-confidence, vì template lương thiện cũng có hình dạng đó. Sáu mutant, không cái nào sống sót.
+- [ ] **Secret scan: entropy check cho `KEY=value`** — phần còn lại của mục trên, **cố ý chưa làm**. Nó đổi bản chất bộ quét từ "nhận dạng hình dạng đã biết" sang "đoán theo thống kê", và sẽ false positive trên hash commit, base64 của ảnh nhỏ, checksum. Cần một tập dữ liệu thật để hiệu chỉnh ngưỡng trước khi bật, nếu không gate sẽ bị học cách `--force` đi vòng — tệ hơn là không có. Điều kiện làm: khi có một lần lọt thật mà entropy check sẽ bắt được.
 
 ## P2 — Workflow gaps
 

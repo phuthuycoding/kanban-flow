@@ -5,6 +5,8 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 ## [Unreleased]
 
 ### Added
+- **Bộ quét secret nhận thêm bốn định dạng**: JWT ba đoạn (`eyJ…`), Slack webhook, Discord webhook, và connection string mang mật khẩu (`scheme://user:<password>@host`). Đây là ba loại hay xuất hiện nhất trong artifact — token dán từ một request thật, webhook URL dán khi mô tả integration, DSN dán khi tái hiện lỗi database — và trước đây đều đi qua im lặng. Không false positive trên toàn bộ artifact thật của repo, có test canh. Nguyên tắc phân loại nay viết rõ trong mã: một mẫu là high-confidence khi và chỉ khi nó có **tiền tố mà chỉ credential thật mới mang**; connection string không thoả, vì template lương thiện cũng có hình dạng đó.
+
 - **`kf doctor [--json]`.** Lệnh chẩn đoán ở tầng project, chỗ trống giữa `kf validate` (chỉ nhìn work item) và `kf autoconfig` (chỉ nhìn mức độ thiết lập, luôn exit 0). Kiểm stage directories, config có parse được, metadata từng work item, skills còn đủ, và trường config kiểu cũ không còn nghĩa như tên gọi. Chỉ đọc, không dừng ở lỗi đầu tiên, exit 1 khi có ERROR. Chạy được **kể cả khi `.kf/config.json` hỏng** — đúng lúc người ta cần nó nhất. Work item chưa hợp lệ được đếm nhưng không đổi verdict: đó là trạng thái bình thường của một pipeline đang chạy.
 
 - **Multi-agent harness theo vai trò.** Block `harness` trong `.kf/config.json` với ba lớp `stage → role → runner`: `roles` map vai (writer, coder, tester…) tới runner kèm `brief` đưa vào prompt và `output` là file vai phải viết; `stages` gán một role hoặc **chuỗi role chạy tuần tự** cho từng stage; `runners` là argv template của từng CLI/model kèm cách lấy session và đọc usage. Đổi model cho một vai chỉ sửa một dòng, stage không đụng tới.
