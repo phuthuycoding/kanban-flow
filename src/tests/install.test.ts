@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, readdir } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, readdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -123,6 +123,46 @@ describe("install/uninstall (project scope)", () => {
     expect(res.stdout).toContain("--force");
     expect(existsSync(join(dir, ".works"))).toBe(true);
     expect(existsSync(join(dir, ".claude", "skills", "kanban-flow"))).toBe(true);
+  });
+
+  it("says the .gitignore line is still there, and does not touch the file", async () => {
+    // kf init can add `.works/` to .gitignore. Purge leaves it on purpose — it is the user's
+    // file — but a command claiming to have purged the project data has to say what it left,
+    // or the line only surfaces later when some unrelated .works/ is quietly ignored.
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
+    const gitignore = join(dir, ".gitignore");
+    const before = "node_modules/\n\n# kanban-flow\n.works/\n";
+    await writeFile(gitignore, before);
+
+    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    expect(res.stdout).toContain(".gitignore still ignores .works/");
+    expect(await readFile(gitignore, "utf8"), "the file must come out byte-identical").toBe(before);
+  });
+
+  it("stays quiet when .gitignore does not mention .works/", async () => {
+    // The notice is only worth anything because its absence means something.
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
+    await writeFile(join(dir, ".gitignore"), "node_modules/\ndist/\n");
+    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    expect(res.stdout).not.toContain(".gitignore");
+  });
+
+  it("stays quiet when there is no .gitignore at all", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
+    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    expect(res.code).toBe(0);
+    expect(res.stdout).not.toContain(".gitignore");
+  });
+
+  it("does not mention .gitignore when uninstalling without --purge", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir });
+    await writeFile(join(dir, ".gitignore"), "# kanban-flow\n.works/\n");
+    const res = await cmdUninstall([], { cwd: dir });
+    expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("uninstall --purge --force reports when there is no project data", async () => {

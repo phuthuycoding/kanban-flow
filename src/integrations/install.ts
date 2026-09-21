@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -165,11 +165,32 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     } else {
       purged = "\nNo project data (.works/, .kf/) found to purge.";
     }
+    purged += leftoverIgnoreNote(root);
   }
   return {
     code: 0,
     stdout: `${lines.join("\n")}${purged}\n\nCLI still on PATH — unlink with: npm rm -g kanban-flow`,
   };
+}
+
+/**
+ * `kf init` can add `.works/` to .gitignore. Purge deliberately leaves it: .gitignore belongs to
+ * the user and may have been edited by hand. But a command that says it purged the project data
+ * has to say what it left behind, or the line only surfaces later, when some unrelated `.works/`
+ * is quietly ignored and nobody remembers why.
+ */
+function leftoverIgnoreNote(root: string): string {
+  const gitignore = join(root, ".gitignore");
+  if (!existsSync(gitignore)) return "";
+  let body: string;
+  try {
+    body = readFileSync(gitignore, "utf8");
+  } catch {
+    // An unreadable .gitignore is not a reason to fail an uninstall that already succeeded.
+    return "";
+  }
+  if (!body.split("\n").some((line) => line.trim() === ".works/")) return "";
+  return `\nLeft alone: .gitignore still ignores .works/ — it is your file, so remove that line yourself if you want it gone.`;
 }
 
 /** Install the managed kanban skills into each agent's project-level dir (e.g. ./.claude/skills). */
