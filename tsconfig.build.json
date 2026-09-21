@@ -1,4 +1,7 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts"]
+  // The whole test tree is excluded, not just `*.test.ts`. Vitest runs the specs, the helpers and
+  // `setup/build.ts` from source through Vite, so nothing needs them compiled — but `files` in
+  // package.json ships all of `dist/`, so whatever lands here goes out to every installer.
+  "exclude": ["src/tests/**"]
 }
