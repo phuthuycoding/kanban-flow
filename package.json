@@ -7,11 +7,11 @@
   "author": "Quyen (phuthuycoding)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/phuthuycoding/kaban-flow.git"
+    "url": "git+https://github.com/phuthuycoding/kanban-flow.git"
   },
-  "homepage": "https://github.com/phuthuycoding/kaban-flow#readme",
+  "homepage": "https://github.com/phuthuycoding/kanban-flow#readme",
   "bugs": {
-    "url": "https://github.com/phuthuycoding/kaban-flow/issues"
+    "url": "https://github.com/phuthuycoding/kanban-flow/issues"
   },
   "keywords": [
     "kanban",

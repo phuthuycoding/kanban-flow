@@ -33,8 +33,8 @@ until it returns to planning and is approved again.
 Not on npm yet, so install from source. Needs Node 20 or newer.
 
 ```bash
-git clone https://github.com/phuthuycoding/kaban-flow.git
-cd kaban-flow && npm install && npm run build && npm link
+git clone https://github.com/phuthuycoding/kanban-flow.git
+cd kanban-flow && npm install && npm run build && npm link
 ```
 
 Once it is published the one-liner will be `npm install -g kanban-flow`.
