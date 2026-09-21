@@ -140,6 +140,12 @@ const COMMANDS: Record<string, CmdSpec> = {
     help: "Usage: kf autoconfig  — print a briefing for an agent to configure this project: context, setup checklist, effective review rules and the workflow guide",
     options: {},
   },
+  doctor: {
+    help: "Usage: kf doctor [--json]  — diagnose the project: stage dirs, config, work item metadata, installed skills; exits 1 when something is broken",
+    options: {
+      json: { type: "boolean" },
+    },
+  },
   install: {
     help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into project-level agent skill dirs {root}/.<agent>/skills (default: claude). Requires a kanban project (.works/). Agents: claude, codex, gemini, kiro, cursor, opencode",
     options: {

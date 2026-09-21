@@ -48,7 +48,7 @@ Mười ba chỗ tài liệu nói sai về mã. Bản tiếng Việt cũ cũng s
 
 - [ ] **Release path cho người nhận zip.** Hiện phải `npm install && npm run build && npm link`. Cân nhắc `npm publish` (private registry) hoặc `npx github:...` — README ghi lại cách install cho friend.
 - [x] ~~**`kf status` không phản ánh cái đang thật sự chặn.**~~ Đã sửa qua work item `status-hides-real-blockers`: `computeStatus` nay mang `blockers` lấy thẳng từ `validateFeature` (không luật viết lại), text và `--json` dùng chung một danh sách, và dòng `Next:` thôi gợi ý một lệnh sắp bị từ chối. `approval_required` được loại khỏi danh sách vì trường `Approval:` đã báo. Năm mutant, không cái nào sống sót.
-- [ ] **`kf doctor` / health check.** Chẩn đoán nhanh: skills đã cài chưa, `.works` hợp lệ không, config có legacy không — gộp một phần `autoconfig` thành verdict pass/fail.
+- [x] ~~**`kf doctor` / health check.**~~ Đã làm. `kf doctor [--json]`: stage dirs, config parse được, metadata từng item, skills còn đủ, trường config kiểu cũ; exit 1 khi có ERROR. Chỉ đọc, và chạy được **kể cả khi config hỏng** — ca nó sinh ra để phục vụ. Item invalid được đếm nhưng cố ý không đổi verdict. Bảy mutant, không cái nào sống sót. Ranh giới với `kf autoconfig`: autoconfig hỏi "còn thiếu bước thiết lập nào", doctor hỏi "cái gì đang hỏng".
 - [ ] **Dashboard nâng cấp.** Hiện KPI + charts cơ bản — có thể thêm burndown theo context, lead time per stage, list features bị stuck (lâu nhất ở stage hiện tại).
 
 ## P4 — Chores nhỏ

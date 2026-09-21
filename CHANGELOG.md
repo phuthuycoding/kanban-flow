@@ -5,6 +5,8 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 ## [Unreleased]
 
 ### Added
+- **`kf doctor [--json]`.** Lệnh chẩn đoán ở tầng project, chỗ trống giữa `kf validate` (chỉ nhìn work item) và `kf autoconfig` (chỉ nhìn mức độ thiết lập, luôn exit 0). Kiểm stage directories, config có parse được, metadata từng work item, skills còn đủ, và trường config kiểu cũ không còn nghĩa như tên gọi. Chỉ đọc, không dừng ở lỗi đầu tiên, exit 1 khi có ERROR. Chạy được **kể cả khi `.kf/config.json` hỏng** — đúng lúc người ta cần nó nhất. Work item chưa hợp lệ được đếm nhưng không đổi verdict: đó là trạng thái bình thường của một pipeline đang chạy.
+
 - **Multi-agent harness theo vai trò.** Block `harness` trong `.kf/config.json` với ba lớp `stage → role → runner`: `roles` map vai (writer, coder, tester…) tới runner kèm `brief` đưa vào prompt và `output` là file vai phải viết; `stages` gán một role hoặc **chuỗi role chạy tuần tự** cho từng stage; `runners` là argv template của từng CLI/model kèm cách lấy session và đọc usage. Đổi model cho một vai chỉ sửa một dòng, stage không đụng tới.
 - `kf run <feature>` chạy chuỗi role của stage hiện tại như worker headless (blocking hoặc `--detach` với supervisor), `--role` chạy một vai, `--fresh`, `--timeout`, `--dry-run`. Role không kết thúc `DONE` thì dừng chuỗi, các vai sau không chạy.
 - Session giữ theo **work item + role** (`.kfw.json.sessions`) nên vòng sửa resume đúng phiên và hai vai dùng chung một CLI không lẫn ngữ cảnh. `runs[]` ghi role, runner, vị trí trong chuỗi, exit code, `STATUS:` và usage khi CLI trả về.

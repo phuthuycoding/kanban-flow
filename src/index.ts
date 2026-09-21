@@ -6,6 +6,7 @@ import { cmdList, cmdShow, cmdView, cmdStatus, cmdValidate } from "./cli/command
 import { cmdInstruct, cmdTemplates } from "./cli/commands/artifacts.js";
 import { cmdRules } from "./cli/commands/rules.js";
 import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
+import { cmdDoctor } from "./cli/commands/doctor.js";
 import { cmdRun, cmdRuns } from "./cli/commands/run.js";
 import { cmdHarness } from "./cli/commands/harness.js";
 import { cmdContexts } from "./cli/commands/contexts.js";
@@ -91,6 +92,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdRules(parsed, cwd);
     case "autoconfig":
       return cmdAutoconfig(parsed, cwd);
+    case "doctor":
+      return cmdDoctor(parsed, cwd);
     case "run":
       return cmdRun(parsed, cwd);
     case "runs":

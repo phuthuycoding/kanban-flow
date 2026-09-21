@@ -199,13 +199,23 @@ export function executionContractHash(dir: string, kind: WorkItemKind = "feature
   return hash.digest("hex");
 }
 
+/** True only for a real, readable directory. Anything else is not a stage we can walk. */
+function isDirectory(path: string): boolean {
+  const stats = statSync(path, { throwIfNoEntry: false });
+  return stats !== undefined && stats.isDirectory();
+}
+
 /** List all features found under a `.works` root, in stage order (brainstorm → dones). */
 export function listFeatures(root: string): Feature[] {
   const out: Feature[] = [];
   // Within a stage, sort by folder name desc — the trailing timestamp approximates newest first.
   for (const stage of STAGES) {
     const stageDir = join(root, ".works", stage);
-    if (!existsSync(stageDir)) continue;
+    // A stage path that is not a directory — a stray file, a dangling link — used to reach
+    // readdirSync and throw ENOTDIR out of every command that lists work items. A malformed
+    // tree is exactly when `kf list` and `kf doctor` have to keep working; `kf doctor` reports
+    // the missing stage separately, so skipping here loses nothing.
+    if (!isDirectory(stageDir)) continue;
     const folders = readdirSync(stageDir)
       .map((folder) => {
         const dir = join(stageDir, folder);

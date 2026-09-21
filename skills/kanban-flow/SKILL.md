@@ -102,6 +102,7 @@ If you are resuming mid-pipeline (the feature already exists), skip straight to 
 
 ```text
 kf init                        # scaffold .works/ + hooks + docs
+kf doctor [--json]             # diagnose the project (stage dirs, config, metadata, skills); exit 1 when broken
 kf contexts [--json]           # declared contexts + counts, or a survey brief when none
 kf new {feature} --context {ctx} [--type feature|bug]   # Phase 1: create feature/bug + seed spec
 kf status --change {feature}   # artefact checklist + Next: + approval state
