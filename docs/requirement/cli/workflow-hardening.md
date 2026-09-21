@@ -24,7 +24,7 @@ Review ngày 2026-09-19 trên `main` tìm thấy 3 lỗi đã kiểm chứng (au
 - Validator ép exit code 0 cho report testing-result có `status: PASS`.
 - `kf init` seed `AGENTS.md` khi chưa có.
 - CHANGELOG.md, bump version, ghi chú Windows trong README.
-- Dogfood: work item này đi qua đúng pipeline kaban-flow trong repo này.
+- Dogfood: work item này đi qua đúng pipeline kanban-flow trong repo này.
 
 ### Out of Scope
 - `kf` tự chạy test command (BACKLOG P1) — scope lớn, cần quyết định mức tin agent riêng.
@@ -70,7 +70,7 @@ Review ngày 2026-09-19 trên `main` tìm thấy 3 lỗi đã kiểm chứng (au
 - Notes: Không chứng minh test thật đã chạy, nhưng bắt được report bịa nhanh: PASS mà exit code khác 0 hoặc không có lệnh nào.
 
 ### FR-007
-- Requirement: `kf init` (cả onboarding lẫn `--minimal`) tạo `AGENTS.md` ở project root khi file chưa tồn tại, gồm: build/test/lint commands suy ra từ stack đã detect (node: đọc `package.json` scripts), quy ước workflow kaban-flow (một lệnh `kanban {context} {feature}`, hai human gate), và pointer tới `kf autoconfig`. Không bao giờ ghi đè `AGENTS.md` hoặc `CLAUDE.md` đã có.
+- Requirement: `kf init` (cả onboarding lẫn `--minimal`) tạo `AGENTS.md` ở project root khi file chưa tồn tại, gồm: build/test/lint commands suy ra từ stack đã detect (node: đọc `package.json` scripts), quy ước workflow kanban-flow (một lệnh `kanban {context} {feature}`, hai human gate), và pointer tới `kf autoconfig`. Không bao giờ ghi đè `AGENTS.md` hoặc `CLAUDE.md` đã có.
 - Priority: should
 - Notes: BACKLOG P2. Checklist trong `kf autoconfig` đã coi `AGENTS.md`/`CLAUDE.md` là mục cần có.
 

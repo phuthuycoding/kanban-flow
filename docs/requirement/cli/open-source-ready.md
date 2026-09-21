@@ -124,14 +124,14 @@ Khảo sát ngày 2026-09-19 (hai lượt độc lập, đọc trực tiếp mã
 - Test hiện có assert chuỗi tiếng Việt: `dashboard.test.ts` kiểm `Không xác định`, `cancel.test.ts` kiểm `Đã huỷ`. Phải sửa theo chuỗi mới.
 - `docs/workflow/dashboard.md` mô tả nhãn dashboard bằng tiếng Việt: chỉ sửa nếu nhắc đúng chuỗi đã đổi, không dịch cả file.
 - Dashboard có `lang="vi"` trong thẻ html: đổi sang `en`.
-- Tên gói đổi thì `bin` vẫn là `kf`, và mọi chỗ trong docs nhắc `npm rm -g kaban-flow` phải khớp tên mới.
+- Tên gói đổi thì `bin` vẫn là `kf`, và mọi chỗ trong docs nhắc lệnh gỡ CLI phải khớp tên mới: `npm rm -g kanban-flow`.
 - `package-lock.json` chứa tên gói ở hai chỗ; đổi bằng `npm install` sau khi sửa `package.json` chứ không sửa tay.
-- Dòng `# kaban-flow` mà `kf init` ghi vào `.gitignore` của project người dùng cũng phải đổi; `.gitignore` của chính repo này đã có dòng cũ, sửa luôn.
+- Dòng chú thích mà `kf init` ghi vào `.gitignore` của project người dùng cũng phải đổi thành `# kanban-flow`; `.gitignore` của chính repo này đã có dòng cũ, sửa luôn.
 - Liên kết nội bộ giữa các file docs (`[dashboard](dashboard.md)`, `[gates](gates.md#force-và-recovery)`) có anchor tiếng Việt; dịch tiêu đề mục làm hỏng anchor, phải cập nhật cả hai đầu.
 
 ## Open Questions
 - Không còn: đại ca đã chốt đổi tên gói thành `kanban-flow` và bump phiên bản lên `0.3.0`.
-- Ngoài phạm vi công cụ: tên repo trên GitHub hiện là `phuthuycoding/kaban-flow`. Đổi tên repo là thao tác trên GitHub của đại ca, không phải việc của CLI; nếu đổi thì `repository`/`homepage`/`bugs` trong `package.json` phải khớp. Em sẽ dùng tên repo hiện tại và nêu lại khi bàn giao.
+- Ngoài phạm vi công cụ: tên repo trên GitHub. Đổi tên repo là thao tác trên GitHub của đại ca, không phải việc của CLI; nếu đổi thì `repository`/`homepage`/`bugs` trong `package.json` phải khớp. **Đã thực hiện 2026-09-21:** repo nay là `phuthuycoding/kanban-flow`, và cả ba trường trong `package.json` đã khớp.
 
 ## Test Strategy
 - Level: unit+integration
