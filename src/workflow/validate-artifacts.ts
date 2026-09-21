@@ -54,10 +54,21 @@ export function checkStageGate(feature: Feature): Finding[] {
     }
   }
 
+  // Scoped to the stages that still owe a confirmed requirement. Unguarded it fired everywhere:
+  // an archived item whose spec reads `status: archived`, or one in review reading `approved`,
+  // were both told the requirement must be confirmed "before leaving brainstorm".
+  //
+  // It must keep firing at `planning`, not only at `brainstorm`: `kf approve` validates there,
+  // and this is the only check that reads the spec's status. Narrowing it to brainstorm alone
+  // let `kf approve` seal a contract whose requirement had been reopened to `pending`, and the
+  // fingerprint cannot catch that — it hashes the spec as it stands at approval time, so the
+  // pending state becomes the contract and it is the later *correction* that reads as drift.
   const specPath = join(feature.dir, ARTIFACTS["spec-requirement"].file);
-  if (existsSync(specPath) && splitFrontmatter(readFileSync(specPath, "utf8")).fm.status !== "confirmed") {
+  const owesConfirmation = STAGE_INDEX[feature.stage] <= STAGE_INDEX.planning;
+  if (owesConfirmation && existsSync(specPath)
+    && splitFrontmatter(readFileSync(specPath, "utf8")).fm.status !== "confirmed") {
     issues.push(finding(feature, "ERROR", ARTIFACTS["spec-requirement"].file, "requirement_unconfirmed",
-      "Requirement must have status: confirmed before leaving brainstorm."));
+      "Requirement must have status: confirmed before the contract is approved or leaves brainstorm."));
   }
   return issues;
 }

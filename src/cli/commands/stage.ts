@@ -34,6 +34,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   }
 
   // A cancelled item has exactly one way back: the stage it was cancelled from.
+  let isReopen = false;
   if (f.stage === "cancelled") {
     const from = f.meta?.cancellation?.fromStage;
     if (!from) {
@@ -42,6 +43,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     if (to !== from && !(args.options.force as boolean)) {
       return { code: 1, stdout: `Cancelled '${name}' can only be reopened at ${from} (where it was cancelled). Run: kf stage ${name} ${from}`, stderr: "wrong reopen stage" };
     }
+    isReopen = to === from;
   }
 
   const allowed = TRANSITIONS[f.stage];
@@ -53,7 +55,11 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
       stderr: "not allowed transition",
     };
   }
-  if (to === "dones") return cmdArchive({ ...args, command: "archive", positionals: [name] }, cwd);
+  // Reopening into `dones` is putting an item back where it was, not archiving it again. Routing
+  // it through archive made `kf cancel`'s own advertised reopen command refuse itself, with no
+  // escape: archive rejects a cancelled item before it ever looks at --force. The move happens
+  // below, and the archive state it had is restored right after — see the isReopen tail.
+  if (to === "dones" && !isReopen) return cmdArchive({ ...args, command: "archive", positionals: [name] }, cwd);
 
   // Gate: feature must be valid for its CURRENT stage before leaving it.
   const force = Boolean(args.options.force);
@@ -121,7 +127,10 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   let metadataUpdated = false;
   try {
     let meta = recorded.length > 0 ? { ...f.meta, bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : f.meta;
-    if (f.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: undefined };
+    // Putting an item back in `dones` means putting back the state it had there. `status` does
+    // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
+    // which can legitimately refuse on an item that was never fully valid.
+    if (f.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "dones" ? "archived" : undefined };
     if (to === "planning") {
       await writeFeatureMeta(f.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
       metadataUpdated = true;
@@ -144,8 +153,31 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
-  return {
-    code: 0,
-    stdout: `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${hookNote}${bypassNote(recorded)}`,
-  };
+  const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${hookNote}${bypassNote(recorded)}`;
+
+  // An item reopened into `dones` must end up as archived as it was: `status: "archived"` back,
+  // and canonical docs re-synced, since `kf cancel --purge-docs` may have deleted them. Archive
+  // is idempotent once the item is in `dones`, so hand off rather than duplicate its logic.
+  if (isReopen && to === "dones") {
+    // The caller's flags are deliberately NOT forwarded. `--force` on `kf stage` means "skip a
+    // gate"; inside archive it also means "overwrite canonical docs that changed since the
+    // snapshot", which would destroy hand edits on a command that never offered to. A re-sync
+    // that refuses is the correct outcome here, and archive says why.
+    //
+    // Archive can throw as well as return non-zero — a missing source artifact, an unwritable
+    // docs tree. The move and the metadata write have already committed by now, so a throw must
+    // not turn a successful reopen into exit 1.
+    let resync: CmdResult;
+    try {
+      resync = await cmdArchive({ command: "archive", positionals: [name], options: {} }, cwd);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced: ${why}\n  Fix that, then run: kf archive ${name}` };
+    }
+    if (resync.code !== 0) {
+      return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced. Run: kf archive ${name}\n${resync.stdout}` };
+    }
+    return { code: 0, stdout: `${moved}\n${resync.stdout}` };
+  }
+  return { code: 0, stdout: moved };
 }

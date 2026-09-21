@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +13,9 @@ import { dashboardData, renderDashboardHtml } from "../dashboard/dashboard.js";
 import { cmdCancel } from "../cli/commands/cancel.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdArchive } from "../cli/commands/archive.js";
+import { cmdNew } from "../cli/commands/new.js";
+import { cmdApprove } from "../cli/commands/approve.js";
+import { ARTIFACTS } from "../workflow/schema.js";
 import { cmdList, cmdStatus, cmdView } from "../cli/commands/inspect.js";
 import { cmdRuns } from "../cli/commands/run.js";
 import * as paths from "../shared/paths.js";
@@ -42,6 +45,39 @@ async function addCanonicalDocs(name: string): Promise<string[]> {
     await writeFile(p, `# ${name}`);
   }
   return paths;
+}
+
+/**
+ * An item archived by the real pipeline, so `kf archive` can actually re-sync canonical docs.
+ * `addItem` writes one artifact, which makes archive refuse at its own gate long before the
+ * two branches below are reached — the reason the first version of these tests proved nothing.
+ */
+async function archivedItem(name: string): Promise<void> {
+  expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
+  const dir = () => feature(name).dir;
+  await writeFile(join(dir(), ARTIFACTS["spec-requirement"].file),
+    "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.");
+  expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
+  for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
+    await writeFile(join(dir(), ARTIFACTS[id].file), "# Contract\nUC-001: Create a task");
+  }
+  await mkdir(join(dir(), "use-cases"), { recursive: true });
+  await writeFile(join(dir(), "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
+  await writeFile(join(dir(), ARTIFACTS["test-cases"].file),
+    "# Cases\n## TC-001\nFR-001 UC-001\nCreate a task and verify it exists.\n");
+  expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
+  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
+  expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
+  const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
+  const report = async (id: "testing-result" | "review-report") =>
+    writeFile(join(dir(), ARTIFACTS[id].file),
+      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+  await report("testing-result");
+  expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
+  await report("review-report");
+  await writeFile(join(dir(), ARTIFACTS["feature-report"].file), "# Feature Report\nShipped FR-001 as specified.");
+  const done = await cmdArchive(args("archive", [name]), root);
+  expect(done.code, done.stdout).toBe(0);
 }
 
 beforeEach(async () => {
@@ -274,6 +310,217 @@ describe("failure paths of cancelling", () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe("the requirement-confirmed gate belongs to brainstorm only", () => {
+  it("does not demand confirmation from stages whose spec has moved on", async () => {
+    // Unguarded it told an archived item its requirement must be confirmed "before leaving
+    // brainstorm". A later edit to a confirmed spec is the approval fingerprint's business.
+    for (const [stage, status] of [["dones", "archived"], ["review", "approved"], ["backlog", "draft"]] as const) {
+      const dir = join(root, ".works", stage, `spec-${stage}_20260919_1200`);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "phase-1-spec-requirement.md"), `---\nstatus: ${status}\n---\n# Spec\n### FR-001\nReal content.`);
+      await writeFeatureMeta(dir, { schema: "kanban-flow", feature: `spec-${stage}`, context: "app", created: "20260919_1200" });
+      const codes = validateFeature(feature(`spec-${stage}`)).issues.map((i) => i.code);
+      expect(codes, `${stage} (${status})`).not.toContain("requirement_unconfirmed");
+    }
+  });
+
+  it("still blocks kf approve when the requirement was reopened during planning", async () => {
+    // This is the whole point of keeping the check alive past brainstorm: approve validates at
+    // planning, and it is the only check that reads the spec's status. The fingerprint cannot
+    // stand in — it hashes the spec as it is at approval time, so a pending spec becomes the
+    // contract and it is the later correction that reads as drift.
+    const dir = join(root, ".works", "planning", "reopened_20260919_1200");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: pending\n---\n# Spec\n### FR-001\nReal content.");
+    await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "reopened", context: "app", created: "20260919_1200", kind: "bug" });
+    const codes = validateFeature(feature("reopened"), false, false).issues.map((i) => i.code);
+    expect(codes, "kf approve validates with requireApproval=false at planning").toContain("requirement_unconfirmed");
+  });
+
+  it("still blocks an unconfirmed requirement from leaving brainstorm", async () => {
+    const dir = join(root, ".works", "brainstorm", "fresh_20260919_1200");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: pending\n---\n# Spec\n### FR-001\nReal content.");
+    await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "fresh", context: "app", created: "20260919_1200" });
+    expect(validateFeature(feature("fresh")).issues.map((i) => i.code)).toContain("requirement_unconfirmed");
+  });
+});
+
+describe("a cancelled item owes nothing, whatever stage it was dropped from", () => {
+  /** Cancelling out of brainstorm is the common case, and there the spec is still `pending`. */
+  async function unconfirmedItem(name: string): Promise<string> {
+    const dir = join(root, ".works", "brainstorm", `${name}_20260919_1200`);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: pending\n---\n# Spec\n## FR-001\nReal content.");
+    await writeFeatureMeta(dir, { schema: "kanban-flow", feature: name, context: "app", created: "20260919_1200" });
+    return dir;
+  }
+
+  it("validates clean after being cancelled with its requirement still unconfirmed", async () => {
+    await unconfirmedItem("loginflow");
+    expect((await cmdCancel(args("cancel", ["loginflow"], { reason: "superseded by another approach" }), root)).code).toBe(0);
+    const res = validateFeature(feature("loginflow"));
+    expect(res.issues.map((i) => i.code), "a cancelled item is off the track and owes nothing").toEqual([]);
+    expect(res.valid).toBe(true);
+  });
+
+  it("reopens with the very command kf cancel prints, without --force", async () => {
+    await unconfirmedItem("loginflow");
+    const cancelled = await cmdCancel(args("cancel", ["loginflow"], { reason: "superseded" }), root);
+    expect(cancelled.stdout).toContain("kf stage loginflow brainstorm");
+
+    const reopened = await cmdStage(args("stage", ["loginflow", "brainstorm"]), root);
+    expect(reopened.code, "the advertised reopen must not need --force").toBe(0);
+    expect(feature("loginflow").stage).toBe("brainstorm");
+    expect(feature("loginflow").meta?.cancellation).toBeUndefined();
+  });
+
+  it("does not make kf validate --all fail for the whole project", async () => {
+    await unconfirmedItem("loginflow");
+    await addItem("healthy", "brainstorm");
+    await cmdCancel(args("cancel", ["loginflow"], { reason: "superseded" }), root);
+    for (const name of ["loginflow", "healthy"]) {
+      expect(validateFeature(feature(name)).valid, name).toBe(true);
+    }
+  });
+
+  it("still surfaces a recorded bypass, which is a record about a person, not a demand on the item", async () => {
+    // Three places promise a bypass shows up on every validation; being cancelled must not
+    // silence the very --force the trap used to push people into.
+    await addItem("forced", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "q", reason: "dropped", fromStage: "planning" },
+      bypasses: [{ at: "20260919_1250", from: "brainstorm", to: "planning", flag: "force", codes: ["requirement_unconfirmed"] }],
+    });
+    const res = validateFeature(feature("forced"));
+    expect(res.issues.map((i) => i.code)).toContain("gate_bypassed");
+    expect(res.valid, "a warning must not block a cancelled item").toBe(true);
+    expect(validateFeature(feature("forced"), true).valid, "--strict still treats it as a failure").toBe(false);
+  });
+
+  it("keys off the stage, not a stale status left in metadata", async () => {
+    // The two agree everywhere today, so nothing else can tell the guards apart. If they ever
+    // drift, an item in implementation must still owe everything implementation owes.
+    await addItem("drifted", "implementation", { status: "cancelled" });
+    const codes = validateFeature(feature("drifted")).issues.map((i) => i.code);
+    expect(codes, "a stale status must not switch off the whole battery").toContain("approval_required");
+  });
+
+  it("reopens into every stage it could have been cancelled from", async () => {
+    for (const from of ["brainstorm", "planning", "backlog", "implementation", "testing", "review", "dones"] as Stage[]) {
+      const name = `back-${from}`;
+      await addItem(name, from);
+      expect((await cmdCancel(args("cancel", [name], { reason: "dropped" }), root)).code, from).toBe(0);
+      const res = await cmdStage(args("stage", [name, from]), root);
+      expect(res.code, `${from}: the advertised reopen must work without --force`).toBe(0);
+      expect(feature(name).stage, from).toBe(from);
+      expect(feature(name).meta?.cancellation, from).toBeUndefined();
+    }
+  });
+
+  it("refuses --force straight into dones for an item cancelled from elsewhere", async () => {
+    // isReopen must mean "back where it came from". If it were true for any target, --force
+    // would land an item in dones with no archive, no canonical docs and no validation.
+    await addItem("elsewhere", "review");
+    await cmdCancel(args("cancel", ["elsewhere"], { reason: "dropped" }), root);
+    const res = await cmdStage(args("stage", ["elsewhere", "dones"], { force: true }), root);
+    expect(res.code, "dones is not where it was cancelled from").toBe(1);
+    expect(feature("elsewhere").stage).toBe("cancelled");
+  });
+
+  it("still sends a live review item to dones through archive, not the plain move", async () => {
+    // isReopen must be false for an item that was never cancelled, or --force would skip archive.
+    await addItem("live", "review");
+    // Archive is what handles review → dones; here it refuses because the fixture has no
+    // planning artifacts to copy. The point is that the plain move never runs.
+    await expect(cmdStage(args("stage", ["live", "dones"], { force: true }), root)).rejects.toThrow(/canonical docs/i);
+    expect(feature("live").stage).toBe("review");
+  });
+
+  it("restores the archived state when reopened into dones", async () => {
+    await addItem("archived-then-dropped", "dones");
+    await cmdCancel(args("cancel", ["archived-then-dropped"], { reason: "superseded" }), root);
+    const res = await cmdStage(args("stage", ["archived-then-dropped", "dones"]), root);
+    expect(res.code).toBe(0);
+    // Reaching dones by reopening must leave the same state as reaching it by archiving.
+    expect(feature("archived-then-dropped").meta?.status).toBe("archived");
+  });
+
+  it("asks archive to re-sync the canonical docs when reopened into dones", async () => {
+    // kf cancel --purge-docs can delete them; the move alone would leave them gone and silent.
+    await addItem("resync", "dones");
+    await cmdCancel(args("cancel", ["resync"], { reason: "superseded" }), root);
+    const res = await cmdStage(args("stage", ["resync", "dones"]), root);
+    expect(res.code).toBe(0);
+    // This fixture is too thin for archive to succeed, so the hand-off must say so rather than
+    // leave the docs silently missing.
+    expect(res.stdout).toContain("kf archive resync");
+  });
+
+  it("does not let --force on kf stage overwrite canonical docs that changed", async () => {
+    // --force on kf stage means "skip a gate". Forwarding it into archive also means "restore
+    // the archived snapshot over hand edits", which this command never offered to do — and the
+    // bypass record it stamps says nothing about documents.
+    await archivedItem("edited");
+    const doc = join(root, "docs", "requirement", "app", "edited.md");
+    await cmdCancel(args("cancel", ["edited"], { reason: "superseded" }), root);
+    await writeFile(doc, "hand edited after archive\n");
+
+    const res = await cmdStage(args("stage", ["edited", "dones"], { force: true }), root);
+    expect(res.code).toBe(0);
+    expect(await readFile(doc, "utf8"), "the edit must survive the reopen").toBe("hand edited after archive\n");
+    // And the refusal has to be visible, or the stale doc looks re-synced.
+    expect(res.stdout).toContain("Canonical docs have changed since archive");
+  });
+
+  it("keeps the reopen successful when the doc re-sync throws", async () => {
+    // The move and the metadata write have already committed by the time archive runs, so a
+    // throw from it must not report the reopen as failed. Archive throws, rather than returning
+    // non-zero, whenever it cannot even read a canonical destination.
+    await archivedItem("thrower");
+    await cmdCancel(args("cancel", ["thrower"], { reason: "superseded" }), root);
+    const doc = join(root, "docs", "requirement", "app", "thrower.md");
+    await rm(doc);
+    await mkdir(doc, { recursive: true });
+
+    const res = await cmdStage(args("stage", ["thrower", "dones"]), root);
+    expect(res.code, "the reopen itself succeeded").toBe(0);
+    expect(res.stdout).toContain("✓ Moved 'thrower' cancelled → dones");
+    expect(res.stdout, "and it says what is left undone").toContain("Canonical docs were not re-synced");
+    expect(res.stdout).toContain("kf archive thrower");
+    expect(feature("thrower").stage).toBe("dones");
+  });
+
+  it("clears cancellation metadata even when forced into a stage it did not come from", async () => {
+    // Keying the clear on isReopen instead of the stage would leave a live item carrying
+    // status: cancelled and a stale fromStage, which nothing else would notice.
+    await addItem("forced-elsewhere", "implementation");
+    await cmdCancel(args("cancel", ["forced-elsewhere"], { reason: "dropped" }), root);
+    const res = await cmdStage(args("stage", ["forced-elsewhere", "backlog"], { force: true }), root);
+    expect(res.code).toBe(0);
+    const meta = feature("forced-elsewhere").meta;
+    expect(meta?.status, "a live item must not keep status: cancelled").toBeUndefined();
+    expect(meta?.cancellation).toBeUndefined();
+  });
+
+  it("drops the no-tasks warning along with the rest, which is intended", async () => {
+    // Documented here because it is a second thing the central skip silences, beyond the
+    // artifact battery: the bypass trail is kept, this is not.
+    const dir = await addItem("tasky", "cancelled", {
+      status: "cancelled",
+      cancellation: { at: "20260919_1300", by: "q", reason: "dropped", fromStage: "implementation" },
+    });
+    await writeFile(join(dir, "tasks.md"), "# Tasks\n\nNo checkboxes here.\n");
+    expect(validateFeature(feature("tasky")).issues.map((i) => i.code)).not.toContain("no_tasks");
+  });
+
+  it("still demands a reason, which is the one thing it does owe", async () => {
+    const dir = await addItem("dropped", "cancelled", { status: "cancelled", cancellation: { at: "20260919_1300", by: "q", reason: "   ", fromStage: "planning" } });
+    expect(existsSync(dir)).toBe(true);
+    expect(validateFeature(feature("dropped")).issues.map((i) => i.code)).toContain("cancellation_missing");
   });
 });
 

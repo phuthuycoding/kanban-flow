@@ -13,6 +13,11 @@ Format theo [Keep a Changelog](https://keepachangelog.com/vi/1.1.0/). Version th
 - **Stage `cancelled` và lệnh `kf cancel`.** Lối ra thứ hai cho work item: dừng hẳn với `--reason` bắt buộc, lưu `cancellation { at, by, reason, fromStage }` trong `.kfw.json`, mở lại bằng `kf stage <feature> <fromStage>`. Stage này nằm ngoài trục tuyến tính (`STAGE_INDEX = -1`) nên không bị đòi artifact, approval hay report; đổi lại thiếu lý do là `cancellation_missing`. Chặn khi còn worker run đang chạy, chạy hook `cancelled.sh`, liệt kê canonical docs của item đã archive và chỉ xoá khi `--purge-docs` kèm xác nhận. `kf view`/dashboard đếm riêng và loại cancelled khỏi mẫu số `completionRate`.
 - Vitest `globalSetup` build `dist/` trước khi test (test detach cần CLI thật).
 
+### Fixed
+- **Item huỷ từ `brainstorm` không bao giờ validate được.** Kiểm tra `requirement_unconfirmed` nằm ngoài vòng lặp gate và không có guard theo stage, nên nó bắn cả với `cancelled` — mà huỷ từ `brainstorm` là lúc requirement còn `pending`. Hậu quả: `kf validate --all` hỏng vĩnh viễn trong CI, và **chính lệnh mở lại mà `kf cancel` in ra bị từ chối**. Nay `cancelled` chỉ bị hỏi đúng hai thứ: lý do huỷ, và bản ghi bypass nếu có; và kiểm tra requirement được giới hạn vào những stage thật sự nợ nó.
+- Mở lại một item huỷ từ `dones` từng **kẹt vĩnh viễn**: `kf stage <x> dones` định tuyến sang archive, mà archive từ chối item đã huỷ trước cả khi nhìn tới `--force`. Nay mở lại là trả item về chỗ cũ: `status: "archived"` được khôi phục và canonical docs được archive re-sync, vì `--purge-docs` có thể đã xoá chúng.
+- `requirement_unconfirmed` không còn bắn nhầm ở `dones`, `review` và `backlog` với câu chữ "before leaving brainstorm", nhưng vẫn giữ nguyên độ chặt ở `planning`, nơi `kf approve` validate.
+
 ### Changed
 - **Đổi tên gói `kaban-flow` → `kanban-flow`**, version `0.3.0`. Binary vẫn là `kf`, thư mục dữ liệu vẫn là `.kf/` và `.works/`. Gỡ CLI: `npm rm -g kanban-flow`.
 - **Bề mặt người dùng chuyển hết sang tiếng Anh**: `PHASE_NAMES` cho `backlog`/`cancelled`, nhãn context và approval của dashboard, toàn bộ HTML dashboard (`lang="en"`), ba skill `kanban-bug`/`kanban-brainstorm`/`kanban-plan`, template `phase-2-use-case-specification.md`, `README.md`, `docs/README.md`, `kanban-flow/README.md` và chín file `docs/workflow/`.
