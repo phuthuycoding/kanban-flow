@@ -1,5 +1,5 @@
 {
-  "name": "kanban-flow",
+  "name": "@phuthuycoding/kanban-flow",
   "version": "0.3.0",
   "description": "Kanban workflow CLI — artifact-gated feature pipeline (brainstorm → plan → implement → test → review → archive)",
   "type": "module",

@@ -31,7 +31,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - `requirement_unconfirmed` no longer misfires at `dones`, `review` and `backlog` with the wording "before leaving brainstorm", while keeping full strictness at `planning`, where `kf approve` validates.
 
 ### Changed
-- **Package renamed `kaban-flow` → `kanban-flow`**, version `0.3.0`. The binary is still `kf`, and the data directories are still `.kf/` and `.works/`. Uninstall with `npm rm -g kanban-flow`.
+- **Package renamed `kaban-flow` → `@phuthuycoding/kanban-flow`**, version `0.3.0`. Published under the author's scope rather than the bare name, which was taken for a first release and then dropped. The binary is still `kf`, and the data directories are still `.kf/` and `.works/`. Uninstall with `npm rm -g @phuthuycoding/kanban-flow`.
 - **GitHub repository renamed** to `phuthuycoding/kanban-flow` to match the package name; `repository`, `homepage` and `bugs` in `package.json` were updated to match.
 - **The entire user-facing surface moved to English**: `PHASE_NAMES` for `backlog`/`cancelled`, the dashboard's context and approval labels, the whole dashboard HTML (`lang="en"`), the `kanban-bug`/`kanban-brainstorm`/`kanban-plan` skills, the `phase-2-use-case-specification.md` template, `README.md`, `docs/README.md`, `kanban-flow/README.md` and nine files under `docs/workflow/`.
 - **README rewritten**: it opens with the problem (an agent reporting tests it never ran) before the mechanism, installs in one line, and states its differences honestly against a market survey — claiming no exclusivity over mechanics others already implement, only the execution id and the combination.

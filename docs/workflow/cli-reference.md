@@ -50,7 +50,7 @@ Skills always live at **project scope** (`{root}/.claude/skills`, `{root}/.agent
 | `kf install [--agent <id> ...]` | Installs the 8 skills into each agent's own directory, defaulting to `claude`. Must run inside a kanban project, which means a `.works/` exists; run `kf init` first if it does not. The directory is `.claude/skills`, `.gemini/skills`, `.kiro/skills`, `.cursor/skills`, `.opencode/skills` — and `.agents/skills` for `codex`, which follows the open standard rather than its own name. An unknown agent also falls back to `.agents/skills`. |
 | `kf uninstall [--agent <id> ...] [--purge] [--force]` | Removes exactly the 8 skills that kanban-flow manages, leaving every other skill alone. `--purge` also deletes `.works/`, `.kf/` and `docs/{requirement,use-cases,testplan}/`, asking first on a TTY and requiring `--force` without one. |
 
-Uninstall only removes skills. To take the CLI off PATH: `npm rm -g kanban-flow`.
+Uninstall only removes skills. To take the CLI off PATH: `npm rm -g @phuthuycoding/kanban-flow`.
 
 ## Error conventions
 

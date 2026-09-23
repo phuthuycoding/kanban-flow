@@ -16,6 +16,25 @@ brainstorm → planning → implementation → testing → review → dones
 any stage → cancelled, with a reason on the record
 ```
 
+```mermaid
+flowchart LR
+    B([brainstorm]) -->|requirement confirmed| P([planning])
+    P -->|contract approved + fingerprint| I([implementation])
+    P -.->|hold| BL([backlog])
+    BL -.->|start| I
+    I -->|tasks done| T([testing])
+    T -->|report PASS + current execution id| R([review])
+    R -->|report PASS + feature report| D([dones])
+    T -.->|FAIL| I
+    R -.->|FAIL| I
+    I -.->|kf cancel --reason| X([cancelled])
+    X -.->|reopen where it stopped| I
+```
+
+Solid arrows are the happy path, and every label on one is a gate the CLI checks
+before the folder moves. Dotted arrows are the ways out: hold it in backlog,
+loop back on a FAIL, or stop it for good with a reason on the record.
+
 Most stages owe an artifact. A transition is refused when that artifact is
 missing, empty, still full of template placeholders, or carrying a real secret.
 A testing report that does not say `PASS` does not reach review; a review report
@@ -30,14 +49,18 @@ until it returns to planning and is approved again.
 
 ## Install
 
-Not on npm yet, so install from source. Needs Node 20 or newer.
+Needs Node 20 or newer.
+
+```bash
+npm install -g @phuthuycoding/kanban-flow
+```
+
+That puts `kf` on your PATH. To work from source instead:
 
 ```bash
 git clone https://github.com/phuthuycoding/kanban-flow.git
 cd kanban-flow && npm install && npm run build && npm link
 ```
-
-Once it is published the one-liner will be `npm install -g kanban-flow`.
 
 ## A run, end to end
 
@@ -71,7 +94,31 @@ state with a mandatory reason, blocking placeholders. No claim to inventing them
 One mechanic I have not found anywhere else: **every entry into testing mints a
 fresh execution id**, and a report is accepted only when its `execution:` field
 matches the current one. Fix a failure, go round again, and yesterday's green
-report is inert. Stale test evidence stops being a way to pass. The rest of the
+report is inert. Stale test evidence stops being a way to pass.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant K as kf
+    participant F as .works/
+
+    A->>K: kf stage x testing
+    K->>F: mint execution id run-1
+    A->>F: testing report, execution run-1
+    A->>K: kf stage x review
+    K-->>A: PASS and id matches, allowed
+
+    Note over A,F: review returns FAIL, the code changes
+
+    A->>K: kf stage x implementation
+    A->>K: kf stage x testing
+    K->>F: mint execution id run-2
+    A->>K: kf stage x review
+    K-->>A: refused, the report still says run-1
+```
+
+The old report is not deleted, argued with, or trusted less. It simply stops
+matching, so passing again costs exactly one honest test run. The rest of the
 case is the combination: a gate reading files instead of claims, an approval
 bound to the bytes it approved, evidence that expires.
 
@@ -93,6 +140,13 @@ line; a runner nobody has declared yet is a few more.
     "gemini": { "start": ["gemini", "-p", "{prompt}"] }
   }
 }
+```
+
+```mermaid
+flowchart LR
+    S1[stage: brainstorm] --> R1[role: researcher] --> N2[runner: codex]
+    S1 --> R2[role: writer] --> N3[runner: gemini]
+    S2[stage: implementation] --> R3[role: coder] --> N1[runner: claude]
 ```
 
 A stage runs its roles in order, and a role that declares an `output` file hands

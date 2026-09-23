@@ -1,0 +1,91 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - docs/workflow/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# Only the English, reader-facing pages are published. docs/requirement,
+# docs/use-cases and docs/testplan are archived work-item history, still in
+# Vietnamese, and are deliberately left out — see BACKLOG.md.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site source
+        run: |
+          set -euo pipefail
+          mkdir -p site/workflow
+
+          # Jekyll only renders files that carry front matter, and the source
+          # docs must stay clean because docs/workflow ships in the npm package.
+          # So front matter is injected here, into copies, never into the source.
+          front_matter() {
+            printf -- '---\nlayout: default\ntitle: %s\n---\n\n' "$1"
+          }
+
+          { front_matter "kanban-flow"; cat README.md; } > site/index.md
+
+          for f in docs/workflow/*.md; do
+            name="$(basename "$f" .md)"
+            # The first ATX heading is the page title; fall back to the filename.
+            title="$(grep -m1 '^# ' "$f" | sed 's/^# //' || true)"
+            [ -n "$title" ] || title="$name"
+            out="site/workflow/$name.md"
+            { front_matter "$title"; cat "$f"; } > "$out"
+          done
+
+          # Links between the docs are written for the repo tree (./gates.md,
+          # ../README.md). On the site those resolve one level differently, so
+          # rewrite the .md suffix away and let Jekyll's permalinks take over.
+          find site -name '*.md' -print0 | xargs -0 sed -i \
+            -e 's|](docs/workflow/\([a-z0-9-]*\)\.md)|](workflow/\1.html)|g' \
+            -e 's|](\([a-z0-9-]*\)\.md)|](\1.html)|g' \
+            -e 's|](\.\./README\.md)|](../index.html)|g'
+
+          cat > site/_config.yml <<'YAML'
+          title: kanban-flow
+          description: >-
+            Artifact-gated kanban workflow for AI coding agents. The gates read
+            files on disk, not the agent's summary.
+          theme: jekyll-theme-cayman
+          plugins:
+            - jekyll-relative-links
+          relative_links:
+            enabled: true
+            collections: false
+          YAML
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./site
+          destination: ./_site
+
+      - uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
