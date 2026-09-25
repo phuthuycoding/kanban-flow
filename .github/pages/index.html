@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kanban-flow · gates that read files, not the agent's summary</title>
+<meta name="description" content="An artifact-gated kanban workflow for AI coding agents. Every entry into testing mints a fresh execution id, so yesterday's green report stops counting.">
+<link rel="canonical" href="https://phuthuycoding.github.io/kanban-flow/">
+<meta property="og:title" content="kanban-flow">
+<meta property="og:description" content="Your agent says the tests passed. kanban-flow moves the proof into files on disk — and expires it when the code changes.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://phuthuycoding.github.io/kanban-flow/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="assets/site.css">
+<script src="assets/site.js" defer></script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"kanban-flow",
+"applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows",
+"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+"license":"https://opensource.org/licenses/MIT",
+"url":"https://phuthuycoding.github.io/kanban-flow/",
+"downloadUrl":"https://www.npmjs.com/package/@phuthuycoding/kanban-flow",
+"description":"An artifact-gated kanban workflow for AI coding agents. Gates read files on disk rather than the agent's summary, and every entry into testing mints a fresh execution id so stale test evidence cannot pass."}
+</script>
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="./">kanban<span>-flow</span></a>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="#mechanic">The mechanic</a>
+      <a href="workflow/README.html">Docs</a>
+      <a href="https://github.com/phuthuycoding/kanban-flow">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <p class="eyebrow">Workflow gates for AI coding agents</p>
+    <h1>Your agent says the tests passed.</h1>
+    <p class="lede">Sometimes it is right, and you cannot tell which time from the
+      transcript — because the transcript is written by the same thing you are checking.
+      kanban-flow moves the proof into files on disk: <strong>the gates do not read the
+      agent's summary, they read <code>.works/</code></strong>.</p>
+    <div class="cta">
+      <a class="btn primary" href="#how">See how it works</a>
+      <a class="btn" href="https://github.com/phuthuycoding/kanban-flow">GitHub</a>
+    </div>
+    <p class="install" style="margin-top:22px;max-width:560px">
+      <span class="prompt">$</span> npm install -g @phuthuycoding/kanban-flow
+      <button class="copy" type="button" data-copy="npm install -g @phuthuycoding/kanban-flow">Copy</button></p>
+
+    <div class="strip" aria-label="brainstorm, planning, implementation, testing, review, dones">
+      <span class="stage">brainstorm</span><i class="link"></i>
+      <span class="stage">planning</span><i class="link"></i>
+      <span class="stage">implementation</span><i class="link"></i>
+      <span class="stage">testing</span><i class="link"></i>
+      <span class="stage">review</span><i class="link"></i>
+      <span class="stage end">dones</span>
+    </div>
+  </div>
+
+  <section class="reveal" id="how">
+    <div class="wrap">
+      <h2>A gate is a file that exists, or does not</h2>
+      <p>Every work item walks one pipeline, and only the CLI moves it between stages.
+         Most stages owe an artifact, and a transition is refused when that artifact is
+         missing, empty, still full of template placeholders, or carrying a real secret.</p>
+      <div class="grid">
+        <div class="card reveal">
+          <h3>Refusals, not warnings</h3>
+          <p>A testing report that does not say <code>PASS</code> does not reach review.
+             A review report that does not say <code>PASS</code> does not archive.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Three decisions stay human</h3>
+          <p>Confirming the requirement, approving the execution contract, and choosing
+             to start now or hold in backlog. The tool never takes those.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Approval bound to the bytes</h3>
+          <p>Approval carries a SHA-256 fingerprint of the contract. Edit the plan and it
+             is invalid until planning approves it again.</p>
+        </div>
+        <div class="card reveal">
+          <h3>An override leaves a mark</h3>
+          <p><code>--force</code> works, and is written into <code>.kfw.json</code>
+             where a reviewer will find it. Nothing is skipped quietly.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal" id="mechanic">
+    <div class="wrap">
+      <h2>Evidence that expires</h2>
+      <div class="feature-row">
+        <div>
+          <p>Most of the mechanics here exist elsewhere. One I have not found anywhere
+             else: <strong>every entry into testing mints a fresh execution id</strong>,
+             and a report is accepted only when its <code>execution:</code> field matches
+             the current one.</p>
+          <p class="quiet" style="margin-top:14px">Fix a failure, go round again, and
+             yesterday's green report is inert. It is not deleted, argued with, or trusted
+             less — it simply stops matching, so passing again costs exactly one honest
+             test run.</p>
+        </div>
+        <div class="term" data-replay><span class="line"><span class="c"># first pass</span></span><span class="line">$ kf stage x testing        <span class="c">→ execution run-1</span></span><span class="line">$ kf stage x review         <span class="ok">✓ report says run-1</span></span><span class="line"> </span><span class="line"><span class="c"># review came back FAIL, code changed</span></span><span class="line">$ kf stage x implementation</span><span class="line">$ kf stage x testing        <span class="c">→ execution run-2</span></span><span class="line">$ kf stage x review         <span class="no">✗ refused</span></span><span class="line">                            <span class="c">  report still says run-1</span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal" id="harness">
+    <div class="wrap">
+      <h2>One stage, several agents</h2>
+      <p>Stages route to <strong>roles</strong>, and roles point at <strong>runners</strong>.
+         A runner is one way to invoke a CLI; a role is a job such as researcher or tester.
+         Pointing a role at a different model is a one-line edit, and the stage never changes.</p>
+      <div class="grid">
+        <div class="card reveal">
+          <h3>Chains, in order</h3>
+          <p>A stage runs its roles in sequence, and a role that declares an
+             <code>output</code> file hands it to the next.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Sessions never cross</h3>
+          <p>Kept per work item and per role, so two roles on one CLI do not share context
+             and a repair loop resumes the session that did the work.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Presets included</h3>
+          <p>claude, codex, devin, gemini, opencode. Assign no stages and the harness stays
+             out of the way entirely.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reveal" id="start">
+    <div class="wrap">
+      <h2>Start in one command</h2>
+      <p>Needs Node 20 or newer. <code>kf init</code> seeds <code>.kf/</code>, installs the
+         agent skills, and leaves your existing <code>AGENTS.md</code> alone.</p>
+      <pre><code>npm install -g @phuthuycoding/kanban-flow
+
+cd your-project
+kf init                             <span class="c"># seeds .kf/, installs the skills</span>
+kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstorm</span>
+kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
+kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
+      <div class="cta" style="margin-top:26px">
+        <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>
+        <a class="btn" href="workflow/cli-reference.html">CLI reference</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>MIT licensed · <a href="https://github.com/phuthuycoding/kanban-flow">source on GitHub</a>
+    · <a href="https://www.npmjs.com/package/@phuthuycoding/kanban-flow">@phuthuycoding/kanban-flow</a>
+    · <a href="https://github.com/phuthuycoding/kanban-flow/blob/main/CHANGELOG.md">changelog</a></p>
+  </div>
+</footer>
+</body>
+</html>
