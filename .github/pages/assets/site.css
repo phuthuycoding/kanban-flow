@@ -112,7 +112,11 @@ footer a { color: var(--muted); }
   color: var(--muted); text-decoration: none; }
 .toc a:hover { background: #ffffff0a; color: var(--text); }
 .toc a[aria-current="page"] { background: #16233c; color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
-.prose { max-width: var(--measure); }
+/* Prose holds the measure; figures, tables and code do not. Capping the whole
+   column squeezed a wide flowchart down until its labels were unreadable. */
+.prose { max-width: none; }
+.prose > p, .prose > ul, .prose > ol, .prose > blockquote,
+.prose > h1, .prose > h2, .prose > h3 { max-width: var(--measure); }
 .prose h1 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -.03em; margin: 0 0 18px; }
 .prose h2 { font-size: 22px; letter-spacing: -.02em; margin: 40px 0 12px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
 .prose h3 { font-size: 17px; margin: 28px 0 8px; }
@@ -221,3 +225,14 @@ body.scrolled .nav { background: #0b1120ee; box-shadow: 0 8px 28px -22px #000, 0
 
 /* Each transcript line is its own block so it can arrive on its own. */
 .term .line { display: block; }
+
+/* Rendered flowcharts sit as figures in the prose, on their own surface so the
+   diagram reads as a panel rather than as loose lines on the page. */
+.prose figure.mermaid { margin: 22px 0; padding: 18px; background: #0d1626;
+  border: 1px solid var(--border-soft); border-radius: 12px; overflow-x: auto; text-align: center; }
+/* No max-width on the SVG: with useMaxWidth off, mermaid sizes it to its own
+   layout, and capping it here scaled the whole drawing — labels included — down
+   to a few pixels. The figure scrolls instead. */
+.prose figure.mermaid svg { max-width: none; height: auto; }
+/* Until mermaid has run, the source is hidden rather than flashing as raw text. */
+.prose figure.mermaid:not([data-processed]) { color: transparent; min-height: 80px; }

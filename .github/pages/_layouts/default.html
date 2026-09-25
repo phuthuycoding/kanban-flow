@@ -45,5 +45,44 @@
     · <a href="https://www.npmjs.com/package/@phuthuycoding/kanban-flow">@phuthuycoding/kanban-flow</a></p>
   </div>
 </footer>
+<!-- Six flowcharts live in the guide. Kramdown emits them as
+     <pre><code class="language-mermaid">, so they would read as code rather than
+     as diagrams; this turns them into real figures, themed to match the page. -->
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  const blocks = document.querySelectorAll('pre > code.language-mermaid');
+  if (blocks.length) {
+    blocks.forEach((code) => {
+      const figure = document.createElement('figure');
+      figure.className = 'mermaid';
+      figure.textContent = code.textContent;
+      code.parentElement.replaceWith(figure);
+    });
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
+      themeVariables: {
+        darkMode: true, fontSize: '15px',
+        background: '#111c30',
+        primaryColor: '#16233c', primaryTextColor: '#e8eef8', primaryBorderColor: '#2f5d86',
+        secondaryColor: '#1d2b44', tertiaryColor: '#111c30',
+        lineColor: '#55749b', textColor: '#e8eef8',
+        mainBkg: '#16233c', nodeBorder: '#2f5d86', clusterBkg: '#0f1a2c', clusterBorder: '#2b3a52',
+        edgeLabelBackground: '#0b1120', titleColor: '#e8eef8'
+      },
+      flowchart: { curve: 'basis', useMaxWidth: false, htmlLabels: true },
+      sequence: { useMaxWidth: false }
+    });
+    // A diagram that fails to parse must not leave an empty hole where a figure was.
+    mermaid.run({ nodes: document.querySelectorAll('figure.mermaid'), suppressErrors: true })
+      .catch(() => document.querySelectorAll('figure.mermaid:empty')
+        .forEach((f) => f.replaceWith(Object.assign(document.createElement('p'),
+          { className: 'quiet', textContent: 'This diagram could not be rendered.' }))));
+    if (reduced) document.documentElement.classList.add('mermaid-static');
+  }
+</script>
 </body>
 </html>
