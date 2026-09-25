@@ -22,6 +22,7 @@ function browserElements() {
   return Object.fromEntries([
     "#root", "#ts", "#kpis", "#stage-chart", "#context-chart", "#approval-chart",
     "#kind-chart", "#task-chart", "#context", "#kind", "#refresh", "#error",
+    "#flow-chart", "#flow-aside",
   ].map((id) => [id, {
     textContent: "", innerHTML: "", value: "", hidden: true, disabled: false,
     addEventListener: () => {},
@@ -135,6 +136,31 @@ describe("dashboardData", () => {
     }
     expect(elements["#kind-chart"].innerHTML).not.toContain("NaN");
     expect(elements["#refresh"].disabled).toBe(false);
+  });
+
+  it("draws every linear stage in the pipeline strip, empty ones included", async () => {
+    // The strip is the one view that has to show a stage with nothing in it — an empty
+    // pipeline slot is information. Rendering only the occupied ones would hide the gap.
+    await item("feature-a", "implementation", "feature", "auth");
+    const script = /<script>([\s\S]*?)<\/script>/.exec(renderDashboardHtml())![1];
+    const elements = browserElements();
+    runInNewContext(script, {
+      document: { querySelector: (id: string) => elements[id] },
+      fetch: async () => ({ ok: true, json: async () => dashboardData(dir) }),
+      setInterval: () => {}, URLSearchParams,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const flow = elements["#flow-chart"].innerHTML;
+    for (const stage of ["brainstorm", "planning", "implementation", "testing", "review", "dones"]) {
+      expect(flow, stage).toContain(">" + stage + "<");
+    }
+    expect(flow, "backlog branches off and is not a node on the line").not.toContain(">backlog<");
+    expect(flow, "cancelled sits off the line too").not.toContain(">cancelled<");
+    // The occupied stage is marked live so the connector can carry the eye to it.
+    expect(flow).toMatch(/class="node live"[^>]*aria-label="implementation: 1 work item"/);
+    expect(flow).toContain('aria-label="testing: 0 work items"');
+    expect(elements["#flow-aside"].innerHTML).toContain("cancelled");
   });
 
   it("shows fetch errors while preserving the last rendered metrics", async () => {
