@@ -108,11 +108,14 @@ describe("the published package", () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
   it("is named and versioned for this release, and keeps the kf binary", () => {
-    expect(pkg.name).toBe("kanban-flow");
+    // Published under the author's scope. The bare name was taken for a first release
+    // and then dropped, and the lockfile carries the name too — it drifts silently otherwise.
+    expect(pkg.name).toBe("@phuthuycoding/kanban-flow");
     expect(pkg.version).toBe("0.3.0");
     expect(pkg.bin.kf).toBe("dist/index.js");
     const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8"));
-    expect(lock.name).toBe("kanban-flow");
+    expect(lock.name).toBe("@phuthuycoding/kanban-flow");
+    expect(lock.packages[""].name).toBe("@phuthuycoding/kanban-flow");
   });
 
   it("carries the metadata npm needs to publish", () => {

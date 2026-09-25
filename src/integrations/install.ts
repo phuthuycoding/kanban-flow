@@ -169,7 +169,7 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
   }
   return {
     code: 0,
-    stdout: `${lines.join("\n")}${purged}\n\nCLI still on PATH — unlink with: npm rm -g kanban-flow`,
+    stdout: `${lines.join("\n")}${purged}\n\nCLI still on PATH — unlink with: npm rm -g @phuthuycoding/kanban-flow`,
   };
 }
 
