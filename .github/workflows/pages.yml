@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - README.md
       - docs/workflow/**
+      - .github/pages/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -30,45 +30,63 @@ jobs:
       - name: Assemble the site source
         run: |
           set -euo pipefail
+
+          # The landing page, the layouts and the CSS are authored in .github/pages
+          # so they are reviewable files rather than strings inside this workflow.
+          cp -r .github/pages site
           mkdir -p site/workflow
 
-          # Jekyll only renders files that carry front matter, and the source
-          # docs must stay clean because docs/workflow ships in the npm package.
-          # So front matter is injected here, into copies, never into the source.
-          front_matter() {
-            printf -- '---\nlayout: default\ntitle: %s\n---\n\n' "$1"
-          }
-
-          { front_matter "kanban-flow"; cat README.md; } > site/index.md
-
+          # Jekyll renders only files that carry front matter, and docs/workflow ships
+          # inside the npm package — so the front matter goes into copies here and
+          # never into the source.
           for f in docs/workflow/*.md; do
             name="$(basename "$f" .md)"
-            # The first ATX heading is the page title; fall back to the filename.
             title="$(grep -m1 '^# ' "$f" | sed 's/^# //' || true)"
             [ -n "$title" ] || title="$name"
-            out="site/workflow/$name.md"
-            { front_matter "$title"; cat "$f"; } > "$out"
+            # Sidebar order is the guide's own reading order; alphabetical put the CLI
+            # reference first and the lifecycle last, which is nobody's route through it.
+            # Spelled out as a case rather than a word-split list: zsh does not split an
+            # unquoted variable, so a list would work on CI's bash and quietly not when
+            # the same script is run locally to check it.
+            case "$name" in
+              README)        rank=1 ;;
+              lifecycle)     rank=2 ;;
+              state-machine) rank=3 ;;
+              gates)         rank=4 ;;
+              artifacts)     rank=5 ;;
+              cli-reference) rank=6 ;;
+              dashboard)     rank=7 ;;
+              skills)        rank=8 ;;
+              harness)       rank=9 ;;
+              source-layout) rank=10 ;;
+              *)             rank=90 ;;
+            esac
+            # The body keeps its own `# Heading`: the layout sets <title> but renders no
+            # visible H1, so stripping it would leave the page with no heading at all.
+            {
+              printf -- '---\nlayout: default\ntitle: %s\norder: %s\n---\n\n' "$title" "$rank"
+              cat "$f"
+            } > "site/workflow/$name.md"
           done
 
-          # Links between the docs are written for the repo tree (./gates.md,
-          # ../README.md). On the site those resolve one level differently, so
-          # rewrite the .md suffix away and let Jekyll's permalinks take over.
-          find site -name '*.md' -print0 | xargs -0 sed -i \
-            -e 's|](docs/workflow/\([a-z0-9-]*\)\.md)|](workflow/\1.html)|g' \
+          # Links are written for the repo tree (./gates.md, ../README.md). On the site
+          # they resolve one level differently, so point them at the built pages.
+          find site/workflow -name '*.md' -print0 | xargs -0 sed -i \
             -e 's|](\([a-z0-9-]*\)\.md)|](\1.html)|g' \
             -e 's|](\.\./README\.md)|](../index.html)|g'
 
           cat > site/_config.yml <<'YAML'
           title: kanban-flow
           description: >-
-            Artifact-gated kanban workflow for AI coding agents. The gates read
-            files on disk, not the agent's summary.
-          theme: jekyll-theme-cayman
+            An artifact-gated kanban workflow for AI coding agents. The gates read
+            files on disk, not the agent's summary, and every entry into testing
+            mints a fresh execution id so stale test evidence cannot pass.
+          url: https://phuthuycoding.github.io
+          baseurl: /kanban-flow
           plugins:
-            - jekyll-relative-links
-          relative_links:
-            enabled: true
-            collections: false
+            - jekyll-sitemap
+          # The theme is ours; nothing here should pull in a remote one.
+          theme:
           YAML
 
       - uses: actions/configure-pages@v5
@@ -77,6 +95,21 @@ jobs:
         with:
           source: ./site
           destination: ./_site
+
+      - name: Check the build produced the pages we expect
+        run: |
+          set -euo pipefail
+          test -s _site/index.html
+          for f in docs/workflow/*.md; do
+            page="_site/workflow/$(basename "$f" .md).html"
+            test -s "$page" || { echo "missing $page"; exit 1; }
+          done
+          # A site that silently ships the archived Vietnamese history would defeat
+          # the point of curating the source in the first place.
+          for leaked in requirement use-cases testplan; do
+            test ! -e "_site/$leaked" || { echo "internal docs leaked: $leaked"; exit 1; }
+          done
+          echo "built $(find _site -name '*.html' | wc -l) pages"
 
       - uses: actions/upload-pages-artifact@v3
 
