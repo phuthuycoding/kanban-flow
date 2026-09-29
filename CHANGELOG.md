@@ -4,6 +4,8 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-29
+
 ### Added
 - **`kf doctor [--json]`.** A diagnosis at the project level, filling the gap between `kf validate` (work items only) and `kf autoconfig` (setup progress only, always exits 0). It checks the stage directories, that the config parses, each work item's metadata, whether the skills are still installed, and config fields that no longer mean what their names suggest. Read-only, does not stop at the first problem, exits 1 on any ERROR. It works **even when `.kf/config.json` is broken** — which is exactly when it is needed. Work items that are not yet valid are counted but never change the verdict: that is the normal state of a pipeline in motion.
 - **Four more formats in the secret scanner**: three-segment JWTs (`eyJ…`), Slack webhooks, Discord webhooks, and connection strings carrying a password (`scheme://user:<password>@host`). These are the shapes most likely to land in an artifact — a token pasted from a real request, a webhook URL pasted while describing an integration, a DSN pasted while reproducing a database bug — and all of them used to pass silently. Zero false positives across every real artifact in this repository, with a test that holds the line. The classification rule is now written down in the code: a pattern is high-confidence if and only if it carries a **prefix only a real credential has**; a connection string does not qualify, because an honest template has the same shape.
