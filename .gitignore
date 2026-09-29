@@ -15,3 +15,4 @@ dist/
 
 # kanban-flow: skills are installed per project by kf init; this repo ships them in skills/
 .claude/skills/
+.devin/skills/

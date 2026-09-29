@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode";
+export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode" | "devin";
 
 export interface AgentAdapter {
   id: AgentId;
@@ -16,13 +16,13 @@ export const AGENTS: AgentAdapter[] = [
     id: "claude",
     label: "Claude Code",
     projectRel: ".claude/skills",
-    alsoReads: ["cursor", "opencode"],
+    alsoReads: ["cursor", "opencode", "devin"],
   },
   {
     id: "codex",
     label: "OpenAI Codex",
     projectRel: ".agents/skills",
-    alsoReads: ["gemini", "cursor", "opencode"],
+    alsoReads: ["gemini", "cursor", "opencode", "devin"],
   },
   {
     id: "gemini",
@@ -40,13 +40,19 @@ export const AGENTS: AgentAdapter[] = [
     id: "cursor",
     label: "Cursor",
     projectRel: ".cursor/skills",
-    alsoReads: ["codex", "gemini", "opencode"],
+    alsoReads: ["codex", "gemini", "opencode", "devin"],
   },
   {
     id: "opencode",
     label: "OpenCode",
     projectRel: ".opencode/skills",
     alsoReads: ["codex", "gemini", "cursor"],
+  },
+  {
+    id: "devin",
+    label: "Devin",
+    projectRel: ".devin/skills",
+    alsoReads: [],
   },
 ];
 

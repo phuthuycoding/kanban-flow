@@ -147,7 +147,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into project-level agent skill dirs {root}/.<agent>/skills (default: claude). Requires a kanban project (.works/). Agents: claude, codex, gemini, kiro, cursor, opencode",
+    help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into project-level agent skill dirs {root}/.<agent>/skills (default: claude). Requires a kanban project (.works/). Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
     options: {
       agent: { type: "string", multiple: true },
     },
