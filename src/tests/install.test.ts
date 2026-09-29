@@ -182,6 +182,7 @@ describe("agents adapter", () => {
     expect(projectSkillsDir(agentById("codex")!, dir)).toBe(join(dir, ".agents", "skills"));
     expect(projectSkillsDir(agentById("kiro")!, dir)).toBe(join(dir, ".kiro", "skills"));
     expect(projectSkillsDir(agentById("opencode")!, dir)).toBe(join(dir, ".opencode", "skills"));
+    expect(projectSkillsDir(agentById("devin")!, dir)).toBe(join(dir, ".devin", "skills"));
   });
 
   it("parseAgentIds de-dupes and rejects unknown ids", () => {
