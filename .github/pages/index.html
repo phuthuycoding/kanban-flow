@@ -28,6 +28,7 @@
   <div class="wrap">
     <a class="brand" href="./">kanban<span>-flow</span></a>
     <nav>
+      <a href="#demo">See it run</a>
       <a href="#how">How it works</a>
       <a href="#mechanic">The mechanic</a>
       <a href="workflow/README.html">Docs</a>
@@ -61,6 +62,39 @@
       <span class="stage end">dones</span>
     </div>
   </div>
+
+  <section class="reveal" id="demo">
+    <div class="wrap">
+      <h2>Setup the agent can finish</h2>
+      <p>Install, init, then one command teaches the agent the project:
+         <code>kf autoconfig</code> prints what is done, what is missing, and the
+         command that closes each gap. Hand the output to your agent — or let it
+         run the command itself.</p>
+      <div class="term" data-typeit aria-label="Terminal transcript: install, kf init, kf autoconfig and kf new">
+        <span class="line"><span class="t">$ npm install -g @phuthuycoding/kanban-flow</span></span>
+        <span class="line"><span class="c">added 1 package</span></span>
+        <span class="line"> </span>
+        <span class="line"><span class="t">$ kf init</span><span class="rest c">   # or --defaults on a non-TTY</span></span>
+        <span class="line"><span class="ok">✓</span> .works/{brainstorm…dones} · .kf/ seeded</span>
+        <span class="line"><span class="ok">✓</span> 8 skills → .claude/skills/ · AGENTS.md created</span>
+        <span class="line"> </span>
+        <span class="line"><span class="t">$ kf autoconfig</span><span class="rest c">   # a briefing the agent finishes</span></span>
+        <span class="line"><span class="k">## Setup checklist</span></span>
+        <span class="line"><span class="ok">- [x]</span> Project config (.kf/config.json)</span>
+        <span class="line"><span class="ok">- [x]</span> Skills for Claude Code (.claude/skills/)</span>
+        <span class="line"><span class="ok">- [x]</span> Base review rules (.kf/review/rules/)</span>
+        <span class="line"><span class="ok">- [x]</span> Stack rule packs: node</span>
+        <span class="line">- [ ] Declared contexts <span class="c">— run: kf contexts</span></span>
+        <span class="line">- [ ] Phase hooks (.kf/hooks/) <span class="c">— optional</span></span>
+        <span class="line"><span class="k">## Workflow guide</span> <span class="c">— pipeline, human gates, commands</span></span>
+        <span class="line"> </span>
+        <span class="line"><span class="t">$ kf new user-login --context auth</span></span>
+        <span class="line">Created 'user-login' → .works/brainstorm/</span>
+        <span class="line"><span class="c">Next: kf instruct spec-requirement --change user-login</span></span>
+        <span class="line"><span class="t">$ </span></span>
+      </div>
+    </div>
+  </section>
 
   <section class="reveal" id="how">
     <div class="wrap">

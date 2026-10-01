@@ -93,6 +93,17 @@ pre, .term { background: #060d1a; border: 1px solid var(--border-soft); border-r
    transcript collapsed into one run-on paragraph. Scrolling beats wrapping here:
    a command broken mid-line reads as two commands. */
 .term { white-space: pre; }
+/* data-typeit markup puts one .line per HTML line, which under `pre` would print
+   the newlines and indentation as real blank space. Collapse the container's
+   whitespace and keep `pre` on each line instead — the transcript stays readable
+   to write and unchanged to read. */
+.term[data-typeit] { white-space: normal; }
+.term[data-typeit] .line { white-space: pre; }
+/* The full transcript is ~21 lines — too tall to sit inside a section whole. Cap
+   the terminal and scroll it, like a real one; playback pins the scroll to the
+   newest line so the typing is always the visible part. */
+.term[data-typeit] { max-height: 320px; overflow-y: auto; scrollbar-width: thin;
+  position: relative; /* the playback pins scroll to line.offsetTop — needs this as the offsetParent */ }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em;
   background: #ffffff0f; border-radius: 4px; padding: .12em .38em; }
 pre code { background: none; padding: 0; font-size: inherit; }
@@ -190,6 +201,19 @@ body.scrolled .nav { background: #0b1120ee; box-shadow: 0 8px 28px -22px #000, 0
 .js .term[data-replay] .line { opacity: 0; transform: translateY(4px); }
 .js .term[data-replay].play .line { animation: line .34s var(--ease) both; animation-delay: var(--step, 0ms); }
 @keyframes line { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* The onboarding terminal types itself. `armed` is only set when the terminal is
+   about to play, so without JS — or before it scrolls into view — the markup is
+   simply the whole transcript. `.rest` (the comment after a command) stays out
+   of the line until the typing reaches it, which is also what keeps the caret
+   glued to the text it is typing. */
+.js .term[data-typeit].armed .line { opacity: 0; }
+.js .term[data-typeit].armed .line.show { opacity: 1; transition: opacity .16s var(--ease); }
+.js .term[data-typeit].armed .rest { display: none; }
+.js .term[data-typeit].armed .line.done .rest { display: inline; }
+.term .caret { display: inline-block; width: 8px; height: 1.1em; margin-left: 1px;
+  background: var(--accent); vertical-align: -0.18em; animation: blink .95s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 
 /* The strip's stages settle in one after another, left to right. */
 .js .strip .stage { animation: rise .5s var(--ease) both; }
