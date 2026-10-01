@@ -8,6 +8,7 @@ The `kanban-flow` documentation is split by purpose:
 - [Gates and the artifact contract](workflow/gates.md) — what every phase demands before it lets go.
 - [Artifacts and how to read them](workflow/artifacts.md) — artifact structure, traceability and the docs left behind after archive.
 - [CLI reference](workflow/cli-reference.md) — commands, inputs, outputs and exit codes.
+- [Agent onboarding](workflow/autoconfig.md) — how the agent learns the project: `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 - [Dashboard analytics](workflow/dashboard.md) — the KPIs, the charts and how each number is computed.
 - [Skill routing](workflow/skills.md) — what the orchestrator owns and what each phase skill owns.
 - [Agent harness](workflow/harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`.

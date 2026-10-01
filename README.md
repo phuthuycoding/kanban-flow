@@ -62,6 +62,22 @@ git clone https://github.com/phuthuycoding/kanban-flow.git
 cd kanban-flow && npm install && npm run build && npm link
 ```
 
+## Onboard your agent
+
+`kf init` does the filesystem half: it installs the eight kanban skills into the
+agent's project-level skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`;
+`claude` is the default, and several agents read each other's directories) and
+seeds `AGENTS.md` when the project does not already have one.
+
+The other half is `kf autoconfig`. It prints a briefing meant for the agent, not
+for you: the project context, a setup checklist where every missing item carries
+the command that fixes it, the effective review rules to adopt as conventions,
+and the pipeline guide — generated from the CLI's own help strings. Run it and
+paste the output to your agent, or tell the agent to run it and work through the
+checklist itself. `kf doctor` is the complement: autoconfig asks what setup step
+is missing, doctor asks what is broken. Details:
+[agent onboarding](docs/workflow/autoconfig.md).
+
 ## A run, end to end
 
 The agent runs the commands and writes the artifacts between them, taking every
@@ -167,7 +183,8 @@ Presets ship for claude, codex, devin, gemini and opencode. Assign no stages and
 The full reference lives in [docs/workflow](docs/workflow/README.md): the [state
 machine](docs/workflow/state-machine.md), every [gate](docs/workflow/gates.md), the
 [artifacts](docs/workflow/artifacts.md), the [CLI reference](docs/workflow/cli-reference.md),
-the [harness](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
+[agent onboarding](docs/workflow/autoconfig.md) including phase hooks, the
+[harness](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
 notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License — MIT

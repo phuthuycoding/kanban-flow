@@ -55,10 +55,11 @@ jobs:
               gates)         rank=4 ;;
               artifacts)     rank=5 ;;
               cli-reference) rank=6 ;;
-              dashboard)     rank=7 ;;
+              autoconfig)    rank=7 ;;
               skills)        rank=8 ;;
-              harness)       rank=9 ;;
-              source-layout) rank=10 ;;
+              dashboard)     rank=9 ;;
+              harness)       rank=10 ;;
+              source-layout) rank=11 ;;
               *)             rank=90 ;;
             esac
             # The body keeps its own `# Heading`: the layout sets <title> but renders no
@@ -71,9 +72,13 @@ jobs:
 
           # Links are written for the repo tree (./gates.md, ../README.md). On the site
           # they resolve one level differently, so point them at the built pages.
-          find site/workflow -name '*.md' -print0 | xargs -0 sed -i \
+          # -i.bak because BSD sed (macOS) refuses a bare -i; the backups go away on
+          # the next line. Works on the CI's GNU sed and on a local macOS check alike.
+          find site/workflow -name '*.md' -print0 | xargs -0 sed -i.bak \
+            -e 's|](\([a-z0-9-]*\)\.md\(#[a-zA-Z0-9_-]*\))|](\1.html\2)|g' \
             -e 's|](\([a-z0-9-]*\)\.md)|](\1.html)|g' \
             -e 's|](\.\./README\.md)|](../index.html)|g'
+          find site/workflow -name '*.md.bak' -delete
 
           cat > site/_config.yml <<'YAML'
           title: kanban-flow

@@ -142,17 +142,22 @@
     <div class="wrap">
       <h2>Start in one command</h2>
       <p>Needs Node 20 or newer. <code>kf init</code> seeds <code>.kf/</code>, installs the
-         agent skills, and leaves your existing <code>AGENTS.md</code> alone.</p>
+         agent skills, and leaves your existing <code>AGENTS.md</code> alone.
+         <code>kf autoconfig</code> then prints a briefing — context, a setup checklist
+         with the command that fixes each missing item, the review rules — that the
+         agent configures the project from.</p>
       <pre><code>npm install -g @phuthuycoding/kanban-flow
 
 cd your-project
 kf init                             <span class="c"># seeds .kf/, installs the skills</span>
+kf autoconfig                       <span class="c"># hand this briefing to your agent</span>
 kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstorm</span>
 kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
 kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
       <div class="cta" style="margin-top:26px">
         <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>
         <a class="btn" href="workflow/cli-reference.html">CLI reference</a>
+        <a class="btn" href="workflow/autoconfig.html">Agent onboarding</a>
       </div>
     </div>
   </section>

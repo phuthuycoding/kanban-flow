@@ -34,7 +34,7 @@ The binary is `kf`. Every command *except* `kf init` looks for `.works/` from th
 | `kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]` | Stops a work item for good and moves it to `.works/cancelled/`, recording `cancellation { at, by, reason, fromStage }`. Refuses while a run is live unless `--force`. An item in `dones` has its canonical docs listed, and only `--purge-docs` deletes them, asking first on a TTY; `--force` answers that question in advance, and without a TTY it is the only way through. Reopen with `kf stage <feature> <fromStage>`. |
 | `kf archive <feature> [--force] [--skip-specs] [--skip-hooks]` | Archives from review into dones and updates the metadata; a feature receives the canonical copies, a bug keeps its existing docs. |
 | `kf rules [--stack <id> ...] [--list] [--force]` | Copies the stack best-practice review rules into `.kf/review/rules/`. Detects the stacks automatically, installing several packs in a monorepo; `--list` shows the packs and `--force` overwrites files you have edited. |
-| `kf autoconfig` | Prints a briefing for an agent on stdout: the project context, a config checklist of what is done and what is missing with the command to fix it, the effective review rules and the workflow guide, so the agent can configure the project itself. |
+| `kf autoconfig` | Prints a briefing for an agent on stdout: the project context, a config checklist of what is done and what is missing with the command to fix it, the effective review rules and the workflow guide, so the agent can configure the project itself. See [agent onboarding](autoconfig.md). |
 | `kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <minutes>] [--dry-run]` | Runs, in order, the role chain that `harness.stages` assigns to the current stage. Records a `runs[]` entry per role and resumes the session per work item and role. A role that does not finish `DONE` stops the chain. `--detach` returns immediately and leaves a supervisor to finish. Exits 1 when the chain does not complete. See [harness](harness.md). |
 | `kf runs [<feature>] [--json]` | Worker run history with role, runner, stage, mode, status and STATUS line, newest first. |
 | `kf harness [--json]` | The harness in effect: the main role, stage to role chain, role to runner with its brief and output, and which runner CLIs are on PATH. |
@@ -56,7 +56,7 @@ Uninstall only removes skills. To take the CLI off PATH: `npm rm -g @phuthuycodi
 
 - Success exits `0`. Bad input, a failed gate, a failed hook, a missing work item or an exception exits `1`. The readable report goes to **stdout**; stderr carries only a short reason line. A CI step that keeps stderr and discards stdout captures the reason but none of the detail.
 - The CLI never runs a migration, updates a database, deploys or publishes on its own.
-- Hooks resolve in order: the project `.kf/hooks`, then the user's `~/.kf/hooks`, then the package hooks. The environment handed to a hook carries `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT` and `KFW_APPROVAL`.
+- Hooks resolve in order: the project `.kf/hooks`, then the user's `~/.kf/hooks`, then the package hooks. The environment handed to a hook carries `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT` and `KFW_APPROVAL`. See [phase hooks](autoconfig.md#phase-hooks).
 
 ## Contexts
 
