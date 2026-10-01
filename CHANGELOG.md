@@ -4,6 +4,17 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-01
+
+### Added
+- **`docs/workflow/autoconfig.md`** — the agent-onboarding guide the CLI already had the machinery for but never documented: what `kf init` installs (skills, seeded `AGENTS.md`), what the `kf autoconfig` briefing prints (project context, the setup checklist with the command that fixes each gap, the effective review rules, the generated workflow guide), every checklist item and its fix, phase hooks (`<stage>.sh`, the `KFW_*` environment, project → user → package precedence, the refusal and bypass behaviour), and where `autoconfig` ends and `kf doctor` begins.
+- **An "Onboard your agent" section in the README.** `kf init` plus `kf autoconfig` is the intended path, and it was reachable from no page a new user reads — the command had a single table row in the CLI reference.
+- **A self-typing terminal on the landing page** ("See it run") that demos the onboarding run — install, `kf init`, `kf autoconfig`, `kf new` — typing commands character by character. The markup is the full transcript, so the section reads complete without JS or under reduced motion.
+
+### Fixed
+- **The Pages link rewriter dropped `#anchors`.** Links written for the repo tree like `gates.md#force-and-recovery` were left pointing at raw `.md` files on the site; anchors are now preserved as `.html#anchor`.
+- **`sed -i` in the Pages workflow only worked on GNU sed.** It now uses `-i.bak` plus a cleanup pass, so the same assemble step runs on macOS's BSD sed too.
+
 ## [0.4.0] - 2026-09-29
 
 ### Added

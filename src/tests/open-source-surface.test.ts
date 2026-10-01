@@ -65,7 +65,7 @@ describe("the user-facing surface is English", () => {
       join(ROOT, "kanban-flow", "README.md"),
       ...walk(join(ROOT, "docs", "workflow"), (p) => p.endsWith(".md")),
     ];
-    expect(docs).toHaveLength(13);
+    expect(docs).toHaveLength(14);
     expect(offenders(docs)).toEqual([]);
   });
 
@@ -111,7 +111,7 @@ describe("the published package", () => {
     // Published under the author's scope. The bare name was taken for a first release
     // and then dropped, and the lockfile carries the name too — it drifts silently otherwise.
     expect(pkg.name).toBe("@phuthuycoding/kanban-flow");
-    expect(pkg.version).toBe("0.4.0");
+    expect(pkg.version).toBe("0.4.1");
     expect(pkg.bin.kf).toBe("dist/index.js");
     const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8"));
     expect(lock.name).toBe("@phuthuycoding/kanban-flow");
