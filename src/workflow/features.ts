@@ -2,7 +2,7 @@ import { readdirSync, existsSync, statSync, mkdirSync, readFileSync } from "node
 import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 
-import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
+import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
 
 export interface Approval {
@@ -191,7 +191,7 @@ export function executionContractHash(dir: string, kind: WorkItemKind = "feature
   if (kind === "feature") {
     const useCaseDir = join(dir, "use-cases");
     if (existsSync(useCaseDir)) {
-      for (const file of readdirSync(useCaseDir).filter((entry) => /^UC-\d+\.md$/i.test(entry)).sort()) {
+      for (const file of readdirSync(useCaseDir).filter((entry) => UC_FILE_PATTERN.test(entry)).sort()) {
         hash.update(JSON.stringify([`use-cases/${file}`, readFileSync(join(useCaseDir, file), "utf8")]));
       }
     }

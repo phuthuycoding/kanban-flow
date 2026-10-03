@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { ARTIFACTS, STAGE_INDEX } from "./schema.js";
+import { ARTIFACTS, STAGE_INDEX, UC_FILE_PATTERN, UC_FILE_ID_PATTERN } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
@@ -23,12 +23,12 @@ export function checkTraceability(feature: Feature): Finding[] {
   const ucPath = join(feature.dir, ucIndexFile);
   const ucDir = join(feature.dir, "use-cases");
   const ucFiles = existsSync(ucDir)
-    ? readdirSync(ucDir).filter((file) => /^UC-\d+\.md$/i.test(file))
+    ? readdirSync(ucDir).filter((file) => UC_FILE_PATTERN.test(file))
     : [];
   if (ucFiles.length === 0) {
-    error("use-cases/", "use_cases_missing", "Each use case must be written in its own use-cases/UC-###.md file.");
+    error("use-cases/", "use_cases_missing", "Each use case must be written in its own use-cases/UC-###-<slug>.md file.");
   }
-  const fileIds = new Set(ucFiles.map((file) => file.slice(0, -3).toUpperCase()));
+  const fileIds = new Set(ucFiles.map((file) => file.match(UC_FILE_ID_PATTERN)![0].toUpperCase()));
   if (existsSync(ucPath)) {
     const index = readFileSync(ucPath, "utf8");
     const indexedIds = new Set([...index.matchAll(/\bUC-\d+\b/gi)].map((match) => match[0].toUpperCase()));
@@ -41,7 +41,7 @@ export function checkTraceability(feature: Feature): Finding[] {
   }
   for (const file of ucFiles) {
     const content = readFileSync(join(ucDir, file), "utf8");
-    const id = file.slice(0, -3).toUpperCase();
+    const id = file.match(UC_FILE_ID_PATTERN)![0].toUpperCase();
     if (!isFilledFile(content, splitFrontmatter(content).body)) {
       error(`use-cases/${file}`, "use_case_unfilled", `${file} is empty or still contains template placeholders.`);
     }

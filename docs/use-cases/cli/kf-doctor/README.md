@@ -17,4 +17,4 @@ kf-doctor
 | UC-002 | Chẩn đoán một project hỏng | Người dùng | FR-003, FR-004, FR-006, FR-008 |
 | UC-003 | Agent đọc kết quả bằng máy | Agent | FR-009 |
 
-Narrative của từng use case nằm ở `UC-001.md`, `UC-002.md`, `UC-003.md`.
+Narrative của từng use case nằm ở `UC-001-diagnose-healthy-project.md`, `UC-002-diagnose-broken-project.md`, `UC-003-machine-readable-verdict.md`.

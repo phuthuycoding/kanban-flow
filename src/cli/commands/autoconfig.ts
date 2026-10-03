@@ -135,6 +135,11 @@ Human gates (only places the agent must stop for the user):
 1. brainstorm: confirm the requirement before planning
 2. planning: kf approve the contract + choose start-now vs backlog
 
+Every transition is also gated on artifacts and report status: files must exist,
+be filled and carry no placeholders or secrets, and testing/review reports must
+carry the current execution id with a PASS to move forward. kf validate lists
+what blocks the next move; kf stage refuses the move while a gate fails.
+
 Commands the agent will use (run \`kf help <command>\` for every option):
 ${commands}
 

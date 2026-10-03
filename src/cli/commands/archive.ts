@@ -2,7 +2,7 @@ import { rename, rm } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { ARTIFACTS, METADATA_FILE } from "../../workflow/schema.js";
+import { ARTIFACTS, METADATA_FILE, UC_FILE_NAME, UC_FILE_PATTERN } from "../../workflow/schema.js";
 import { findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "../../workflow/features.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js";
@@ -61,7 +61,7 @@ function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[]
     if (!existsSync(source)) throw new Error(`Cannot sync canonical docs: missing source artifact ${source}`);
     const raw = readFileSync(source, "utf8");
     const content = sourceFile === ARTIFACTS["use-case-specification"].file
-      ? raw.replace(/use-cases\/(UC-\d+\.md)/gi, "$1")
+      ? raw.replace(new RegExp(`use-cases/(${UC_FILE_NAME})`, "gi"), "$1")
       : archiveStatus ? archivedDocument(raw) : raw;
     return {
       destination,
@@ -72,7 +72,7 @@ function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[]
 
   const useCaseSourceDir = join(feature.dir, "use-cases");
   if (existsSync(useCaseSourceDir)) {
-    for (const file of readdirSync(useCaseSourceDir).filter((entry) => /^UC-\d+\.md$/i.test(entry))) {
+    for (const file of readdirSync(useCaseSourceDir).filter((entry) => UC_FILE_PATTERN.test(entry))) {
       const source = join(useCaseSourceDir, file);
       const destination = join(base, "use-cases", context, feature.name, file);
       copies.push({
@@ -127,11 +127,23 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
         stderr: "canonical docs changed",
       };
     }
+    // --force here skips either the validation gate or the changed-docs refusal above;
+    // reaching this point with either failing means force was given. Record it like the
+    // review → dones path does, or a forced refresh would leave no trail.
+    const forcedCodes = [
+      ...(check.valid ? [] : check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code)),
+      ...(changedDocs.length > 0 ? ["canonical_docs_changed"] : []),
+    ];
+    const recorded = recordBypasses(f.stage, "dones", forcedCodes, null);
     const metaPath = join(f.dir, METADATA_FILE);
     const originalMeta = f.meta && existsSync(metaPath) ? readFileSync(metaPath, "utf8") : null;
     try {
       await writeCanonicalCopies(copies);
-      if (f.meta) await writeFeatureMeta(f.dir, { ...f.meta, status: "archived" });
+      if (f.meta) await writeFeatureMeta(f.dir, {
+        ...f.meta,
+        bypasses: recorded.length > 0 ? [...(f.meta.bypasses ?? []), ...recorded] : f.meta.bypasses,
+        status: "archived",
+      });
     } catch (err) {
       const rollback = await Promise.allSettled([
         rollbackCanonicalCopies(copies),
@@ -144,7 +156,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     return {
       code: 0,
       stdout:
-        `Feature '${name}' is already in dones.\n${copies.length > 0 ? `Canonical docs synced:\n${copies.map((copy) => `  ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}`,
+        `Feature '${name}' is already in dones.\n${copies.length > 0 ? `Canonical docs synced:\n${copies.map((copy) => `  ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}${bypassNote(recorded)}`,
     };
   }
   if (f.stage !== "review") {

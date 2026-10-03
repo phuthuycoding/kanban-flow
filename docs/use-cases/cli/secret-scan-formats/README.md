@@ -16,4 +16,4 @@ secret-scan-formats
 | UC-001 | JWT dán vào bằng chứng bị chặn | Agent ghi bằng chứng | FR-001, FR-004, FR-005 |
 | UC-002 | Connection string có mật khẩu bị chặn | Người viết bug report | FR-003, FR-006 |
 
-Narrative ở `UC-001.md` và `UC-002.md`.
+Narrative ở `UC-001-jwt-in-evidence-blocked.md` và `UC-002-password-connection-string-blocked.md`.

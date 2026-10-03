@@ -13,11 +13,11 @@ Mỗi use case là một file riêng trong thư mục `use-cases/`, không viế
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Người lạ đọc README và hiểu vấn đề trong 30 giây | [UC-001](UC-001.md) | Người lạ ghé repo | planned |
-| UC-002 | Cài một dòng và chạy được ngay | [UC-002](UC-002.md) | Người dùng thử | planned |
-| UC-003 | Bề mặt công cụ không còn ngôn ngữ lạ | [UC-003](UC-003.md) | Người dùng thử | planned |
-| UC-004 | Đại ca publish khi muốn, không phải sửa thêm | [UC-004](UC-004.md) | Đại ca (maintainer) | planned |
-| UC-005 | Người đọc tài liệu chi tiết bằng tiếng Anh | [UC-005](UC-005.md) | Người dùng thử | planned |
+| UC-001 | Người lạ đọc README và hiểu vấn đề trong 30 giây | [UC-001](UC-001-readme-explains-the-problem.md) | Người lạ ghé repo | planned |
+| UC-002 | Cài một dòng và chạy được ngay | [UC-002](UC-002-one-line-install.md) | Người dùng thử | planned |
+| UC-003 | Bề mặt công cụ không còn ngôn ngữ lạ | [UC-003](UC-003-no-internal-jargon-on-surface.md) | Người dùng thử | planned |
+| UC-004 | Đại ca publish khi muốn, không phải sửa thêm | [UC-004](UC-004-maintainer-publishes-cleanly.md) | Đại ca (maintainer) | planned |
+| UC-005 | Người đọc tài liệu chi tiết bằng tiếng Anh | [UC-005](UC-005-detailed-docs-in-english.md) | Người dùng thử | planned |
 
 ## Use Case Coverage
 

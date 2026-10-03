@@ -13,10 +13,10 @@ Every use case is its own file under `use-cases/`. Do not write a combined narra
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Đại ca khai danh sách context lúc init | [UC-001](UC-001.md) | Đại ca | planned |
-| UC-002 | Gõ nhầm context bị chặn kèm gợi ý | [UC-002](UC-002.md) | Người tạo work item | planned |
-| UC-003 | Agent khảo sát repo rồi đề xuất danh sách | [UC-003](UC-003.md) | Agent | planned |
-| UC-004 | Nhìn ra context đang dùng mà chưa khai | [UC-004](UC-004.md) | Đại ca | planned |
+| UC-001 | Đại ca khai danh sách context lúc init | [UC-001](UC-001-declare-contexts-at-init.md) | Đại ca | planned |
+| UC-002 | Gõ nhầm context bị chặn kèm gợi ý | [UC-002](UC-002-undeclared-context-refused.md) | Người tạo work item | planned |
+| UC-003 | Agent khảo sát repo rồi đề xuất danh sách | [UC-003](UC-003-agent-surveys-contexts.md) | Agent | planned |
+| UC-004 | Nhìn ra context đang dùng mà chưa khai | [UC-004](UC-004-undeclared-contexts-surface.md) | Đại ca | planned |
 
 ## Use Case Coverage
 

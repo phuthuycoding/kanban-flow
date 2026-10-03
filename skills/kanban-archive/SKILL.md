@@ -27,7 +27,7 @@ If already in dones, complete only missing closure work and validate; never reim
 
 ## 2. Sync docs
 
-For a feature, let `kf archive` copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement mirror under `docs/requirement/` was already written in Phase 1 — `kf archive` refreshes it and stamps `status: archived`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure. Update other affected docs from the plan's documentation impact as needed.
+For a feature, let `kf archive` copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement mirror under `docs/requirement/` was already written in Phase 1 — `kf archive` rewrites it from the Phase 1 artifact and stamps `status: archived`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure. Update other affected docs from the plan's documentation impact as needed.
 
 For a bug, update existing related feature docs only when the fix changes documented behavior or reveals inaccurate documentation. Use the feature/context named in the bug report; do not overwrite feature docs with bug-report content. Record bug ID, fix summary and regression reference in the project's changelog or change-history section (e.g. CHANGELOG.md) when one exists. If behavior is already documented correctly, leave docs as-is and record “No documentation update required” with the reason in the review report. Bug archive does not automatically create canonical feature docs.
 
@@ -40,7 +40,7 @@ kf validate --change {feature_name}
 
 `kf archive` requires current PASS reports, runs the dones hook, moves review → dones and marks metadata archived. Features additionally require the feature report and receive canonical copies; bugs do not. `kf stage ... dones` uses the same archive path. Validate after archive and check reported canonical destinations for a feature. Do not report completion if validation fails.
 
-When refreshing an item already in dones, canonical docs may include later bug fixes. If the CLI reports changed canonical docs, preserve them with `--skip-specs`; do not use `--force` to restore an older snapshot without explicit user direction.
+When refreshing an item already in dones, canonical docs may include later bug fixes. If the CLI reports changed canonical docs, preserve them with `--skip-specs`; do not use `--force` to restore an older snapshot without explicit user direction — a forced overwrite is recorded as a bypass.
 
 ## 4. Git handoff
 
@@ -69,7 +69,7 @@ Artifacts: .works/dones/{feature_name}_{timestamp}/
 Feature canonical docs:
 - docs/requirement/{context}/{feature_name}.md
 - docs/use-cases/{context}/{feature_name}/README.md
-- docs/use-cases/{context}/{feature_name}/UC-###.md (one file per use case)
+- docs/use-cases/{context}/{feature_name}/UC-###(-<slug>).md (one file per use case)
 - docs/use-cases/{context}/{feature_name}/diagram.md
 - docs/testplan/{context}/{feature_name}.md
 - docs/testplan/{context}/{feature_name}-result.md

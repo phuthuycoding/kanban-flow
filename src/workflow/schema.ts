@@ -174,5 +174,14 @@ export const PHASE_NAMES: Record<Stage, string> = {
 
 export const METADATA_FILE = ".kfw.json";
 
+/** Regex source for a use-case file name: `UC-###.md`, or the self-describing `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). */
+export const UC_FILE_NAME = String.raw`UC-\d+(?:-[a-z0-9_-]+)?\.md`;
+/** A use-case file name: `UC-###.md`, or the self-describing `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). */
+export const UC_FILE_PATTERN = new RegExp(`^${UC_FILE_NAME}$`, "i");
+/** The `--id` argument of `kf instruct use-case`: the id with an optional slug. */
+export const UC_ID_ARG_PATTERN = /^UC-\d+(?:-[a-z0-9_-]+)?$/i;
+/** The `UC-###` id a use-case file name starts with; the slug is not part of the id. */
+export const UC_FILE_ID_PATTERN = /^UC-\d+/i;
+
 /** Approval status recorded in feature metadata (Human-in-the-Loop gate, Phase 2). */
 export type ApprovalStatus = "pending" | "approved";

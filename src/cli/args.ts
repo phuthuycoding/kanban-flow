@@ -81,7 +81,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   instruct: {
-    help: "Usage: kf instruct <artifact|use-case> [--change <feature>] [--id UC-###]  — print the template, current execution id and exact output path",
+    help: "Usage: kf instruct <artifact|use-case> [--change <feature>] [--id UC-###]  — print the template, current execution id and exact output path (--id also accepts UC-###-<slug>)",
     allowPositionals: true,
     options: {
       change: { type: "string" },

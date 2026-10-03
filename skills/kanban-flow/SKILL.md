@@ -29,7 +29,7 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 | Phase | Skill | Gate artifacts (filled to LEAVE) | Notes |
 |-------|-------|----------------------------------|-------|
 | 1. Brainstorm / Bug triage | `kanban-brainstorm` or `kanban-bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Human + agent refine requirement or reproduce bug |
-| 2. Planning | `kanban-plan` | Feature: four phase-2 files + `use-cases/UC-###.md`; bug: confirmed bug report | **Human approval, then start/backlog decision** |
+| 2. Planning | `kanban-plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | **Human approval, then start/backlog decision** |
 | Backlog | — | Approved planning contract remains intact | Waiting for explicit user decision to start |
 | 3. Implement | `kanban-implement` | — (tasks.md tracks) | Autonomous |
 | 4. Testing | `kanban-test` | `phase-4-testing-result.md` (`status: PASS`) | FAIL/REJECT → loop to implementation |
@@ -44,7 +44,7 @@ For features, `kf validate` checks each `## TC-###` for FR references and matchi
 
 Feature canonical docs are synced by the CLI on archive:
 - Requirement: `docs/requirement/{context}/{feature_name}.md`
-- Use cases: `docs/use-cases/{context}/{feature_name}/README.md`, one `UC-###.md` per use case and `diagram.md`
+- Use cases: `docs/use-cases/{context}/{feature_name}/README.md`, one `UC-###(-<slug>).md` per use case and `diagram.md`
 - Test plan/result: `docs/testplan/{context}/{feature_name}.md` and `{feature_name}-result.md`
 
 Work item type is stored in `.kfw.json` as `kind: feature|bug`. Create a bug with `kf new <name> --type bug`; route it to `kanban-bug` for reproduction and triage before planning.

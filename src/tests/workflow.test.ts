@@ -240,6 +240,28 @@ describe("requirement and approval gates", () => {
     expect(validateFeature(feature(), false, false).issues.some((issue) => issue.code === "use_cases_missing")).toBe(true);
   });
 
+  it("accepts slugged use-case file names end to end", async () => {
+    await planning();
+    await rm(join(feature().dir, "use-cases", "UC-001.md"));
+    await writeFile(join(feature().dir, "use-cases", "UC-001-create-task.md"), "# UC-001 Create a task\nUser can create a task.");
+    await writeFile(join(feature().dir, ARTIFACTS["use-case-specification"].file), "# Index\n[UC-001](use-cases/UC-001-create-task.md)");
+    const instruction = JSON.parse((await cmdInstruct(args("instruct", ["use-case"], { change: "demo", id: "UC-002-list-tasks", json: true }), root)).stdout);
+    expect(instruction.outputPath).toBe(join(feature().dir, "use-cases", "UC-002-list-tasks.md"));
+    expect(instruction.template).toContain("| ID | UC-002 |");
+    expect((await cmdInstruct(args("instruct", ["use-case"], { change: "demo", id: "UC-002-" }), root)).stderr).toBe("invalid use-case id");
+    await cmdApprove(args("approve", ["demo"]), root);
+    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    await cmdStage(args("stage", ["demo", "testing"]), root);
+    await report("testing-result");
+    await cmdStage(args("stage", ["demo", "review"]), root);
+    await report("review-report");
+    await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified");
+    expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
+    const canonical = join(root, "docs", "use-cases", "app", "demo");
+    expect(await readFile(join(canonical, "README.md"), "utf8")).toContain("[UC-001](UC-001-create-task.md)");
+    expect(await readFile(join(canonical, "UC-001-create-task.md"), "utf8")).toContain("UC-001");
+  });
+
   it("does not confuse FR-001 with FR-0010", async () => {
     await planning();
     await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec.replace("FR-001", "FR-0010"));
@@ -398,6 +420,24 @@ describe("archive consistency", () => {
     expect(await readFile(canonical, "utf8")).toContain("status: archived");
     expect(validateFeature(feature()).valid).toBe(true);
     expect(JSON.parse((await cmdStatus(args("status", [], { all: true, json: true }), root)).stdout).features).toHaveLength(1);
+  });
+
+  it("records a bypass when --force overwrites changed canonical docs on re-archive", async () => {
+    await review();
+    await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Closure\nVerified");
+    expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
+
+    const canonical = join(root, "docs", "requirement", "app", "demo.md");
+    await writeFile(canonical, "# Hand-edited after archive");
+    expect((await cmdArchive(args("archive", ["demo"]), root)).stderr).toBe("canonical docs changed");
+    const forced = await cmdArchive(args("archive", ["demo"], { force: true }), root);
+    expect(forced.code).toBe(0);
+    expect(forced.stdout).toContain("Bypass recorded: --force");
+    const bypasses = feature().meta!.bypasses!;
+    expect(bypasses).toHaveLength(1);
+    expect(bypasses[0]).toMatchObject({ from: "dones", to: "dones", flag: "force" });
+    expect(bypasses[0].codes).toContain("canonical_docs_changed");
+    expect(await readFile(canonical, "utf8")).toContain("status: archived");
   });
 
   it("honors skip-specs on first and repeated archive while marking metadata", async () => {

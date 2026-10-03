@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ARTIFACTS } from "../../workflow/schema.js";
+import { ARTIFACTS, UC_ID_ARG_PATTERN, UC_FILE_ID_PATTERN } from "../../workflow/schema.js";
 import { findWorksRoot, findFeature } from "../../workflow/features.js";
 import { resolveTemplate, readTemplate } from "../../shared/paths.js";
 import { nowTimestamp } from "../../shared/time.js";
@@ -10,7 +10,9 @@ export async function cmdInstruct(args: ParsedArgs, cwd: string): Promise<CmdRes
   const artifact = args.positionals[0];
   const change = typeof args.options.change === "string" ? args.options.change : null;
   const useCase = artifact === "use-case";
-  const useCaseId = typeof args.options.id === "string" ? args.options.id.toUpperCase() : null;
+  const useCaseId = typeof args.options.id === "string"
+    ? args.options.id.replace(/^uc-\d+/i, (m) => m.toUpperCase())
+    : null;
   if (!artifact) {
     const known = Object.values(ARTIFACTS).map((a) => a.id).join(", ");
     return { code: 1, stdout: `Missing artifact. Usage: kf instruct <artifact|use-case> --change <feature>\nArtifacts: ${known}, use-case`, stderr: "missing artifact" };
@@ -21,10 +23,10 @@ export async function cmdInstruct(args: ParsedArgs, cwd: string): Promise<CmdRes
     return { code: 1, stdout: `Unknown artifact '${artifact}'. Artifacts: ${known}, use-case`, stderr: "unknown artifact" };
   }
   if (useCase && !useCaseId) {
-    return { code: 1, stdout: "Use case ID is required. Usage: kf instruct use-case --id UC-### [--change <feature>]", stderr: "missing use-case id" };
+    return { code: 1, stdout: "Use case ID is required. Usage: kf instruct use-case --id UC-###[-slug] [--change <feature>]", stderr: "missing use-case id" };
   }
-  if (useCase && useCaseId && !/^UC-\d+$/.test(useCaseId)) {
-    return { code: 1, stdout: `Invalid use-case id '${useCaseId}'. Expected UC-###.`, stderr: "invalid use-case id" };
+  if (useCase && useCaseId && !UC_ID_ARG_PATTERN.test(useCaseId)) {
+    return { code: 1, stdout: `Invalid use-case id '${useCaseId}'. Expected UC-### or UC-###-<slug>.`, stderr: "invalid use-case id" };
   }
 
   const root = findWorksRoot(cwd) ?? cwd;
@@ -38,7 +40,9 @@ export async function cmdInstruct(args: ParsedArgs, cwd: string): Promise<CmdRes
     ?.replaceAll("{feature_name}", feature?.name ?? "{feature_name}")
     .replaceAll("{context}", feature?.context ?? "{context}")
     .replaceAll("{timestamp}", nowTimestamp())
-    .replaceAll("{use_case_id}", useCaseId ?? "{use_case_id}")
+    // The file is named after the full --id (slug included); the id inside the
+    // document is only the UC-### prefix, the part traceability matches on.
+    .replaceAll("{use_case_id}", useCaseId?.match(UC_FILE_ID_PATTERN)?.[0].toUpperCase() ?? "{use_case_id}")
     .replaceAll("{execution_id}", feature?.meta?.executionId ?? "{execution_id}");
   if (!tpl) {
     return { code: 1, stdout: `Template '${templateName}' not found anywhere (project → ~/.kf → package).`, stderr: "no template" };

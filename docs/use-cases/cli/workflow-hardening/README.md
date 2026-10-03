@@ -13,13 +13,13 @@ Mỗi use case là một file riêng trong thư mục `use-cases/`, không viế
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Agent đọc briefing autoconfig và chạy lệnh trong guide | [UC-001](UC-001.md) | Agent | planned |
-| UC-002 | Validator chặn secret thật dù dòng có từ placeholder | [UC-002](UC-002.md) | Agent | planned |
-| UC-003 | Agent bypass gate, dấu vết được ghi và hiển thị | [UC-003](UC-003.md) | Agent | planned |
-| UC-004 | CI chạy typecheck, lint, test trên push/PR | [UC-004](UC-004.md) | GitHub Actions runner | planned |
-| UC-005 | Validator chặn report PASS có exit code khác 0 | [UC-005](UC-005.md) | Agent | planned |
-| UC-006 | `kf init` seed AGENTS.md, giữ nguyên file đã có | [UC-006](UC-006.md) | Người vận hành | planned |
-| UC-007 | Người vận hành đọc CHANGELOG và version mới | [UC-007](UC-007.md) | Người vận hành | planned |
+| UC-001 | Agent đọc briefing autoconfig và chạy lệnh trong guide | [UC-001](UC-001-autoconfig-briefing-runnable.md) | Agent | planned |
+| UC-002 | Validator chặn secret thật dù dòng có từ placeholder | [UC-002](UC-002-real-secrets-blocked.md) | Agent | planned |
+| UC-003 | Agent bypass gate, dấu vết được ghi và hiển thị | [UC-003](UC-003-bypass-recorded-and-shown.md) | Agent | planned |
+| UC-004 | CI chạy typecheck, lint, test trên push/PR | [UC-004](UC-004-ci-typecheck-lint-test.md) | GitHub Actions runner | planned |
+| UC-005 | Validator chặn report PASS có exit code khác 0 | [UC-005](UC-005-pass-needs-zero-exit-codes.md) | Agent | planned |
+| UC-006 | `kf init` seed AGENTS.md, giữ nguyên file đã có | [UC-006](UC-006-init-seeds-agents-md.md) | Người vận hành | planned |
+| UC-007 | Người vận hành đọc CHANGELOG và version mới | [UC-007](UC-007-changelog-tracks-releases.md) | Người vận hành | planned |
 
 ## Use Case Coverage
 

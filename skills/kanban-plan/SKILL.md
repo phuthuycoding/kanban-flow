@@ -32,7 +32,7 @@ kf instruct implementation-plan --change {feature_name}
 kf instruct use-case-specification --change {feature_name}
 kf instruct use-case-diagram --change {feature_name}
 kf instruct test-cases --change {feature_name}
-kf instruct use-case --change {feature_name} --id UC-001
+kf instruct use-case --change {feature_name} --id UC-001-create-task
 ```
 
 ### implementation-plan
@@ -43,9 +43,9 @@ kf instruct use-case --change {feature_name} --id UC-001
 
 ### use-case-specification
 - Use `phase-2-use-case-specification.md` only as an index and coverage summary.
-- Write **one file per use case** under `use-cases/UC-###.md`, using `kf instruct use-case --id UC-###`.
+- Write **one file per use case** under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`), using `kf instruct use-case --id UC-###-<slug>`. The slug makes a file listing readable; plain `UC-###.md` stays valid.
 - Each file contains one `UC-###`: goal, actors, preconditions, trigger, main / alternative / exception flows, postconditions, business rules, data and acceptance criteria.
-- The file name and declared ID must match exactly. Do not put multiple UC narratives in one file.
+- The `UC-###` prefix of the file name and the declared ID must match exactly. Do not put multiple UC narratives in one file.
 
 ### use-case-diagram
 - Mermaid `graph TD` / `flowchart`: actors → use cases (one box per UC-###)

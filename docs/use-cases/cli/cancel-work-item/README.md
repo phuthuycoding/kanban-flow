@@ -13,12 +13,12 @@ Mỗi use case là một file riêng trong thư mục `use-cases/`, không viế
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Bỏ một việc đang dở, ghi lý do | [UC-001](UC-001.md) | Người vận hành | planned |
-| UC-002 | Bỏ một việc đã archive và quyết định số phận canonical docs | [UC-002](UC-002.md) | Người vận hành | planned |
-| UC-003 | Mở lại một việc đã bỏ nhầm | [UC-003](UC-003.md) | Người vận hành | planned |
-| UC-004 | Item đã bỏ không làm bẩn danh sách, không bóp méo tỷ lệ | [UC-004](UC-004.md) | Người vận hành | planned |
-| UC-005 | Gate và hook cư xử đúng với stage cancelled | [UC-005](UC-005.md) | Main agent | planned |
-| UC-006 | Agent đề xuất dừng hẳn, người quyết | [UC-006](UC-006.md) | Main agent | planned |
+| UC-001 | Bỏ một việc đang dở, ghi lý do | [UC-001](UC-001-cancel-with-reason.md) | Người vận hành | planned |
+| UC-002 | Bỏ một việc đã archive và quyết định số phận canonical docs | [UC-002](UC-002-cancel-archived-item.md) | Người vận hành | planned |
+| UC-003 | Mở lại một việc đã bỏ nhầm | [UC-003](UC-003-reopen-cancelled-item.md) | Người vận hành | planned |
+| UC-004 | Item đã bỏ không làm bẩn danh sách, không bóp méo tỷ lệ | [UC-004](UC-004-cancelled-out-of-metrics.md) | Người vận hành | planned |
+| UC-005 | Gate và hook cư xử đúng với stage cancelled | [UC-005](UC-005-cancelled-stage-gates.md) | Main agent | planned |
+| UC-006 | Agent đề xuất dừng hẳn, người quyết | [UC-006](UC-006-agent-proposes-human-decides.md) | Main agent | planned |
 
 ## Use Case Coverage
 
