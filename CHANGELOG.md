@@ -4,6 +4,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
+### Added
+- **Self-describing use-case file names: `UC-###-<slug>.md`.** `UC-001-create-task.md` says what the file covers; `UC-001.md` did not. The validator, the approval fingerprint, the canonical-docs copy and the index link rewrite all accept the slugged name, and `kf instruct use-case --id UC-001-create-task` writes the matching path. Plain `UC-###.md` stays valid; every check keys on the `UC-###` prefix. The canonical docs under `docs/use-cases/` were renamed to the new convention, and the plan skill and templates now ask for it.
+- **Per-transition gates in the `kf autoconfig` workflow guide.** The briefing used to name only the two human gates, so an agent could finish onboarding believing nothing else stood between stages. It now states that every move is gated on artifacts and report status, and that `kf validate` lists what blocks the next transition.
+- **A human onboarding walkthrough in `docs/workflow/autoconfig.md`** — what `kf init` asks on a terminal (Quick setup vs Customize, then contexts, stacks, reviewer, agents, the `.gitignore` entry and a demo feature), what happens without a TTY, and where `--defaults` and `--minimal` fit. The doc previously described only the agent's path.
+- **A "Gate to advance" column in `docs/workflow/skills.md`**, so the gate each skill must pass to leave its stage is documented next to what the skill owns.
+
+### Fixed
+- **A forced `kf archive` on an item already in `dones` left no trail.** `--force` there skips the validation gate or the changed-docs refusal, and unlike every other bypass it was never recorded — while the docs claimed every real bypass lands in `.kfw.json`. It is now recorded (`canonical_docs_changed` for the docs case) and reported the same way.
+- **Archive docs corrected against the implementation.** A first archive overwrites canonical paths unconditionally (the changed-docs refusal applies only to a re-archive), the index's `use-cases/…` links are rewritten to sibling links, the feature report is not copied, an old-style `docs/use-cases/{ctx}/{name}.md` mirror is stamped `archived`, reopening an item cancelled out of `dones` resyncs through the archive path, and a docs refresh runs no hook — none of which the docs previously said.
+
 ## [0.4.1] - 2026-10-01
 
 ### Added
