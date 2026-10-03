@@ -61,7 +61,7 @@ project/
 │   └── dones/
 └── docs/
     ├── requirement/{context}/{feature}.md
-    ├── use-cases/{context}/{feature}/README.md + UC-###.md + diagram.md
+    ├── use-cases/{context}/{feature}/README.md + UC-###-<slug>.md + diagram.md
     └── testplan/{context}/{feature}{,-result}.md
 ```
 

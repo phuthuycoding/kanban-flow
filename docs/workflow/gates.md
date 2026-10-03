@@ -10,7 +10,7 @@ One group is not shared: the *direction* gate, which decides where a PASS or FAI
 | --- | --- | --- | --- |
 | 1 — Brainstorm / bug triage | `phase-1-spec-requirement.md`, a bug using the bug-report template | Feature: the requirement plus FR-XXX. Bug: reproduction, actual against expected, severity, regression strategy | Planning |
 | 2 — Planning (feature) | `phase-2-implementation-plan.md` | Scope, tasks, impact, definition of done, risks | The execution contract |
-| 2 — Planning (feature) | `phase-2-use-case-specification.md` plus `use-cases/UC-###.md` | Index and coverage in the phase file; each UC carries its own preconditions, flows and alternate or error flows | Design and testing |
+| 2 — Planning (feature) | `phase-2-use-case-specification.md` plus `use-cases/UC-###(-<slug>).md` | Index and coverage in the phase file; each UC carries its own preconditions, flows and alternate or error flows | Design and testing |
 | 2 — Planning (feature) | `phase-2-use-case-diagram.md` | A valid actor and use case diagram | Traceability |
 | 2 — Planning (feature) | `phase-2-test-case.md` | TC-XXX entries linked to FR-XXX and UC-XXX | The testing contract |
 | 4 — Testing | `phase-4-testing-result.md` | The current execution id, a PASS/FAIL/REJECT/BLOCKED verdict, the evidence | Review, or the repair loop |
@@ -27,12 +27,16 @@ Implementation has no required artifact of its own in the schema, but the implem
 | --- | --- |
 | `phase-1-spec-requirement.md` | `docs/requirement/{context}/{feature}.md` |
 | `phase-2-use-case-specification.md` | `docs/use-cases/{context}/{feature}/README.md`, the index |
-| `use-cases/UC-###.md` | `docs/use-cases/{context}/{feature}/UC-###.md`, one file per use case |
+| `use-cases/UC-###(-<slug>).md` | `docs/use-cases/{context}/{feature}/UC-###(-<slug>).md`, one file per use case |
 | `phase-2-use-case-diagram.md` | `docs/use-cases/{context}/{feature}/diagram.md` |
 | `phase-2-test-case.md` | `docs/testplan/{context}/{feature}.md` |
 | `phase-4-testing-result.md` | `docs/testplan/{context}/{feature}-result.md` |
 
-The canonical requirement is marked `archived`; the other artifacts keep their frontmatter and evidence so they can be traced later. For a bug, archive only moves the work item into `dones`; the related feature's docs change only when the bug report states a docs impact. `--skip-specs` skips this whole table.
+The canonical requirement is marked `archived`; the other artifacts keep their frontmatter and evidence so they can be traced later. Inside the index, links of the form `use-cases/UC-....md` are rewritten to plain `UC-....md` so the canonical `README.md` points at the sibling copies rather than back into `.works/`. `phase-6-feature-report.md` is deliberately not copied — it stays in the work item folder for audit.
+
+Two overwrite rules matter. On a **first** archive (review → dones) the work item's copies win unconditionally — a canonical path already holding a hand-edited file, including the requirement mirror written in Phase 1, is overwritten without a refusal. The changed-docs refusal applies only to a **re-archive** of an item already in `dones`: there the CLI lists the canonical docs that changed since the snapshot and requires `--skip-specs` (keep them) or `--force` (restore the snapshot, and the bypass is recorded). For history: an old-style requirement mirror at `docs/use-cases/{context}/{feature}.md` is also stamped `status: archived` when one exists.
+
+For a bug, archive only moves the work item into `dones`; the related feature's docs change only when the bug report states a docs impact. `--skip-specs` skips this whole table.
 
 ## What each direction requires
 
@@ -61,6 +65,8 @@ Feature planning builds a chain you can follow:
 
 `FR-XXX` → `UC-XXX` → `TC-XXX` → implementation → testing evidence → review finding.
 
+A use-case file is named `UC-###-<slug>.md` — `UC-001-create-task.md` — so a directory listing reads like a table of contents. The older plain `UC-###.md` stays valid; every check keys on the `UC-###` prefix, which must match the id declared inside the file.
+
 IDs must match exactly; `FR-001` is never treated as `FR-0010`. A TC missing its FR or UC reference, a reference that does not exist, a duplicate TC id, an empty file or an unreplaced placeholder all fail validation. The agent still has to review the content of each section and the totals in each table.
 
 The validator also scans artifact content for real secrets, such as a Bearer token, an API key, a private key or a password written as `KEY=value`, and fails with `artifact_secret` when it finds one. An artifact must never carry a credential. Placeholder values like `{key}`, `<token>`, `changeme`, `redacted` or a run of four or more `x` are not flagged. The exemption applies to the **captured value**, not to the whole line: `TOKEN=ghp_… # example` is still flagged. High-confidence formats (`ghp_`/`github_pat_`, `sk-`, `AKIA`, `xox*-`, a PRIVATE KEY header, a three-segment JWT starting `eyJ`, and Slack or Discord webhook URLs) are exempt only when the value itself is masked with `xxxx` or `****`. Each of those begins with something no honest template would invent, so no wording on the line excuses them.
@@ -71,13 +77,15 @@ The secret scan is the one check that ignores the stage entirely. It runs on **e
 
 A testing report with `status: PASS` must also carry a table under the `## Commands and Evidence` heading with at least one command line and every Exit code cell equal to `0`; breaking that is `testing_exit_code`. The rule does not prove the tests ran. It only stops a PASS report that has no numeric evidence behind it. FAIL, REJECT and BLOCKED reports are not bound by it.
 
-The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every `use-cases/UC-###.md` for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval.
+The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every use-case file for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval.
 
 ## Cancelled
 
 `cancelled` is the one stage with **no artifact gate**. Its `STAGE_INDEX` is `-1`, so every "is this artifact due yet" and "are we past planning" comparison comes out false, and the validator skips artifacts, approval, traceability and report semantics entirely. In exchange it has exactly one requirement of its own: `cancellation.reason` must not be empty, and a missing one is `cancellation_missing`.
 
 `kf cancel` runs the `cancelled.sh` hook like any other transition, refuses while a worker run is live unless `--force`, and for an item in `dones` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
+
+An item cancelled *out of* `dones` reopens into `dones`: `kf stage` restores its `archived` status and re-syncs the canonical docs through the archive path. When that sync is refused — changed docs included — the item still lands in `dones` and the output says to finish with `kf archive`.
 
 On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate, and `kf runs` leaves out the runs of a dropped item unless you name it directly with `kf runs <feature>`, exactly as it treats an item in `dones`.
 

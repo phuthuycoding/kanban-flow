@@ -8,7 +8,7 @@ Artifacts are written inside the work item folder under `.works/`. Each file ans
 phase-1-spec-requirement.md
 ├── phase-2-implementation-plan.md       (feature only)
 ├── phase-2-use-case-specification.md    (feature only: index + coverage)
-├── use-cases/UC-###.md                   (feature only: one file per UC)
+├── use-cases/UC-###-<slug>.md            (feature only: one file per UC)
 ├── phase-2-use-case-diagram.md           (feature only)
 └── phase-2-test-case.md                  (feature only: the test contract)
     └── phase-4-testing-result.md         (the outcome of one execution)
@@ -18,7 +18,7 @@ phase-1-spec-requirement.md
 
 A bug uses the `phase-1-bug-report.md` template but still stores its triage record at `phase-1-spec-requirement.md` so the CLI keeps working. Beyond that record a bug needs only the testing and review reports; the planning set and the feature report are not required. If behaviour appears beyond the scope of the defect fix, report the scope change and let the user decide whether a separate feature is warranted.
 
-`phase-2-use-case-specification.md` is only an index. A feature's narrative belongs in `use-cases/UC-###.md`, and the ID in the file name must match the ID declared inside it. Every test case must trace `FR-###` → `UC-###`.
+`phase-2-use-case-specification.md` is only an index. A feature's narrative belongs in `use-cases/UC-###-<slug>.md` — for example `UC-001-create-task.md`, so the name alone says what the file covers. The older plain `UC-###.md` form is still accepted; in both cases the `UC-###` prefix of the file name must match the ID declared inside it. Every test case must trace `FR-###` → `UC-###`.
 
 ## Shared conventions
 
@@ -41,14 +41,16 @@ The CLI checks the files, the placeholders, secret-like content, ID references, 
 |---|---|
 | `docs/requirement/{context}/{feature}.md` | The archived requirement |
 | `docs/use-cases/{context}/{feature}/README.md` | The UC index and coverage |
-| `docs/use-cases/{context}/{feature}/UC-###.md` | Each use case narrative |
+| `docs/use-cases/{context}/{feature}/UC-###(-<slug>).md` | Each use case narrative |
 | `docs/use-cases/{context}/{feature}/diagram.md` | The actor and use case diagram |
 | `docs/testplan/{context}/{feature}.md` | The test plan and the coverage matrix |
 | `docs/testplan/{context}/{feature}-result.md` | The most recent execution result |
 
+The index lands as `README.md` with its `use-cases/...` links rewritten to sibling links, and the feature report is not copied — it stays with the work item for audit. On this first copy the `.works/` versions win unconditionally: whatever already sits at a canonical path, including a hand-edited requirement mirror, is overwritten.
+
 For a bug, archive neither creates nor overwrites an existing feature's docs. The archive skill updates the related docs only when the bug report states a docs impact; when there is none, it says "No documentation update required" in the closure or review.
 
-Archiving a feature that is already in `dones` refuses to overwrite canonical docs that have changed since the snapshot, so updates from a bug or from extra documentation survive. Use `--skip-specs` to leave the docs alone; use `--force` only when restoring the old snapshot is what you actually want.
+The overwrite behaviour flips on a re-archive: archiving a feature that is already in `dones` refuses to overwrite canonical docs that have changed since the snapshot, so updates from a bug or from extra documentation survive. Use `--skip-specs` to leave the docs alone; use `--force` only when restoring the old snapshot is what you actually want — the bypass is recorded in `.kfw.json`.
 
 ## Checklist before closing
 

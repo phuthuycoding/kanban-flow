@@ -27,16 +27,18 @@ flowchart TD
 
 ## Responsibilities
 
-| Skill | What it owns | What it must not decide alone |
-| --- | --- | --- |
-| `kanban-flow` | Read the state, route to the phase, name the gate, resume at the right point | Never treat a requirement as confirmed on its own, never bypass a human gate |
-| `kanban-brainstorm` | Ask about and pin down the problem, the goal, the scope and the acceptance criteria; write Phase 1 | Never move to planning before the user has confirmed |
-| `kanban-plan` | For a feature, produce the execution plan, each UC file, the diagram, the test plan and the traceability; for a simple bug, keep the triage contract and write a full plan only when the behaviour contract changes | Never approve the contract, never choose start or backlog |
-| `kanban-bug` | Triage the bug: reproduce it, record actual against expected, severity, root cause and the regression requirement | Never settle on a root cause alone, never start implementation alone |
-| `kanban-implement` | Execute the tasks in the contract, hold the scope, update code and tests; subagents run under a prompt contract of task, files, acceptance and constraints, plus the status protocol | Never widen the scope or skip the plan without returning to planning |
-| `kanban-test` | Run the tests, record the execution id and the evidence, classify as PASS, FAIL, REJECT or BLOCKED | Never turn a BLOCKED into a PASS |
-| `kanban-review` | Review the implementation, the tests, the architecture, the security and the scope, including the AI-risk lens: phantom tests, catch-and-swallow, scope drift | Never archive when the report is not PASS |
-| `kanban-archive` | For a feature, write the feature report and then call `kf archive`, which is what copies the canonical docs; for a bug, settle the docs impact and update only the related docs when needed | Never copy the canonical docs by hand — that skips the link rewrite and the `status: archived` stamp, and the next archive refuses. Never delete data, never deploy or publish on its own |
+| Skill | What it owns | Gate to advance | What it must not decide alone |
+| --- | --- | --- | --- |
+| `kanban-flow` | Read the state, route to the phase, name the gate, resume at the right point | — routes only, no stage of its own | Never treat a requirement as confirmed on its own, never bypass a human gate |
+| `kanban-brainstorm` | Ask about and pin down the problem, the goal, the scope and the acceptance criteria; write Phase 1 | Requirement `status: confirmed` | Never move to planning before the user has confirmed |
+| `kanban-plan` | For a feature, produce the execution plan, each UC file, the diagram, the test plan and the traceability; for a simple bug, keep the triage contract and write a full plan only when the behaviour contract changes | Feature: all four phase-2 artifacts plus one file per UC, then the human `kf approve`. Bug: the confirmed triage report, then approval | Never approve the contract, never choose start or backlog |
+| `kanban-bug` | Triage the bug: reproduce it, record actual against expected, severity, root cause and the regression requirement | Bug report `status: confirmed` — the same gate as brainstorm | Never settle on a root cause alone, never start implementation alone |
+| `kanban-implement` | Execute the tasks in the contract, hold the scope, update code and tests; subagents run under a prompt contract of task, files, acceptance and constraints, plus the status protocol | No artifact of its own; every `tasks.md` checkbox ticked | Never widen the scope or skip the plan without returning to planning |
+| `kanban-test` | Run the tests, record the execution id and the evidence, classify as PASS, FAIL, REJECT or BLOCKED | `phase-4-testing-result.md` carrying `status: PASS` on the current execution id | Never turn a BLOCKED into a PASS |
+| `kanban-review` | Review the implementation, the tests, the architecture, the security and the scope, including the AI-risk lens: phantom tests, catch-and-swallow, scope drift | `phase-5-review-report.md` carrying `status: PASS` on the same execution id | Never archive when the report is not PASS |
+| `kanban-archive` | For a feature, write the feature report and then call `kf archive`, which is what copies the canonical docs; for a bug, settle the docs impact and update only the related docs when needed | `kf archive`: current PASS reports plus, for a feature, `phase-6-feature-report.md` — then the `dones` hook and the canonical sync | Never copy the canonical docs by hand — that skips the link rewrite and the `status: archived` stamp, and the next archive refuses. Never delete data, never deploy or publish on its own |
+
+The directional gates — which report status allows which move — are detailed in [gates](gates.md#what-each-direction-requires).
 
 ## Resuming and handing off
 

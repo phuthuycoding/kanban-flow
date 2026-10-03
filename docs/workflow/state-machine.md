@@ -59,7 +59,7 @@ The CLI allows only the edges above. Never move a `.works/` folder by hand.
 - Every entry into `testing` mints a new `executionId`. Both `phase-4-testing-result.md` and `phase-5-review-report.md` must carry the current one.
 - `FAIL` and `REJECT` return to `implementation`. `BLOCKED` stops the flow. `REQUIREMENT_BUG` is a stop condition in review: never rewrite the requirement or move the state on your own.
 - Only a `PASS` review whose testing and review match the current execution reaches `dones`. A feature also needs `phase-6-feature-report.md`; a bug does not.
-- The only way into `cancelled` is `kf cancel`, and `--reason` is mandatory. The only way out is back to the stage it stopped in (`cancellation.fromStage`), at which point `cancellation` and `status` are cleared from the metadata. `kf archive` refuses a cancelled item.
+- The only way into `cancelled` is `kf cancel`, and `--reason` is mandatory. The only way out is back to the stage it stopped in (`cancellation.fromStage`), at which point `cancellation` and `status` are cleared from the metadata — except a reopen straight back into `dones`, which restores `status: archived` and re-syncs the canonical docs through the archive path. `kf archive` refuses a cancelled item.
 
 The minimum metadata looks like this:
 
