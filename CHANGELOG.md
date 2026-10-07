@@ -4,6 +4,15 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- **Per-item git worktrees with a `.<tld>` domain each.** Entering `implementation` with `worktree.enabled` (the default) provisions `<baseDir>/<feature>` on branch `kf/<feature>` and registers `<feature>.<baseDomain>` → `127.0.0.1:<port>`; the transition fails closed when that cannot happen, and `kf` commands keep working from inside the worktree by resolving the project root through `git rev-parse --git-common-dir`. `kf worktree create|remove|list` manage them by hand — removal keeps the branch, refuses dirty trees unless `--force`, warns on unmerged commits, and `list` reports orphans (missing worktrees, unmanaged `kf/*` worktrees, stale routes).
+- **`kf proxy serve`** — a machine-wide foreground reverse proxy routing `Host` `<feature>.<baseDomain>` to the item's port, with websocket tunnelling for dev-server HMR, mtime-hot reload of the shared routes file, an optional `fallbackUpstream` for hosts kf does not own, and an `X-Forwarded-By` self-loop guard. One process serves every project on the machine.
+- **`kf worktree setup [--print]`** — one-time, sudo-required onboarding: a dnsmasq `address=/.<zone>/<listen>` rule, `/etc/resolver/<zone>`, and a LaunchDaemon for the proxy. `--print` renders the plan without touching the machine; a foreign rule routing the same zone to another address is a hard conflict, never overwritten.
+- **Infrastructure warnings.** `kf doctor` probes DNS resolution, the proxy listener and the routes file; `kf validate` appends `worktree_infra_missing` as a WARNING (non-blocking outside `--strict`) pointing at `kf worktree setup`. `kf status` shows the item's worktree path, domain and port.
+- **Lifecycle teardown.** `kf archive` and `kf cancel` remove the item's worktree and route before the move — the `kf/<feature>` branch is always kept, commits not merged into the main checkout's HEAD are reported, and kf never merges, opens PRs or deletes branches.
+- **Worktree lifecycle hooks.** `.kf/hooks/worktree-create.sh` runs inside a freshly provisioned worktree (install deps, seed `.env`, boot the dev server on `$KFW_WORKTREE_PORT`); its failure rolls the worktree back and blocks the transition. `.kf/hooks/worktree-remove.sh` runs inside the worktree right before teardown for cleanup and only warns on failure. Both get `KFW_WORKTREE_{PATH,PORT,DOMAIN,BRANCH}` and `KFW_EVENT`.
+- Skills updated to match: implementation happens inside the worktree on `kf/<feature>`, testing targets the item's domain (with the direct `127.0.0.1:<port>` fallback), review diffs the branch.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added

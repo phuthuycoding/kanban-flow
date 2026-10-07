@@ -25,6 +25,8 @@ If `kf stage` refuses the move, run `kf validate --change {feature_name}` to see
 
 Every entry to testing creates a new execution id. Keep old reports as evidence, but never reuse them as proof for the current implementation. Read the current id from `kf status` or `kf instruct ... --change`.
 
+**Where the code lives:** when the item has a worktree (`kf status` shows `Worktree:`/`Domain:`), run the app and its tests inside the worktree path — that is where implementation landed. For HTTP/browser checks prefer `http://<domain>` (start the project's dev server on the allocated port); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback shown in `kf status` and say so in the report.
+
 ## 2. Run against the plan's test cases
 
 Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests / Tools / Coverage Target) — it was committed in the approved plan. Detect the real test tooling from the repo. Execute exactly what the level promises: `unit` → unit suite; `unit+integration` → + integration; `full` → + UI/E2E suite (Playwright/Cypress/...). If `full` and the UI tests are missing or skipped, that's a gap — report it, don't fake coverage.

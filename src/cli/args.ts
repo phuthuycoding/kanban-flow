@@ -192,6 +192,24 @@ const COMMANDS: Record<string, CmdSpec> = {
       json: { type: "boolean" },
     },
   },
+  worktree: {
+    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains; 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
+    allowPositionals: true,
+    options: {
+      force: { type: "boolean", short: "f" },
+      json: { type: "boolean" },
+      print: { type: "boolean" },
+    },
+  },
+  proxy: {
+    help: "Usage: kf proxy serve [--listen <host:port>] [--routes <file>] [--fallback <host:port|off>]  — run the machine-wide *.test reverse proxy (foreground; launchd keeps it alive)",
+    allowPositionals: true,
+    options: {
+      listen: { type: "string" },
+      routes: { type: "string" },
+      fallback: { type: "string" },
+    },
+  },
   contexts: {
     help: "Usage: kf contexts [--json]  — list the declared contexts and the ones work items actually use; prints a survey brief when none are declared",
     options: {

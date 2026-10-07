@@ -15,6 +15,7 @@ import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
 import { cmdCancel } from "./cli/commands/cancel.js";
 import { cmdApprove } from "./cli/commands/approve.js";
+import { cmdWorktree, cmdProxyServe } from "./cli/commands/worktree.js";
 import { cmdInstall, cmdUninstall } from "./integrations/install.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
 import { parseAgentIds } from "./integrations/agents.js";
@@ -102,6 +103,12 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdHarness(parsed, cwd);
     case "contexts":
       return cmdContexts(parsed, cwd);
+    case "worktree":
+      return cmdWorktree(parsed, cwd);
+    case "proxy":
+      return parsed.positionals[0] === "serve"
+        ? cmdProxyServe(parsed)
+        : { code: 1, stdout: commandHelp("proxy"), stderr: "unknown proxy subcommand" };
     case "install":
       return cmdInstall(parseAgentIds(parsed.options.agent), { cwd });
     case "uninstall":

@@ -4,6 +4,7 @@ import { assertPathName } from "../workflow/features.js";
 import { parseAgentIds } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
 import { normalizeContext } from "./contexts.js";
+import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -17,6 +18,7 @@ export interface ProjectConfig {
   reviewer?: string;
   agents?: string[];
   harness?: HarnessConfig;
+  worktree?: Partial<WorktreeConfig>;
   created: string;
 }
 
@@ -71,6 +73,7 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   if (cfg.defaultContext !== undefined) assertPathName(cfg.defaultContext, "context");
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
+  if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
   return cfg;
 }
 

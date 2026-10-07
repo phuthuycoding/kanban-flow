@@ -1,6 +1,7 @@
 import { readdirSync, existsSync, statSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
@@ -59,6 +60,23 @@ export interface RunRecord {
   usage?: { input: number; output: number; costUsd?: number };
 }
 
+/** The worktree record an item's `.kfw.json` carries once it has an environment. */
+export interface WorktreeRegistration {
+  path: string;
+  branch: string;
+  domain: string;
+  port: number;
+  createdAt: string;
+}
+
+function isWorktreeRegistration(value: unknown): value is WorktreeRegistration {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const w = value as Partial<WorktreeRegistration>;
+  return typeof w.path === "string" && typeof w.branch === "string"
+    && typeof w.domain === "string" && typeof w.port === "number"
+    && (w.createdAt === undefined || typeof w.createdAt === "string");
+}
+
 export interface FeatureMeta {
   schema: string;
   feature: string;
@@ -74,6 +92,8 @@ export interface FeatureMeta {
   /** Worker session per role, scoped to this work item. */
   sessions?: Record<string, string>;
   runs?: RunRecord[];
+  /** Git worktree + domain allocated for implementation; absent until created. */
+  worktree?: WorktreeRegistration;
 }
 
 export interface Feature {
@@ -93,9 +113,38 @@ export function findWorksRoot(start: string): string | null {
   for (;;) {
     if (existsSync(join(dir, ".works"))) return dir;
     const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return worksRootViaGitCommonDir(resolve(start));
+}
+
+/**
+ * `.works/` is gitignored, so a linked worktree never carries it — walking up from a
+ * worktree finds nothing. `git rev-parse --git-common-dir` then points back at the
+ * main checkout's `.git`, whose parent is the project root kf actually manages.
+ */
+function worksRootViaGitCommonDir(start: string): string | null {
+  // `git -C` needs a directory that exists — climb to the nearest one that does.
+  let dir = resolve(start);
+  while (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
+  let commonDir: string;
+  try {
+    commonDir = execFileSync(
+      "git",
+      ["-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+  } catch {
+    return null; // not inside a git worktree — nothing more to try
+  }
+  if (!commonDir) return null;
+  const mainRoot = dirname(commonDir);
+  return existsSync(join(mainRoot, ".works")) ? mainRoot : null;
 }
 
 /** A feature folder is `{feature}_{YYYYMMDD_HHmm}` (timestamp trailing part). */
@@ -127,7 +176,8 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
       || !Object.values(meta.sessions).every((s) => typeof s === "string")))
     || (meta.runs !== undefined && (!Array.isArray(meta.runs) || !meta.runs.every(isRunRecord)))
     || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
-    || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))) {
+    || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))
+    || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");

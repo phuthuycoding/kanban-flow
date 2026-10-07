@@ -156,6 +156,11 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`${s.feature.meta?.kind === "bug" ? "Bug" : "Feature"}: ${s.feature.name} (${s.feature.context ?? "no-context"})`);
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
+  const wt = s.feature.meta?.worktree;
+  if (wt) {
+    lines.push(`Worktree: ${wt.path}  (branch ${wt.branch})`);
+    lines.push(`Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`);
+  }
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${b.to}`).join(", ")})`);
   const cancellation = s.feature.meta?.cancellation;
@@ -210,6 +215,7 @@ export function statusToJson(s: FeatureStatus) {
     stage: s.feature.stage,
     approval: approvalState(s.feature),
     executionId: s.feature.meta?.executionId ?? null,
+    worktree: s.feature.meta?.worktree ?? null,
     bypasses: s.feature.meta?.bypasses ?? [],
     cancellation: s.feature.meta?.cancellation ?? null,
     assignedRoles: s.assignedRoles,

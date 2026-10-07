@@ -9,6 +9,9 @@ import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js"
 import { writeFileAtomic } from "../../shared/paths.js";
 import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
 import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
+import { readProjectConfig } from "../../project/config.js";
+import { worktreeConfig } from "../../worktree/config.js";
+import { teardownWorktree } from "../../worktree/lifecycle.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -227,6 +230,24 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
   const afterHook = validateFeature({ ...f, stage: "dones" });
   if (!afterHook.valid && !force) return { code: 1, stdout: renderValidateText(afterHook), stderr: "gate failed" };
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
+
+  // Worktree teardown is the last refusal point before the move: a dirty worktree keeps the
+  // item in review untouched. Removing a CLEAN worktree before a possibly-failing docs sync
+  // is safe — resume is `kf worktree create`, which rebuilds it from the kept branch.
+  let teardown: Awaited<ReturnType<typeof teardownWorktree>> | null = null;
+  if (f.meta.worktree) {
+    const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
+    try {
+      teardown = await teardownWorktree(root.root, f, wtCfg);
+    } catch (err) {
+      return {
+        code: 1,
+        stdout: `Cannot archive '${name}': ${err instanceof Error ? err.message : String(err)}`,
+        stderr: "worktree dirty",
+      };
+    }
+  }
+
   const recorded = recordBypasses(f.stage, "dones", forcedCodes, skippedHook);
   const bypasses = recorded.length > 0 ? [...(f.meta.bypasses ?? []), ...recorded] : f.meta.bypasses;
   if (f.context) assertPathName(f.context, "context");
@@ -238,7 +259,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     await rename(f.dir, target);
     moved = true;
     await writeCanonicalCopies(copies);
-    await writeFeatureMeta(target, { ...f.meta, bypasses, status: "archived" });
+    await writeFeatureMeta(target, { ...f.meta, bypasses, status: "archived", worktree: undefined });
   } catch (err) {
     if (!moved) throw err;
     const rollback = await Promise.allSettled([
@@ -255,9 +276,16 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     throw new Error(`Archive failed for '${name}'; feature restored to review.`, { cause: err });
   }
 
+  const worktreeNote = teardown
+    ? `\n  Worktree removed: ${f.meta?.worktree?.path ?? ""} (branch ${teardown.branch} kept)` +
+      (teardown.unmergedCommits > 0
+        ? `\n  ⚠ ${teardown.branch} has ${teardown.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
+        : "") +
+      teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("")
+    : "";
   return {
     code: 0,
     stdout:
-      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}${bypassNote(recorded)}`,
+      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}${worktreeNote}${bypassNote(recorded)}`,
   };
 }

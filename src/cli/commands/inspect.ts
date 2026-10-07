@@ -7,6 +7,9 @@ import { validateFeature, renderValidateText, validateToJson } from "../../workf
 import { dashboardData } from "../../dashboard/dashboard.js";
 import { readProjectConfig } from "../../project/config.js";
 import { findRoot } from "./helpers.js";
+import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
+import { probeDomainInfra } from "../../worktree/health.js";
+import type { Finding } from "../../workflow/findings.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -136,6 +139,30 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
     return { code: 1, stdout: `Unknown feature '${change}'.`, stderr: "unknown feature" };
   }
   const results = features.map((f) => validateFeature(f, strict));
+
+  // Domain infra is environmental, not contractual — a WARNING telling the human to onboard,
+  // never an ERROR that blocks a gate. It surfaces here because `kf validate` is the command
+  // agents are trained to run.
+  const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
+  if (wtCfg.enabled && features.length > 0) {
+    const machine = readMachineConfig();
+    const infra = await probeDomainInfra(machine, wtCfg.routesFile);
+    const failed = infra.probes.filter((p) => !p.ok);
+    if (failed.length > 0) {
+      for (const r of results) {
+        r.issues.push({
+          severity: "WARNING",
+          feature: r.feature,
+          stage: r.stage,
+          file: ".kf/config.json",
+          code: "worktree_infra_missing",
+          message: `Domain infra not ready (${failed.map((p) => p.detail).join("; ")}). Run: sudo kf worktree setup`,
+        } satisfies Finding);
+        if (strict) r.valid = !r.issues.some((i) => i.severity === "ERROR") && !r.issues.some((i) => i.severity === "WARNING");
+      }
+    }
+  }
+
   const allValid = results.every((r) => r.valid);
   if (json) {
     return { code: allValid ? 0 : 1, stdout: JSON.stringify(results.map(validateToJson), null, 2), stderr: allValid ? undefined : "validation failed" };

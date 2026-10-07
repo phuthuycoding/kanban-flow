@@ -1,4 +1,7 @@
 import { runDoctor, type DoctorFinding } from "../../project/doctor.js";
+import { readProjectConfig } from "../../project/config.js";
+import { readMachineConfig, worktreeConfig } from "../../worktree/config.js";
+import { probeDomainInfra } from "../../worktree/health.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -13,6 +16,31 @@ export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResul
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
   const report = runDoctor(root.root);
+
+  // Domain infra probes are async (DNS + TCP), so they live here rather than inside the
+  // synchronous runDoctor. They are WARNING-only: the machine, not the work item, is what
+  // is missing when they fail. An unreadable project config is already an ERROR finding
+  // from runDoctor — probing needs that config, so it is skipped rather than re-thrown.
+  try {
+    const project = readProjectConfig(root.root);
+    const wtCfg = worktreeConfig(root.root, project.worktree);
+    if (wtCfg.enabled) {
+      const machine = readMachineConfig();
+      const infra = await probeDomainInfra(machine, wtCfg.routesFile);
+      for (const probe of infra.probes) {
+        if (!probe.ok) {
+          report.findings.push({
+            level: "WARNING",
+            area: `worktree infra (${probe.name})`,
+            message: probe.detail,
+            action: "sudo kf worktree setup (one-time machine onboarding)",
+          });
+        }
+      }
+    }
+  } catch {
+    /* config parse already surfaced as an ERROR finding above */
+  }
 
   if (args.options.json) {
     return { code: report.ok ? 0 : 1, stdout: JSON.stringify(report, null, 2) };

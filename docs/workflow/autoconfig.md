@@ -46,6 +46,7 @@ Four sections, in order:
 | Agent file | `AGENTS.md` or `CLAUDE.md` at the root | write one: commands plus conventions |
 | Declared contexts | `contexts` in `.kf/config.json` | optional — `kf contexts` prints a survey brief for an agent to propose a list, a human confirms it. Without a list, `kf new` accepts any context |
 | Harness | a `harness` block in `.kf/config.json` | optional — `kf init --defaults` seeds the runner presets; with no stages assigned the harness stays out of the way |
+| Worktree domain infra | `*.<domainZone>` (default `.test`) resolves to the kf proxy listen address and `kf proxy serve` is running there | one-time, needs sudo — `sudo kf worktree setup` (`--print` shows the plan first). When missing, worktrees still work through the direct `127.0.0.1:<port>` URL and `kf validate`/`kf doctor` surface a `worktree_infra_missing` warning. Set `worktree.enabled: false` to opt a project out |
 | Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — see below |
 
 The checklist reports the current state; it changes nothing itself. Read it as a diff between the project as it is and the project the pipeline expects.
@@ -65,6 +66,15 @@ Resolution order is project `.kf/hooks/`, then the user's `~/.kf/hooks/`, then t
 | `KFW_FROM_STAGE` | The stage being left, empty on `kf new` |
 | `KFW_TO_STAGE` | The stage being entered |
 | `KFW_APPROVAL` | `pending` or `approved` |
+
+Two **event hooks** sit outside stage transitions and only exist under worktrees:
+
+| Hook | When it runs | Failing means |
+| --- | --- | --- |
+| `worktree-create.sh` | Right after a worktree is provisioned (cwd = the worktree, so `npm install`, `cp .env.example .env`, or booting a dev server on `$KFW_WORKTREE_PORT` happen in the right place). Not on reuse — the environment already exists | the worktree (and a freshly created branch) is rolled back and the transition fails, so a retry provisions clean |
+| `worktree-remove.sh` | Right before `git worktree remove`, still inside the worktree — kill dev servers, `docker compose down`, release ports | a WARNING in the command output; teardown still proceeds |
+
+They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
 
 ```bash
 #!/usr/bin/env bash

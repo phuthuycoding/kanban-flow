@@ -93,7 +93,9 @@ kf instruct spec-requirement --change user-login
 kf stage user-login planning
 # write the plan, the use-case index, one file per UC, the diagram, the test plan
 kf approve user-login               # decision two; fingerprints all of it
-kf stage user-login implementation  # or backlog — decision three
+kf stage user-login implementation  # or backlog — decision three; this also provisions
+                                    # a git worktree on kf/user-login with its own
+                                    # <feature>.<repo>.test domain — see docs/workflow
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
