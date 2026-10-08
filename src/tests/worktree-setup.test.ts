@@ -47,7 +47,12 @@ describe("kf worktree setup plan (FR-005)", () => {
     const res = await cmdWorktree(args("worktree", ["setup"], { print: true }), dir);
     // exit code depends on whether this machine has a conflicting zone rule (it does: Valet)
     expect(res.stdout).toContain("kf worktree setup plan");
-    expect(res.stdout).toContain("address=/.test/127.0.0.2");
+    // dnsmasq exists on a dev machine; on a bare CI runner the step degrades to an install hint.
+    if (res.stdout.includes("dnsmasq not found")) {
+      expect(res.stdout).toContain("brew install dnsmasq");
+    } else {
+      expect(res.stdout).toContain("address=/.test/127.0.0.2");
+    }
     expect(res.stdout).toContain("LaunchDaemon");
     expect(res.stdout).toMatch(/\[sudo\]/);
     expect([0, 1]).toContain(res.code);
