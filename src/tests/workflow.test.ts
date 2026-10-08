@@ -61,6 +61,9 @@ async function review(): Promise<void> {
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "kf-workflow-"));
   ensureWorksStructure(root);
+  // These fixtures are not git repos; worktree provisioning is off unless a test opts in.
+  await mkdir(join(root, ".kf"), { recursive: true });
+  await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: false } }));
 });
 
 afterEach(async () => {

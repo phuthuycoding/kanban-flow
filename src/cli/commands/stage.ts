@@ -9,6 +9,10 @@ import { cmdArchive } from "./archive.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../../integrations/hooks.js";
 import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
+import { readProjectConfig } from "../../project/config.js";
+import { worktreeConfig } from "../../worktree/config.js";
+import { ensureWorktree, forceRemoveWorktree } from "../../worktree/lifecycle.js";
+import type { WorktreeRegistration } from "../../workflow/features.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -128,10 +132,30 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     return { code: 1, stdout: `Target already exists: ${target}`, stderr: "target exists" };
   }
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
+
+  // Worktree lifecycle: entering implementation provisions the environment. Fail-closed —
+  // a work item implementing on the user's main checkout is exactly what this prevents.
+  // Only a newly created worktree is rolled back below; a reused one (re-enter after FAIL)
+  // stays, because it predates this transition.
+  let worktree: WorktreeRegistration | null = null;
+  const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
+  if (to === "implementation" && wtCfg.enabled) {
+    try {
+      worktree = await ensureWorktree(root.root, f, wtCfg);
+    } catch (err) {
+      return {
+        code: 1,
+        stdout: `Cannot move '${name}' to implementation — worktree setup failed:\n  ${err instanceof Error ? err.message : String(err)}\n\nFix that, or set "worktree.enabled": false in .kf/config.json.`,
+        stderr: "worktree setup failed",
+      };
+    }
+  }
+
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
   let metadataUpdated = false;
   try {
     let meta = recorded.length > 0 ? { ...f.meta, bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : f.meta;
+    if (worktree) meta = { ...meta, worktree };
     // Putting an item back in `dones` means putting back the state it had there. `status` does
     // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
     // which can legitimately refuse on an item that was never fully valid.
@@ -142,7 +166,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     } else if (to === "testing" || to === "implementation") {
       await writeFeatureMeta(f.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
       metadataUpdated = true;
-    } else if (recorded.length > 0 || f.stage === "cancelled") {
+    } else if (recorded.length > 0 || f.stage === "cancelled" || worktree) {
       await writeFeatureMeta(f.dir, meta);
       metadataUpdated = true;
     }
@@ -155,10 +179,18 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
         throw new AggregateError([err, rollbackError], `Transition failed and metadata rollback was incomplete for '${name}'.`);
       }
     }
+    if (worktree && !f.meta.worktree) {
+      try {
+        await forceRemoveWorktree(root.root, { ...f, meta: { ...f.meta, worktree } }, wtCfg);
+      } catch {
+        /* best-effort rollback — the failed move is the error that matters */
+      }
+    }
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
-  const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${hookNote}${bypassNote(recorded)}`;
+  const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})` : "";
+  const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${worktreeNote}${hookNote}${bypassNote(recorded)}`;
 
   // An item reopened into `dones` must end up as archived as it was: `status: "archived"` back,
   // and canonical docs re-synced, since `kf cancel --purge-docs` may have deleted them. Archive

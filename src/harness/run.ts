@@ -188,6 +188,7 @@ function spawnWorker(argv: string[], opts: { cwd: string; env: NodeJS.ProcessEnv
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
     let killer: NodeJS.Timeout | undefined;
+    let pidRecorded: Promise<void> = Promise.resolve();
     const finish = (result: SpawnResult): void => {
       if (timer) clearTimeout(timer);
       if (killer) clearTimeout(killer);
@@ -197,7 +198,7 @@ function spawnWorker(argv: string[], opts: { cwd: string; env: NodeJS.ProcessEnv
     child.once("error", (err) => finish({ pid: child.pid, exitCode: null, signal: null, timedOut, spawnError: err }));
     child.once("spawn", () => {
       // A worker nobody recorded cannot be tracked or killed later: stop it before surfacing the error.
-      opts.onSpawn(child.pid!).catch((err: unknown) => {
+      pidRecorded = opts.onSpawn(child.pid!).catch((err: unknown) => {
         killGroup(child.pid!, "SIGKILL");
         reject(err);
       });
@@ -209,7 +210,9 @@ function spawnWorker(argv: string[], opts: { cwd: string; env: NodeJS.ProcessEnv
         }, opts.timeoutMs);
       }
     });
-    child.once("exit", (code, signal) => finish({ pid: child.pid, exitCode: code, signal, timedOut }));
+    // A fast worker can exit before the pid write lands; resolving first would let that stale
+    // "running" record overwrite the caller's final one.
+    child.once("exit", (code, signal) => void pidRecorded.then(() => finish({ pid: child.pid, exitCode: code, signal, timedOut })));
   });
 }
 

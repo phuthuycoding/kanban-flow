@@ -11,6 +11,8 @@ import { selectOption } from "../../project/bootstrap.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { canonicalDocPaths } from "./archive.js";
 import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
+import { worktreeConfig } from "../../worktree/config.js";
+import { teardownWorktree } from "../../worktree/lifecycle.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -92,6 +94,23 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
   const by = typeof args.options.by === "string" && args.options.by.trim()
     ? args.options.by.trim()
     : readProjectConfig(root.root).reviewer ?? "human";
+
+  // Same rule as archive: a dirty worktree refuses teardown so uncommitted work cannot be
+  // lost by a cancel. The branch is kept either way — a cancelled item may reopen.
+  let teardown: Awaited<ReturnType<typeof teardownWorktree>> | null = null;
+  if (f.meta.worktree) {
+    const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
+    try {
+      teardown = await teardownWorktree(root.root, f, wtCfg);
+    } catch (err) {
+      return {
+        code: 1,
+        stdout: `Cannot cancel '${name}': ${err instanceof Error ? err.message : String(err)}`,
+        stderr: "worktree dirty",
+      };
+    }
+  }
+
   const recorded = recordBypasses(f.stage, "cancelled", forcedCodes, skippedHook);
   const cancellation = { at: nowTimestamp(), by, reason, fromStage: f.stage };
   const dest = stageDir(root.root, "cancelled");
@@ -101,6 +120,7 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
     ...f.meta,
     status: "cancelled",
     cancellation,
+    worktree: undefined,
     ...(recorded.length > 0 ? { bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : {}),
   });
   try {
@@ -126,8 +146,15 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
     : purged
       ? `\n  Deleted canonical docs:\n${docs.map((d) => `    ${relative(root.root, d)}`).join("\n")}`
       : `\n  Canonical docs left in place (use --purge-docs to delete them):\n${docs.map((d) => `    ${relative(root.root, d)}`).join("\n")}`;
+  const worktreeNote = teardown?.removed || teardown?.unmergedCommits
+    ? `\n  Worktree removed (branch ${teardown.branch} kept)` +
+      (teardown.unmergedCommits > 0
+        ? `\n  ⚠ ${teardown.branch} has ${teardown.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
+        : "") +
+      teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("")
+    : "";
   return {
     code: 0,
-    stdout: `✓ Cancelled '${name}' (was ${cancellation.fromStage}) by ${by}\n  Reason: ${reason.split("\n")[0]}\n  ${target}${docsNote}\n  Reopen with: kf stage ${name} ${cancellation.fromStage}${bypassNote(recorded)}`,
+    stdout: `✓ Cancelled '${name}' (was ${cancellation.fromStage}) by ${by}\n  Reason: ${reason.split("\n")[0]}\n  ${target}${docsNote}${worktreeNote}\n  Reopen with: kf stage ${name} ${cancellation.fromStage}${bypassNote(recorded)}`,
   };
 }

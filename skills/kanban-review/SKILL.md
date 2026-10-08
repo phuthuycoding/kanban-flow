@@ -42,6 +42,8 @@ Preserve decisions: do not reopen verified findings or silently undo user-chosen
 
 Use the `## Baseline` recorded at the top of `tasks.md` (starting HEAD + pre-existing working-tree changes) to include committed, staged, unstaged and new untracked feature files. Preserve unrelated pre-existing changes. Verify the testing report is PASS for the current execution id. After any implementation fix, loop through testing again before writing a new review result.
 
+**Worktree items:** when `kf status` shows a `Worktree:`/`Domain:` block, the reviewed changes live on branch `kf/<feature>` in that worktree — review `git diff`/`git log` of that branch (from the main checkout or inside the worktree), not the main checkout's own dirty files. The worktree teardown on archive refuses while it is dirty, so uncommitted review-relevant changes must be called out as a finding.
+
 ## 3. Write review-report
 
 For `kind: bug`, review against the bug report and existing feature behavior. Check reproduction evidence, regression tests and fix scope; do not demand feature planning artifacts. Record the verified root cause and whether related feature docs need an update. If no documentation changes are needed, say why.

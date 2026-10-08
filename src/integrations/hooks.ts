@@ -34,11 +34,12 @@ export interface HookResult {
 
 /**
  * Resolve a per-phase hook script. Precedence: project → user → package.
- * Hook file layout: {kanban-dir}/hooks/{phase}.sh
+ * Hook file layout: {kanban-dir}/hooks/{phase}.sh — `phase` is a stage name or a
+ * named event (e.g. `worktree-create`, `worktree-remove`).
  */
 export function resolveHook(
   cwd: string,
-  phase: Stage,
+  phase: string,
 ): HookSource | null {
   const candidates: Array<[HookSource["source"], string]> = [
     ["project", join(findWorksRoot(cwd) ?? cwd, ".kf", "hooks", `${phase}.sh`)],
@@ -56,11 +57,21 @@ export function resolveHook(
  * Returns { ok:false } when the hook script exits non-zero — the caller must
  * then refuse the transition (or honor --skip-hooks).
  */
+export interface HookRunOpts {
+  /** Resolve `<hookName>.sh` instead of `<env.to>.sh`; sent as KFW_EVENT. */
+  hookName?: string;
+  /** Working directory for the script; defaults to env.dir (the work item's folder). */
+  cwd?: string;
+  /** Extra environment merged over the standard KFW_* set. */
+  env?: Record<string, string>;
+}
+
 export function runHook(
   cwd: string,
   env: HookEnv,
+  opts: HookRunOpts = {},
 ): HookResult {
-  const hook = resolveHook(cwd, env.to);
+  const hook = resolveHook(cwd, opts.hookName ?? env.to);
   if (!hook) {
     return { hook: null, ran: false, ok: true, code: 0, output: "" };
   }
@@ -70,7 +81,7 @@ export function runHook(
   const args = isSh || isJs ? [hook.path] : [];
   const res = spawnSync(cmd, args, {
     encoding: "utf8",
-    cwd: env.dir,
+    cwd: opts.cwd ?? env.dir,
     env: {
       ...process.env,
       KFW_FEATURE: env.feature,
@@ -80,6 +91,8 @@ export function runHook(
       KFW_FROM_STAGE: env.from ?? "",
       KFW_TO_STAGE: env.to,
       KFW_APPROVAL: env.approval,
+      ...(opts.hookName ? { KFW_EVENT: opts.hookName } : {}),
+      ...opts.env,
     },
     timeout: 120_000,
   });

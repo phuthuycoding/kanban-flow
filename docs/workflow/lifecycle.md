@@ -81,6 +81,7 @@ sequenceDiagram
     Orchestrator->>User: Start now, or send to backlog?
     User-->>Orchestrator: start now / defer
     Orchestrator->>CLI: kf stage item implementation or backlog
+    CLI->>FS: Provision the git worktree + <feature>.<baseDomain> route (fails closed when it cannot)
 ```
 
 ## Fixing a failure, step by step
