@@ -10,6 +10,7 @@ import { cmdDoctor } from "./cli/commands/doctor.js";
 import { cmdRun, cmdRuns } from "./cli/commands/run.js";
 import { cmdHarness } from "./cli/commands/harness.js";
 import { cmdContexts } from "./cli/commands/contexts.js";
+import { cmdIssues } from "./cli/commands/issues.js";
 import type { CmdResult } from "./cli/result.js";
 import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
@@ -103,6 +104,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdHarness(parsed, cwd);
     case "contexts":
       return cmdContexts(parsed, cwd);
+    case "issues":
+      return cmdIssues(parsed, cwd);
     case "worktree":
       return cmdWorktree(parsed, cwd);
     case "proxy":

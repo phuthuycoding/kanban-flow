@@ -156,6 +156,7 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`${s.feature.meta?.kind === "bug" ? "Bug" : "Feature"}: ${s.feature.name} (${s.feature.context ?? "no-context"})`);
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
+  if (s.feature.meta?.issue) lines.push(`Issue: ${s.feature.meta.issue}`);
   const wt = s.feature.meta?.worktree;
   if (wt) {
     lines.push(`Worktree: ${wt.path}  (branch ${wt.branch})`);
@@ -215,6 +216,7 @@ export function statusToJson(s: FeatureStatus) {
     stage: s.feature.stage,
     approval: approvalState(s.feature),
     executionId: s.feature.meta?.executionId ?? null,
+    issue: s.feature.meta?.issue ?? null,
     worktree: s.feature.meta?.worktree ?? null,
     bypasses: s.feature.meta?.bypasses ?? [],
     cancellation: s.feature.meta?.cancellation ?? null,

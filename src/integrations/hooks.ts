@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import type { Stage, ApprovalStatus } from "../workflow/schema.js";
 import { findWorksRoot } from "../workflow/features.js";
+import { readProjectConfig } from "../project/config.js";
 import { PKG_ROOT, USER_KABAN_DIR } from "../shared/paths.js";
 
 const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");
@@ -91,6 +92,7 @@ export function runHook(
       KFW_FROM_STAGE: env.from ?? "",
       KFW_TO_STAGE: env.to,
       KFW_APPROVAL: env.approval,
+      KFW_REPOSITORY: readProjectConfig(env.root).repository ?? "",
       ...(opts.hookName ? { KFW_EVENT: opts.hookName } : {}),
       ...opts.env,
     },

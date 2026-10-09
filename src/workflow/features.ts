@@ -84,6 +84,8 @@ export interface FeatureMeta {
   created: string;
   kind?: WorkItemKind;
   goal?: string;
+  /** URL of the GitHub issue this work item mirrors to; written by `kf issues` or a stage hook. */
+  issue?: string;
   approval?: Approval;
   executionId?: string;
   status?: "archived" | "cancelled";
@@ -167,6 +169,7 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
   if (!meta || meta.schema !== "kanban-flow" || typeof meta.feature !== "string"
     || typeof meta.context !== "string" || typeof meta.created !== "string"
     || (meta.kind !== undefined && !["feature", "bug"].includes(meta.kind))
+    || (meta.issue !== undefined && (typeof meta.issue !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(meta.issue)))
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)

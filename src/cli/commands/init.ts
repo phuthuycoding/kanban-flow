@@ -6,6 +6,7 @@ import { assertPathName, ensureWorksStructure } from "../../workflow/features.js
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, writeProjectConfig, configPath } from "../../project/config.js";
 import { seedHarness } from "../../harness/config.js";
+import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
 import { installProjectSkills } from "../../integrations/install.js";
@@ -55,6 +56,7 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
       ...cfg, schema: "kanban-flow", created: cfg.created ?? nowTimestamp(),
       ...(declareHere ? { contexts: [ctx] } : {}),
       ...(!declareHere && recordContext ? { defaultContext: ctx } : {}),
+      repository: cfg.repository ?? detectRepository(target) ?? undefined,
       harness: cfg.harness ?? seedHarness(agents.length ? agents : parseAgentIds(cfg.agents)),
     });
   }
@@ -106,7 +108,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   out.push(`✓ Bootstrapped kanban-flow in ${target}${interactive && !tty ? " (non-interactive: using defaults)" : ""}`);
   out.push(`  .works/{${STAGES.join(",")}}`);
   const ctxLine = answers.contexts.length > 0 ? `contexts: ${answers.contexts.join(", ")}` : `context: ${answers.defaultContext} (not restricted)`;
-  out.push(`  ${ctxLine}   stacks: ${answers.stacks.join(", ") || "unset"}   reviewer: ${answers.reviewer}`);
+  out.push(`  ${ctxLine}   stacks: ${answers.stacks.join(", ") || "unset"}   reviewer: ${answers.reviewer}${answers.repository ? `   repository: ${answers.repository}` : ""}`);
   out.push(`  agents: ${answers.agents.join(", ")}`);
   out.push(`  .kf/config.json (defaults for new features)`);
   out.push(`  .kf/{templates,hooks,review/rules} seeded from package`);

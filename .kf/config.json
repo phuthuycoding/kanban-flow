@@ -8,5 +8,6 @@
   "agents": [
     "claude"
   ],
-  "created": "20260919_1205"
+  "created": "20260919_1205",
+  "repository": "phuthuycoding/kanban-flow"
 }

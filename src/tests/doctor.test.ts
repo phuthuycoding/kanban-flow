@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
@@ -137,7 +138,7 @@ describe("kf doctor on a broken project", () => {
     const f = runDoctor(root).findings.find((x) => x.area.includes("skills"));
     expect(f?.level).toBe("ERROR");
     expect(f?.message).toContain("kanban-review");
-    expect(f?.action).toBe("kf install --agent claude");
+    expect(f?.action).toContain("kf install --agent claude");
   });
 });
 
@@ -201,5 +202,83 @@ describe("what kf doctor promises about itself", () => {
     expect(json.code).toBe(text.code);
     expect(parsed.ok).toBe(false);
     for (const f of parsed.findings) expect(text.stdout).toContain(f.message);
+  });
+});
+
+describe("kf doctor --fix", () => {
+  it("recreates a missing stage directory and says so", async () => {
+    await project();
+    await rm(join(root, ".works", "testing"), { recursive: true });
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("created .works/testing/");
+    expect(runDoctor(root).findings.filter((f) => f.area === ".works/")).toEqual([]);
+  });
+
+  it("repairs skills that were installed and then deleted", async () => {
+    await project();
+    const skill = join(root, ".claude", "skills", "kanban-review");
+    await rm(skill, { recursive: true });
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("installed kanban skills for claude");
+    expect(runDoctor(root).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
+  });
+
+  it("writes the repository link the origin remote implies", async () => {
+    await project();
+    execFileSync("git", ["init", root]);
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "git@github.com:owner/repo.git"]);
+
+    const warned = runDoctor(root).findings.find((f) => f.message.includes("No repository link"));
+    expect(warned?.level).toBe("WARNING");
+    expect(warned?.message).toContain("owner/repo");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain('set "repository": "owner/repo"');
+    const cfg = JSON.parse(await readFile(join(root, ".kf", "config.json"), "utf8")) as { repository?: string };
+    expect(cfg.repository).toBe("owner/repo");
+    expect(runDoctor(root).findings.some((f) => f.message.includes("repository"))).toBe(false);
+  });
+
+  it("says nothing about repository when the origin is not GitHub", async () => {
+    await project();
+    execFileSync("git", ["init", root]);
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.com/owner/repo.git"]);
+    expect(runDoctor(root).findings.some((f) => f.message.includes("repository"))).toBe(false);
+  });
+
+  it("drops legacy config fields but leaves judgment calls alone", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.stack = "node";        // legacy beside stacks — removable
+    cfg.stacks = ["node"];
+    cfg.defaultContext = "app"; // ignored beside contexts — removable
+    cfg.contexts = ["app"];
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+    // A broken item meta is a judgment call — the fix must not touch it.
+    const dir = join(root, ".works", "brainstorm", "junk_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, ".kfw.json"), "not json either");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain('removed legacy "stack"');
+    expect(res.stdout).toContain('removed "defaultContext"');
+    const after = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    expect(after.stack).toBeUndefined();
+    expect(after.defaultContext).toBeUndefined();
+    expect(after.contexts).toEqual(["app"]);
+    // Still reported, still unfixed — and the verdict still fails on it.
+    const report = runDoctor(root);
+    expect(report.findings.some((f) => f.message.includes("Unreadable metadata"))).toBe(true);
+    expect(report.ok).toBe(false);
+  });
+
+  it("writes config defaults when the file is missing entirely", async () => {
+    await project();
+    await rm(join(root, ".kf", "config.json"));
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("wrote .kf/config.json defaults");
+    const cfg = JSON.parse(await readFile(join(root, ".kf", "config.json"), "utf8")) as { schema?: string };
+    expect(cfg.schema).toBe("kanban-flow");
   });
 });
