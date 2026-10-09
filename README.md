@@ -1,5 +1,10 @@
 # kanban-flow
 
+[![npm](https://img.shields.io/npm/v/@phuthuycoding/kanban-flow)](https://www.npmjs.com/package/@phuthuycoding/kanban-flow)
+[![CI](https://github.com/phuthuycoding/kanban-flow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/phuthuycoding/kanban-flow/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/@phuthuycoding/kanban-flow)](LICENSE)
+[![node](https://img.shields.io/node/v/@phuthuycoding/kanban-flow)](https://nodejs.org)
+
 An AI coding agent will tell you the tests passed, the plan was followed, the
 edge cases are covered. Sometimes it is right, and you cannot tell which time
 from the transcript, because the transcript is written by the same thing you are
