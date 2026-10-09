@@ -13,7 +13,8 @@ The binary is `kf`. Every command *except* `kf init` looks for `.works/` from th
 | `kf init --minimal` | Skips the questions, not the scaffolding. Creates `.works/`, the docs roots, the skills, `.kf/config.json` with the schema and the runner presets, the empty `.kf/{templates,hooks,review/rules}` directories, and `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists. What it does *not* do is copy template, hook or review-rule files into those directories — the full path does that. With `--context` on a genuinely new project it declares that context, exactly as the full path does. |
 | `kf new <feature> [--context <ctx>] [--goal <text>] [--type feature\|bug]` | Creates a feature or bug in `brainstorm`; a bug routes through `kanban-bug`. Feature and context names must match `[a-z0-9][a-z0-9_-]*` **case-insensitively**, so `LoginFlow` is accepted. Context names are then compared case-insensitively against the declared list, which refuses `Auth` beside `auth`. When the project declares contexts, an undeclared one is refused with the nearest declared name. |
 | `kf list [--json]` | Lists every work item with its kind and state. |
-| `kf doctor [--json]` | Diagnoses the project rather than a work item: stage directories, a config that parses, work item metadata that can be read, skills still installed, and config fields that no longer mean what they say. When `worktree.enabled` it also probes the domain infra: `*.<domainZone>` resolving to the proxy listen address, the proxy listening, and the routes file being readable — all WARNING-level, with `sudo kf worktree setup` as the fix. Read-only, keeps going after the first problem, and exits 1 when anything is at ERROR. Work items that are not valid are counted but never change the verdict — that is the normal state of a pipeline in motion. |
+| `kf doctor [--json]` | Diagnoses the project rather than a work item: stage directories, a config that parses, work item metadata that can be read, skills still installed, config fields that no longer mean what they say, and a `repository` link missing while the origin remote is a GitHub repo. When `worktree.enabled` it also probes the domain infra: `*.<domainZone>` resolving to the proxy listen address, the proxy listening, and the routes file being readable — all WARNING-level, with `sudo kf worktree setup` as the fix. Read-only, keeps going after the first problem, and exits 1 when anything is at ERROR. Work items that are not valid are counted but never change the verdict — that is the normal state of a pipeline in motion. |
+| `kf doctor --fix` | Applies the repairs that need no human decision, then reports the after-state: recreates missing `.works/` stage dirs, writes config defaults when the file is absent, removes legacy fields that are already ignored (`stack` beside `stacks`, `defaultContext` beside `contexts`), fills `repository` from the GitHub origin remote, and reinstalls missing skills. Broken JSON and unreadable `.kfw.json` stay broken — fixing them is a judgment call. `--json` adds a `fixed` list to the report. |
 | `kf contexts [--json]` | Lists the declared contexts with a work-item count each, marks any context in use but not declared, and prints a survey brief when none are declared. Read-only. See [contexts](#contexts). |
 | `kf show <feature> [--json]` | Shows a work item's requirement or bug report. |
 | `kf view [--json]` | Workflow statistics in the terminal; the JSON carries metrics, charts and the per-stage detail. |
@@ -72,7 +73,7 @@ Uninstall only removes skills. To take the CLI off PATH: `npm rm -g @phuthuycodi
 
 - Success exits `0`. Bad input, a failed gate, a failed hook, a missing work item or an exception exits `1`. The readable report goes to **stdout**; stderr carries only a short reason line. A CI step that keeps stderr and discards stdout captures the reason but none of the detail.
 - The CLI never runs a migration, updates a database, deploys or publishes on its own.
-- Hooks resolve in order: the project `.kf/hooks`, then the user's `~/.kf/hooks`, then the package hooks. The environment handed to a hook carries `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT` and `KFW_APPROVAL`. See [phase hooks](autoconfig.md#phase-hooks).
+- Hooks resolve in order: the project `.kf/hooks`, then the user's `~/.kf/hooks`, then the package hooks. The environment handed to a hook carries `KFW_FEATURE`, `KFW_CONTEXT`, `KFW_FROM_STAGE`, `KFW_TO_STAGE`, `KFW_FEATURE_DIR`, `KFW_WORK_ROOT`, `KFW_APPROVAL` and `KFW_REPOSITORY`. See [phase hooks](autoconfig.md#phase-hooks).
 
 ## Contexts
 
@@ -92,3 +93,22 @@ Two things follow from that list, and nothing follows without it:
 A project with no `contexts` key is unrestricted. Re-running `kf init` there does not add the key, and neither does a project that has work items but no config file yet: a project counts as existing if it has either. `kf init` writes the list only for a genuinely new project, or when you answer its question on a terminal. The one behaviour that did change for an unrestricted project: `kf new` now reads the config on every path, so a malformed config fails loudly instead of only when `--context` was omitted.
 
 `kf contexts` reports each in-use context with the spelling found on disk, not a lowercased one. Where an undeclared spelling differs from a declared one only by case, it says so instead of telling you to add it, because the config reader refuses that repeat: rename the work items, or change the declared entry. It never writes anything. When no list is declared it prints a brief for an agent to survey the repo and propose one, which a human then confirms and writes.
+
+## GitHub issues
+
+A project may link itself to a GitHub repository in `.kf/config.json`:
+
+```json
+"repository": "owner/name"
+```
+
+Any repo reference normalizes to `owner/name` — `https://github.com/owner/repo`, `git@github.com:owner/repo.git` and the short form all write the same value. `kf init` detects it from the `origin` remote and asks once on a TTY. The value is handed to every stage hook as `KFW_REPOSITORY`, so a hook that syncs work items to GitHub never hardcodes the repo.
+
+| Command | What it does |
+| --- | --- |
+| `kf issues [--state open\|closed\|all] [--limit <n>] [--json]` | Lists issues on the configured repository, via `gh`. |
+| `kf issues view <n>` (or `kf issues <n>`) | Shows one issue. |
+| `kf issues create <feature> [--label <l> ...]` | Creates an issue titled after the work item — the filled requirement file becomes the body, a stub otherwise; `bug` items get the `bug` label, everything else `enhancement`. The issue URL is recorded as `issue` in the item's `.kfw.json`, so `kf status` shows it and a hook can read it. Refuses when the item already links to an issue. |
+| `kf issues link <feature> <n\|url>` | Records an existing issue on the work item without creating anything. |
+
+`gh` must be installed and authenticated for all of these. Nothing talks to GitHub without the field: a project with no `repository` keeps its issues local, and hooks read an empty `KFW_REPOSITORY`.

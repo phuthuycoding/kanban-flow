@@ -102,7 +102,8 @@ If you are resuming mid-pipeline (the feature already exists), skip straight to 
 
 ```text
 kf init                        # scaffold .works/ + hooks + docs
-kf doctor [--json]             # diagnose the project (stage dirs, config, metadata, skills); exit 1 when broken
+kf doctor [--fix] [--json]     # diagnose the project; --fix applies the repairs needing no human decision
+kf issues [view <n>|create|link <feature>]  # GitHub issues on the configured repository, via gh
 kf contexts [--json]           # declared contexts + counts, or a survey brief when none
 kf new {feature} --context {ctx} [--type feature|bug]   # Phase 1: create feature/bug + seed spec
 kf status --change {feature}   # artefact checklist + Next: + approval state
@@ -117,7 +118,7 @@ kf archive {feature}           # review(PASS) → dones + copy canonical docs
 
 Contexts: a project may declare the ones it uses in `.kf/config.json`, and the first entry is the default. `kf new` refuses a context outside that list and names the nearest declared one; a case-only variant is refused too. Run `kf contexts --json` before `kf new` and use a declared name exactly. When `restricted` is false nothing is declared and any valid name works. Never add a context to the config to get past a refusal — naming a business domain is the human's call.
 
-Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering a phase (project → user `~/.kf/hooks` → package precedence). Exit non-zero blocks the transition (`--skip-hooks` bypasses). The agent does NOT run hooks manually — `kf stage` does.
+Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering a phase (project → user `~/.kf/hooks` → package precedence). Exit non-zero blocks the transition (`--skip-hooks` bypasses). The agent does NOT run hooks manually — `kf stage` does. Hooks also receive `KFW_REPOSITORY` when `.kf/config.json` sets `repository` (`owner/name`) — a hook that syncs work items to GitHub reads it rather than hardcoding the repo, and `kf issues` works off the same field.
 
 ---
 

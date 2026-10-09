@@ -53,6 +53,16 @@ const COMMANDS: Record<string, CmdSpec> = {
       json: { type: "boolean" },
     },
   },
+  issues: {
+    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--label <l> ...] | kf issues link <feature> <n|url>  — GitHub issues on the project's repository (.kf/config.json), via gh",
+    allowPositionals: true,
+    options: {
+      state: { type: "string" },
+      limit: { type: "string" },
+      label: { type: "string", multiple: true },
+      json: { type: "boolean" },
+    },
+  },
   show: {
     help: "Usage: kf show <feature> [--json]",
     allowPositionals: true,
@@ -141,8 +151,9 @@ const COMMANDS: Record<string, CmdSpec> = {
     options: {},
   },
   doctor: {
-    help: "Usage: kf doctor [--json]  — diagnose the project: stage dirs, config, work item metadata, installed skills; exits 1 when something is broken",
+    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, installed skills; exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing skills)",
     options: {
+      fix: { type: "boolean" },
       json: { type: "boolean" },
     },
   },

@@ -66,6 +66,7 @@ Resolution order is project `.kf/hooks/`, then the user's `~/.kf/hooks/`, then t
 | `KFW_FROM_STAGE` | The stage being left, empty on `kf new` |
 | `KFW_TO_STAGE` | The stage being entered |
 | `KFW_APPROVAL` | `pending` or `approved` |
+| `KFW_REPOSITORY` | The `repository` from `.kf/config.json` (`owner/name`), empty when none — so hooks never hardcode the repo |
 
 Two **event hooks** sit outside stage transitions and only exist under worktrees:
 

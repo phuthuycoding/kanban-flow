@@ -1,4 +1,4 @@
-import { runDoctor, type DoctorFinding } from "../../project/doctor.js";
+import { runDoctor, applyDoctorFixes, type DoctorFinding } from "../../project/doctor.js";
 import { readProjectConfig } from "../../project/config.js";
 import { readMachineConfig, worktreeConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
@@ -15,6 +15,9 @@ function renderFinding(f: DoctorFinding): string[] {
 export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
+
+  // --fix first, then the report reflects the after-state rather than the damage it repaired.
+  const fixed = args.options.fix ? await applyDoctorFixes(root.root) : [];
   const report = runDoctor(root.root);
 
   // Domain infra probes are async (DNS + TCP), so they live here rather than inside the
@@ -43,10 +46,13 @@ export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResul
   }
 
   if (args.options.json) {
-    return { code: report.ok ? 0 : 1, stdout: JSON.stringify(report, null, 2) };
+    return { code: report.ok ? 0 : 1, stdout: JSON.stringify({ ...report, fixed }, null, 2) };
   }
 
   const lines = [`Project: ${report.root}`, ""];
+  if (fixed.length > 0) {
+    lines.push(`Fixed (${fixed.length}):`, ...fixed.map((f) => `  ✓ ${f}`), "");
+  }
   if (report.findings.length === 0) {
     lines.push("No problems found.");
   } else {

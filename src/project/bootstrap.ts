@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
 import { detectStacks, writeProjectConfig, configPath, type ProjectConfig } from "./config.js";
+import { detectRepository, normalizeRepository } from "./repository.js";
 import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
 import { STAGES } from "../workflow/schema.js";
 import { assertPathName } from "../workflow/features.js";
@@ -23,6 +24,8 @@ export interface BootstrapAnswers {
   defaultContextStated: boolean;
   stacks: string[];
   reviewer: string;
+  /** GitHub `owner/name` the project mirrors work items to; undefined leaves issues local. */
+  repository?: string;
   ignoreWorks: boolean;
   seedFeature: boolean;
   agents: AgentId[];
@@ -116,6 +119,7 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
     defaultContextStated: Boolean(explicitContext) || cfg.contexts !== undefined || cfg.defaultContext !== undefined,
     stacks: cfg.stacks?.length ? cfg.stacks : detectStacks(root),
     reviewer: cfg.reviewer ?? detectReviewer(root),
+    repository: cfg.repository ?? detectRepository(root) ?? undefined,
     ignoreWorks: shouldSuggestIgnoreWorks(root),
     seedFeature: false,
     agents: cfg.agents?.length ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT],
@@ -168,7 +172,7 @@ export async function onboardAnswers(
 ): Promise<BootstrapAnswers> {
   const d = bootstrapDefaults(root, explicitContext);
   const mode = await selectOption("Setup mode (↑/↓ + Enter):", [
-    `Quick setup — defaults (context: ${d.defaultContext}, stacks: ${d.stacks.join(", ") || "unset"}, reviewer: ${d.reviewer}, agents: ${d.agents.join(", ")})`,
+    `Quick setup — defaults (context: ${d.defaultContext}, stacks: ${d.stacks.join(", ") || "unset"}, reviewer: ${d.reviewer}, repository: ${d.repository ?? "none"}, agents: ${d.agents.join(", ")})`,
     "Customize — answer each question",
   ]);
   if (mode === 0) return d;
@@ -236,6 +240,18 @@ export async function askAll(
   const rev = (await rl.question(`Default reviewer for kf approve [${d.reviewer}]: `)).trim();
   const reviewer = rev || d.reviewer;
 
+  const repoHint = d.repository ?? "none — Enter to skip";
+  const repoRaw = (await rl.question(`GitHub repository for kf issues (owner/name or URL, "none" clears) [${repoHint}]: `)).trim();
+  let repository = d.repository;
+  if (repoRaw !== "") {
+    if (repoRaw === "none") repository = undefined;
+    else {
+      const normalized = normalizeRepository(repoRaw);
+      if (normalized) repository = normalized;
+      else output.write(`Not a GitHub repository: '${repoRaw}' — keeping ${d.repository ?? "none"}.\n`);
+    }
+  }
+
   const agents = (await promptAgents(rl, d.agents)).agents;
 
   let ignoreWorks = d.ignoreWorks;
@@ -248,7 +264,7 @@ export async function askAll(
   // Typing a list is a decision; pressing Enter is not. Recording Enter as one would repoint
   // every future context-less `kf new` at the invented fallback, on the one path where the
   // prompt has just promised "leave empty to keep this project unrestricted".
-  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, ignoreWorks, seedFeature, agents };
+  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, repository, ignoreWorks, seedFeature, agents };
 }
 
 /** Multi-select agent prompt (comma-separated ids; Enter = default agent). */
@@ -318,6 +334,7 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
     ...legacyDefault,
     stacks: a.stacks,
     reviewer: a.reviewer,
+    ...(a.repository ? { repository: a.repository } : {}),
     agents: a.agents,
     harness: existing.harness ?? seedHarness(a.agents),
     created: existing.created ?? nowTimestamp(),

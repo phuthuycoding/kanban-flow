@@ -4,12 +4,15 @@ import { assertPathName } from "../workflow/features.js";
 import { parseAgentIds } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
 import { normalizeContext } from "./contexts.js";
+import { normalizeRepository } from "./repository.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 
 export interface ProjectConfig {
   schema: string;
   /** Declared context list. Absent means unrestricted, as before. First entry is the default. */
   contexts?: string[];
+  /** GitHub `owner/name` the project mirrors work items to; normalized on read from any repo URL form. */
+  repository?: string;
   /** @deprecated superseded by `contexts[0]`; still read for projects that predate `contexts` */
   defaultContext?: string;
   stacks?: string[];
@@ -49,6 +52,7 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   }
   if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)
     || (cfg.defaultContext !== undefined && typeof cfg.defaultContext !== "string")
+    || (cfg.repository !== undefined && typeof cfg.repository !== "string")
     || (cfg.reviewer !== undefined && typeof cfg.reviewer !== "string")
     || (cfg.created !== undefined && typeof cfg.created !== "string")
     || (cfg.schema !== undefined && cfg.schema !== "kanban-flow")
@@ -71,6 +75,13 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   }
   if (cfg.stacks === undefined && typeof cfg.stack === "string") cfg.stacks = [cfg.stack];
   if (cfg.defaultContext !== undefined) assertPathName(cfg.defaultContext, "context");
+  if (cfg.repository !== undefined) {
+    const repo = normalizeRepository(cfg.repository);
+    if (!repo) {
+      throw new Error(`Invalid project config: ${f} — repository must be a GitHub repo, "owner/name" or a github.com URL`);
+    }
+    cfg.repository = repo;
+  }
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
