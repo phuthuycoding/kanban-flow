@@ -25,6 +25,46 @@ Read work item kind from `kf status --change {feature_name} --json`. For `kind: 
 
 Read the confirmed Test Strategy from `phase-1-spec-requirement.md` (`Level` in a feature spec, `Test Level` in a bug report, plus `UI Tests`, `Tools`, `Coverage Target`) — it was agreed with the human in Phase 1. Everything below must honour it.
 
+### Who writes what
+
+The four artifacts depend on each other: the UC list drives the diagram and the test cases, and every `TC-###` must cite a real `FR-###` and `UC-###`. So the skeleton stays with you, and subagents only take the work that is independent once the skeleton is fixed:
+
+| Step | Who | Output |
+| --- | --- | --- |
+| a. Impact survey | 1-3 subagents in parallel, one per area (backend, frontend, DB/API/infra, existing tests) | Findings returned to you, never written to artifacts |
+| b. Skeleton | You | `implementation-plan`, the `use-case-specification` index with the final UC IDs, slugs and one-line goals |
+| c. UC files | One subagent per `UC-###`, in parallel | `use-cases/UC-###-<slug>.md` |
+| d. Diagram + test cases | You | `use-case-diagram`, `test-cases` |
+| e. Contract review | 1 subagent with a fresh context | Findings returned to you before section 3 |
+
+Skip the subagents and do every step yourself when the change is small (two UCs or fewer, or a survey that fits in a few files): each handover re-reads the spec and the code, which costs more than it saves at that size. If your runtime has no subagent tool, do the same steps yourself in the same order.
+
+**Subagent prompt contract** — every subagent prompt must state:
+
+- Task: its step (a, c or e), and for step c the exact `UC-###`, slug and goal from the index
+- Files to read: `phase-1-spec-requirement.md`, the skeleton artifacts, the relevant source paths
+- Files it may write: step c only, exactly its one `use-cases/UC-###-<slug>.md`; steps a and e write nothing
+- Constraints: never rename or renumber a `UC-###`/`FR-###`, never add scope beyond the confirmed requirement, never edit another artifact, never run `kf approve`, `kf stage`, `kf archive` or `kf run`
+- Context: `.works/planning/{feature_name}/` (from `kf status --change {feature_name}`)
+
+**Subagent status protocol** — require every subagent to end with:
+
+```text
+Status: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+Summary: one or two sentences
+Concerns/Blockers: (optional)
+```
+
+Treat `DONE_WITH_CONCERNS`, `BLOCKED` and `NEEDS_CONTEXT` as not-done: resolve it before moving on. A missing `Status:` line is not done either.
+
+### a. Impact survey
+
+Before writing the plan, dispatch the survey subagents in one batch. Each answers for its area: which modules, endpoints, tables and components the change touches, who depends on them, which existing tests cover them, and any risk to regression, security or performance. Ask for `file:line` references and conclusions, not file dumps. Feed the findings into the impact analysis of the implementation plan; do not paste them as-is.
+
+### b-d. Skeleton, UC files, diagram and test cases
+
+Write the implementation plan and the use-case index first (step b). Once the UC IDs are fixed, dispatch one subagent per UC file (step c), all in one batch. When they return, read each UC file and check that its ID, goal and acceptance criteria match the index, then write the diagram and the test cases yourself (step d).
+
 Print each template and fill the file at its path:
 
 ```bash
@@ -58,6 +98,10 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 - Keep the plan table-driven: fill overall totals, per-type counts, use-case coverage matrix and requirement coverage matrix before the detailed `## TC-###` tables.
 - Define each test in a `## TC-###` section referencing `FR-###` (spec) and `UC-###` (the matching individual use-case file). `kf validate` blocks missing or unknown references before approval.
 - If the user wants to change the test level during Phase 2, which is rare: update the Test Strategy in `phase-1-spec-requirement.md` before generating the cases, and say so when you present the contract for approval.
+
+### e. Contract review
+
+Before section 3, dispatch one review subagent with a fresh context. It reads the requirement and every planning artifact and reports: an `FR-###` with no test case, an acceptance criterion that cannot be tested, a UC or task outside the confirmed scope, an ID that differs between files, and an impact the plan misses. It edits nothing. Fix what it finds yourself, or record why a finding does not apply.
 
 ## 3. Human approval gate
 
