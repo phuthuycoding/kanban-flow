@@ -47,7 +47,7 @@ describe("cmdAutoconfig", () => {
 
     const res = await cmdAutoconfig(parsed, dir);
     expect(res.stdout).toContain("[x] Project config");
-    expect(res.stdout).toContain("[x] Project skills for Claude Code");
+    expect(res.stdout).toContain("[x] Skills for Claude Code (scope: global");
     expect(res.stdout).toContain("[x] Base review rules");
     expect(res.stdout).toContain("[x] Stack rule packs: node");
     expect(res.stdout).toContain("[ ] AGENTS.md");

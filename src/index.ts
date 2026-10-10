@@ -17,7 +17,7 @@ import { cmdArchive } from "./cli/commands/archive.js";
 import { cmdCancel } from "./cli/commands/cancel.js";
 import { cmdApprove } from "./cli/commands/approve.js";
 import { cmdWorktree, cmdProxyServe } from "./cli/commands/worktree.js";
-import { cmdInstall, cmdUninstall } from "./integrations/install.js";
+import { cmdInstall, cmdUninstall, scopeFromArgs } from "./integrations/install.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
 import { parseAgentIds } from "./integrations/agents.js";
 import { readFileSync } from "node:fs";
@@ -113,10 +113,11 @@ async function main(argv: string[]): Promise<CmdResult> {
         ? cmdProxyServe(parsed)
         : { code: 1, stdout: commandHelp("proxy"), stderr: "unknown proxy subcommand" };
     case "install":
-      return cmdInstall(parseAgentIds(parsed.options.agent), { cwd });
+      return cmdInstall(parseAgentIds(parsed.options.agent), { cwd, scope: scopeFromArgs(parsed.options) });
     case "uninstall":
       return cmdUninstall(parseAgentIds(parsed.options.agent), {
         cwd,
+        scope: scopeFromArgs(parsed.options),
         purge: Boolean(parsed.options.purge),
         force: Boolean(parsed.options.force),
       });

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertPathName } from "../workflow/features.js";
-import { parseAgentIds } from "../integrations/agents.js";
+import { parseAgentIds, type SkillScope } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
 import { normalizeContext } from "./contexts.js";
 import { normalizeRepository } from "./repository.js";
@@ -23,9 +23,20 @@ export interface ProjectConfig {
   stack?: string | null;
   reviewer?: string;
   agents?: string[];
+  /** Where `kf install`/`kf init` put managed skills. Absent means "global" (user-level). */
+  skills?: SkillsConfig;
   harness?: HarnessConfig;
   worktree?: Partial<WorktreeConfig>;
   created: string;
+}
+
+export interface SkillsConfig {
+  scope: SkillScope;
+}
+
+/** The scope every consumer resolves through — absent `skills.scope` means "global". */
+export function effectiveSkillsScope(cfg: Partial<ProjectConfig>): SkillScope {
+  return cfg.skills?.scope ?? "global";
 }
 
 /** A GitHub Projects board the sync hooks mirror stages to; IDs are resolved per run from names. */
@@ -67,6 +78,15 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
     }
   }
   return p as GitHubProject;
+}
+
+function parseSkillsBlock(value: unknown, file: string): SkillsConfig | undefined {
+  if (value === undefined) return undefined;
+  const bad = () => new Error(`Invalid project config: ${file} — skills.scope must be "global" or "project"`);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
+  const s = value as Partial<SkillsConfig>;
+  if (s.scope !== "global" && s.scope !== "project") throw bad();
+  return s as SkillsConfig;
 }
 
 /** Read the project config; missing config uses defaults, invalid config is an error. */
@@ -115,6 +135,7 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
+  cfg.skills = parseSkillsBlock(cfg.skills, f);
   cfg.project = parseProjectBlock(cfg.project, f);
   return cfg;
 }

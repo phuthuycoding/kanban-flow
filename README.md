@@ -70,9 +70,15 @@ cd kanban-flow && npm install && npm run build && npm link
 ## Onboard your agent
 
 `kf init` does the filesystem half: it installs the eight kanban skills into the
-agent's project-level skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`;
-`claude` is the default, and several agents read each other's directories) and
-seeds `AGENTS.md` when the project does not already have one.
+agent's skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`; `claude` is
+the default, and several agents read each other's directories) and seeds
+`AGENTS.md` when the project does not already have one. By default the install is
+**global** — symlinked into `~/.<agent>/skills` so one set serves every project and
+tracks package upgrades (copied instead when linking is unavailable). A project
+that wants its own copies sets `skills.scope: "project"` in `.kf/config.json` (the
+onboarding question asks), and `kf install --scope` / `kf uninstall --scope`
+overrides it per run. `kf autoconfig` and `kf doctor` report the effective scope
+and flag stale or broken installs; `kf doctor --fix` repairs them.
 
 The other half is `kf autoconfig`. It prints a briefing meant for the agent, not
 for you: the project context, a setup checklist where every missing item carries

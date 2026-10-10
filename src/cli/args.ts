@@ -28,7 +28,7 @@ type OptDef = {
 
 const COMMANDS: Record<string, CmdSpec> = {
   init: {
-    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs skills; --minimal skips the questions, not the scaffolding (still writes .kf config, skills and AGENTS.md; only the template/hook/rule files are left out)",
+    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs skills globally (linked under ~/.<agent>/skills; the setup question or skills.scope in .kf/config.json picks project instead); --minimal skips the questions, not the scaffolding (still writes .kf config, skills and AGENTS.md; only the template/hook/rule files are left out)",
     allowPositionals: true,
     options: {
       context: { type: "string", short: "c" },
@@ -152,22 +152,28 @@ const COMMANDS: Record<string, CmdSpec> = {
     options: {},
   },
   doctor: {
-    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, installed skills; exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing skills)",
+    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, skill state at the configured scope (missing, stale, broken links); exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing or stale skills)",
     options: {
       fix: { type: "boolean" },
       json: { type: "boolean" },
     },
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...]  — copy the 8 kanban skills into project-level agent skill dirs {root}/.<agent>/skills (default: claude). Requires a kanban project (.works/). Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
+    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 8 kanban skills for agent skill dirs (default agent: claude). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
     options: {
       agent: { type: "string", multiple: true },
+      scope: { type: "string" },
+      global: { type: "boolean" },
+      project: { type: "boolean" },
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...] [--purge] [--force]  — remove the 8 kanban skills from project-level agent skill dirs {root}/.<agent>/skills (default: claude). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 8 kanban skills at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
+      scope: { type: "string" },
+      global: { type: "boolean" },
+      project: { type: "boolean" },
       purge: { type: "boolean" },
       force: { type: "boolean" },
     },

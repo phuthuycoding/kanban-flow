@@ -13,8 +13,8 @@ import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
 import { STAGES } from "../workflow/schema.js";
 import { assertPathName } from "../workflow/features.js";
 import { seedHarness } from "../harness/config.js";
-import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "../integrations/agents.js";
-import { readProjectConfig } from "./config.js";
+import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
+import { readProjectConfig, effectiveSkillsScope } from "./config.js";
 
 export interface BootstrapAnswers {
   /** Declared contexts; the first is the default. Empty means "leave the project unrestricted". */
@@ -31,6 +31,8 @@ export interface BootstrapAnswers {
   ignoreWorks: boolean;
   seedFeature: boolean;
   agents: AgentId[];
+  /** Where managed skills are installed: user-level "global" (default) or "project". */
+  skillScope: SkillScope;
 }
 
 /** git user.name, else $USER, else "human". */
@@ -128,6 +130,7 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
     ignoreWorks: shouldSuggestIgnoreWorks(root),
     seedFeature: false,
     agents: cfg.agents?.length ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT],
+    skillScope: effectiveSkillsScope(cfg),
   };
 }
 
@@ -177,7 +180,7 @@ export async function onboardAnswers(
 ): Promise<BootstrapAnswers> {
   const d = bootstrapDefaults(root, explicitContext);
   const mode = await selectOption("Setup mode (↑/↓ + Enter):", [
-    `Quick setup — defaults (context: ${d.defaultContext}, stacks: ${d.stacks.join(", ") || "unset"}, reviewer: ${d.reviewer}, repository: ${d.repository ?? "none"}, agents: ${d.agents.join(", ")})`,
+    `Quick setup — defaults (context: ${d.defaultContext}, stacks: ${d.stacks.join(", ") || "unset"}, reviewer: ${d.reviewer}, repository: ${d.repository ?? "none"}, agents: ${d.agents.join(", ")}, skills: ${d.skillScope})`,
     "Customize — answer each question",
   ]);
   if (mode === 0) return d;
@@ -259,6 +262,9 @@ export async function askAll(
 
   const agents = (await promptAgents(rl, d.agents)).agents;
 
+  const globalSkills = await confirm(rl, "Install skills globally for all projects? (no → this project only)", d.skillScope === "global");
+  const skillScope: SkillScope = globalSkills ? "global" : "project";
+
   let ignoreWorks = d.ignoreWorks;
   if (d.ignoreWorks) {
     ignoreWorks = await confirm(rl, "Add .works/ to .gitignore?", true);
@@ -275,7 +281,7 @@ export async function askAll(
   // Typing a list is a decision; pressing Enter is not. Recording Enter as one would repoint
   // every future context-less `kf new` at the invented fallback, on the one path where the
   // prompt has just promised "leave empty to keep this project unrestricted".
-  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, repository, ignoreWorks, seedFeature, agents, installGithubHooks };
+  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, repository, ignoreWorks, seedFeature, agents, skillScope, installGithubHooks };
 }
 
 /** Multi-select agent prompt (comma-separated ids; Enter = default agent). */
@@ -353,6 +359,7 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
     reviewer: a.reviewer,
     ...(a.repository ? { repository: a.repository } : {}),
     agents: a.agents,
+    skills: { scope: a.skillScope },
     harness: existing.harness ?? seedHarness(a.agents),
     // Blocks saveConfig does not own — re-init must not silently drop what a human configured.
     ...(existing.worktree !== undefined ? { worktree: existing.worktree } : {}),

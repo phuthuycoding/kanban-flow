@@ -100,7 +100,7 @@ describe("kf doctor on a broken project", () => {
     await project();
     await writeFile(join(root, ".kf", "config.json"), "{ broken");
     await rm(join(root, ".works", "testing"), { recursive: true });
-    await rm(join(root, ".claude", "skills", "kanban-plan"), { recursive: true });
+    await rm(join(process.env.HOME!, ".claude", "skills", "kanban-plan"), { recursive: true });
     const areas = runDoctor(root).findings.map((f) => f.area);
     expect(areas).toContain(".kf/config.json");
     expect(areas).toContain(".works/");
@@ -135,7 +135,7 @@ describe("kf doctor on a broken project", () => {
 
   it("reports skills that were installed and then deleted", async () => {
     await project();
-    await rm(join(root, ".claude", "skills", "kanban-review"), { recursive: true });
+    await rm(join(process.env.HOME!, ".claude", "skills", "kanban-review"), { recursive: true });
     const f = runDoctor(root).findings.find((x) => x.area.includes("skills"));
     expect(f?.level).toBe("ERROR");
     expect(f?.message).toContain("kanban-review");
@@ -217,7 +217,7 @@ describe("kf doctor --fix", () => {
 
   it("repairs skills that were installed and then deleted", async () => {
     await project();
-    const skill = join(root, ".claude", "skills", "kanban-review");
+    const skill = join(process.env.HOME!, ".claude", "skills", "kanban-review");
     await rm(skill, { recursive: true });
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain("installed kanban skills for claude");

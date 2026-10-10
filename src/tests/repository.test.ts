@@ -98,7 +98,7 @@ describe("config repository", () => {
     await mkdir(join(dir, ".kf"), { recursive: true });
     const base = {
       contexts: [] as string[], defaultContext: "app", defaultContextStated: false,
-      stacks: [], reviewer: "x", ignoreWorks: false, seedFeature: false, agents: ["claude"] as never[],
+      stacks: [], reviewer: "x", ignoreWorks: false, seedFeature: false, agents: ["claude"] as never[], skillScope: "global" as const,
     };
     saveConfig(dir, { ...base });
     expect(readProjectConfig(dir).repository).toBeUndefined();
