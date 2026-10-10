@@ -4,7 +4,7 @@
   "stacks": [
     "node"
   ],
-  "reviewer": "Quyền",
+  "reviewer": "Quy\u1ec1n",
   "agents": [
     "claude"
   ],
@@ -12,5 +12,19 @@
   "repository": "phuthuycoding/kanban-flow",
   "worktree": {
     "enabled": false
+  },
+  "project": {
+    "owner": "phuthuycoding",
+    "number": 3,
+    "acGate": true,
+    "statusMap": {
+      "brainstorm": "Ready",
+      "planning": "Ready",
+      "backlog": "Backlog",
+      "implementation": "In progress",
+      "testing": "In progress",
+      "review": "In review",
+      "dones": "Done"
+    }
   }
 }

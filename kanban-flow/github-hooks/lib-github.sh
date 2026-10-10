@@ -78,8 +78,8 @@ status_option_id() {  # $1 = stage
   python3 -c 'import json,sys
 d=json.load(open(sys.argv[1]))
 for f in d.get("fields",[]):
-    if f.get("name")=="Status" and f.get("dataType")=="SINGLE_SELECT":
-        for o in f.get("options",[]):
+    if f.get("name")=="Status" and f.get("options"):
+        for o in f["options"]:
             if o["name"]==sys.argv[2]:
                 print(o["id"]); sys.exit()
 ' "$PROJECT_FIELDS_FILE" "$name" 2>/dev/null
@@ -131,7 +131,7 @@ status_field_id() {
   python3 -c 'import json,sys
 d=json.load(open(sys.argv[1]))
 for f in d.get("fields",[]):
-    if f.get("name")=="Status" and f.get("dataType")=="SINGLE_SELECT":
+    if f.get("name")=="Status" and f.get("options"):
         print(f["id"]); sys.exit()
 ' "$PROJECT_FIELDS_FILE" 2>/dev/null
 }
