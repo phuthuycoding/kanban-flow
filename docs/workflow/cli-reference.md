@@ -108,7 +108,7 @@ Any repo reference normalizes to `owner/name` — `https://github.com/owner/repo
 | --- | --- |
 | `kf issues [--state open\|closed\|all] [--limit <n>] [--json]` | Lists issues on the configured repository, via `gh`. |
 | `kf issues view <n>` (or `kf issues <n>`) | Shows one issue. |
-| `kf issues create <feature> [--label <l> ...]` | Creates an issue titled after the work item — the filled requirement file becomes the body, a stub otherwise; `bug` items get the `bug` label, everything else `enhancement`. The issue URL is recorded as `issue` in the item's `.kfw.json`, so `kf status` shows it and a hook can read it. Refuses when the item already links to an issue. |
+| `kf issues create <feature> [--title <t>] [--label <l> ...]` | Creates an issue titled by `--title`, else the work item's `--goal`, else the slug — the filled requirement file becomes the body, a stub otherwise; `bug` items get the `bug` label, everything else `enhancement`. The issue URL is recorded as `issue` in the item's `.kfw.json`, so `kf status` shows it and a hook can read it. Refuses when the item already links to an issue. |
 | `kf issues link <feature> <n\|url>` | Records an existing issue on the work item without creating anything. |
 
 `gh` must be installed and authenticated for all of these. Nothing talks to GitHub without the field: a project with no `repository` keeps its issues local, and hooks read an empty `KFW_REPOSITORY`.

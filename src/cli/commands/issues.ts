@@ -100,8 +100,16 @@ function issueBody(dir: string): string {
   return `Work item \`${dir}\` created by kf; the requirement is being drafted in \`${ARTIFACTS["spec-requirement"].file}\` and will be synced when it is confirmed.\n\nConvention: one branch + one PR into the default branch, the PR notes \`Closes #<this issue>\`.`;
 }
 
-async function cmdCreate(root: string, repo: string, name: string | undefined, labels: unknown): Promise<CmdResult> {
-  if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues create <feature> [--label <l> ...]", stderr: "missing feature" };
+/**
+ * The issue title prefers the human-written goal over the slug — "ci-pipeline-dedup" tells a
+ * reader nothing on a repo's issue list. An explicit --title wins over both.
+ */
+export function issueTitle(meta: { goal?: string }, feature: string, override?: string): string {
+  return override ?? meta.goal ?? feature;
+}
+
+async function cmdCreate(root: string, repo: string, name: string | undefined, labels: unknown, titleOverride: unknown): Promise<CmdResult> {
+  if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues create <feature> [--title <t>] [--label <l> ...]", stderr: "missing feature" };
   const f = findFeature(root, name);
   if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
   if (!f.meta) return { code: 1, stdout: `'${f.name}' has no metadata file — cannot record the issue link.`, stderr: "no meta" };
@@ -111,7 +119,8 @@ async function cmdCreate(root: string, repo: string, name: string | undefined, l
   const kind = f.meta.kind === "bug" ? "bug" : "enhancement";
   const labelArgs = (Array.isArray(labels) && labels.length > 0 ? labels as string[] : [kind])
     .flatMap((l) => ["--label", l]);
-  const res = gh(["issue", "create", "-R", repo, "--title", f.name, "--body", issueBody(f.dir), ...labelArgs]);
+  const title = issueTitle(f.meta, f.name, typeof titleOverride === "string" && titleOverride !== "" ? titleOverride : undefined);
+  const res = gh(["issue", "create", "-R", repo, "--title", title, "--body", issueBody(f.dir), ...labelArgs]);
   if (!res.ok) return ghFailure(res, `create issue for '${f.name}'`);
   const url = res.stdout.trim().split("\n").at(-1) ?? "";
   if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(url)) {
@@ -146,7 +155,7 @@ export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (!repo) return noRepository();
 
   const sub = args.positionals[0];
-  if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label);
+  if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label, args.options.title);
   if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2]);
   if (sub === "view") return cmdView(repo, args.positionals[1]);
   if (sub !== undefined && /^\d+$/.test(sub)) return cmdView(repo, sub);
