@@ -144,6 +144,16 @@ describe("project config block", () => {
   });
 });
 
+describe("saveConfig preserves blocks it does not own", () => {
+  it("keeps worktree and project across a re-init", async () => {
+    await project({ repository: "o/r", worktree: { enabled: false }, project: { owner: "me", number: 3 } });
+    saveConfig(dir, { ...bootstrapDefaults(dir), contexts: ["app"] });
+    const cfg = readProjectConfig(dir);
+    expect(cfg.worktree).toMatchObject({ enabled: false });
+    expect(cfg.project).toMatchObject({ owner: "me", number: 3 });
+  });
+});
+
 describe("kf issues sync", () => {
   it("refuses when the item has no linked issue, and when the spec is not filled", async () => {
     await project({ repository: "o/r" });
