@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -89,15 +91,42 @@ function cmdView(repo: string, numRaw: string | undefined): CmdResult {
   return { code: 0, stdout: res.stdout.trim() };
 }
 
-/** The requirement file becomes the issue body when it is written; otherwise a stub names where it lives. */
-function issueBody(dir: string): string {
+/** The filled requirement as issue body: frontmatter stripped, kf footer appended. Null when not filled. */
+function specBody(dir: string): string | null {
   const spec = join(dir, ARTIFACTS["spec-requirement"].file);
   const raw = existsSync(spec) ? readFileSync(spec, "utf8") : "";
   const { body } = splitFrontmatter(raw);
-  if (raw && isFilledFile(raw, body)) {
-    return `${body.trim()}\n\n---\n**Work item kf:** \`${dir}\` — synced from \`${ARTIFACTS["spec-requirement"].file}\`.`;
-  }
+  if (!raw || !isFilledFile(raw, body)) return null;
+  return `${body.trim()}\n\n---\n**Work item kf:** \`${dir}\` — synced from \`${ARTIFACTS["spec-requirement"].file}\`.`;
+}
+
+function issueBody(dir: string): string {
+  const filled = specBody(dir);
+  if (filled) return filled;
   return `Work item \`${dir}\` created by kf; the requirement is being drafted in \`${ARTIFACTS["spec-requirement"].file}\` and will be synced when it is confirmed.\n\nConvention: one branch + one PR into the default branch, the PR notes \`Closes #<this issue>\`.`;
+}
+
+async function cmdSync(root: string, repo: string, name: string | undefined): Promise<CmdResult> {
+  if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues sync <feature>", stderr: "missing feature" };
+  const f = findFeature(root, name);
+  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  if (!f.meta?.issue) {
+    return { code: 1, stdout: `'${f.name}' has no linked issue — run kf issues create or kf issues link first.`, stderr: "no issue" };
+  }
+  const body = specBody(f.dir);
+  if (!body) {
+    return { code: 1, stdout: `'${f.name}' has no filled requirement to sync — write ${ARTIFACTS["spec-requirement"].file} first.`, stderr: "spec not filled" };
+  }
+  const tmp = await mkdtemp(join(tmpdir(), "kf-issue-"));
+  try {
+    const file = join(tmp, "body.md");
+    await writeFile(file, body, "utf8");
+    const res = gh(["issue", "edit", f.meta.issue, "-R", repo, "--body-file", file]);
+    if (!res.ok) return ghFailure(res, `sync '${f.name}' into its issue`);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+  return { code: 0, stdout: `Synced requirement → ${f.meta.issue}` };
 }
 
 /**
@@ -156,6 +185,7 @@ export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResul
 
   const sub = args.positionals[0];
   if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label, args.options.title);
+  if (sub === "sync") return cmdSync(root.root, repo, args.positionals[1]);
   if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2]);
   if (sub === "view") return cmdView(repo, args.positionals[1]);
   if (sub !== undefined && /^\d+$/.test(sub)) return cmdView(repo, sub);

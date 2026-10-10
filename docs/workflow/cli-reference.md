@@ -110,5 +110,23 @@ Any repo reference normalizes to `owner/name` — `https://github.com/owner/repo
 | `kf issues view <n>` (or `kf issues <n>`) | Shows one issue. |
 | `kf issues create <feature> [--title <t>] [--label <l> ...]` | Creates an issue titled by `--title`, else the work item's `--goal`, else the slug — the filled requirement file becomes the body, a stub otherwise; `bug` items get the `bug` label, everything else `enhancement`. The issue URL is recorded as `issue` in the item's `.kfw.json`, so `kf status` shows it and a hook can read it. Refuses when the item already links to an issue. |
 | `kf issues link <feature> <n\|url>` | Records an existing issue on the work item without creating anything. |
+| `kf issues sync <feature>` | Replaces the linked issue's body with the item's filled requirement (frontmatter stripped, kf footer appended). Refuses when there is no link or no filled spec — this is the primitive the `planning` sync hook calls. |
 
 `gh` must be installed and authenticated for all of these. Nothing talks to GitHub without the field: a project with no `repository` keeps its issues local, and hooks read an empty `KFW_REPOSITORY`.
+
+### The hook pack and the project board
+
+`kf init` offers to install a generic sync pack into `.kf/hooks/` when a repository is linked — the same flow monitoring hand-built: an issue on `kf new`, the requirement synced at planning, assignment and reopen at implementation, close-not-planned at cancel, and a gate at archive that refuses while the issue has unchecked acceptance criteria. The pack no-ops without `KFW_REPOSITORY`, fails open on GitHub outages, and fails closed on unreadable `.kfw.json`.
+
+A `project` block in `.kf/config.json` additionally mirrors stage moves to a GitHub Projects board:
+
+```json
+"project": {
+  "owner": "phuthuycoding",
+  "number": 3,
+  "statusMap": { "brainstorm": "Plan/Brainstorming", "dones": "Done" },
+  "acGate": true
+}
+```
+
+`statusMap` names the board's Status options per kf stage — names, never IDs; the pack resolves them per run so a recreated board keeps working. `acGate: false` skips the archive gate. Hooks see these as `KFW_PROJECT_OWNER`, `KFW_PROJECT_NUMBER`, `KFW_PROJECT_AC_GATE` and `KFW_PROJECT_STATUS_<STAGE>`. Board sync needs `gh` with the `project` scope (`gh auth refresh -s project`); `kf doctor` warns when it is missing, and `kf doctor --fix` restores deleted pack files without ever overwriting a hook the project edited.

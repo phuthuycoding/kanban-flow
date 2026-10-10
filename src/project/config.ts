@@ -5,6 +5,7 @@ import { parseAgentIds } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
 import { normalizeContext } from "./contexts.js";
 import { normalizeRepository } from "./repository.js";
+import { STAGES, type Stage } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 
 export interface ProjectConfig {
@@ -13,6 +14,8 @@ export interface ProjectConfig {
   contexts?: string[];
   /** GitHub `owner/name` the project mirrors work items to; normalized on read from any repo URL form. */
   repository?: string;
+  /** GitHub Projects board the hooks update on stage moves; only meaningful with `repository`. */
+  project?: GitHubProject;
   /** @deprecated superseded by `contexts[0]`; still read for projects that predate `contexts` */
   defaultContext?: string;
   stacks?: string[];
@@ -23,6 +26,16 @@ export interface ProjectConfig {
   harness?: HarnessConfig;
   worktree?: Partial<WorktreeConfig>;
   created: string;
+}
+
+/** A GitHub Projects board the sync hooks mirror stages to; IDs are resolved per run from names. */
+export interface GitHubProject {
+  owner: string;
+  number: number;
+  /** kf stage → the board's Status option name. Option names, never IDs — a recreated board keeps working. */
+  statusMap?: Partial<Record<string, string>>;
+  /** The dones hook gates on ticked acceptance criteria unless explicitly false. Default true. */
+  acGate?: boolean;
 }
 
 export const CONFIG_FILE = "config.json";
@@ -37,6 +50,23 @@ export function projectKabanDir(root: string): string {
 
 export function configPath(root: string): string {
   return join(projectKabanDir(root), CONFIG_FILE);
+}
+
+function parseProjectBlock(value: unknown, file: string): GitHubProject | undefined {
+  if (value === undefined) return undefined;
+  const bad = () => new Error(`Invalid project config: ${file} — project must be {owner, number, statusMap?, acGate?}`);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
+  const p = value as Partial<GitHubProject>;
+  if (typeof p.owner !== "string" || p.owner === ""
+    || typeof p.number !== "number" || !Number.isInteger(p.number) || p.number < 1
+    || (p.acGate !== undefined && typeof p.acGate !== "boolean")) throw bad();
+  if (p.statusMap !== undefined) {
+    if (typeof p.statusMap !== "object" || p.statusMap === null || Array.isArray(p.statusMap)) throw bad();
+    for (const [stage, option] of Object.entries(p.statusMap)) {
+      if (!STAGES.includes(stage as Stage) || typeof option !== "string") throw bad();
+    }
+  }
+  return p as GitHubProject;
 }
 
 /** Read the project config; missing config uses defaults, invalid config is an error. */
@@ -85,6 +115,7 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
+  cfg.project = parseProjectBlock(cfg.project, f);
   return cfg;
 }
 

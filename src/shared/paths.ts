@@ -22,6 +22,9 @@ function findPackageRoot(): string {
 export const PKG_ROOT = findPackageRoot();
 export const PKG_TEMPLATES_DIR = join(PKG_ROOT, "kanban-flow", "templates");
 export const PKG_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "rules");
+export const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");
+/** The opt-in GitHub sync pack — a seed source only, deliberately not on the resolveHook path. */
+export const PKG_GITHUB_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "github-hooks");
 export const PKG_STACK_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "stacks");
 
 export interface TemplateSource {

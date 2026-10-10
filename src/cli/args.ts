@@ -54,7 +54,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   issues: {
-    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url>  — GitHub issues on the project's repository (.kf/config.json), via gh",
+    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> | kf issues sync <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh",
     allowPositionals: true,
     options: {
       state: { type: "string" },

@@ -39,7 +39,8 @@
     "skills",
     "docs/workflow",
     "kanban-flow/templates",
-    "kanban-flow/review"
+    "kanban-flow/review",
+    "kanban-flow/github-hooks"
   ],
   "engines": {
     "node": ">=20"
