@@ -120,6 +120,48 @@ describe("work item issue link", () => {
   });
 });
 
+describe("project config block", () => {
+  it("reads a valid project block and rejects malformed ones", async () => {
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { dones: "Done" }, acGate: false } });
+    const cfgPath = join(dir, ".kf", "config.json");
+    const base = { schema: "kanban-flow", created: "x", repository: "o/r" };
+    const cfg = readProjectConfig(dir);
+    expect(cfg.project).toMatchObject({ owner: "me", number: 3, acGate: false });
+    expect(cfg.project!.statusMap!.dones).toBe("Done");
+
+    for (const bad of [
+      { owner: "", number: 3 },
+      { owner: "me", number: 0 },
+      { owner: "me", number: 3, statusMap: { "not-a-stage": "X" } },
+      { owner: "me", number: 3, statusMap: { dones: 5 } },
+      { owner: "me", number: 3, acGate: "yes" },
+      "string",
+      5,
+    ]) {
+      await writeFile(cfgPath, JSON.stringify({ ...base, project: bad }));
+      expect(() => readProjectConfig(dir)).toThrow(/Invalid project config/);
+    }
+  });
+});
+
+describe("kf issues sync", () => {
+  it("refuses when the item has no linked issue, and when the spec is not filled", async () => {
+    await project({ repository: "o/r" });
+    const itemDir = join(dir, ".works", "brainstorm", "f1_20261008_1200");
+    await mkdir(itemDir, { recursive: true });
+    const meta = { schema: "kanban-flow", feature: "f1", context: "app", created: "20261008_1200" };
+    await writeFeatureMeta(itemDir, meta);
+    const res1 = await cmdIssues(args("issues", ["sync", "f1"]), dir);
+    expect(res1.code).toBe(1);
+    expect(res1.stdout).toContain("no linked issue");
+
+    await writeFeatureMeta(itemDir, { ...meta, issue: "https://github.com/o/r/issues/7" });
+    const res2 = await cmdIssues(args("issues", ["sync", "f1"]), dir);
+    expect(res2.code).toBe(1);
+    expect(res2.stdout).toContain("no filled requirement");
+  });
+});
+
 describe("issue title", () => {
   it("prefers --title, then the work item's goal, then the slug", () => {
     expect(issueTitle({ goal: "Readable goal" }, "ci-pipeline-dedup", "Explicit title")).toBe("Explicit title");

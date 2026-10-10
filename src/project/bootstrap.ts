@@ -26,6 +26,8 @@ export interface BootstrapAnswers {
   reviewer: string;
   /** GitHub `owner/name` the project mirrors work items to; undefined leaves issues local. */
   repository?: string;
+  /** Copy the generic GitHub sync hook pack into .kf/hooks/ — only meaningful with repository. */
+  installGithubHooks?: boolean;
   ignoreWorks: boolean;
   seedFeature: boolean;
   agents: AgentId[];
@@ -113,13 +115,16 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
   const declared = cfg.contexts?.length ? cfg.contexts
     : explicitContext && isNewProject ? [explicitContext]
     : [];
+  const repository = cfg.repository ?? detectRepository(root) ?? undefined;
   return {
     contexts: declared,
     defaultContext,
     defaultContextStated: Boolean(explicitContext) || cfg.contexts !== undefined || cfg.defaultContext !== undefined,
     stacks: cfg.stacks?.length ? cfg.stacks : detectStacks(root),
     reviewer: cfg.reviewer ?? detectReviewer(root),
-    repository: cfg.repository ?? detectRepository(root) ?? undefined,
+    repository,
+    // Defaults take the opt-in silently — the pack no-ops for a project that never configures it.
+    installGithubHooks: repository !== undefined,
     ignoreWorks: shouldSuggestIgnoreWorks(root),
     seedFeature: false,
     agents: cfg.agents?.length ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT],
@@ -261,10 +266,16 @@ export async function askAll(
 
   const seedFeature = await confirm(rl, "Seed a demo feature to show the structure?", false);
 
+  // Only offered when a repo link exists — the pack no-ops without one, so the question would
+  // be noise for a project staying local.
+  const installGithubHooks = repository !== undefined
+    ? await confirm(rl, "Install the GitHub sync hook pack into .kf/hooks/?", true)
+    : undefined;
+
   // Typing a list is a decision; pressing Enter is not. Recording Enter as one would repoint
   // every future context-less `kf new` at the invented fallback, on the one path where the
   // prompt has just promised "leave empty to keep this project unrestricted".
-  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, repository, ignoreWorks, seedFeature, agents };
+  return { contexts, defaultContext, defaultContextStated: typed.length > 0 || d.defaultContextStated, stacks, reviewer, repository, ignoreWorks, seedFeature, agents, installGithubHooks };
 }
 
 /** Multi-select agent prompt (comma-separated ids; Enter = default agent). */
@@ -290,6 +301,12 @@ export async function seedOverrides(root: string): Promise<void> {
   const { PKG_TEMPLATES_DIR, PKG_RULES_DIR } = await import("../shared/paths.js");
   await copyDirInto(PKG_TEMPLATES_DIR, join(root, ".kf", "templates"));
   await copyDirInto(PKG_RULES_DIR, join(root, ".kf", "review", "rules"));
+}
+
+/** Copy the generic GitHub sync pack into .kf/hooks/ — skips files the project already has. */
+export async function seedGithubHooks(root: string): Promise<void> {
+  const { PKG_GITHUB_HOOKS_DIR } = await import("../shared/paths.js");
+  await copyDirInto(PKG_GITHUB_HOOKS_DIR, join(root, ".kf", "hooks"));
 }
 
 async function copyDirInto(src: string, dest: string): Promise<void> {

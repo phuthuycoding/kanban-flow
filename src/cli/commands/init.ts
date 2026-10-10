@@ -10,7 +10,7 @@ import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
 import { installProjectSkills } from "../../integrations/install.js";
-import { hasWorkItems, bootstrapDefaults, onboardAnswers, seedOverrides, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
+import { hasWorkItems, bootstrapDefaults, onboardAnswers, seedOverrides, seedGithubHooks, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -96,6 +96,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   // repeating it here would be a guard that can never fire.
   ensureWorksStructure(target);
   await seedOverrides(target);
+  if (answers.installGithubHooks) await seedGithubHooks(target);
   saveConfig(target, answers);
   const skills = await installProjectSkills(target, answers.agents);
   if (skills.code !== 0) return skills;

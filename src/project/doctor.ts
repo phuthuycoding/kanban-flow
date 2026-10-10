@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import { STAGES } from "../workflow/schema.js";
 import { listFeatures, readFeatureMeta } from "../workflow/features.js";
@@ -8,6 +9,7 @@ import { validateFeature } from "../workflow/validate.js";
 import { readProjectConfig, configPath } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
+import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
 import { AGENTS, DEFAULT_AGENT, projectSkillsDir, parseAgentIds, type AgentId } from "../integrations/agents.js";
 import { installProjectSkills, MANAGED_SKILLS } from "../integrations/install.js";
 
@@ -162,6 +164,56 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
   }];
 }
 
+/** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
+const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
+
+/**
+ * The hook pack is opt-in, so its state is only checked once a project opted in — detected by
+ * any pack file already in .kf/hooks/. Missing files get restored by --fix; divergent files are
+ * only reported, because a hook the project edited is project-owned and must not be clobbered.
+ */
+function checkGithubHooks(root: string): DoctorFinding[] {
+  const dir = join(root, ".kf", "hooks");
+  const present = GITHUB_HOOK_PACK.filter((f) => existsSync(join(dir, f)));
+  if (present.length === 0) return [];
+  const findings: DoctorFinding[] = [];
+  const missing = GITHUB_HOOK_PACK.filter((f) => !present.includes(f));
+  if (missing.length > 0) {
+    findings.push({
+      level: "WARNING",
+      area: ".kf/hooks",
+      message: `GitHub hook pack incomplete: ${missing.join(", ")} missing.`,
+      action: "kf doctor --fix",
+    });
+  }
+  for (const f of present) {
+    const pkg = join(PKG_GITHUB_HOOKS_DIR, f);
+    if (existsSync(pkg) && readFileSync(pkg, "utf8") !== readFileSync(join(dir, f), "utf8")) {
+      findings.push({
+        level: "WARNING",
+        area: ".kf/hooks",
+        message: `${f} differs from the packaged version.`,
+        action: "project-owned — review the diff and refresh by hand if the change is stale",
+      });
+    }
+  }
+  return findings;
+}
+
+/** A configured board needs `gh project` commands, which need the project scope. */
+function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+  if (!cfg?.project) return [];
+  const res = spawnSync("gh", ["auth", "status", "-h", "github.com"], { encoding: "utf8", timeout: 10_000 });
+  if (res.error || res.status !== 0) {
+    return [{ level: "WARNING", area: "gh", message: "project is configured but gh is not authenticated.", action: "gh auth login (with the project scope)" }];
+  }
+  const scopes = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+  if (!/(^|')project(,|'|\s|$)/.test(scopes) && !scopes.includes("'project'")) {
+    return [{ level: "WARNING", area: "gh", message: "project is configured but the gh token lacks the project scope — board sync will warn and skip.", action: "gh auth refresh -s project" }];
+  }
+  return [];
+}
+
 /** The file as written, not as normalised by readProjectConfig, which fills stacks in from stack. */
 function readRawConfig(root: string): Record<string, unknown> | null {
   try {
@@ -182,6 +234,8 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...config.findings);
   findings.push(...checkLegacyFields(root, config.cfg));
   findings.push(...checkRepository(root, config.cfg));
+  findings.push(...checkGithubHooks(root));
+  findings.push(...checkGhProjectScope(config.cfg));
 
   const agents = config.cfg?.agents ? parseAgentIds(config.cfg.agents) : [DEFAULT_AGENT];
   findings.push(...checkSkills(root, agents.length > 0 ? agents : [DEFAULT_AGENT]));
@@ -259,6 +313,19 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
       return [DEFAULT_AGENT];
     }
   })();
+  // Restore missing pack files only when the project opted in (some are present); divergent
+  // files stay warnings — a hook the project edited is not ours to overwrite.
+  const hooksDir = join(root, ".kf", "hooks");
+  const optedIn = GITHUB_HOOK_PACK.some((f) => existsSync(join(hooksDir, f)));
+  if (optedIn) {
+    const missing = GITHUB_HOOK_PACK.filter((f) => !existsSync(join(hooksDir, f)) && existsSync(join(PKG_GITHUB_HOOKS_DIR, f)));
+    for (const f of missing) {
+      mkdirSync(hooksDir, { recursive: true });
+      spawnSync("cp", [join(PKG_GITHUB_HOOKS_DIR, f), join(hooksDir, f)]);
+      fixed.push(`restored .kf/hooks/${f} from the packaged hook pack`);
+    }
+  }
+
   const missingFor = agents.filter((id) => {
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) return false;

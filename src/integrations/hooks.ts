@@ -2,12 +2,10 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
-import type { Stage, ApprovalStatus } from "../workflow/schema.js";
+import { STAGES, type Stage, type ApprovalStatus } from "../workflow/schema.js";
 import { findWorksRoot } from "../workflow/features.js";
 import { readProjectConfig } from "../project/config.js";
-import { PKG_ROOT, USER_KABAN_DIR } from "../shared/paths.js";
-
-const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");
+import { PKG_HOOKS_DIR, USER_KABAN_DIR } from "../shared/paths.js";
 
 export interface HookSource {
   name: string;
@@ -76,6 +74,19 @@ export function runHook(
   if (!hook) {
     return { hook: null, ran: false, ok: true, code: 0, output: "" };
   }
+  // Config is read once for both link fields: hooks hardcode nothing the project already
+  // declared — the repo, the board and the stage→Status names all arrive as KFW_* env.
+  const cfg = readProjectConfig(env.root);
+  const projectEnv: Record<string, string> = {};
+  if (cfg.project) {
+    projectEnv.KFW_PROJECT_OWNER = cfg.project.owner;
+    projectEnv.KFW_PROJECT_NUMBER = String(cfg.project.number);
+    projectEnv.KFW_PROJECT_AC_GATE = cfg.project.acGate === false ? "0" : "1";
+    for (const stage of STAGES) {
+      const option = cfg.project.statusMap?.[stage];
+      if (option) projectEnv[`KFW_PROJECT_STATUS_${stage.toUpperCase()}`] = option;
+    }
+  }
   const isSh = hook.path.endsWith(".sh");
   const isJs = hook.path.endsWith(".js") || hook.path.endsWith(".mjs") || hook.path.endsWith(".cjs");
   const cmd = isSh ? "bash" : isJs ? "node" : hook.path;
@@ -92,7 +103,8 @@ export function runHook(
       KFW_FROM_STAGE: env.from ?? "",
       KFW_TO_STAGE: env.to,
       KFW_APPROVAL: env.approval,
-      KFW_REPOSITORY: readProjectConfig(env.root).repository ?? "",
+      KFW_REPOSITORY: cfg.repository ?? "",
+      ...projectEnv,
       ...(opts.hookName ? { KFW_EVENT: opts.hookName } : {}),
       ...opts.env,
     },

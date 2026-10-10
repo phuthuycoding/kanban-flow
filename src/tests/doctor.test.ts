@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
@@ -244,6 +245,26 @@ describe("kf doctor --fix", () => {
     execFileSync("git", ["init", root]);
     execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.com/owner/repo.git"]);
     expect(runDoctor(root).findings.some((f) => f.message.includes("repository"))).toBe(false);
+  });
+
+  it("restores missing hook-pack files only after the project opted in, and only reports divergence", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(hooks, { recursive: true });
+    // Not opted in — no pack files: doctor stays silent.
+    expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
+
+    // Opted in via one file — the rest are missing and the one present is stale.
+    await writeFile(join(hooks, "dones.sh"), "#!/usr/bin/env bash\n# edited\n");
+    const report = runDoctor(root);
+    expect(report.findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
+    expect(report.findings.some((f) => f.message.includes("dones.sh differs"))).toBe(true);
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("restored .kf/hooks/lib-github.sh");
+    expect(existsSync(join(hooks, "brainstorm.sh"))).toBe(true);
+    // The project-edited file is never clobbered.
+    await expect(readFile(join(hooks, "dones.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
   });
 
   it("drops legacy config fields but leaves judgment calls alone", async () => {

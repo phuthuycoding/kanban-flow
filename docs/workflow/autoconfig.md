@@ -17,6 +17,7 @@ each question in turn:
 - **Default reviewer** — the name `kf approve` records; defaults to the git user.
 - **GitHub repository** — `owner/name` or a URL for `kf issues` and the `KFW_REPOSITORY` hook variable; defaults to the detected `origin` remote, and `none` leaves the project unlinked.
 - **Agents** — which agent CLIs get the eight skills installed.
+- **GitHub sync hooks** — offered only when a repository is linked; yes copies the generic pack into `.kf/hooks/` (see [cli-reference](./cli-reference.md#the-hook-pack-and-the-project-board)).
 - **`.gitignore`** — whether to add `.works/`; asked only when `.git` exists and the entry is missing.
 - **Demo feature** — whether to seed one to show the structure.
 
