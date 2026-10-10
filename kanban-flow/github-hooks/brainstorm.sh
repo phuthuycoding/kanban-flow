@@ -6,11 +6,10 @@
 gh_ready || exit 0
 command -v kf >/dev/null 2>&1 || { warn "kf not on PATH, skipping issue create"; exit 0; }
 
-if issue_url_of "$KFW_FEATURE_DIR" >/dev/null 2>&1 && [ -n "$(issue_url_of "$KFW_FEATURE_DIR" 2>/dev/null)" ]; then
-  exit 0
+if ! issue_url_of "$KFW_FEATURE_DIR" >/dev/null 2>&1 || [ -z "$(issue_url_of "$KFW_FEATURE_DIR" 2>/dev/null)" ]; then
+  kf issues create "$KFW_FEATURE" >/dev/null 2>&1 \
+    && echo "[github-sync] issue created for $KFW_FEATURE" \
+    || warn "kf issues create failed for $KFW_FEATURE"
 fi
-kf issues create "$KFW_FEATURE" >/dev/null 2>&1 \
-  && echo "[github-sync] issue created for $KFW_FEATURE" \
-  || warn "kf issues create failed for $KFW_FEATURE"
 sync_project_status "$KFW_FEATURE_DIR" brainstorm
 exit 0
