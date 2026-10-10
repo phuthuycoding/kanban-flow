@@ -574,7 +574,7 @@ describe("writing the config", () => {
     await mkdir(join(dir, ".kf"), { recursive: true });
     expect(() => saveConfig(dir, {
       contexts: ["au@th"], defaultContext: "au@th", defaultContextStated: true, stacks: [], reviewer: "t",
-      ignoreWorks: false, seedFeature: false, agents: ["claude"],
+      ignoreWorks: false, seedFeature: false, agents: ["claude"], skillScope: "global",
     })).toThrow(/context/);
   });
 
@@ -583,7 +583,7 @@ describe("writing the config", () => {
     await mkdir(join(dir, ".kf"), { recursive: true });
     saveConfig(dir, {
       contexts: ["billing"], defaultContext: "billing", defaultContextStated: true, stacks: [], reviewer: "t",
-      ignoreWorks: false, seedFeature: false, agents: ["claude"],
+      ignoreWorks: false, seedFeature: false, agents: ["claude"], skillScope: "global",
     });
     const written = JSON.parse(readFileSync(join(dir, ".kf", "config.json"), "utf8"));
     expect(written.contexts).toEqual(["billing"]);
@@ -596,7 +596,7 @@ describe("writing the config", () => {
     await workItem("old", "auth");
     saveConfig(dir, {
       contexts: [], defaultContext: "app", defaultContextStated: false, stacks: [], reviewer: "t",
-      ignoreWorks: false, seedFeature: false, agents: ["claude"],
+      ignoreWorks: false, seedFeature: false, agents: ["claude"], skillScope: "global",
     });
     expect(JSON.parse(readFileSync(join(dir, ".kf", "config.json"), "utf8")).defaultContext).toBeUndefined();
     // kf new must still find auth by looking at the work items, as it did before init ran.
@@ -615,6 +615,7 @@ describe("writing the config", () => {
       ignoreWorks: false,
       seedFeature: false,
       agents: ["claude"],
+      skillScope: "global",
     });
     // The reader rejects a case-insensitive repeat, so the writer must never produce one.
     expect(readProjectConfig(dir).contexts).toEqual(["auth", "billing"]);
@@ -748,7 +749,7 @@ describe("edges nothing else reaches", () => {
     Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
     const asked = vi.spyOn(bootstrap, "onboardAnswers").mockResolvedValue({
       contexts: ["payments"], defaultContext: "payments", defaultContextStated: true,
-      stacks: [], reviewer: "tester", ignoreWorks: false, seedFeature: false, agents: ["claude"],
+      stacks: [], reviewer: "tester", ignoreWorks: false, seedFeature: false, agents: ["claude"], skillScope: "global",
     });
     try {
       const out = await cmdInit(args("init", [], { context: "payments" }), dir);

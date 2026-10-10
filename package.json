@@ -1,7 +1,7 @@
 {
   "name": "@phuthuycoding/kanban-flow",
   "version": "0.7.0",
-  "description": "Kanban workflow CLI \u2014 artifact-gated feature pipeline (brainstorm \u2192 plan \u2192 implement \u2192 test \u2192 review \u2192 archive)",
+  "description": "Kanban workflow CLI — artifact-gated feature pipeline (brainstorm → plan → implement → test → review → archive)",
   "type": "module",
   "license": "MIT",
   "author": "Quyen (phuthuycoding)",
@@ -57,6 +57,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "oxlint": "^1.81.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"

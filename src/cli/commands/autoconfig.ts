@@ -4,9 +4,9 @@ import { basename, join } from "node:path";
 import { findWorksRoot } from "../../workflow/features.js";
 import { commandHelp } from "../args.js";
 import { effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectConfig, detectStacks, configPath, projectKabanDir, type ProjectConfig } from "../../project/config.js";
-import { AGENTS, DEFAULT_AGENT, projectSkillsDir, type AgentId } from "../../integrations/agents.js";
-import { MANAGED_SKILLS } from "../../integrations/install.js";
+import { readProjectConfig, detectStacks, configPath, projectKabanDir, effectiveSkillsScope, type ProjectConfig } from "../../project/config.js";
+import { AGENTS, DEFAULT_AGENT, projectSkillsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
+import { agentSkillsState, hasManagedEntries, skillsAreHealthy } from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
 import type { CmdResult } from "../result.js";
 import type { ParsedArgs } from "../args.js";
@@ -17,14 +17,18 @@ interface CheckItem {
   action?: string;
 }
 
-function installedAgents(root: string): AgentId[] {
-  const has = (dir: string) => MANAGED_SKILLS.every((s) => existsSync(join(dir, s, "SKILL.md")));
-  return AGENTS.filter((a) => has(projectSkillsDir(a, root))).map((a) => a.id);
+function skillsDirAtScope(a: (typeof AGENTS)[number], root: string, scope: SkillScope): string {
+  return scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root);
+}
+
+function installedAgents(root: string, scope: SkillScope): AgentId[] {
+  return AGENTS.filter((a) => skillsAreHealthy(agentSkillsState(skillsDirAtScope(a, root, scope)))).map((a) => a.id);
 }
 
 function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Partial<ProjectConfig>): CheckItem[] {
   const items: CheckItem[] = [];
   const kf = projectKabanDir(root);
+  const scope = effectiveSkillsScope(cfg);
 
   items.push({
     done: existsSync(configPath(root)),
@@ -35,10 +39,26 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
   for (const id of agents) {
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
+    const dir = skillsDirAtScope(a, root, scope);
+    const state = agentSkillsState(dir);
     items.push({
-      done: MANAGED_SKILLS.every((s) => existsSync(join(projectSkillsDir(a, root), s, "SKILL.md"))),
-      label: `Project skills for ${a.label} (${projectSkillsDir(a, root)}/)`,
-      action: `kf install --agent ${id}`,
+      done: skillsAreHealthy(state),
+      label: `Skills for ${a.label} (scope: ${scope}, ${dir}/) — ${state}`,
+      action: `kf install --agent ${id} --scope ${scope}`,
+    });
+  }
+
+  if (scope === "global") {
+    const dupes = agents
+      .map((id) => AGENTS.find((x) => x.id === id))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a))
+      .filter((a) => hasManagedEntries(projectSkillsDir(a, root)));
+    items.push({
+      done: dupes.length === 0,
+      label: dupes.length === 0
+        ? "No duplicate project-scope copies (scope: global)"
+        : `Duplicate project-scope copies shadowing global skills: ${dupes.map((a) => projectSkillsDir(a, root)).join(", ")}/`,
+      action: dupes.length === 0 ? undefined : "kf install (cleans project copies), or kf uninstall --scope project",
     });
   }
 
@@ -169,7 +189,8 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
   const known = new Set(AGENTS.map((a) => a.id));
   const configured = (cfg.agents ?? []).filter((a): a is AgentId => known.has(a as AgentId));
   const agents: AgentId[] = configured.length > 0 ? configured : [DEFAULT_AGENT];
-  const skills = installedAgents(root);
+  const scope = effectiveSkillsScope(cfg);
+  const skills = installedAgents(root, scope);
 
   const ctx = [
     "## Project context",
@@ -177,7 +198,7 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
     `- Root: ${root}`,
     `- ${cfg.stacks?.length ? "Configured" : "Detected"} stacks: ${stacks.length ? stacks.join(", ") : "none"}`,
     `- Config: ${existsSync(configPath(root)) ? `${configPath(root)} (context: ${effectiveDefaultContext(cfg)}, reviewer: ${cfg.reviewer ?? "unset"}, agents: ${agents.join(", ")})` : "missing — run kf init"}`,
-    `- Skills installed (project scope): [${skills.join(", ") || "none"}]`,
+    `- Skills installed (scope: ${scope}): [${skills.join(", ") || "none"}]`,
   ].join("\n");
 
   const items = checklist(root, stacks, agents, cfg);

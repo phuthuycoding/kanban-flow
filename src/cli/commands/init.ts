@@ -4,12 +4,12 @@ import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectConfig, detectStacks, writeProjectConfig, configPath } from "../../project/config.js";
+import { readProjectConfig, detectStacks, writeProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { seedHarness } from "../../harness/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
-import { installProjectSkills } from "../../integrations/install.js";
+import { installSkills } from "../../integrations/install.js";
 import { hasWorkItems, bootstrapDefaults, onboardAnswers, seedOverrides, seedGithubHooks, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
@@ -66,7 +66,8 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   for (const docsDir of ["requirement", "use-cases", "testplan"]) {
     await mkdir(join(target, "docs", docsDir, ctx), { recursive: true });
   }
-  const skills = await installProjectSkills(target, agents.length ? agents : parseAgentIds(cfg.agents));
+  const scope = effectiveSkillsScope(cfg);
+  const skills = await installSkills(target, agents.length ? agents : parseAgentIds(cfg.agents), scope, { declaredScope: cfg.skills?.scope });
   if (skills.code !== 0) return skills;
   const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {
@@ -98,7 +99,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   await seedOverrides(target);
   if (answers.installGithubHooks) await seedGithubHooks(target);
   saveConfig(target, answers);
-  const skills = await installProjectSkills(target, answers.agents);
+  const skills = await installSkills(target, answers.agents, answers.skillScope, { declaredScope: answers.skillScope });
   if (skills.code !== 0) return skills;
 
   for (const docsDir of ["requirement", "use-cases", "testplan"]) {
