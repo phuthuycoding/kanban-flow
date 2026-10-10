@@ -1,19 +1,20 @@
 name: Release
 
+# The release IS the trigger: `gh release create v0.7.0` (or the web UI) creates the tag
+# and the release in one step, then this workflow verifies and publishes to npm.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
-  contents: write
-  id-token: write # npm --provenance
+  contents: read
+  id-token: write # npm OIDC trusted publishing
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}
-      notes: ${{ steps.notes.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
@@ -21,30 +22,17 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${{ github.event.release.tag_name }}"
           pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "tag v$tag does not match package.json version $pkg — bump and retag" >&2
+          if [ "$tag" != "v$pkg" ]; then
+            echo "release tag $tag does not match package.json version v$pkg — fix the tag or the version and republish" >&2
             exit 1
           fi
           if ! grep -q "^## \[${pkg}\]" CHANGELOG.md; then
-            echo "CHANGELOG.md has no '## [$pkg]' section — write it before tagging" >&2
+            echo "CHANGELOG.md has no '## [$pkg]' section — write it before publishing" >&2
             exit 1
           fi
           echo "value=$pkg" >> "$GITHUB_OUTPUT"
-
-      - name: Extract the release notes from CHANGELOG
-        id: notes
-        run: |
-          set -euo pipefail
-          awk -v v="${{ steps.version.outputs.value }}" '
-            $0 ~ "^## \\[" v "\\]" { f=1; next }
-            f && /^## \[/ { exit }
-            f { print }
-          ' CHANGELOG.md > notes.md
-          test -s notes.md
-          base64 -w0 notes.md > notes.b64
-          echo "value=$(cat notes.b64)" >> "$GITHUB_OUTPUT"
 
   test:
     needs: verify
@@ -75,20 +63,3 @@ jobs:
       - run: npm ci
       - run: npm install -g npm@latest
       - run: npm publish
-
-  release:
-    needs: [verify, publish]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create the GitHub release from the tag's CHANGELOG section
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NOTES_B64: ${{ needs.verify.outputs.notes }}
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: |
-          set -euo pipefail
-          echo "$NOTES_B64" | base64 -d > notes.md
-          gh release create "v$VERSION" \
-            --title "$VERSION" \
-            --notes-file notes.md \
-            --verify-tag
