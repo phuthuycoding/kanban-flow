@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.8.0] - 2026-10-10
 
 ### Added
 - **`kf issues done <feature>` — the delivery trigger.** Archive no longer means "shipped": the command verifies a recorded PR is merged (`gh pr view`, only when `.kfw.json.pr` is set), runs the new `delivered` hook — issue close + board → `statusMap.delivered` (default `"Done"`) — and stamps `delivered`/`deliveredAt` in `.kfw.json`. Idempotent and re-runnable so a partial failure reconciles; a missing `delivered.sh` records the flag and warns. `kf issues link` learns pull request refs (`…/pull/<n>` URL or `--pr`), and `kf doctor`/`kf status` warn about dones items that were archived but never delivered.
