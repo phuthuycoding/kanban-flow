@@ -59,6 +59,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  # Publishes via npm trusted publishing (OIDC): no token in the repo, provenance automatic.
+  # Requires the one-time publisher link on npmjs.com (package → Trusted Publisher →
+  # GitHub Actions: phuthuycoding / kanban-flow / release.yml) and npm CLI >= 11.5.1.
   publish:
     needs: test
     runs-on: ubuntu-latest
@@ -70,9 +73,8 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
       - run: npm ci
-      - run: npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm install -g npm@latest
+      - run: npm publish
 
   release:
     needs: [verify, publish]
