@@ -2,6 +2,11 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Changed
+- **`kf issues create` titles the issue by `--title`, then the work item's `--goal`, then the slug.** A bare slug read as nothing on a repo's issue list; the goal is the human-written description and makes a far better default title.
+
 ## [0.6.0] - 2026-10-09
 
 ### Added

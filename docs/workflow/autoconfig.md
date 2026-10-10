@@ -15,6 +15,7 @@ each question in turn:
 - **Contexts** — comma separated; the first entry is the default, an empty answer keeps the project unrestricted.
 - **Stacks** — confirms the detected list, or asks for one when nothing was detected.
 - **Default reviewer** — the name `kf approve` records; defaults to the git user.
+- **GitHub repository** — `owner/name` or a URL for `kf issues` and the `KFW_REPOSITORY` hook variable; defaults to the detected `origin` remote, and `none` leaves the project unlinked.
 - **Agents** — which agent CLIs get the eight skills installed.
 - **`.gitignore`** — whether to add `.works/`; asked only when `.git` exists and the entry is missing.
 - **Demo feature** — whether to seed one to show the structure.

@@ -8,7 +8,7 @@ import { normalizeRepository, detectRepository, issueUrl } from "../project/repo
 import { readProjectConfig } from "../project/config.js";
 import { ensureWorksStructure, writeFeatureMeta, readFeatureMeta } from "../workflow/features.js";
 import { bootstrapDefaults, saveConfig } from "../project/bootstrap.js";
-import { cmdIssues } from "../cli/commands/issues.js";
+import { cmdIssues, issueTitle } from "../cli/commands/issues.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
@@ -117,6 +117,14 @@ describe("work item issue link", () => {
     expect(readFeatureMeta(itemDir)?.issue).toBe("https://github.com/owner/repo/issues/42");
     await writeFeatureMeta(itemDir, { ...meta, issue: "42" });
     expect(() => readFeatureMeta(itemDir)).toThrow(/Invalid feature metadata/);
+  });
+});
+
+describe("issue title", () => {
+  it("prefers --title, then the work item's goal, then the slug", () => {
+    expect(issueTitle({ goal: "Readable goal" }, "ci-pipeline-dedup", "Explicit title")).toBe("Explicit title");
+    expect(issueTitle({ goal: "Readable goal" }, "ci-pipeline-dedup")).toBe("Readable goal");
+    expect(issueTitle({}, "ci-pipeline-dedup")).toBe("ci-pipeline-dedup");
   });
 });
 
