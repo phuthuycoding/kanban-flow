@@ -354,6 +354,9 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
     ...(a.repository ? { repository: a.repository } : {}),
     agents: a.agents,
     harness: existing.harness ?? seedHarness(a.agents),
+    // Blocks saveConfig does not own — re-init must not silently drop what a human configured.
+    ...(existing.worktree !== undefined ? { worktree: existing.worktree } : {}),
+    ...(existing.project !== undefined ? { project: existing.project } : {}),
     created: existing.created ?? nowTimestamp(),
   };
   writeProjectConfig(root, cfg);
