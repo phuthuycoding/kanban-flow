@@ -49,7 +49,7 @@ describe("copySkillsTo / removeSkillsFrom", () => {
 describe("install/uninstall (project scope)", () => {
   it("cmdInstall copies skills into {root}/.claude/skills", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const res = await cmdInstall([], { cwd: dir });
+    const res = await cmdInstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(join(dir, ".claude", "skills"));
     for (const name of MANAGED_SKILLS) {
@@ -58,7 +58,7 @@ describe("install/uninstall (project scope)", () => {
   });
 
   it("cmdInstall refuses outside a kanban project", async () => {
-    const res = await cmdInstall([], { cwd: dir });
+    const res = await cmdInstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("kf init");
     expect(existsSync(join(dir, ".claude"))).toBe(false);
@@ -66,10 +66,10 @@ describe("install/uninstall (project scope)", () => {
 
   it("cmdUninstall removes project-level skills, leaving unrelated dirs intact", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall([], { cwd: dir, scope: "project" });
     await mkdir(join(dir, ".claude", "skills", "unrelated"), { recursive: true });
 
-    const res = await cmdUninstall([], { cwd: dir });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`removed ${MANAGED_SKILLS.length} skills`);
     expect(existsSync(join(dir, ".claude", "skills", "unrelated"))).toBe(true);
@@ -83,14 +83,14 @@ describe("install/uninstall (project scope)", () => {
     const nested = join(dir, "services", "api");
     await mkdir(nested, { recursive: true });
 
-    await cmdInstall([], { cwd: nested });
+    await cmdInstall([], { cwd: nested, scope: "project" });
     expect(existsSync(join(dir, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
     expect(existsSync(join(nested, ".claude", "skills"))).toBe(false);
   });
 
   it("cmdInstall with multiple agents installs each agent dir", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const res = await cmdInstall(["claude", "codex"], { cwd: dir });
+    const res = await cmdInstall(["claude", "codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(existsSync(join(dir, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
     expect(existsSync(join(dir, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
@@ -98,13 +98,13 @@ describe("install/uninstall (project scope)", () => {
 
   it("uninstall --purge --force removes skills plus .works/, .kf/ and kanban doc dirs", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall([], { cwd: dir, scope: "project" });
     await mkdir(join(dir, ".works", "dones", "x"), { recursive: true });
     await mkdir(join(dir, ".kf", "review", "rules"), { recursive: true });
     await mkdir(join(dir, "docs", "requirement"), { recursive: true });
     await mkdir(join(dir, "docs", "notes"), { recursive: true });
 
-    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("Purged project data");
     expect(existsSync(join(dir, ".works"))).toBe(false);
@@ -116,9 +116,9 @@ describe("install/uninstall (project scope)", () => {
 
   it("uninstall --purge without --force refuses on non-TTY and deletes nothing", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall([], { cwd: dir, scope: "project" });
 
-    const res = await cmdUninstall([], { cwd: dir, purge: true });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true });
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("--force");
     expect(existsSync(join(dir, ".works"))).toBe(true);
@@ -130,12 +130,12 @@ describe("install/uninstall (project scope)", () => {
     // file — but a command claiming to have purged the project data has to say what it left,
     // or the line only surfaces later when some unrelated .works/ is quietly ignored.
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall([], { cwd: dir, scope: "project" });
     const gitignore = join(dir, ".gitignore");
     const before = "node_modules/\n\n# kanban-flow\n.works/\n";
     await writeFile(gitignore, before);
 
-    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.stdout).toContain(".gitignore still ignores .works/");
     expect(await readFile(gitignore, "utf8"), "the file must come out byte-identical").toBe(before);
   });
@@ -143,30 +143,30 @@ describe("install/uninstall (project scope)", () => {
   it("stays quiet when .gitignore does not mention .works/", async () => {
     // The notice is only worth anything because its absence means something.
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall([], { cwd: dir, scope: "project" });
     await writeFile(join(dir, ".gitignore"), "node_modules/\ndist/\n");
-    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("stays quiet when there is no .gitignore at all", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
-    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    await cmdInstall([], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.code).toBe(0);
     expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("does not mention .gitignore when uninstalling without --purge", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall([], { cwd: dir, scope: "project" });
     await writeFile(join(dir, ".gitignore"), "# kanban-flow\n.works/\n");
-    const res = await cmdUninstall([], { cwd: dir });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
     expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("uninstall --purge --force reports when there is no project data", async () => {
-    const res = await cmdUninstall([], { cwd: dir, purge: true, force: true });
+    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("No project data");
   });

@@ -2,6 +2,13 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Changed
+- **Skills install globally by default, linked to the package.** `kf init` and `kf install` now put the eight managed skills in the agent's user-level dir (`~/.claude/skills`, `~/.agents/skills`, `~/.config/opencode/skills`, …) as symlinks to the packaged `skills/` — one set serves every project and tracks package upgrades (copied instead when `symlink()` is unavailable or the package lives in an npx cache). A global install removes the managed copies from the project's agent dirs unless the project declared `skills.scope: "project"`.
+- **`skills.scope` in `.kf/config.json`** — `"global"` (default when absent) or `"project"`, asked during interactive `kf init` and persisted by `saveConfig`. `kf install`/`kf uninstall` take `--scope global|project` (and `--global`/`--project` shorthands); global scope works outside a `.works/` project.
+- **`kf autoconfig` and `kf doctor` are scope-aware.** Both report the effective scope and per-agent status — `linked`, `copied`, `mixed`, `stale` (content differs from the package), `broken-link`, `partial`, `missing` — and flag leftover project copies when the scope is global. `kf doctor --fix` reinstalls at the effective scope and applies the same project-copy cleanup.
+
 ## [0.7.0] - 2026-10-10
 
 ### Added

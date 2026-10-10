@@ -6,12 +6,12 @@ import { spawnSync } from "node:child_process";
 import { STAGES } from "../workflow/schema.js";
 import { listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { validateFeature } from "../workflow/validate.js";
-import { readProjectConfig, configPath } from "./config.js";
+import { readProjectConfig, configPath, effectiveSkillsScope, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
-import { AGENTS, DEFAULT_AGENT, projectSkillsDir, parseAgentIds, type AgentId } from "../integrations/agents.js";
-import { installProjectSkills, MANAGED_SKILLS } from "../integrations/install.js";
+import { AGENTS, DEFAULT_AGENT, projectSkillsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
+import { agentSkillsState, hasManagedEntries, installSkills, MANAGED_SKILLS, skillEntryState, skillsAreHealthy } from "../integrations/install.js";
 
 export interface DoctorFinding {
   level: "ERROR" | "WARNING";
@@ -105,21 +105,37 @@ function checkItemMetadata(root: string): DoctorFinding[] {
   return findings;
 }
 
-/** Skills can be installed and then deleted; nothing notices until a worker has no instructions. */
-function checkSkills(root: string, agents: AgentId[]): DoctorFinding[] {
+/** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
+function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
   for (const id of agents) {
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) continue;
-    const dir = projectSkillsDir(adapter, root);
-    const missing = MANAGED_SKILLS.filter((s) => !existsSync(join(dir, s, "SKILL.md")));
-    if (missing.length === 0) continue;
+    const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
+    const state = agentSkillsState(dir);
+    if (skillsAreHealthy(state)) continue;
+    const bad = MANAGED_SKILLS.filter((s) => !["linked", "copied"].includes(skillEntryState(dir, s)));
     findings.push({
       level: "ERROR",
       area: dir,
-      message: `${missing.length} of ${MANAGED_SKILLS.length} skills missing: ${missing.join(", ")}`,
-      action: `kf install --agent ${id}, or kf doctor --fix`,
+      message: `skills ${state} (scope: ${scope}): ${bad.join(", ")}`,
+      action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
     });
+  }
+  // At global scope the project copies shadow the shared install — they are duplicates, not skills.
+  if (scope === "global") {
+    const dupes = agents
+      .map((id) => AGENTS.find((a) => a.id === id))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a))
+      .filter((a) => hasManagedEntries(projectSkillsDir(a, root)));
+    if (dupes.length > 0) {
+      findings.push({
+        level: "WARNING",
+        area: "skills",
+        message: `Project-scope copies shadow global skills: ${dupes.map((a) => a.id).join(", ")}.`,
+        action: "kf install (cleans project copies), or kf uninstall --scope project",
+      });
+    }
   }
   return findings;
 }
@@ -238,7 +254,8 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkGhProjectScope(config.cfg));
 
   const agents = config.cfg?.agents ? parseAgentIds(config.cfg.agents) : [DEFAULT_AGENT];
-  findings.push(...checkSkills(root, agents.length > 0 ? agents : [DEFAULT_AGENT]));
+  const scope = effectiveSkillsScope(config.cfg ?? ({} as Partial<ProjectConfig>));
+  findings.push(...checkSkills(root, agents.length > 0 ? agents : [DEFAULT_AGENT], scope));
 
   findings.push(...checkItemMetadata(root));
 
@@ -304,13 +321,17 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
     }
   }
 
-  const agents = (() => {
+  const { agents, scope, declaredScope } = (() => {
     try {
       const cfg = readProjectConfig(root);
       const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
-      return parsed.length > 0 ? parsed : [DEFAULT_AGENT];
+      return {
+        agents: parsed.length > 0 ? parsed : [DEFAULT_AGENT],
+        scope: effectiveSkillsScope(cfg),
+        declaredScope: cfg.skills?.scope,
+      };
     } catch {
-      return [DEFAULT_AGENT];
+      return { agents: [DEFAULT_AGENT], scope: "global" as SkillScope, declaredScope: undefined };
     }
   })();
   // Restore missing pack files only when the project opted in (some are present); divergent
@@ -329,12 +350,12 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
   const missingFor = agents.filter((id) => {
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) return false;
-    const dir = projectSkillsDir(adapter, root);
-    return MANAGED_SKILLS.some((s) => !existsSync(join(dir, s, "SKILL.md")));
+    const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
+    return !skillsAreHealthy(agentSkillsState(dir));
   });
   if (missingFor.length > 0) {
-    const res = await installProjectSkills(root, missingFor);
-    if (res.code === 0) fixed.push(`installed kanban skills for ${missingFor.join(", ")}`);
+    const res = await installSkills(root, missingFor, scope, { declaredScope });
+    if (res.code === 0) fixed.push(`installed kanban skills for ${missingFor.join(", ")} (scope: ${scope})`);
     else fixed.push(`skill install reported a problem: ${res.stdout}`);
   }
 
