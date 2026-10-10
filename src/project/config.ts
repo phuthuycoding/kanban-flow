@@ -74,7 +74,8 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
   if (p.statusMap !== undefined) {
     if (typeof p.statusMap !== "object" || p.statusMap === null || Array.isArray(p.statusMap)) throw bad();
     for (const [stage, option] of Object.entries(p.statusMap)) {
-      if (!STAGES.includes(stage as Stage) || typeof option !== "string") throw bad();
+      // `delivered` is a pseudo-stage: written by `kf issues done`, never entered via kf stage.
+      if ((!STAGES.includes(stage as Stage) && stage !== "delivered") || typeof option !== "string") throw bad();
     }
   }
   return p as GitHubProject;

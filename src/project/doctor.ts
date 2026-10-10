@@ -105,6 +105,18 @@ function checkItemMetadata(root: string): DoctorFinding[] {
   return findings;
 }
 
+/** An archived item with a linked issue but no `delivered` flag is pending the human's delivery step. */
+function checkUndelivered(root: string): DoctorFinding[] {
+  return listFeatures(root)
+    .filter((f) => f.stage === "dones" && f.meta?.issue && !f.meta.delivered)
+    .map((f) => ({
+      level: "WARNING" as const,
+      area: `${f.stage}/${f.folder}`,
+      message: `archived with a linked issue but not marked delivered.`,
+      action: `kf issues done ${f.name} (once the change has landed)`,
+    }));
+}
+
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
 function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
@@ -181,7 +193,7 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
 }
 
 /** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
-const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
+const GITHUB_HOOK_PACK = ["lib-github.sh", "delivered.sh", ...STAGES.map((s) => `${s}.sh`)];
 
 /**
  * The hook pack is opt-in, so its state is only checked once a project opted in — detected by
@@ -258,6 +270,7 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkSkills(root, agents.length > 0 ? agents : [DEFAULT_AGENT], scope));
 
   findings.push(...checkItemMetadata(root));
+  findings.push(...checkUndelivered(root));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
   // reported but deliberately kept out of `findings` — they must not decide the verdict.

@@ -37,3 +37,7 @@ export function detectRepository(root: string): string | null {
 export function issueUrl(repository: string, number: number): string {
   return `https://github.com/${repository}/issues/${number}`;
 }
+
+export function prUrl(repository: string, number: number): string {
+  return `https://github.com/${repository}/pull/${number}`;
+}

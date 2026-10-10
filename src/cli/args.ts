@@ -54,7 +54,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   issues: {
-    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> | kf issues sync <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh",
+    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr; done marks an archived item delivered (closes the issue, board → delivered status)",
     allowPositionals: true,
     options: {
       state: { type: "string" },
@@ -62,6 +62,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       title: { type: "string" },
       label: { type: "string", multiple: true },
       json: { type: "boolean" },
+      pr: { type: "boolean" },
     },
   },
   show: {

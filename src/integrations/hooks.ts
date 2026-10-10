@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
-import { STAGES, type Stage, type ApprovalStatus } from "../workflow/schema.js";
+import type { Stage, ApprovalStatus } from "../workflow/schema.js";
 import { findWorksRoot } from "../workflow/features.js";
 import { readProjectConfig } from "../project/config.js";
 import { PKG_HOOKS_DIR, USER_KABAN_DIR } from "../shared/paths.js";
@@ -82,10 +82,11 @@ export function runHook(
     projectEnv.KFW_PROJECT_OWNER = cfg.project.owner;
     projectEnv.KFW_PROJECT_NUMBER = String(cfg.project.number);
     projectEnv.KFW_PROJECT_AC_GATE = cfg.project.acGate === false ? "0" : "1";
-    for (const stage of STAGES) {
-      const option = cfg.project.statusMap?.[stage];
+    for (const [stage, option] of Object.entries(cfg.project.statusMap ?? {})) {
       if (option) projectEnv[`KFW_PROJECT_STATUS_${stage.toUpperCase()}`] = option;
     }
+    // `delivered` has a default ("Done") — a project board without the key still lands the card.
+    projectEnv.KFW_PROJECT_STATUS_DELIVERED ??= "Done";
   }
   const isSh = hook.path.endsWith(".sh");
   const isJs = hook.path.endsWith(".js") || hook.path.endsWith(".mjs") || hook.path.endsWith(".cjs");

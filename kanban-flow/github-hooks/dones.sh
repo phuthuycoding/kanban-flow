@@ -4,6 +4,8 @@
 # outages (the archive proceeds but the issue and board are left untouched). With AC_GATE=1 a
 # PASS report ticks the acceptance criteria and the evidence lands in the issue; AC that stay
 # unchecked refuse the archive. acGate: false in config skips the check entirely.
+# Archived is not delivered: the issue stays open and the board follows statusMap.dones —
+# `kf issues done` closes both once the change actually lands.
 . "$(dirname "$0")/lib-github.sh" || exit 0
 [ -n "${KFW_REPOSITORY:-}" ] || exit 0
 gh_ready || exit 0
@@ -32,5 +34,4 @@ if [ "${KFW_PROJECT_AC_GATE:-1}" = "1" ]; then
   fi
 fi
 sync_project_status "$KFW_FEATURE_DIR" dones
-close_issue_done "$KFW_FEATURE_DIR" "Work item archived in kf."
 exit 0
