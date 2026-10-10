@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { readProjectConfig } from "../../project/config.js";
-import { issueUrl } from "../../project/repository.js";
+import { issueUrl, prUrl } from "../../project/repository.js";
 import { findFeature, writeFeatureMeta } from "../../workflow/features.js";
+import { runHook } from "../../integrations/hooks.js";
 import { splitFrontmatter, isFilledFile } from "../../shared/frontmatter.js";
 import { ARTIFACTS } from "../../workflow/schema.js";
 import { findRoot } from "./helpers.js";
@@ -159,22 +160,83 @@ async function cmdCreate(root: string, repo: string, name: string | undefined, l
   return { code: 0, stdout: `Created ${url}\nRecorded on work item '${f.name}' (${f.dir}/.kfw.json).` };
 }
 
-async function cmdLink(root: string, repo: string, name: string | undefined, target: string | undefined): Promise<CmdResult> {
+async function cmdLink(root: string, repo: string, name: string | undefined, target: string | undefined, isPr: boolean): Promise<CmdResult> {
   if (!name || !target) {
-    return { code: 1, stdout: "Usage: kf issues link <feature> <issue-number-or-url>", stderr: "missing args" };
+    return { code: 1, stdout: "Usage: kf issues link <feature> <issue-number-or-url|--pr> — a pull request URL (…/pull/<n>) or --pr records the PR that delivers the item.", stderr: "missing args" };
   }
   const f = findFeature(root, name);
   if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
-  if (f.meta?.issue) {
+  // Bare numbers stay "issue" — issue and PR numbers share a sequence; disambiguate with --pr or a /pull/ URL.
+  const isPrRef = isPr || /^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(target);
+  if (isPrRef && f.meta?.pr) {
+    return { code: 1, stdout: `'${f.name}' already links PR ${f.meta.pr}.`, stderr: "pr exists" };
+  }
+  if (!isPrRef && f.meta?.issue) {
     return { code: 1, stdout: `'${f.name}' already links to ${f.meta.issue}.`, stderr: "issue exists" };
   }
   let url: string;
-  if (/^\d+$/.test(target)) url = issueUrl(repo, Number(target));
-  else if (/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(target)) url = target;
-  else return { code: 1, stdout: `'${target}' is neither an issue number nor a GitHub issue URL.`, stderr: "invalid issue" };
+  if (isPrRef) {
+    if (/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(target)) url = target;
+    else if (/^\d+$/.test(target)) url = prUrl(repo, Number(target));
+    else return { code: 1, stdout: `'${target}' is neither a PR number nor a GitHub pull request URL.`, stderr: "invalid pr" };
+  } else {
+    if (/^\d+$/.test(target)) url = issueUrl(repo, Number(target));
+    else if (/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(target)) url = target;
+    else return { code: 1, stdout: `'${target}' is neither an issue number nor a GitHub issue URL.`, stderr: "invalid issue" };
+  }
   if (!f.meta) return { code: 1, stdout: `'${f.name}' has no metadata file — cannot record the link.`, stderr: "no meta" };
-  await writeFeatureMeta(f.dir, { ...f.meta, issue: url });
+  await writeFeatureMeta(f.dir, { ...f.meta, ...(isPrRef ? { pr: url } : { issue: url }) });
   return { code: 0, stdout: `Linked '${f.name}' → ${url}` };
+}
+
+/**
+ * `kf issues done` — the delivery trigger. Archive ends the kanban lifecycle; this command
+ * is the human saying "it shipped": it verifies a recorded PR is merged, then runs the
+ * `delivered` hook (issue close + board → statusMap.delivered) and stamps `delivered`.
+ * Every side effect is idempotent, so re-runs reconcile after a partial failure — the flag
+ * records state, it never gates re-execution.
+ */
+async function cmdDone(root: string, repo: string, name: string | undefined): Promise<CmdResult> {
+  if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues done <feature>", stderr: "missing feature" };
+  const f = findFeature(root, name);
+  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  if (!f.meta) return { code: 1, stdout: `'${f.name}' has no metadata file.`, stderr: "no meta" };
+  if (f.stage !== "dones") {
+    return { code: 1, stdout: `'${f.name}' is in '${f.stage}' — kf issues done marks delivery after archive.`, stderr: "not archived" };
+  }
+  if (f.meta.pr) {
+    const res = gh(["pr", "view", f.meta.pr, "-R", repo, "--json", "state"]);
+    if (!res.ok) return ghFailure(res, `view ${f.meta.pr}`);
+    let state = "UNKNOWN";
+    try {
+      state = ((JSON.parse(res.stdout) as { state?: string }).state ?? "UNKNOWN").toUpperCase();
+    } catch {
+      return { code: 1, stdout: `gh pr view ${f.meta.pr} returned unexpected output:\n${res.stdout.trim()}`, stderr: "pr view parse" };
+    }
+    if (state !== "MERGED") {
+      return { code: 1, stdout: `PR ${f.meta.pr} is not merged (state: ${state}) — merge it first, or deliver by hand.`, stderr: "pr not merged" };
+    }
+  }
+
+  const hookRes = runHook(root, {
+    feature: f.name,
+    context: f.context,
+    dir: f.dir,
+    root,
+    from: "dones",
+    to: "dones",
+    approval: f.meta.approval?.status ?? "pending",
+  }, { hookName: "delivered" });
+
+  const lines: string[] = [];
+  if (!f.meta.issue) lines.push("⚠ no linked issue — recording delivery only");
+  if (!hookRes.ran) lines.push("⚠ no delivered.sh hook found — GitHub side effects skipped (reseed .kf/hooks/ to get the pack's)");
+  else if (!hookRes.ok) lines.push(`⚠ delivered hook failed (exit ${hookRes.code}) — re-run 'kf issues done ${f.name}' to reconcile\n${hookRes.output}`);
+  if (f.meta.delivered) lines.push(`'${f.name}' already marked delivered — re-checked side effects.`);
+  else lines.push(`✓ '${f.name}' delivered${f.meta.pr ? ` (PR merged)` : ""}${f.meta.issue ? ` — issue closed, board → delivered` : ""}`);
+
+  await writeFeatureMeta(f.dir, { ...f.meta, delivered: true, deliveredAt: new Date().toISOString() });
+  return { code: 0, stdout: lines.join("\n") };
 }
 
 export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -186,11 +248,12 @@ export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResul
   const sub = args.positionals[0];
   if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label, args.options.title);
   if (sub === "sync") return cmdSync(root.root, repo, args.positionals[1]);
-  if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2]);
+  if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2], Boolean(args.options.pr));
+  if (sub === "done") return cmdDone(root.root, repo, args.positionals[1]);
   if (sub === "view") return cmdView(repo, args.positionals[1]);
   if (sub !== undefined && /^\d+$/.test(sub)) return cmdView(repo, sub);
   if (sub !== undefined) {
-    return { code: 1, stdout: `Unknown issues subcommand '${sub}'. Usage: kf issues [view <n>|create <feature>|link <feature> <n>].`, stderr: "unknown subcommand" };
+    return { code: 1, stdout: `Unknown issues subcommand '${sub}'. Usage: kf issues [view <n>|create <feature>|link <feature> <n|url> [--pr]|sync <feature>|done <feature>].`, stderr: "unknown subcommand" };
   }
   return cmdList(repo, args);
 }

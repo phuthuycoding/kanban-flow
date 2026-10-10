@@ -24,7 +24,8 @@
       "implementation": "In progress",
       "testing": "In progress",
       "review": "In review",
-      "dones": "Done"
+      "dones": "In review",
+      "delivered": "Done"
     }
   }
 }

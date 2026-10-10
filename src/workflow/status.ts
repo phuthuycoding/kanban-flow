@@ -157,6 +157,9 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
   if (s.feature.meta?.issue) lines.push(`Issue: ${s.feature.meta.issue}`);
+  if (s.feature.meta?.issue && s.feature.stage === "dones") {
+    lines.push(`Delivered: ${s.feature.meta.delivered ? `yes${s.feature.meta.deliveredAt ? ` at ${s.feature.meta.deliveredAt}` : ""}` : "no — run: kf issues done " + s.feature.name + " once the change has landed"}`);
+  }
   const wt = s.feature.meta?.worktree;
   if (wt) {
     lines.push(`Worktree: ${wt.path}  (branch ${wt.branch})`);

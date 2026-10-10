@@ -50,7 +50,7 @@ The monitoring project mirrors every work item to a GitHub issue and a GitHub Pr
 - Notes: becomes the primitive the planning hook calls.
 
 ### FR-004
-- Requirement: package ships `kanban-flow/hooks/`: `lib-github.sh` plus `brainstorm.sh` (issue create via `kf issues create`), `planning.sh` (`kf issues sync` + status), `implementation.sh` (reopen + assign + status), `testing.sh`/`review.sh`/`backlog.sh` (status), `cancelled.sh` (close not-planned), `dones.sh` (AC gate when `acGate` + status + close). All fail-open on gh errors; hooks no-op when `KFW_REPOSITORY` is empty.
+- Requirement: package ships `kanban-flow/hooks/`: `lib-github.sh` plus `brainstorm.sh` (issue create via `kf issues create`), `planning.sh` (`kf issues sync` + status), `implementation.sh` (reopen + assign + status), `testing.sh`/`review.sh`/`backlog.sh` (status), `cancelled.sh` (close not-planned), `dones.sh` (AC gate when `acGate` + status — issue close moved to the `delivered` event, see `delivered.sh`), `delivered.sh` (issue close + statusMap.delivered, run by `kf issues done`). All fail-open on gh errors; hooks no-op when `KFW_REPOSITORY` is empty.
 - Priority: high
 - Notes: ported from monitoring's lib-project.sh with hardcodes replaced by `KFW_*` env and option names resolved via `gh project field-list` cached per process.
 

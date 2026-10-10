@@ -86,6 +86,11 @@ export interface FeatureMeta {
   goal?: string;
   /** URL of the GitHub issue this work item mirrors to; written by `kf issues` or a stage hook. */
   issue?: string;
+  /** URL of the pull request that delivers this work item; written by `kf issues link`. */
+  pr?: string;
+  /** Set by `kf issues done` once the human confirms delivery — the flag archive never sets. */
+  delivered?: boolean;
+  deliveredAt?: string;
   approval?: Approval;
   executionId?: string;
   status?: "archived" | "cancelled";
@@ -170,6 +175,9 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || typeof meta.context !== "string" || typeof meta.created !== "string"
     || (meta.kind !== undefined && !["feature", "bug"].includes(meta.kind))
     || (meta.issue !== undefined && (typeof meta.issue !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(meta.issue)))
+    || (meta.pr !== undefined && (typeof meta.pr !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(meta.pr)))
+    || (meta.delivered !== undefined && typeof meta.delivered !== "boolean")
+    || (meta.deliveredAt !== undefined && typeof meta.deliveredAt !== "string")
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
