@@ -98,6 +98,12 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     action: "add shell hooks named after stages (e.g. testing) to run on kf stage",
   });
 
+  items.push({
+    done: cfg.repository !== undefined,
+    label: cfg.repository ? `GitHub link: ${cfg.repository} (kf issues${cfg.project ? ", project board" : ""})` : "GitHub link (repository in .kf/config.json) — optional",
+    action: cfg.repository ? undefined : "kf doctor --fix fills it from the GitHub origin remote, or set repository by hand",
+  });
+
   return items;
 }
 
