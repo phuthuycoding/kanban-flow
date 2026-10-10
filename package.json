@@ -1,7 +1,7 @@
 {
   "name": "@phuthuycoding/kanban-flow",
-  "version": "0.6.0",
-  "description": "Kanban workflow CLI — artifact-gated feature pipeline (brainstorm → plan → implement → test → review → archive)",
+  "version": "0.7.0",
+  "description": "Kanban workflow CLI \u2014 artifact-gated feature pipeline (brainstorm \u2192 plan \u2192 implement \u2192 test \u2192 review \u2192 archive)",
   "type": "module",
   "license": "MIT",
   "author": "Quyen (phuthuycoding)",

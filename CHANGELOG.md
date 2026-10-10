@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.7.0] - 2026-10-10
 
 ### Added
 - **`project` block in `.kf/config.json` + a shipped GitHub sync hook pack.** `{owner, number, statusMap, acGate}` links a GitHub Projects board; hooks receive it as `KFW_PROJECT_*` (owner, number, `KFW_PROJECT_AC_GATE`, per-stage `KFW_PROJECT_STATUS_<STAGE>` naming the board's Status options — names resolved to IDs per run, so a recreated board keeps working). `kf init` offers to install `kanban-flow/github-hooks/` into `.kf/hooks/` when a repository is linked: issue on `kf new`, requirement sync at planning, assign+reopen at implementation, close-not-planned at cancel, an acceptance-criteria gate at archive (`acGate: false` opts out). The pack no-ops without `KFW_REPOSITORY` and fails open on GitHub outages. `kf doctor` warns when the pack is incomplete or divergent or the gh token lacks the `project` scope, and `--fix` restores missing pack files without overwriting project edits.
@@ -11,6 +11,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Changed
 - **`kf issues create` titles the issue by `--title`, then the work item's `--goal`, then the slug.** A bare slug read as nothing on a repo's issue list; the goal is the human-written description and makes a far better default title.
+
+### Fixed
+- **`saveConfig` preserves `worktree` and `project` on re-init.** Re-running `kf init` rebuilt the config from the answers and silently dropped the blocks it did not own.
+- **The hook pack resolves board IDs correctly.** `gh project field-list` carries `type`, not `dataType`, so the Status field and its options were never found and every status move skipped silently; `brainstorm.sh` also exited early on an already-linked item and skipped the move.
 
 ## [0.6.0] - 2026-10-09
 
