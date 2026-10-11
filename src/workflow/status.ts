@@ -58,6 +58,17 @@ function readArtifactContent(dir: string, file: string): string {
   return readFileSync(p, "utf8");
 }
 
+/** Frontmatter `status:` of a report artifact (e.g. review-report), or null when absent/unreadable. */
+export function reportStatus(dir: string, artifact: ArtifactId): string | null {
+  const p = join(dir, ARTIFACTS[artifact].file);
+  if (!existsSync(p)) return null;
+  try {
+    return splitFrontmatter(readFileSync(p, "utf8")).fm.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function countTasks(content: string): { done: number; total: number } {
   const lines = content.split("\n");
   let done = 0;
@@ -157,8 +168,11 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
   if (s.feature.meta?.issue) lines.push(`Issue: ${s.feature.meta.issue}`);
+  if (s.feature.stage === "review" && s.feature.meta?.issue && reportStatus(s.feature.dir, "review-report") === "PASS") {
+    lines.push(`Awaiting merge — run: kf archive ${s.feature.name} once the change has landed`);
+  }
   if (s.feature.meta?.issue && s.feature.stage === "dones") {
-    lines.push(`Delivered: ${s.feature.meta.delivered ? `yes${s.feature.meta.deliveredAt ? ` at ${s.feature.meta.deliveredAt}` : ""}` : "no — run: kf issues done " + s.feature.name + " once the change has landed"}`);
+    lines.push(`Delivered: ${s.feature.meta.delivered ? `yes${s.feature.meta.deliveredAt ? ` at ${s.feature.meta.deliveredAt}` : ""}` : "no — run: kf archive " + s.feature.name + " to finalize delivery"}`);
   }
   const wt = s.feature.meta?.worktree;
   if (wt) {

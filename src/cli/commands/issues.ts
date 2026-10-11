@@ -2,49 +2,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 
 import { readProjectConfig } from "../../project/config.js";
 import { issueUrl, prUrl } from "../../project/repository.js";
 import { findFeature, writeFeatureMeta } from "../../workflow/features.js";
-import { runHook } from "../../integrations/hooks.js";
 import { splitFrontmatter, isFilledFile } from "../../shared/frontmatter.js";
 import { ARTIFACTS } from "../../workflow/schema.js";
-import { findRoot } from "./helpers.js";
+import { findRoot, gh, ghFailure, noRepository } from "./helpers.js";
+import { cmdArchive } from "./archive.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
-
-interface GhResult {
-  ok: boolean;
-  missing: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-/** `gh` is an optional dependency — surfaces only when a repository is configured and used. */
-function gh(args: string[]): GhResult {
-  const res = spawnSync("gh", args, { encoding: "utf8" });
-  const missing = res.error !== undefined && "code" in res.error && res.error.code === "ENOENT";
-  return {
-    ok: res.status === 0,
-    missing,
-    stdout: res.stdout ?? "",
-    stderr: res.stderr ?? "",
-  };
-}
-
-function ghFailure(res: GhResult, what: string): CmdResult {
-  if (res.missing) return { code: 1, stdout: `gh CLI not found — install it and run gh auth login to ${what}.`, stderr: "gh missing" };
-  return { code: 1, stdout: `gh failed to ${what}:\n${res.stderr.trim() || res.stdout.trim()}`, stderr: "gh failed" };
-}
-
-function noRepository(): CmdResult {
-  return {
-    code: 1,
-    stdout: 'No repository configured. Set "repository": "owner/name" in .kf/config.json (kf init detects it from the origin remote).',
-    stderr: "no repository",
-  };
-}
 
 function parseLimit(raw: unknown): number | null {
   if (raw === undefined) return 30;
@@ -190,53 +157,17 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
 }
 
 /**
- * `kf issues done` — the delivery trigger. Archive ends the kanban lifecycle; this command
- * is the human saying "it shipped": it verifies a recorded PR is merged, then runs the
- * `delivered` hook (issue close + board → statusMap.delivered) and stamps `delivered`.
- * Every side effect is idempotent, so re-runs reconcile after a partial failure — the flag
- * records state, it never gates re-execution.
+ * `kf issues done` shipped in v0.8.0 and is deprecated: archive is the delivery gate now —
+ * the run itself is the confirmation, and the merge gate + dones hook cover what the
+ * delivered pseudo-stage used to do. Kept as a thin alias that forwards to `kf archive`.
  */
-async function cmdDone(root: string, repo: string, name: string | undefined): Promise<CmdResult> {
-  if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues done <feature>", stderr: "missing feature" };
-  const f = findFeature(root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
-  if (!f.meta) return { code: 1, stdout: `'${f.name}' has no metadata file.`, stderr: "no meta" };
-  if (f.stage !== "dones") {
-    return { code: 1, stdout: `'${f.name}' is in '${f.stage}' — kf issues done marks delivery after archive.`, stderr: "not archived" };
-  }
-  if (f.meta.pr) {
-    const res = gh(["pr", "view", f.meta.pr, "-R", repo, "--json", "state"]);
-    if (!res.ok) return ghFailure(res, `view ${f.meta.pr}`);
-    let state = "UNKNOWN";
-    try {
-      state = ((JSON.parse(res.stdout) as { state?: string }).state ?? "UNKNOWN").toUpperCase();
-    } catch {
-      return { code: 1, stdout: `gh pr view ${f.meta.pr} returned unexpected output:\n${res.stdout.trim()}`, stderr: "pr view parse" };
-    }
-    if (state !== "MERGED") {
-      return { code: 1, stdout: `PR ${f.meta.pr} is not merged (state: ${state}) — merge it first, or deliver by hand.`, stderr: "pr not merged" };
-    }
-  }
-
-  const hookRes = runHook(root, {
-    feature: f.name,
-    context: f.context,
-    dir: f.dir,
-    root,
-    from: "dones",
-    to: "dones",
-    approval: f.meta.approval?.status ?? "pending",
-  }, { hookName: "delivered" });
-
-  const lines: string[] = [];
-  if (!f.meta.issue) lines.push("⚠ no linked issue — recording delivery only");
-  if (!hookRes.ran) lines.push("⚠ no delivered.sh hook found — GitHub side effects skipped (reseed .kf/hooks/ to get the pack's)");
-  else if (!hookRes.ok) lines.push(`⚠ delivered hook failed (exit ${hookRes.code}) — re-run 'kf issues done ${f.name}' to reconcile\n${hookRes.output}`);
-  if (f.meta.delivered) lines.push(`'${f.name}' already marked delivered — re-checked side effects.`);
-  else lines.push(`✓ '${f.name}' delivered${f.meta.pr ? ` (PR merged)` : ""}${f.meta.issue ? ` — issue closed, board → delivered` : ""}`);
-
-  await writeFeatureMeta(f.dir, { ...f.meta, delivered: true, deliveredAt: new Date().toISOString() });
-  return { code: 0, stdout: lines.join("\n") };
+async function cmdDoneAlias(name: string | undefined, cwd: string): Promise<CmdResult> {
+  if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues done <feature> (deprecated — use kf archive <feature>)", stderr: "missing feature" };
+  const res = await cmdArchive({ command: "archive", positionals: [name], options: {} }, cwd);
+  return {
+    ...res,
+    stdout: `⚠ 'kf issues done' is deprecated — delivery is finalized by 'kf archive' (forwarding).\n${res.stdout}`,
+  };
 }
 
 export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -249,11 +180,11 @@ export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label, args.options.title);
   if (sub === "sync") return cmdSync(root.root, repo, args.positionals[1]);
   if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2], Boolean(args.options.pr));
-  if (sub === "done") return cmdDone(root.root, repo, args.positionals[1]);
+  if (sub === "done") return cmdDoneAlias(args.positionals[1], cwd);
   if (sub === "view") return cmdView(repo, args.positionals[1]);
   if (sub !== undefined && /^\d+$/.test(sub)) return cmdView(repo, sub);
   if (sub !== undefined) {
-    return { code: 1, stdout: `Unknown issues subcommand '${sub}'. Usage: kf issues [view <n>|create <feature>|link <feature> <n|url> [--pr]|sync <feature>|done <feature>].`, stderr: "unknown subcommand" };
+    return { code: 1, stdout: `Unknown issues subcommand '${sub}'. Usage: kf issues [view <n>|create <feature>|link <feature> <n|url> [--pr]|sync <feature>|done <feature> (deprecated alias for kf archive)].`, stderr: "unknown subcommand" };
   }
   return cmdList(repo, args);
 }

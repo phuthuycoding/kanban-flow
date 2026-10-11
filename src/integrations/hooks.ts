@@ -85,8 +85,6 @@ export function runHook(
     for (const [stage, option] of Object.entries(cfg.project.statusMap ?? {})) {
       if (option) projectEnv[`KFW_PROJECT_STATUS_${stage.toUpperCase()}`] = option;
     }
-    // `delivered` has a default ("Done") — a project board without the key still lands the card.
-    projectEnv.KFW_PROJECT_STATUS_DELIVERED ??= "Done";
   }
   const isSh = hook.path.endsWith(".sh");
   const isJs = hook.path.endsWith(".js") || hook.path.endsWith(".mjs") || hook.path.endsWith(".cjs");

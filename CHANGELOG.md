@@ -2,6 +2,20 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Added
+- **`kf sync` — the pull-model delivery sweep.** Checks `gh pr view` for every review/dones item with a recorded `pr` and runs the archive finalization for each merged one — runnable by hand or from cron/launchd, no daemon. Items without `pr` are never touched: no-PR delivery stays an explicit human `kf archive`.
+- **"Awaiting merge" visibility.** `kf status` shows review-stage items with a PASS report and a linked issue as awaiting merge; `kf doctor` warns for them, for `dones` items that never got `delivered`, and for a leftover `statusMap.delivered` key, all pointing at `kf archive`.
+
+### Changed
+- **`kf archive` is the single post-delivery gate.** A recorded `pr` must be verifiably MERGED — OPEN, CLOSED, or unverifiable (gh failure, missing `repository`, bad output) refuses with exit 1 and zero side effects, no `--force` escape — while an absent `pr` makes the run itself the human confirmation. One ordered pass then finalizes: AC gate → board → `statusMap.dones` → issue close via the `dones` hook → folder move → canonical docs → `delivered`/`deliveredAt` stamped last. Re-running on a `dones` item reconciles docs + hook + flag idempotently, and `kf stage <f> dones` (and the cancelled→dones reopen resync) hits the same gate.
+- **`dones` means delivered again.** The sync pack's `dones.sh` closes the issue once more — correct now that archive only runs post-delivery. Recommended `statusMap` reverts to `dones → "Done"`; a leftover `delivered` key stays parseable but is inert (doctor flags it).
+
+### Removed
+- **`delivered.sh` and the `delivered` pseudo-stage.** The `dones` hook regained `close_issue_done`; `delivered.sh` is out of the pack, `GITHUB_HOOK_PACK`, and `KFW_PROJECT_STATUS_DELIVERED` is no longer emitted as a default.
+- **`kf issues done` as a standalone command.** It shipped in v0.8.0, so it remains as a deprecated alias that forwards to `kf archive` with a warning — same gates, same finalization.
+
 ## [0.8.0] - 2026-10-10
 
 ### Added

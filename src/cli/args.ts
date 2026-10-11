@@ -54,7 +54,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   issues: {
-    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr; done marks an archived item delivered (closes the issue, board → delivered status)",
+    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr; done is deprecated and forwards to kf archive",
     allowPositionals: true,
     options: {
       state: { type: "string" },
@@ -131,8 +131,12 @@ const COMMANDS: Record<string, CmdSpec> = {
       by: { type: "string" },
     },
   },
+  sync: {
+    help: "Usage: kf sync  — delivery sweep: archives every review/dones item whose recorded PR has merged (uses gh; run by hand or from cron)",
+    options: {},
+  },
   archive: {
-    help: "Usage: kf archive <feature> [--skip-hooks]  — close a work item in dones; features sync canonical docs, bugs retain related docs",
+    help: "Usage: kf archive <feature> [--skip-hooks]  — the delivery gate: finalizes a work item into dones (canonical docs, issue close, board Done, delivered flag) once its PR merged or the human confirms",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },

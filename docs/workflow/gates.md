@@ -47,7 +47,7 @@ flowchart LR
     I -->|implementation complete + tasks done| T[testing]
     T -->|PASS + current execution| R[review]
     T -->|FAIL/REJECT| I
-    R -->|PASS + current execution<br/>feature additionally requires feature report| D[dones]
+    R -->|PASS + current execution + merged/confirmed delivery<br/>feature additionally requires feature report| D[dones]
     R -->|FAIL/REJECT| I
     T -->|scope change| P
     R -->|scope change| P

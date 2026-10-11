@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Superseded by `archive-after-merge`.** This feature (0.8.0) introduced `kf issues done` as a separate delivery trigger; archive-after-merge folded that design back into `kf archive` itself — `issues done` is now a deprecated alias, `delivered.sh` and `statusMap.delivered` are removed, and `dones` means delivered again. Kept for history.
+
 ## Feature
 done-trigger
 

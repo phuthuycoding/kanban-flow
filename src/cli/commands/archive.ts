@@ -8,7 +8,7 @@ import { validateFeature, checkDirectionGate, renderValidateText } from "../../w
 import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js";
 import { writeFileAtomic } from "../../shared/paths.js";
 import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
-import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
+import { findRoot, recordBypasses, bypassNote, checkMergeGate } from "./helpers.js";
 import { readProjectConfig } from "../../project/config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { teardownWorktree } from "../../worktree/lifecycle.js";
@@ -117,6 +117,12 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     return { code: 1, stdout: `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${f.meta?.cancellation?.fromStage ?? "its stage"} first if you want to finish it.`, stderr: "cancelled" };
   }
 
+  // Delivery gate: a recorded PR must be verifiably merged — archive is the post-delivery
+  // step, so an unmerged/unverifiable PR refuses before any side effect, on both the
+  // review → dones move and the dones reconcile path. No --force escape.
+  const merge = checkMergeGate(f, readProjectConfig(root.root).repository);
+  if (merge) return merge;
+
   // Only review → dones transition is archive-able. If already dones, refresh canonical docs idempotently.
   if (f.stage === "dones") {
     const check = validateFeature(f);
@@ -137,7 +143,30 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
       ...(check.valid ? [] : check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code)),
       ...(changedDocs.length > 0 ? ["canonical_docs_changed"] : []),
     ];
-    const recorded = recordBypasses(f.stage, "dones", forcedCodes, null);
+    // Reconcile also re-runs the dones hook: the AC gate re-checks, the board re-syncs and
+    // the issue close is a no-op on an already-closed issue. --skip-hooks records a bypass.
+    const skipHooks = Boolean(args.options["skip-hooks"]);
+    const skippedHook: HookSource | null = skipHooks ? resolveHook(root.root, "dones") : null;
+    if (!skipHooks) {
+      const hook = runHook(root.root, {
+        feature: f.name,
+        context: f.context,
+        dir: f.dir,
+        root: root.root,
+        from: "dones",
+        to: "dones",
+        approval: f.meta?.approval?.status ?? "pending",
+      });
+      if (hook.ran && !hook.ok) {
+        return {
+          code: 1,
+          stdout:
+            `Hook 'dones' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\nArchive refused.\n\n${hook.output}\n\nRe-run with --skip-hooks to bypass.`,
+          stderr: "hook failed",
+        };
+      }
+    }
+    const recorded = recordBypasses(f.stage, "dones", forcedCodes, skippedHook);
     const metaPath = join(f.dir, METADATA_FILE);
     const originalMeta = f.meta && existsSync(metaPath) ? readFileSync(metaPath, "utf8") : null;
     try {
@@ -146,6 +175,9 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
         ...f.meta,
         bypasses: recorded.length > 0 ? [...(f.meta.bypasses ?? []), ...recorded] : f.meta.bypasses,
         status: "archived",
+        // Reconciling an item already stamped keeps its first delivery timestamp.
+        delivered: true,
+        deliveredAt: f.meta.deliveredAt ?? new Date().toISOString(),
       });
     } catch (err) {
       const rollback = await Promise.allSettled([
@@ -156,10 +188,14 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
       if (failures.length > 0) throw new AggregateError([err, ...failures], `Canonical docs sync failed and rollback was incomplete for '${name}'.`);
       throw new Error(`Canonical docs sync failed for '${name}'; feature remains in dones.`, { cause: err });
     }
+    const deliveredNote = f.meta?.delivered
+      ? "\n  Delivery finalized — item was already marked delivered; side effects re-checked."
+      : "\n  Delivery finalized — `delivered` stamped in .kfw.json.";
+    const issueNote = f.meta?.issue ? "" : "\n  ⚠ no linked issue — tracker has no delivery record.";
     return {
       code: 0,
       stdout:
-        `Feature '${name}' is already in dones.\n${copies.length > 0 ? `Canonical docs synced:\n${copies.map((copy) => `  ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}${bypassNote(recorded)}`,
+        `Feature '${name}' is already in dones.\n${copies.length > 0 ? `Canonical docs synced:\n${copies.map((copy) => `  ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}${deliveredNote}${issueNote}${bypassNote(recorded)}`,
     };
   }
   if (f.stage !== "review") {
@@ -259,7 +295,8 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     await rename(f.dir, target);
     moved = true;
     await writeCanonicalCopies(copies);
-    await writeFeatureMeta(target, { ...f.meta, bypasses, status: "archived", worktree: undefined });
+    // `delivered` is the terminal fact — written last, after every other side effect landed.
+    await writeFeatureMeta(target, { ...f.meta, bypasses, status: "archived", worktree: undefined, delivered: true, deliveredAt: new Date().toISOString() });
   } catch (err) {
     if (!moved) throw err;
     const rollback = await Promise.allSettled([
@@ -283,9 +320,10 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
         : "") +
       teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("")
     : "";
+  const issueNote = f.meta?.issue ? "" : "\n  ⚠ no linked issue — tracker has no delivery record.";
   return {
     code: 0,
     stdout:
-      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}${worktreeNote}${bypassNote(recorded)}`,
+      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote}${worktreeNote}${bypassNote(recorded)}`,
   };
 }

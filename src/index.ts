@@ -14,6 +14,7 @@ import { cmdIssues } from "./cli/commands/issues.js";
 import type { CmdResult } from "./cli/result.js";
 import { cmdStage } from "./cli/commands/stage.js";
 import { cmdArchive } from "./cli/commands/archive.js";
+import { cmdSync } from "./cli/commands/sync.js";
 import { cmdCancel } from "./cli/commands/cancel.js";
 import { cmdApprove } from "./cli/commands/approve.js";
 import { cmdWorktree, cmdProxyServe } from "./cli/commands/worktree.js";
@@ -86,6 +87,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdStage(parsed, cwd);
     case "archive":
       return cmdArchive(parsed, cwd);
+    case "sync":
+      return cmdSync(parsed, cwd);
     case "cancel":
       return cmdCancel(parsed, cwd);
     case "approve":
