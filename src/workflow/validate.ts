@@ -4,7 +4,7 @@ import type { Feature } from "./features.js";
 import { checkDueArtifacts, checkStageGate, checkSecrets } from "./validate-artifacts.js";
 import { checkApproval, checkBypasses } from "./validate-approval.js";
 import { checkTasks, checkTestingResult, checkReviewReport, checkDonesArtifacts } from "./validate-reports.js";
-import { checkTraceability } from "./validate-traceability.js";
+import { checkTraceability, checkAffectedSurfaces } from "./validate-traceability.js";
 import { checkCancellation } from "./validate-cancel.js";
 
 export type { Severity, Finding, ValidationResult } from "./findings.js";
@@ -45,6 +45,7 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
       ...checkTestingResult(feature),
       ...checkReviewReport(feature),
       ...checkTraceability(feature),
+      ...checkAffectedSurfaces(feature),
       ...checkDonesArtifacts(feature),
     ]));
 

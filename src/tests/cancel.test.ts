@@ -28,7 +28,7 @@ const feature = (name = "demo"): Feature => findFeature(root, name)!;
 async function addItem(name: string, stage: Stage, extra: Record<string, unknown> = {}): Promise<string> {
   const dir = join(root, ".works", stage, `${name}_20260919_1200`);
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: confirmed\n---\n# Spec\n## FR-001\nReal content.");
+  await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: confirmed\n---\n# Spec\n## FR-001\nReal content.\n## Affected surfaces\nN/A");
   await writeFeatureMeta(dir, { schema: "kanban-flow", feature: name, context: "app", created: "20260919_1200", ...extra });
   return dir;
 }
@@ -56,7 +56,7 @@ async function archivedItem(name: string): Promise<void> {
   expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
   const dir = () => feature(name).dir;
   await writeFile(join(dir(), ARTIFACTS["spec-requirement"].file),
-    "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.");
+    "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A");
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
     await writeFile(join(dir(), ARTIFACTS[id].file), "# Contract\nUC-001: Create a task");

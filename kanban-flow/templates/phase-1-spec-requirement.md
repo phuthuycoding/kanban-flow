@@ -24,6 +24,10 @@ status: pending
 ### Out of Scope
 - {out_of_scope_item}
 
+## Affected surfaces
+<!-- User-facing surfaces this change touches — README, docs site, landing page, CLI -h, examples, changelog, packaging, API reference. One bullet each, or the literal `N/A`. The section is gated: a spec cannot leave brainstorm without it. -->
+{affected_surfaces}
+
 ## Actors
 - {actor}
 

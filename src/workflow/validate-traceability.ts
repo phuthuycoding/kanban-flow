@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { ARTIFACTS, STAGE_INDEX, UC_FILE_PATTERN, UC_FILE_ID_PATTERN } from "./schema.js";
-import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
+import { splitFrontmatter, isFilledFile, readMarkdownSection, sectionItems } from "../shared/frontmatter.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
 
@@ -84,6 +84,32 @@ export function checkTraceability(feature: Feature): Finding[] {
     const missing = [...new Set(refs)].filter((r) => !fileIds.has(r));
     if (missing.length > 0) {
       error(tcFile, "uc_ref_missing", `test-cases reference use cases without individual files: ${missing.join(", ")}`);
+    }
+  }
+  return issues;
+}
+
+/**
+ * Surfaces coverage, planning on: every surface declared in `## Affected surfaces` should be
+ * named somewhere in the implementation plan (task row or Documentation Impact). WARNING only —
+ * fuzzy name matching will false-positive, so the finding informs rather than blocks.
+ * `N/A` sections opt out entirely; specs without the section are not re-gated.
+ */
+export function checkAffectedSurfaces(feature: Feature): Finding[] {
+  const issues: Finding[] = [];
+  if (STAGE_INDEX[feature.stage] < STAGE_INDEX.planning || feature.meta?.kind === "bug") return issues;
+  const specPath = join(feature.dir, ARTIFACTS["spec-requirement"].file);
+  if (!existsSync(specPath)) return issues;
+  const section = readMarkdownSection(splitFrontmatter(readFileSync(specPath, "utf8")).body, "Affected surfaces");
+  if (section === null) return issues;
+  const declared = sectionItems(section).filter((item) => !/^n\/?a\.?$/i.test(item));
+  if (declared.length === 0) return issues;
+  const planPath = join(feature.dir, ARTIFACTS["implementation-plan"].file);
+  const plan = existsSync(planPath) ? readFileSync(planPath, "utf8").toLowerCase() : "";
+  for (const surface of declared) {
+    if (!plan.includes(surface.toLowerCase())) {
+      issues.push(finding(feature, "WARNING", ARTIFACTS["implementation-plan"].file, "affected_surface_uncovered",
+        `Declared affected surface "${surface}" appears nowhere in the implementation plan — add a task or a Documentation Impact entry (or drop it from the spec).`));
     }
   }
   return issues;
