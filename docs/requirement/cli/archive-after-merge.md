@@ -1,11 +1,10 @@
 ---
-feature: "archive-after-merge"
-context: "cli"
-created: "20261010_2034"
-status: confirmed
+feature: archive-after-merge
+context: cli
+created: 20261010_2034
+status: archived
 kind: feature
 ---
-
 # Spec Requirement — archive-after-merge
 
 ## Objective
