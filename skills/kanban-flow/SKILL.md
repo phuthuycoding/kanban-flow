@@ -64,7 +64,7 @@ kf status --change {feature}   # current phase + artifact checklist + Next: + Ap
 
 Then **load the skill for the feature's CURRENT phase** and follow it to its endpoint (each skill ends pointing at the next one). Do not re-read old phase instructions you've already executed; go straight at the target.
 
-If planning is already approved and its fingerprint is unchanged, ask whether to start now or keep the item in backlog. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, hand off to kanban-archive. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
+If planning is already approved and its fingerprint is unchanged, ask whether to start now or keep the item in backlog. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, the item is awaiting delivery — hand off to kanban-archive once the change has landed (a recorded `pr` merged, or the human confirms); `kf archive` refuses while a recorded PR is unmerged. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
 
 ## Multi-agent harness
 
@@ -113,7 +113,7 @@ kf validate --change {feature}  # gate + traceability issues
 kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
 kf run {feature} [--detach]    # run the roles assigned to the current stage (harness.stages), in order
 kf runs {feature}              # worker run history (role, runner) + STATUS lines
-kf archive {feature}           # review(PASS) → dones + copy canonical docs
+kf archive {feature}           # the delivery gate: merged-PR check → review → dones + docs + issue close + board + delivered stamp
 ```
 
 Contexts: a project may declare the ones it uses in `.kf/config.json`, and the first entry is the default. `kf new` refuses a context outside that list and names the nearest declared one; a case-only variant is refused too. Run `kf contexts --json` before `kf new` and use a declared name exactly. When `restricted` is false nothing is declared and any valid name works. Never add a context to the config to get past a refusal — naming a business domain is the human's call.

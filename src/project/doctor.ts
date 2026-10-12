@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 
 import { STAGES } from "../workflow/schema.js";
 import { listFeatures, readFeatureMeta } from "../workflow/features.js";
+import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
@@ -113,8 +114,31 @@ function checkUndelivered(root: string): DoctorFinding[] {
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
       message: `archived with a linked issue but not marked delivered.`,
-      action: `kf issues done ${f.name} (once the change has landed)`,
+      action: `kf archive ${f.name} (finalizes delivery — closes the issue, board → dones status)`,
     }));
+}
+
+/** A review-PASS item with a linked issue sits in review until archive confirms delivery. */
+function checkAwaitingMerge(root: string): DoctorFinding[] {
+  return listFeatures(root)
+    .filter((f) => f.stage === "review" && f.meta?.issue && reportStatus(f.dir, "review-report") === "PASS")
+    .map((f) => ({
+      level: "WARNING" as const,
+      area: `${f.stage}/${f.folder}`,
+      message: `review passed and still in review — awaiting merge.`,
+      action: `merge the PR (or confirm delivery), then run: kf archive ${f.name}`,
+    }));
+}
+
+/** statusMap.delivered became inert when archive took over delivery — flag the dead key. */
+function checkStatusMap(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+  if (!cfg?.project?.statusMap?.delivered) return [];
+  return [{
+    level: "WARNING" as const,
+    area: ".kf/config.json",
+    message: `statusMap.delivered is dead config — archive owns delivery now (recommended: map dones to "Done").`,
+    action: `remove the "delivered" key from project.statusMap`,
+  }];
 }
 
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
@@ -193,7 +217,7 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
 }
 
 /** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
-const GITHUB_HOOK_PACK = ["lib-github.sh", "delivered.sh", ...STAGES.map((s) => `${s}.sh`)];
+const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
 
 /**
  * The hook pack is opt-in, so its state is only checked once a project opted in — detected by
@@ -271,6 +295,8 @@ export function runDoctor(root: string): DoctorReport {
 
   findings.push(...checkItemMetadata(root));
   findings.push(...checkUndelivered(root));
+  findings.push(...checkAwaitingMerge(root));
+  findings.push(...checkStatusMap(config.cfg));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
   // reported but deliberately kept out of `findings` — they must not decide the verdict.

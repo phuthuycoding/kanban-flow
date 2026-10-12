@@ -88,7 +88,7 @@ export interface FeatureMeta {
   issue?: string;
   /** URL of the pull request that delivers this work item; written by `kf issues link`. */
   pr?: string;
-  /** Set by `kf issues done` once the human confirms delivery — the flag archive never sets. */
+  /** Set by `kf archive` — archive is the delivery gate and stamps this last in its pass. */
   delivered?: boolean;
   deliveredAt?: string;
   approval?: Approval;

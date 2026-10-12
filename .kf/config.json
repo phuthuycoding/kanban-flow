@@ -4,7 +4,7 @@
   "stacks": [
     "node"
   ],
-  "reviewer": "Quy\u1ec1n",
+  "reviewer": "Quyền",
   "agents": [
     "claude"
   ],
@@ -24,8 +24,7 @@
       "implementation": "In progress",
       "testing": "In progress",
       "review": "In review",
-      "dones": "In review",
-      "delivered": "Done"
+      "dones": "Done"
     }
   }
 }

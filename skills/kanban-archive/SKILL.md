@@ -9,6 +9,8 @@ Argument: `<feature_name>`.
 
 Close the work item with traceable results and the appropriate documentation.
 
+**Archive is the delivery gate, not just lifecycle bookkeeping.** `kf archive` is the post-delivery step: it refuses while a recorded `pr` is not verifiably merged (exit 1, no side effects, no `--force` escape), and a review-PASS item legitimately waits in `review` until its change lands — visible as "awaiting merge" in `kf status`/`kf doctor`. With no `pr` recorded, running archive *is* the human's delivery confirmation. Only then does it move to `dones`, sync canonical docs, close the issue, move the board and stamp `delivered` — all idempotent, so a re-run reconciles.
+
 ---
 
 ## 1. Prepare closure artifacts
@@ -38,7 +40,7 @@ kf archive {feature_name}
 kf validate --change {feature_name}
 ```
 
-`kf archive` requires current PASS reports, runs the dones hook, moves review → dones and marks metadata archived. Features additionally require the feature report and receive canonical copies; bugs do not. `kf stage ... dones` uses the same archive path. Validate after archive and check reported canonical destinations for a feature. Do not report completion if validation fails.
+`kf archive` requires current PASS reports, verifies a recorded PR is merged (or takes the human's run as confirmation), runs the dones hook — which closes the issue and moves the board to `statusMap.dones` — moves review → dones, syncs canonical docs for a feature and stamps `delivered`/`deliveredAt` last. Bugs skip canonical docs. `kf stage ... dones` uses the same archive path, so the merge gate applies there too. If it refuses on an unmerged PR, the item is not done — merge the PR first. Validate after archive and check reported canonical destinations for a feature. Do not report completion if validation fails.
 
 When refreshing an item already in dones, canonical docs may include later bug fixes. If the CLI reports changed canonical docs, preserve them with `--skip-specs`; do not use `--force` to restore an older snapshot without explicit user direction — a forced overwrite is recorded as a bypass.
 
