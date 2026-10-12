@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.9.0] - 2026-10-12
 
 ### Added
 - **`kf sync` — the pull-model delivery sweep.** Checks `gh pr view` for every review/dones item with a recorded `pr` and runs the archive finalization for each merged one — runnable by hand or from cron/launchd, no daemon. Items without `pr` are never touched: no-PR delivery stays an explicit human `kf archive`.
