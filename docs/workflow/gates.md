@@ -8,7 +8,7 @@ One group is not shared: the *direction* gate, which decides where a PASS or FAI
 
 | Phase | File | Minimum contents | Unlocks |
 | --- | --- | --- | --- |
-| 1 — Brainstorm / bug triage | `phase-1-spec-requirement.md`, a bug using the bug-report template | Feature: the requirement plus FR-XXX. Bug: reproduction, actual against expected, severity, regression strategy | Planning |
+| 1 — Brainstorm / bug triage | `phase-1-spec-requirement.md`, a bug using the bug-report template | Feature: the requirement plus FR-XXX and an `## Affected surfaces` declaration (or `N/A`). Bug: reproduction, actual against expected, severity, regression strategy | Planning |
 | 2 — Planning (feature) | `phase-2-implementation-plan.md` | Scope, tasks, impact, definition of done, risks | The execution contract |
 | 2 — Planning (feature) | `phase-2-use-case-specification.md` plus `use-cases/UC-###(-<slug>).md` | Index and coverage in the phase file; each UC carries its own preconditions, flows and alternate or error flows | Design and testing |
 | 2 — Planning (feature) | `phase-2-use-case-diagram.md` | A valid actor and use case diagram | Traceability |

@@ -32,7 +32,7 @@ status: planning
 |---|---|---|---|---|---|
 | TASK-001 | {task_description} | {area} | {dependencies} | {expected_output} | {requirement_reference} |
 
-Add one row per task. Track execution progress separately in `tasks.md` so the approved plan remains unchanged.
+Add one row per task. Track execution progress separately in `tasks.md` so the approved plan remains unchanged. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or a `## Documentation Impact` entry — or `kf validate` warns it is uncovered.
 
 ## Complexity
 - Level: {complexity_level}

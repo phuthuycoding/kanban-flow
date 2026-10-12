@@ -56,3 +56,22 @@ export function isFilledFile(raw: string, body: string): boolean {
   if (text.length === 0) return false;
   return !hasUnresolvedPlaceholders(raw);
 }
+
+/** Body of a `## <heading>` section, up to the next `## ` heading; null when the heading is absent. */
+export function readMarkdownSection(body: string, heading: string): string | null {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`^## ${escaped}[ \\t]*$`, "im").exec(body);
+  if (!match) return null;
+  const rest = body.slice(match.index + match[0].length);
+  const next = rest.search(/^## /m);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/** Real content lines of a markdown section — comments, blanks, list markers and template tokens dropped. */
+export function sectionItems(section: string): string[] {
+  return section
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^[-*+]\s+/, "").trim())
+    .filter((line) => line.length > 0 && !/^\{[a-z0-9_-]+\}$/i.test(line));
+}

@@ -16,7 +16,7 @@ import type { ParsedArgs } from "../cli/args.js";
 let root: string;
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 const feature = () => findFeature(root, "demo")!;
-const confirmed = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.";
+const confirmed = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A";
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "kf-bypass-"));

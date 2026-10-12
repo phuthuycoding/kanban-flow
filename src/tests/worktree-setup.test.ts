@@ -147,7 +147,7 @@ describe("infra warning on validate/doctor (FR-006, UC-005)", () => {
     expect((await cmdNew(args("new", ["demo"], { context: "app" }), root)).code).toBe(0);
     await writeFile(
       join(findFeature(root, "demo")!.dir, ARTIFACTS["spec-requirement"].file),
-      "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.",
+      "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A",
     );
     return root;
   }

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ARTIFACTS, STAGE_GATES, STAGE_INDEX, FEATURE_ONLY_ARTIFACTS, type ArtifactId } from "./schema.js";
-import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
+import { splitFrontmatter, isFilledFile, readMarkdownSection, sectionItems } from "../shared/frontmatter.js";
 import { findSecretLike } from "./secrets.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
@@ -84,6 +84,16 @@ export function checkStageGate(feature: Feature): Finding[] {
   // fingerprint cannot catch that — it hashes the spec as it stands at approval time, so the
   // pending state becomes the contract and it is the later *correction* that reads as drift.
   const specPath = join(feature.dir, ARTIFACTS["spec-requirement"].file);
+  // The surfaces declaration is where the pipeline learns which user-facing docs a change
+  // touches — `N/A` is the sanctioned escape. Brainstorm-scoped like the gate it lives in:
+  // items past brainstorm are not re-gated, and bug reports keep Documentation Impact instead.
+  if (feature.stage === "brainstorm" && !isBug && existsSync(specPath)) {
+    const section = readMarkdownSection(splitFrontmatter(readFileSync(specPath, "utf8")).body, "Affected surfaces");
+    if (section === null || sectionItems(section).length === 0) {
+      issues.push(finding(feature, "ERROR", ARTIFACTS["spec-requirement"].file, "affected_surfaces_missing",
+        "Cannot leave stage \"brainstorm\" — `## Affected surfaces` is missing or empty; list the user-facing surfaces this change touches, or `N/A`."));
+    }
+  }
   const owesConfirmation = STAGE_INDEX[feature.stage] <= STAGE_INDEX.planning;
   if (owesConfirmation && existsSync(specPath)
     && splitFrontmatter(readFileSync(specPath, "utf8")).fm.status !== "confirmed") {

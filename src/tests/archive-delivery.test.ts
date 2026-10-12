@@ -57,7 +57,7 @@ exit 0
 
 const ISSUE = "https://github.com/o/r/issues/7";
 const PR = "https://github.com/o/r/pull/9";
-const spec = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can ship.\n";
+const spec = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can ship.\n## Affected surfaces\nN/A\n";
 const bugSpec = "---\nkind: bug\nstatus: confirmed\nseverity: MEDIUM\n---\n# Bug Report\n\n## Bug Summary\nIt breaks.\n";
 const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
 

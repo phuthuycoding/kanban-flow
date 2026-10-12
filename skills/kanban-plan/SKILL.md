@@ -78,6 +78,7 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 ### implementation-plan
 - Scope: now / supporting / future / not-in-scope
 - `TASK-###` breakdown, complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
+- Read the spec's `## Affected surfaces` first: every declared surface gets a task row or a `## Documentation Impact` entry — `kf validate` warns on any surface the plan never mentions. `N/A` means none owed.
 - Testing strategy incl. **coverage target from the spec's Test Strategy (default >= 80%)** and Definition of Done
 - When Test Level is `full`: name the UI/E2E framework you will use (Playwright, Cypress and so on) and say which suite covers the critical flows and which covers everything.
 

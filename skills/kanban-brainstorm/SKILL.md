@@ -239,7 +239,7 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
 
 - **Objective / Problem Statement** — the restated challenge (sharpened by the framework).
 - **Scope (in & out)** — the SCOPE DECISION from synthesis. Explicit "out" items are valuable: they stop Phase 2-3 from drifting.
-- **Actors** — humans and systems touching the feature.
+- **Affected surfaces** — every user-facing surface the change touches (README, docs site, landing page, CLI `-h`, examples, changelog, packaging, API reference), one bullet each, or the literal `N/A`. The spec cannot leave brainstorm without it. Ask the human when the surface list is ambiguous — they own what counts as user-facing.
 - **Functional Requirements `FR-###`** — **the traceability anchor.** One behavior per FR, phrased so a test could pass/fail on it. Include the priority (must/should/could) and a note carrying any framework rationale.
 - **Non-Functional Requirements** — performance, security, UX, accessibility, compliance.
 - **Main Use Cases** — one line each with `UC-###` ids (full narratives live in Phase 2).

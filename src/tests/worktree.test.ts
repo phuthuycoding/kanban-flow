@@ -61,7 +61,7 @@ afterEach(async () => {
 
 const feature = (name = "demo") => findFeature(root, name)!;
 
-const spec = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.";
+const spec = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A";
 
 /** Drive an item to approved planning, ready for the implementation transition. */
 async function approvedItem(name = "demo"): Promise<void> {
