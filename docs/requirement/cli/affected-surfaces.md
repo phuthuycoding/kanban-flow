@@ -1,11 +1,10 @@
 ---
-feature: "affected-surfaces"
-context: "cli"
-created: "20261012_1931"
-status: confirmed
+feature: affected-surfaces
+context: cli
+created: 20261012_1931
+status: archived
 kind: feature
 ---
-
 # Spec Requirement
 
 ## Feature
