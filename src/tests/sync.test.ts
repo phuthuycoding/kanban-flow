@@ -112,6 +112,14 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     expect(feature("nopritem").stage).toBe("review");
   });
 
+  it("leaves delivered dones items alone so later doc edits do not fail the sweep", async () => {
+    await seedItem("dones", "shipped", { pr: "https://github.com/o/r/pull/14", delivered: true });
+    process.env.GH_FAIL = "1";
+    const res = await cmdSync(args(), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("nothing to sync");
+  });
+
   it("reports nothing to sync when no PR-linked items exist", async () => {
     await seedItem("review", "nopritem", {});
     const res = await cmdSync(args(), root);

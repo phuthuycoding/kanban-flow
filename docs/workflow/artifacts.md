@@ -46,11 +46,13 @@ The CLI checks the files, the placeholders, secret-like content, ID references, 
 | `docs/testplan/{context}/{feature}.md` | The test plan and the coverage matrix |
 | `docs/testplan/{context}/{feature}-result.md` | The most recent execution result |
 
-The index lands as `README.md` with its `use-cases/...` links rewritten to sibling links, and the feature report is not copied — it stays with the work item for audit. On this first copy the `.works/` versions win unconditionally: whatever already sits at a canonical path, including a hand-edited requirement mirror, is overwritten.
+Every copy except the execution result is stamped `status: archived` in its frontmatter (a file without frontmatter is copied as-is), and the index lands as `README.md` with its `use-cases/...` links rewritten to sibling links and its "Use Case Files" rows flipped from `planned` to `implemented`. The feature report is not copied — it stays with the work item for audit. On this first copy the `.works/` versions win unconditionally: whatever already sits at a canonical path, including a hand-edited requirement mirror, is overwritten.
 
 For a bug, archive neither creates nor overwrites an existing feature's docs. The archive skill updates the related docs only when the bug report states a docs impact; when there is none, it says "No documentation update required" in the closure or review.
 
-The overwrite behaviour flips on a re-archive: archiving a feature that is already in `dones` refuses to overwrite canonical docs that have changed since the snapshot, so updates from a bug or from extra documentation survive. Use `--skip-specs` to leave the docs alone; use `--force` only when restoring the old snapshot is what you actually want — the bypass is recorded in `.kfw.json`.
+The overwrite behaviour flips on a re-archive: archiving a feature that is already in `dones` refuses to overwrite canonical docs that have changed since the snapshot, so updates from a bug or from extra documentation survive. Use `--skip-specs` to leave the docs alone; use `--force` only when restoring the old snapshot is what you actually want — the bypass is recorded in `.kfw.json`. A doc an older version wrote without the archived stamp (status absent or `planning`) is not an edit: when stamping it yields the new copy, the re-archive upgrades it in place without a refusal or a bypass. Any other difference, a hand-set status included, is still refused.
+
+Snapshots alone go stale when a later feature changes the same behavior, so closure reconciles them: before `kf archive`, the archive skill finds earlier canonical docs that contradict the new behavior, marks each with a `> **Superseded by <feature>.**` banner under its title (the old body stays for history), brings `docs/workflow/*` up to date, and lists what it touched in the feature report's `## Docs Reconciled` section. A banner counts as an edit to that older feature's docs, so re-archiving it by hand needs `--skip-specs` to keep the banner; `kf sync` never re-archives a delivered item, so the sweep is unaffected.
 
 ## Checklist before closing
 
@@ -58,5 +60,5 @@ The overwrite behaviour flips on a re-archive: archiving a feature that is alrea
 - [ ] Feature: four planning artifacts, one file per UC, and a test matrix whose IDs line up.
 - [ ] Bug: a triage record carrying the reproduction, the severity and the regression strategy.
 - [ ] Testing and review both `PASS`, on the current execution.
-- [ ] The feature report records what changed, which tests ran, which docs moved and what limits remain. Not required for a bug.
+- [ ] The feature report records what changed, which tests ran, which docs moved, which earlier docs were reconciled (or `None` with a reason) and what limits remain. Not required for a bug.
 - [ ] Canonical docs synced where needed, and no database, deploy or publish action outside the approved scope.
