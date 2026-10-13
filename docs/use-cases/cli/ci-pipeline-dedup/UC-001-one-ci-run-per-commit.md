@@ -1,10 +1,10 @@
 ---
-feature: "ci-pipeline-dedup"
-context: "cli"
-created: "20261009_1920"
+feature: ci-pipeline-dedup
+context: cli
+created: 20261009_1920
 id: UC-001
+status: archived
 ---
-
 # UC-001 — Push to a PR branch produces one non-redundant CI run
 
 ## Actor

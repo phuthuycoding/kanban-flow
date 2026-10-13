@@ -1,10 +1,9 @@
 ---
-feature: "context-registry"
-context: "cli"
-created: "20260920_1350"
-status: planning
+feature: context-registry
+context: cli
+created: 20260920_1350
+status: archived
 ---
-
 # Use Case
 
 ## Overview

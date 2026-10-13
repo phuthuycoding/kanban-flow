@@ -1,9 +1,9 @@
 ---
-uc: "UC-002"
-feature: "done-trigger"
-context: "cli"
+uc: UC-002
+feature: done-trigger
+context: cli
+status: archived
 ---
-
 # UC-002 — Link a pull request to the work item
 
 ## Goal

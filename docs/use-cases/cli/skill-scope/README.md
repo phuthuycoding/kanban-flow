@@ -1,10 +1,9 @@
 ---
-feature: "skill-scope"
-context: "cli"
-created: "20261010_1832"
-status: planning
+feature: skill-scope
+context: cli
+created: 20261010_1832
+status: archived
 ---
-
 # Use Case Index
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
@@ -13,12 +12,12 @@ Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Fresh init defaults to global skills | [UC-001](UC-001-fresh-init-global.md) | maintainer | planned |
-| UC-002 | Onboarding asks scope and persists the answer | [UC-002](UC-002-onboarding-scope-choice.md) | maintainer | planned |
-| UC-003 | Install global cleans the project copies | [UC-003](UC-003-install-global-cleans-project.md) | maintainer | planned |
-| UC-004 | Install project leaves global copies untouched | [UC-004](UC-004-install-project-keeps-global.md) | maintainer | planned |
-| UC-005 | Uninstall at a chosen scope | [UC-005](UC-005-uninstall-by-scope.md) | maintainer | planned |
-| UC-006 | Autoconfig and doctor report scope, status and stale skills | [UC-006](UC-006-scope-status-report.md) | maintainer | planned |
+| UC-001 | Fresh init defaults to global skills | [UC-001](UC-001-fresh-init-global.md) | maintainer | implemented |
+| UC-002 | Onboarding asks scope and persists the answer | [UC-002](UC-002-onboarding-scope-choice.md) | maintainer | implemented |
+| UC-003 | Install global cleans the project copies | [UC-003](UC-003-install-global-cleans-project.md) | maintainer | implemented |
+| UC-004 | Install project leaves global copies untouched | [UC-004](UC-004-install-project-keeps-global.md) | maintainer | implemented |
+| UC-005 | Uninstall at a chosen scope | [UC-005](UC-005-uninstall-by-scope.md) | maintainer | implemented |
+| UC-006 | Autoconfig and doctor report scope, status and stale skills | [UC-006](UC-006-scope-status-report.md) | maintainer | implemented |
 
 ## Use Case Coverage
 

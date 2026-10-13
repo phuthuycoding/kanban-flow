@@ -1,10 +1,10 @@
 ---
-feature: "github-sync-hooks"
-context: "cli"
-created: "20261010_1217"
+feature: github-sync-hooks
+context: cli
+created: 20261010_1217
 id: UC-001
+status: archived
 ---
-
 # UC-001 — Maintainer onboards a project to GitHub sync
 
 ## Actor

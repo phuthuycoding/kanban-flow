@@ -1,10 +1,9 @@
 ---
-feature: "worktree-domains"
-context: "cli"
-created: "20261007_1929"
-status: planning
+feature: worktree-domains
+context: cli
+created: 20261007_1929
+status: archived
 ---
-
 # Use Case Index
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
@@ -13,14 +12,14 @@ Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Onboard hạ tầng domain lần đầu | [UC-001](UC-001-onboard-domain-infra.md) | Người vận hành | planned |
-| UC-002 | Vào implementation tự có worktree + domain | [UC-002](UC-002-auto-worktree-on-implementation.md) | Agent | planned |
-| UC-003 | Agent code và tự test qua domain trong worktree | [UC-003](UC-003-agent-codes-tests-in-worktree.md) | Agent | planned |
-| UC-004 | Archive: gỡ worktree, giữ branch, cảnh báo unmerged | [UC-004](UC-004-archive-removes-worktree.md) | Agent | planned |
-| UC-005 | Hạ tầng chưa setup: doctor/validate cảnh báo | [UC-005](UC-005-infra-missing-warning.md) | Người vận hành | planned |
-| UC-006 | Resume/re-enter implementation tái dùng worktree | [UC-006](UC-006-resume-reuses-worktree.md) | Agent | planned |
-| UC-007 | Worktree dirty khi archive: từ chối và hướng dẫn | [UC-007](UC-007-dirty-worktree-blocks-teardown.md) | Agent | planned |
-| UC-008 | Liệt kê worktree và phát hiện orphan | [UC-008](UC-008-list-worktrees-orphans.md) | Người vận hành | planned |
+| UC-001 | Onboard hạ tầng domain lần đầu | [UC-001](UC-001-onboard-domain-infra.md) | Người vận hành | implemented |
+| UC-002 | Vào implementation tự có worktree + domain | [UC-002](UC-002-auto-worktree-on-implementation.md) | Agent | implemented |
+| UC-003 | Agent code và tự test qua domain trong worktree | [UC-003](UC-003-agent-codes-tests-in-worktree.md) | Agent | implemented |
+| UC-004 | Archive: gỡ worktree, giữ branch, cảnh báo unmerged | [UC-004](UC-004-archive-removes-worktree.md) | Agent | implemented |
+| UC-005 | Hạ tầng chưa setup: doctor/validate cảnh báo | [UC-005](UC-005-infra-missing-warning.md) | Người vận hành | implemented |
+| UC-006 | Resume/re-enter implementation tái dùng worktree | [UC-006](UC-006-resume-reuses-worktree.md) | Agent | implemented |
+| UC-007 | Worktree dirty khi archive: từ chối và hướng dẫn | [UC-007](UC-007-dirty-worktree-blocks-teardown.md) | Agent | implemented |
+| UC-008 | Liệt kê worktree và phát hiện orphan | [UC-008](UC-008-list-worktrees-orphans.md) | Người vận hành | implemented |
 
 ## Use Case Coverage
 

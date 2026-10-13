@@ -1,10 +1,9 @@
 ---
-feature: "done-trigger"
-context: "cli"
-created: "20261010_2012"
-status: planning
+feature: done-trigger
+context: cli
+created: 20261010_2012
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid

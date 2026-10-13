@@ -1,10 +1,12 @@
 ---
-uc: "UC-003"
-feature: "done-trigger"
-context: "cli"
+uc: UC-003
+feature: done-trigger
+context: cli
+status: archived
 ---
-
 # UC-003 — `kf issues done` delivers the work item
+
+> **Superseded by `archive-after-merge`.** `kf issues done` is a deprecated alias; `kf archive` performs the delivery (issue close, board, `delivered` stamp). `delivered.sh` and `statusMap.delivered` were removed. Kept for history.
 
 ## Goal
 One explicit command performs delivery: closes the issue, moves the board to the delivered status, records the flag.

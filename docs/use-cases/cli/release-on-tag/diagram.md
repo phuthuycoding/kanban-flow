@@ -1,10 +1,9 @@
 ---
-feature: "release-on-tag"
-context: "cli"
-created: "20261010_1217"
-status: planning
+feature: release-on-tag
+context: cli
+created: 20261010_1217
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid

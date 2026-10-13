@@ -1,10 +1,9 @@
 ---
-feature: "workflow-hardening"
-context: "cli"
-created: "20260919_1206"
-status: planning
+feature: workflow-hardening
+context: cli
+created: 20260919_1206
+status: archived
 ---
-
 # Test Plan
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:

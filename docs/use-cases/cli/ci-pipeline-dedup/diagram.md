@@ -1,10 +1,9 @@
 ---
-feature: "ci-pipeline-dedup"
-context: "cli"
-created: "20261009_1920"
-status: planning
+feature: ci-pipeline-dedup
+context: cli
+created: 20261009_1920
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid
