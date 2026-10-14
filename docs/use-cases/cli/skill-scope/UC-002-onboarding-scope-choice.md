@@ -1,10 +1,9 @@
 ---
-feature: "skill-scope"
-context: "cli"
-created: "20261010_1832"
-status: planning
+feature: skill-scope
+context: cli
+created: 20261010_1832
+status: archived
 ---
-
 # Use Case
 
 ## Overview

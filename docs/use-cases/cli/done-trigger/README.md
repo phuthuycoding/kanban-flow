@@ -1,11 +1,12 @@
 ---
-feature: "done-trigger"
-context: "cli"
-created: "20261010_2012"
-status: planning
+feature: done-trigger
+context: cli
+created: 20261010_2012
+status: archived
 ---
-
 # Use Case Index
+
+> **Partly superseded by `archive-after-merge`:** UC-001, UC-003, UC-004 and UC-005 no longer hold — `kf archive` is now the delivery gate (refuses an unmerged PR, closes the issue, moves the board to `statusMap.dones`, stamps `delivered`) and `kf issues done` is a deprecated alias. UC-002 (linking a PR) still holds. Kept for history.
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
 
@@ -13,11 +14,11 @@ Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Archive leaves issue open and board at intermediate status | [UC-001](UC-001-archive-leaves-issue-open.md) | Maintainer/agent | planned |
-| UC-002 | Link a pull request to the work item | [UC-002](UC-002-link-pull-request.md) | Maintainer/agent | planned |
-| UC-003 | `kf issues done` delivers the work item | [UC-003](UC-003-issues-done-delivers.md) | Maintainer/agent | planned |
-| UC-004 | `kf issues done` refuses when PR not merged | [UC-004](UC-004-issues-done-refuses-unmerged.md) | Maintainer/agent | planned |
-| UC-005 | Doctor/status surfaces an archived-but-undelivered item | [UC-005](UC-005-undelivered-warning.md) | Maintainer/agent | planned |
+| UC-001 | Archive leaves issue open and board at intermediate status | [UC-001](UC-001-archive-leaves-issue-open.md) | Maintainer/agent | implemented |
+| UC-002 | Link a pull request to the work item | [UC-002](UC-002-link-pull-request.md) | Maintainer/agent | implemented |
+| UC-003 | `kf issues done` delivers the work item | [UC-003](UC-003-issues-done-delivers.md) | Maintainer/agent | implemented |
+| UC-004 | `kf issues done` refuses when PR not merged | [UC-004](UC-004-issues-done-refuses-unmerged.md) | Maintainer/agent | implemented |
+| UC-005 | Doctor/status surfaces an archived-but-undelivered item | [UC-005](UC-005-undelivered-warning.md) | Maintainer/agent | implemented |
 
 ## Use Case Coverage
 

@@ -1,10 +1,9 @@
 ---
-feature: "affected-surfaces"
-context: "cli"
-created: "20261012_1935"
-status: planning
+feature: affected-surfaces
+context: cli
+created: 20261012_1935
+status: archived
 ---
-
 # Use Case
 
 ## Overview

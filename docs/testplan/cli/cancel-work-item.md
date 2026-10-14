@@ -1,10 +1,9 @@
 ---
-feature: "cancel-work-item"
-context: "cli"
-created: "20260919_2245"
-status: planning
+feature: cancel-work-item
+context: cli
+created: 20260919_2245
+status: archived
 ---
-
 # Test Plan
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:

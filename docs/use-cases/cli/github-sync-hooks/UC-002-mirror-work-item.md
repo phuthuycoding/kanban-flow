@@ -1,10 +1,10 @@
 ---
-feature: "github-sync-hooks"
-context: "cli"
-created: "20261010_1217"
+feature: github-sync-hooks
+context: cli
+created: 20261010_1217
 id: UC-002
+status: archived
 ---
-
 # UC-002 — Work item mirrors to issue and board across stages
 
 ## Actor

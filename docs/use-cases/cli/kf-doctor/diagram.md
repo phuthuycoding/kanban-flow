@@ -1,9 +1,9 @@
 ---
-feature: "kf-doctor"
-context: "cli"
-created: "20260921_1406"
+feature: kf-doctor
+context: cli
+created: 20260921_1406
+status: archived
 ---
-
 # Use Case Diagram
 
 ## Feature

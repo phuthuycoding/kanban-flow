@@ -1,10 +1,9 @@
 ---
-feature: "worktree-domains"
-context: "cli"
-created: "20261007_1929"
-status: planning
+feature: worktree-domains
+context: cli
+created: 20261007_1929
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid

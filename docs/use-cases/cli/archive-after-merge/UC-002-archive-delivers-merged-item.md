@@ -1,10 +1,9 @@
 ---
-feature: "archive-after-merge"
-context: "cli"
-created: "20261011_1108"
-status: planning
+feature: archive-after-merge
+context: cli
+created: 20261011_1108
+status: archived
 ---
-
 # Use Case
 
 ## Overview

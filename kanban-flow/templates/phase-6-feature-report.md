@@ -65,6 +65,14 @@ status: DONE
 
 Replace the UC wildcard row with the actual files. Record `N/A` with a reason if no other documents need updates.
 
+## Docs Reconciled
+
+| Document | Superseded / updated behavior | Action |
+|---|---|---|
+| {reconciled_document} | {reconciled_change} | {reconciled_action} |
+
+Earlier canonical docs and `docs/workflow/*` that this feature changes: banner `Superseded by {feature_name}` or updated text. Write `None — <reason>` instead of the table when no existing doc describes the changed behavior.
+
 ## Known Limitations
 - {known_limitation}
 

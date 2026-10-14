@@ -1,10 +1,9 @@
 ---
-feature: "agent-roles"
-context: "cli"
-created: "20260919_2220"
-status: planning
+feature: agent-roles
+context: cli
+created: 20260919_2220
+status: archived
 ---
-
 # Use Case Index
 
 Mỗi use case là một file riêng trong thư mục `use-cases/`, không viết narrative gộp trong file này.
@@ -13,12 +12,12 @@ Mỗi use case là một file riêng trong thư mục `use-cases/`, không viế
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Khai báo roles, gán stage → role, kiểm tra bằng `kf harness` | [UC-001](UC-001-declare-roles-map-stages.md) | Người vận hành | planned |
-| UC-002 | Một stage chạy chuỗi role, bước sau nhận kết quả bước trước | [UC-002](UC-002-stage-runs-role-chain.md) | Main agent | planned |
-| UC-003 | Một role không DONE thì dừng chuỗi | [UC-003](UC-003-role-failure-stops-chain.md) | Main agent | planned |
-| UC-004 | Đổi model cho một role mà không đụng stage mapping | [UC-004](UC-004-swap-role-runner.md) | Người vận hành | planned |
-| UC-005 | Hai role dùng chung runner nhưng session tách biệt | [UC-005](UC-005-sessions-per-role.md) | Main agent | planned |
-| UC-006 | Config kiểu cũ báo lỗi kèm hướng dẫn chuyển đổi | [UC-006](UC-006-legacy-config-migration-error.md) | Người vận hành | planned |
+| UC-001 | Khai báo roles, gán stage → role, kiểm tra bằng `kf harness` | [UC-001](UC-001-declare-roles-map-stages.md) | Người vận hành | implemented |
+| UC-002 | Một stage chạy chuỗi role, bước sau nhận kết quả bước trước | [UC-002](UC-002-stage-runs-role-chain.md) | Main agent | implemented |
+| UC-003 | Một role không DONE thì dừng chuỗi | [UC-003](UC-003-role-failure-stops-chain.md) | Main agent | implemented |
+| UC-004 | Đổi model cho một role mà không đụng stage mapping | [UC-004](UC-004-swap-role-runner.md) | Người vận hành | implemented |
+| UC-005 | Hai role dùng chung runner nhưng session tách biệt | [UC-005](UC-005-sessions-per-role.md) | Main agent | implemented |
+| UC-006 | Config kiểu cũ báo lỗi kèm hướng dẫn chuyển đổi | [UC-006](UC-006-legacy-config-migration-error.md) | Người vận hành | implemented |
 
 ## Use Case Coverage
 

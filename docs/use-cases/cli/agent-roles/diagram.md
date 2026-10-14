@@ -1,10 +1,9 @@
 ---
-feature: "agent-roles"
-context: "cli"
-created: "20260919_2220"
-status: planning
+feature: agent-roles
+context: cli
+created: 20260919_2220
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid

@@ -1,10 +1,12 @@
 ---
-uc: "UC-005"
-feature: "done-trigger"
-context: "cli"
+uc: UC-005
+feature: done-trigger
+context: cli
+status: archived
 ---
-
 # UC-005 — Doctor/status surfaces an archived-but-undelivered item
+
+> **Superseded by `archive-after-merge`.** `dones` means delivered again; `kf status`/`kf doctor` instead report a review-PASS item still in review as "awaiting merge". Kept for history.
 
 ## Goal
 A work item sitting in `dones` with an open issue and no `delivered` flag is visible instead of silently stale.

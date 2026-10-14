@@ -1,9 +1,9 @@
 ---
-feature: "secret-scan-formats"
-context: "cli"
-created: "20260921_1426"
+feature: secret-scan-formats
+context: cli
+created: 20260921_1426
+status: archived
 ---
-
 # Test Cases
 
 ## TC-001

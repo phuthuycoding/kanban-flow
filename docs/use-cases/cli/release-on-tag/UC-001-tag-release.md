@@ -1,10 +1,10 @@
 ---
-feature: "release-on-tag"
-context: "cli"
-created: "20261010_1217"
+feature: release-on-tag
+context: cli
+created: 20261010_1217
 id: UC-001
+status: archived
 ---
-
 # UC-001 — Maintainer pushes a release tag
 
 ## Actor

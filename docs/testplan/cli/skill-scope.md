@@ -1,10 +1,9 @@
 ---
-feature: "skill-scope"
-context: "cli"
-created: "20261010_1833"
-status: planning
+feature: skill-scope
+context: cli
+created: 20261010_1833
+status: archived
 ---
-
 # Test Plan
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:

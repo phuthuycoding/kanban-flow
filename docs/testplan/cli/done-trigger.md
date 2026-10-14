@@ -1,11 +1,12 @@
 ---
-feature: "done-trigger"
-context: "cli"
-created: "20261010_2012"
-status: planning
+feature: done-trigger
+context: cli
+created: 20261010_2012
+status: archived
 ---
-
 # Test Plan
+
+> **Partly superseded by `archive-after-merge`:** TC-003…TC-014 (archive leaving the issue open, `kf issues done`, the archived-but-undelivered warning) describe the replaced design; TC-001 and TC-002 (linking a PR) still hold. Kept for history.
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.

@@ -1,10 +1,9 @@
 ---
-feature: "agent-roles"
-context: "cli"
-created: "20260919_2220"
-status: planning
+feature: agent-roles
+context: cli
+created: 20260919_2220
+status: archived
 ---
-
 # Test Plan
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:

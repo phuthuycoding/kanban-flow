@@ -1,17 +1,16 @@
 ---
-feature: "release-on-tag"
-context: "cli"
-created: "20261010_1217"
-status: planning
+feature: release-on-tag
+context: cli
+created: 20261010_1217
+status: archived
 ---
-
 # Use Case Index
 
 ## Use Case Files
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Maintainer pushes a release tag | [UC-001](UC-001-tag-release.md) | Maintainer | planned |
+| UC-001 | Maintainer pushes a release tag | [UC-001](UC-001-tag-release.md) | Maintainer | implemented |
 
 ## Use Case Coverage
 

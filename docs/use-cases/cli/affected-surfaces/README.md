@@ -1,10 +1,9 @@
 ---
-feature: "affected-surfaces"
-context: "cli"
-created: "20261012_1935"
-status: planning
+feature: affected-surfaces
+context: cli
+created: 20261012_1935
+status: archived
 ---
-
 # Use Case Index
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
@@ -13,10 +12,10 @@ Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Spec gate refuses unfilled surfaces | [UC-001](UC-001-spec-gate-refuses-unfilled-surfaces.md) | Human maintainer (via kf stage / validate) | planned |
-| UC-002 | Declared surfaces flow into the plan | [UC-002](UC-002-surfaces-flow-into-plan.md) | Agent | planned |
-| UC-003 | Validate warns on uncovered surface | [UC-003](UC-003-validate-warns-uncovered-surface.md) | Agent / maintainer | planned |
-| UC-004 | N/A escape for code-only changes | [UC-004](UC-004-na-escape.md) | Human maintainer | planned |
+| UC-001 | Spec gate refuses unfilled surfaces | [UC-001](UC-001-spec-gate-refuses-unfilled-surfaces.md) | Human maintainer (via kf stage / validate) | implemented |
+| UC-002 | Declared surfaces flow into the plan | [UC-002](UC-002-surfaces-flow-into-plan.md) | Agent | implemented |
+| UC-003 | Validate warns on uncovered surface | [UC-003](UC-003-validate-warns-uncovered-surface.md) | Agent / maintainer | implemented |
+| UC-004 | N/A escape for code-only changes | [UC-004](UC-004-na-escape.md) | Human maintainer | implemented |
 
 ## Use Case Coverage
 

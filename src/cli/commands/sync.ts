@@ -9,7 +9,10 @@ import type { CmdResult } from "../result.js";
  * `kf sync` — the pull-model delivery sweep. For every review/dones item with a recorded
  * PR it checks merge state via `gh pr view` and runs the archive finalization for the
  * merged ones. Items without `pr` are never touched — no-PR delivery stays an explicit
- * human `kf archive`. Runnable by hand or from cron/launchd; no daemon.
+ * human `kf archive`. Runnable by hand or from cron/launchd; no daemon. A dones item already
+ * `delivered` is skipped: the flag is stamped last, so nothing is left to finalize, and its
+ * canonical docs may legitimately carry later edits (superseded banners) that a re-archive
+ * would refuse on every sweep.
  */
 export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
@@ -18,10 +21,10 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (!repo) return noRepository();
 
   const candidates = listFeatures(root.root).filter(
-    (f) => (f.stage === "review" || f.stage === "dones") && Boolean(f.meta?.pr),
+    (f) => (f.stage === "review" || (f.stage === "dones" && !f.meta?.delivered)) && Boolean(f.meta?.pr),
   );
   if (candidates.length === 0) {
-    return { code: 0, stdout: "No PR-linked items in review or dones — nothing to sync." };
+    return { code: 0, stdout: "No PR-linked items awaiting delivery — nothing to sync." };
   }
 
   const lines: string[] = [];

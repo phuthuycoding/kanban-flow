@@ -29,7 +29,11 @@ If already in dones, complete only missing closure work and validate; never reim
 
 ## 2. Sync docs
 
-For a feature, let `kf archive` copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement mirror under `docs/requirement/` was already written in Phase 1 — `kf archive` rewrites it from the Phase 1 artifact and stamps `status: archived`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure. Update other affected docs from the plan's documentation impact as needed.
+For a feature, let `kf archive` copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement mirror under `docs/requirement/` was already written in Phase 1 — `kf archive` rewrites it from the Phase 1 artifact. Every canonical copy except the test result is stamped `status: archived`, and the UC index rows flip from `planned` to `implemented`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure.
+
+### 2b. Reconcile superseded docs (feature, mandatory)
+
+`docs/` must describe the system as it is after this feature, not as each older feature left it. Before `kf archive`, read [reconcile.md](reconcile.md) and follow it: find earlier canonical docs and `docs/workflow/*` that describe behavior this feature changes, mark contradicted snapshots with a `Superseded by` banner, bring workflow docs up to date, and record the result in the feature report's `## Docs Reconciled` section (`None — <reason>` when nothing is affected). Never rewrite another feature's snapshot body.
 
 For a bug, update existing related feature docs only when the fix changes documented behavior or reveals inaccurate documentation. Use the feature/context named in the bug report; do not overwrite feature docs with bug-report content. Record bug ID, fix summary and regression reference in the project's changelog or change-history section (e.g. CHANGELOG.md) when one exists. If behavior is already documented correctly, leave docs as-is and record “No documentation update required” with the reason in the review report. Bug archive does not automatically create canonical feature docs.
 
@@ -50,7 +54,12 @@ When refreshing an item already in dones, canonical docs may include later bug f
 git status
 ```
 
-Commit when the user requested it or project instructions explicitly require it. Use conventional commits: `feat({context}): ...` for features and `fix({context}): ...` for bugs. Include only this work item's changes, respect ignored .works directories and preserve unrelated working-tree changes. Otherwise report that changes are uncommitted.
+Archive runs after the feature's change has merged, so its output is a docs-only change on top of the default branch. Commit when the user requested it or project instructions explicitly require it, on its own branch and PR:
+
+- Feature: `docs({context}): sync canonical docs for {feature_name}` — the canonical copies plus the docs reconciled in step 2b.
+- Bug: `docs({context}): ...` for related docs updated in step 2, when any.
+
+Include only this work item's changes, respect ignored .works directories and preserve unrelated working-tree changes. Otherwise report that changes are uncommitted.
 
 ---
 
@@ -65,7 +74,7 @@ Pipeline complete. Deliver the final report:
 3. ✓ Implement — {M}/{M} tasks
 4. ✓ Test — {N}/{N} passed
 5. ✓ Review — PASS
-6. ✓ Archive — kf archive, docs sync/update status
+6. ✓ Archive — kf archive, docs sync/update status, docs reconciled: {list or None}
 
 Artifacts: .works/dones/{feature_name}_{timestamp}/
 Feature canonical docs:

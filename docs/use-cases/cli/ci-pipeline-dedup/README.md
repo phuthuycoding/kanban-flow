@@ -1,10 +1,9 @@
 ---
-feature: "ci-pipeline-dedup"
-context: "cli"
-created: "20261009_1920"
-status: planning
+feature: ci-pipeline-dedup
+context: cli
+created: 20261009_1920
+status: archived
 ---
-
 # Use Case Index
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
@@ -13,7 +12,7 @@ Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Push to a PR branch produces one non-redundant CI run | [UC-001](UC-001-one-ci-run-per-commit.md) | Contributor | planned |
+| UC-001 | Push to a PR branch produces one non-redundant CI run | [UC-001](UC-001-one-ci-run-per-commit.md) | Contributor | implemented |
 
 ## Use Case Coverage
 

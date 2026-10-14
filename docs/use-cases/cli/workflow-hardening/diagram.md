@@ -1,10 +1,9 @@
 ---
-feature: "workflow-hardening"
-context: "cli"
-created: "20260919_1206"
-status: planning
+feature: workflow-hardening
+context: cli
+created: 20260919_1206
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid

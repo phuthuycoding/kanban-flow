@@ -1,10 +1,12 @@
 ---
-uc: "UC-004"
-feature: "done-trigger"
-context: "cli"
+uc: UC-004
+feature: done-trigger
+context: cli
+status: archived
 ---
-
 # UC-004 — `kf issues done` refuses when the PR is not merged
+
+> **Superseded by `archive-after-merge`.** The unmerged-PR refusal now lives in `kf archive` (exit 1, no side effects, no `--force` escape). Kept for history.
 
 ## Goal
 A linked-but-unmerged PR blocks the delivery claim — the exact false-close the bug reported.

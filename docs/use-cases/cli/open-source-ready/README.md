@@ -1,10 +1,9 @@
 ---
-feature: "open-source-ready"
-context: "cli"
-created: "20260919_2340"
-status: planning
+feature: open-source-ready
+context: cli
+created: 20260919_2340
+status: archived
 ---
-
 # Use Case Index
 
 Mỗi use case là một file riêng trong thư mục `use-cases/`, không viết narrative gộp trong file này.
@@ -13,11 +12,11 @@ Mỗi use case là một file riêng trong thư mục `use-cases/`, không viế
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Người lạ đọc README và hiểu vấn đề trong 30 giây | [UC-001](UC-001-readme-explains-the-problem.md) | Người lạ ghé repo | planned |
-| UC-002 | Cài một dòng và chạy được ngay | [UC-002](UC-002-one-line-install.md) | Người dùng thử | planned |
-| UC-003 | Bề mặt công cụ không còn ngôn ngữ lạ | [UC-003](UC-003-no-internal-jargon-on-surface.md) | Người dùng thử | planned |
-| UC-004 | Đại ca publish khi muốn, không phải sửa thêm | [UC-004](UC-004-maintainer-publishes-cleanly.md) | Đại ca (maintainer) | planned |
-| UC-005 | Người đọc tài liệu chi tiết bằng tiếng Anh | [UC-005](UC-005-detailed-docs-in-english.md) | Người dùng thử | planned |
+| UC-001 | Người lạ đọc README và hiểu vấn đề trong 30 giây | [UC-001](UC-001-readme-explains-the-problem.md) | Người lạ ghé repo | implemented |
+| UC-002 | Cài một dòng và chạy được ngay | [UC-002](UC-002-one-line-install.md) | Người dùng thử | implemented |
+| UC-003 | Bề mặt công cụ không còn ngôn ngữ lạ | [UC-003](UC-003-no-internal-jargon-on-surface.md) | Người dùng thử | implemented |
+| UC-004 | Đại ca publish khi muốn, không phải sửa thêm | [UC-004](UC-004-maintainer-publishes-cleanly.md) | Đại ca (maintainer) | implemented |
+| UC-005 | Người đọc tài liệu chi tiết bằng tiếng Anh | [UC-005](UC-005-detailed-docs-in-english.md) | Người dùng thử | implemented |
 
 ## Use Case Coverage
 

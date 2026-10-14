@@ -1,10 +1,9 @@
 ---
-feature: "worktree-domains"
-context: "cli"
-created: "20261007_2023"
-status: planning
+feature: worktree-domains
+context: cli
+created: 20261007_2023
+status: archived
 ---
-
 # Use Case
 
 ## Overview

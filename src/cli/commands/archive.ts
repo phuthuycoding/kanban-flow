@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ARTIFACTS, METADATA_FILE, UC_FILE_NAME, UC_FILE_PATTERN } from "../../workflow/schema.js";
 import { findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "../../workflow/features.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
-import { splitFrontmatter, applyFrontmatter } from "../../shared/frontmatter.js";
+import { splitFrontmatter, applyFrontmatter, getFmValue } from "../../shared/frontmatter.js";
 import { writeFileAtomic } from "../../shared/paths.js";
 import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
 import { findRoot, recordBypasses, bypassNote, checkMergeGate } from "./helpers.js";
@@ -19,6 +19,7 @@ interface CanonicalCopy {
   destination: string;
   content: string;
   original: string | null;
+  kind: CanonicalKind;
 }
 
 function archivedDocument(raw: string): string {
@@ -26,6 +27,33 @@ function archivedDocument(raw: string): string {
   if (Object.keys(fm).length === 0) return raw;
   fm.status = "archived";
   return applyFrontmatter(fm, body);
+}
+
+/** Only the Status column of the "Use Case Files" table flips; coverage tables keep their text. */
+function implementedUseCaseRows(raw: string): string {
+  let inFiles = false;
+  return raw
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("## ")) inFiles = line.trim() === "## Use Case Files";
+      return inFiles && line.startsWith("|") ? line.replace(/\|\s*planned\s*\|\s*$/, "| implemented |") : line;
+    })
+    .join("\n");
+}
+
+/**
+ * How a source artifact becomes its canonical doc. `result` keeps its own status (PASS);
+ * everything else describes delivered behavior and is stamped archived.
+ */
+export type CanonicalKind = "requirement" | "use-case-index" | "use-case" | "diagram" | "testplan" | "result";
+
+export function canonicalContent(kind: CanonicalKind, raw: string): string {
+  if (kind === "result") return raw;
+  if (kind === "use-case-index") {
+    const linked = raw.replace(new RegExp(`use-cases/(${UC_FILE_NAME})`, "gi"), "$1");
+    return archivedDocument(implementedUseCaseRows(linked));
+  }
+  return archivedDocument(raw);
 }
 
 /** Canonical doc paths a feature owns, whether or not they exist on disk. */
@@ -51,25 +79,22 @@ function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[]
 
   const context = feature.context;
   const base = join(root, "docs");
-  const mappings = [
-    [ARTIFACTS["spec-requirement"].file, join(base, "requirement", context, `${feature.name}.md`), true],
-    [ARTIFACTS["use-case-specification"].file, join(base, "use-cases", context, feature.name, "README.md"), false],
-    [ARTIFACTS["use-case-diagram"].file, join(base, "use-cases", context, feature.name, "diagram.md"), false],
-    [ARTIFACTS["test-cases"].file, join(base, "testplan", context, `${feature.name}.md`), false],
-    [ARTIFACTS["testing-result"].file, join(base, "testplan", context, `${feature.name}-result.md`), false],
-  ] as const;
+  const mappings: [string, string, CanonicalKind][] = [
+    [ARTIFACTS["spec-requirement"].file, join(base, "requirement", context, `${feature.name}.md`), "requirement"],
+    [ARTIFACTS["use-case-specification"].file, join(base, "use-cases", context, feature.name, "README.md"), "use-case-index"],
+    [ARTIFACTS["use-case-diagram"].file, join(base, "use-cases", context, feature.name, "diagram.md"), "diagram"],
+    [ARTIFACTS["test-cases"].file, join(base, "testplan", context, `${feature.name}.md`), "testplan"],
+    [ARTIFACTS["testing-result"].file, join(base, "testplan", context, `${feature.name}-result.md`), "result"],
+  ];
 
-  const copies = mappings.map(([sourceFile, destination, archiveStatus]) => {
+  const copies: CanonicalCopy[] = mappings.map(([sourceFile, destination, kind]) => {
     const source = join(feature.dir, sourceFile);
     if (!existsSync(source)) throw new Error(`Cannot sync canonical docs: missing source artifact ${source}`);
-    const raw = readFileSync(source, "utf8");
-    const content = sourceFile === ARTIFACTS["use-case-specification"].file
-      ? raw.replace(new RegExp(`use-cases/(${UC_FILE_NAME})`, "gi"), "$1")
-      : archiveStatus ? archivedDocument(raw) : raw;
     return {
       destination,
-      content,
+      content: canonicalContent(kind, readFileSync(source, "utf8")),
       original: existsSync(destination) ? readFileSync(destination, "utf8") : null,
+      kind,
     };
   });
 
@@ -80,8 +105,9 @@ function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[]
       const destination = join(base, "use-cases", context, feature.name, file);
       copies.push({
         destination,
-        content: readFileSync(source, "utf8"),
+        content: canonicalContent("use-case", readFileSync(source, "utf8")),
         original: existsSync(destination) ? readFileSync(destination, "utf8") : null,
+        kind: "use-case",
       });
     }
   }
@@ -90,9 +116,21 @@ function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[]
   // Older versions stored requirement mirrors under docs/use-cases.
   if (existsSync(legacy) && !copies.some((copy) => copy.destination === legacy)) {
     const raw = readFileSync(legacy, "utf8");
-    copies.push({ destination: legacy, content: archivedDocument(raw), original: raw });
+    copies.push({ destination: legacy, content: archivedDocument(raw), original: raw, kind: "requirement" });
   }
   return copies;
+}
+
+/**
+ * Older versions copied these docs without the archived stamp. Such a doc is not an edit when
+ * stamping it yields the new copy. Only the pre-stamp statuses qualify, so a hand-set status
+ * (e.g. superseded) is still reported as changed instead of being normalized away.
+ */
+function isUnstampedSnapshot(copy: CanonicalCopy): boolean {
+  if (copy.original === null) return false;
+  const status = getFmValue(copy.original, "status");
+  if (status !== null && status !== "planning") return false;
+  return canonicalContent(copy.kind, copy.original) === copy.content;
 }
 
 async function writeCanonicalCopies(copies: CanonicalCopy[]): Promise<void> {
@@ -128,7 +166,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     const check = validateFeature(f);
     if (!check.valid && !args.options.force) return { code: 1, stdout: renderValidateText(check), stderr: "gate failed" };
     const copies = args.options["skip-specs"] ? [] : prepareCanonicalCopies(root.root, f);
-    const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content);
+    const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
     if (changedDocs.length > 0 && !args.options.force) {
       return {
         code: 1,

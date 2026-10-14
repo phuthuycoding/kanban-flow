@@ -1,10 +1,12 @@
 ---
-uc: "UC-001"
-feature: "done-trigger"
-context: "cli"
+uc: UC-001
+feature: done-trigger
+context: cli
+status: archived
 ---
-
 # UC-001 — Archive leaves issue open and board at intermediate status
+
+> **Superseded by `archive-after-merge`.** Archive now closes the linked issue and moves the board to `statusMap.dones`; it runs only after the recorded PR merged (or the human confirms delivery). Kept for history.
 
 ## Goal
 `kf archive` completes the kanban lifecycle without claiming delivery on the tracker.

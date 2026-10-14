@@ -1,10 +1,9 @@
 ---
-feature: "open-source-ready"
-context: "cli"
-created: "20260919_2340"
-status: planning
+feature: open-source-ready
+context: cli
+created: 20260919_2340
+status: archived
 ---
-
 # Test Plan
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:

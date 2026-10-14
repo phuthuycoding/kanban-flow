@@ -1,6 +1,12 @@
 {
   "schema": "kanban-flow",
-  "defaultContext": "app",
+  "contexts": [
+    "cli",
+    "harness",
+    "worktree",
+    "dashboard",
+    "integrations"
+  ],
   "stacks": [
     "node"
   ],

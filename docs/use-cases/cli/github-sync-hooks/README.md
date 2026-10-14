@@ -1,10 +1,9 @@
 ---
-feature: "github-sync-hooks"
-context: "cli"
-created: "20261010_1217"
-status: planning
+feature: github-sync-hooks
+context: cli
+created: 20261010_1217
+status: archived
 ---
-
 # Use Case Index
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md`.
@@ -13,8 +12,8 @@ Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md`.
 
 | ID | Name | File | Primary Actor | Status |
 |---|---|---|---|---|
-| UC-001 | Maintainer onboards a project to GitHub sync | [UC-001](UC-001-onboard-github-sync.md) | Maintainer | planned |
-| UC-002 | Work item mirrors to issue and board across stages | [UC-002](UC-002-mirror-work-item.md) | Agent | planned |
+| UC-001 | Maintainer onboards a project to GitHub sync | [UC-001](UC-001-onboard-github-sync.md) | Maintainer | implemented |
+| UC-002 | Work item mirrors to issue and board across stages | [UC-002](UC-002-mirror-work-item.md) | Agent | implemented |
 
 ## Use Case Coverage
 

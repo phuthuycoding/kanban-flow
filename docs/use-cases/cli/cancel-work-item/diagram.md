@@ -1,10 +1,9 @@
 ---
-feature: "cancel-work-item"
-context: "cli"
-created: "20260919_2245"
-status: planning
+feature: cancel-work-item
+context: cli
+created: 20260919_2245
+status: archived
 ---
-
 # Use Case Diagram
 
 ```mermaid

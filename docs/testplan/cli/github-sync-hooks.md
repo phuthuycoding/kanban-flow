@@ -1,10 +1,9 @@
 ---
-feature: "github-sync-hooks"
-context: "cli"
-created: "20261010_1217"
-status: planning
+feature: github-sync-hooks
+context: cli
+created: 20261010_1217
+status: archived
 ---
-
 # Test Plan
 
 ## Feature Test Summary
