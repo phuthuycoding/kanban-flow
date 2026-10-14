@@ -13,6 +13,7 @@ import { readProjectConfig } from "../../project/config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../../worktree/lifecycle.js";
 import { attachWorktreeToAdes, renderAdeResults } from "../../integrations/ade/index.js";
+import { syncBase } from "../../project/base-sync.js";
 import type { WorktreeRegistration } from "../../workflow/features.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -100,6 +101,16 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
       };
     }
     forcedCodes.push(...direction.map((i) => i.code));
+  }
+
+  // Freshness: before planning surveys code or implementation cuts the worktree
+  // branch, fast-forward the base checkout to upstream — a transition that is
+  // going to fail (gates above) never reaches this.
+  let baseNote = "";
+  if (to === "planning" || to === "implementation") {
+    const sync = syncBase(root.root);
+    if (sync.warning) baseNote = `\n  ⚠ ${sync.warning}`;
+    else if (sync.note) baseNote = `\n  ${sync.note}`;
   }
 
   // Phase hook: run the hook of the stage we are entering (before the move).
@@ -197,7 +208,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
       })()
     : "";
   const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})${adeNote}` : "";
-  const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${worktreeNote}${hookNote}${bypassNote(recorded)}`;
+  const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${baseNote}${worktreeNote}${hookNote}${bypassNote(recorded)}`;
 
   // An item reopened into `dones` must end up as archived as it was: `status: "archived"` back,
   // and canonical docs re-synced, since `kf cancel --purge-docs` may have deleted them. Archive

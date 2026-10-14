@@ -59,6 +59,8 @@ Treat `DONE_WITH_CONCERNS`, `BLOCKED` and `NEEDS_CONTEXT` as not-done: resolve i
 
 ### a. Impact survey
 
+`kf stage <feature> planning` already fetched and fast-forwarded the base checkout to its upstream — survey the files as they are; if the transition output carried a `⚠ base is N commit(s) behind` warning, surface it to the user before writing the contract instead of pulling yourself.
+
 Before writing the plan, dispatch the survey subagents in one batch. Each answers for its area: which modules, endpoints, tables and components the change touches, who depends on them, which existing tests cover them, and any risk to regression, security or performance. Ask for `file:line` references and conclusions, not file dumps. Feed the findings into the impact analysis of the implementation plan; do not paste them as-is.
 
 ### b-d. Skeleton, UC files, diagram and test cases

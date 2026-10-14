@@ -10,6 +10,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - **Git-name branch prefix.** `worktree.branchPrefix` still wins when set; otherwise the prefix resolves `worktree.gitconfigName` → `git config user.name` → `kf/`, so branches come out as `<user>/<feature>` matching ADE conventions. Orphan detection keeps recognizing legacy `kf/` worktrees.
 - **`adeSync` machine opt-out.** `adeSync: false` in `~/.config/kanban-flow/config.json`, or `KF_ADE_SYNC=0|off|false` in the environment, disables all ADE calls (handy for CI).
 
+### Fixed
+- **Planning no longer contracts against stale code.** `kf stage` into `planning` or `implementation` (and `kf worktree create`) now fetches and fast-forwards the base checkout to its upstream before anything is surveyed or branched. A dirty or diverged tree is never pulled — the output warns with the exact commit gap instead; unreachable remotes degrade to a warning, and repos without one skip cleanly.
+
 ## [0.10.0] - 2026-10-14
 
 ### Added
