@@ -10,6 +10,12 @@ export interface AdeTarget {
   branch: string | null;
   /** Display name in the ADE — the feature name, or a branch/dir-derived name for foreign worktrees. */
   label: string;
+  /**
+   * True when the attach should also focus the workspace in the ADE — set on
+   * creation paths (create/stage→implementation), unset on `sync` catch-up.
+   * Adapters without a focus concept ignore it.
+   */
+  focus?: boolean;
 }
 
 export interface AdeContext {

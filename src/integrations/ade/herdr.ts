@@ -12,9 +12,9 @@ interface HerdrWorktree {
   open_workspace_id?: string | null;
 }
 
-/** `herdr worktree list` (JSON) — run with cwd at the repo root. */
+/** `herdr worktree list --cwd <root>` — the flag selects the repo; Herdr otherwise uses its ambient context. */
 function listWorktrees(root: string): HerdrWorktree[] {
-  const res = runCliJson(BIN, ["worktree", "list"], { cwd: root }) as {
+  const res = runCliJson(BIN, ["worktree", "list", "--cwd", root], { cwd: root }) as {
     result?: { worktrees?: HerdrWorktree[] };
   };
   return res.result?.worktrees ?? [];
@@ -31,8 +31,16 @@ export const herdrAdapter: AdeAdapter = {
   },
 
   attach(ctx: AdeContext): AdeSyncResult {
-    const args = ["worktree", "open", "--path", ctx.target.path, "--label", ctx.target.label, "--no-focus"];
-    if (ctx.target.branch) args.push("--branch", ctx.target.branch);
+    // `worktree open [--workspace ID | --cwd PATH] (--path | --branch)`: --cwd
+    // selects the repo, --path the worktree inside it — omitting --cwd makes
+    // Herdr resolve the path against whichever repo its UI currently shows.
+    const args = [
+      "worktree", "open",
+      "--cwd", ctx.root,
+      "--path", ctx.target.path,
+      "--label", ctx.target.label,
+      ctx.target.focus ? "--focus" : "--no-focus",
+    ];
     const res = runCliJson(BIN, args, { cwd: ctx.root }) as {
       result?: { type?: string; already_open?: boolean };
     };

@@ -22,9 +22,9 @@ When `kf` creates a worktree, detect the agentic development environments (ADEs)
 - Detection of ADE availability at create time (binary present + app/runtime API reachable); unavailable ADEs are skipped silently.
 - Attach/sync of the just-created worktree into each reachable adapter — `kf worktree create` and the stage → implementation auto-create.
 - Orca adapter: `orca repo add --path <root>` (idempotent repo registration), then verify the worktree appears in `orca worktree list`; when the repo's external-worktree visibility hides it, report a warning telling the user to enable it (no CLI setter exists — verified).
-- Herdr adapter: `herdr worktree open --path <wt> --branch <branch> --label <feature> --no-focus` (idempotent via `already_open`), so the worktree becomes a Herdr workspace.
+- Herdr adapter: `herdr worktree open --cwd <repo> --path <wt> --label <feature>` (idempotent via `already_open`; `--path`/`--branch` are mutually exclusive, `--cwd` selects the repo context), so the worktree becomes a Herdr workspace — focused on create, `--no-focus` on sync.
 - Detach on teardown (`worktree remove`, `cancel`, `archive`): best-effort — Herdr closes the workspace bound to the path; Orca needs nothing.
-- `kf worktree sync [feature]` — manual re-sync: inside a linked worktree it syncs the worktree being stood in (including ADE-created ones); with a feature name it syncs that item's worktree; from the main checkout with no argument it syncs every registered worktree.
+- `kf worktree sync [feature]` — manual re-sync: inside a linked worktree it syncs the worktree being stood in (including ADE-created ones); with a feature name it syncs that item's worktree; from the main checkout with no argument it syncs every linked worktree of the repo (registered or foreign).
 - Sync failures are warnings, never fatal: a failed ADE call cannot fail worktree creation or removal.
 - Machine-level opt-out in `~/.config/kanban-flow/config.json` (never committed — per-machine preference).
 
@@ -60,7 +60,7 @@ When `kf` creates a worktree, detect the agentic development environments (ADEs)
 - Notes: Mirrors `AGENTS: AgentAdapter[]` in src/integrations/agents.ts — house pattern for tool integrations.
 
 ### FR-003
-- Requirement: Herdr adapter — detect via `herdr` binary + running server (`herdr status`); attach via `herdr worktree open --path <wt.path> --branch <wt.branch> --label <feature> --no-focus`; treat `already_open: true` as success (idempotent re-create).
+- Requirement: Herdr adapter — detect via `herdr` binary + running server (`herdr status`); attach via `herdr worktree open --cwd <root> --path <wt.path> --label <feature>` with `--focus` on create paths and `--no-focus` on `sync` (`--path` and `--branch` are mutually exclusive selectors; `--cwd` names the repo Herdr resolves the path in); treat `already_open: true` as success (idempotent re-create).
 - Priority: must
 - Notes: Verified on live server v0.9.3: open returns `type: worktree_opened`, workspaces get `open_workspace_id`.
 
@@ -90,7 +90,7 @@ When `kf` creates a worktree, detect the agentic development environments (ADEs)
 - Notes: Aligns kf branch naming with ADE conventions (e.g. Orca's `phuthuycoding/<name>`); existing `kf/...` worktrees keep working because registrations store the branch literally.
 
 ### FR-009
-- Requirement: `kf worktree sync` broadcasts worktrees to all reachable ADEs on demand — from inside a linked worktree it syncs that worktree (feature-bound or foreign, labelled by feature name else branch/dir name); `kf worktree sync <feature>` syncs one registered worktree from any cwd; bare `sync` at the main checkout syncs all registered worktrees. Idempotent; unreachable ADEs are skipped; failures are warnings.
+- Requirement: `kf worktree sync` broadcasts worktrees to all reachable ADEs on demand — from inside a linked worktree it syncs that worktree (feature-bound or foreign, labelled by feature name else branch/dir name); `kf worktree sync <feature>` syncs one registered worktree from any cwd; bare `sync` at the main checkout syncs every linked worktree (`git worktree list` minus the main checkout; registered keep feature labels, foreign get branch/dir labels). Idempotent; unreachable ADEs are skipped; failures are warnings.
 - Priority: must
 - Notes: The catch-up path for ADEs that were off at create time, and the "sync it right where I stand" flow for ADE-created worktrees. `findWorksRoot` already resolves the main root from inside linked worktrees via git-common-dir.
 
