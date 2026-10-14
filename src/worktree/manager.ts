@@ -3,7 +3,7 @@ import { existsSync, realpathSync } from "node:fs";
 
 import { listFeatures } from "../workflow/features.js";
 import { portsInUse, readRoutes } from "./routes.js";
-import type { WorktreeConfig } from "./config.js";
+import { isManagedBranch, type WorktreeConfig } from "./config.js";
 
 export type { WorktreeRegistration } from "../workflow/features.js";
 
@@ -134,7 +134,7 @@ export function listWorktrees(root: string, cfg: WorktreeConfig): { items: Workt
 
   for (const entry of gitWorktreeEntries(root)) {
     if (entry.path === realRoot || managedPaths.has(entry.path)) continue;
-    if (entry.branch?.startsWith(cfg.branchPrefix)) {
+    if (entry.branch && isManagedBranch(entry.branch, cfg)) {
       orphans.push({ kind: "unmanaged-worktree", detail: `${entry.path} (${entry.branch}) is a git worktree with no .works registry entry` });
     }
   }

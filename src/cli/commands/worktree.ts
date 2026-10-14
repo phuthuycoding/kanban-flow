@@ -1,21 +1,23 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { execFileSync, execSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findFeature, writeFeatureMeta } from "../../workflow/features.js";
+import { findFeature, listFeatures, writeFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
 import { createProxyServer } from "../../proxy/server.js";
 import { readMachineConfig, splitListen, worktreeConfig } from "../../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree, teardownWorktree } from "../../worktree/lifecycle.js";
 import { listWorktrees } from "../../worktree/manager.js";
 import { buildSetupPlan, renderPlan, type SetupStep } from "../../worktree/setup.js";
+import { attachWorktreeToAdes, renderAdeResults, type AdeTarget } from "../../integrations/ade/index.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
 const USAGE = `Usage: kf worktree <subcommand>
   create <feature>           — create the item's worktree + domain (also runs automatically on stage → implementation)
+  sync [feature]             — attach worktrees into detected ADEs (Orca, Herdr); inside a worktree syncs that checkout, no arg at the root syncs all
   remove <feature> [--force] — remove worktree + route; branch is kept; --force discards uncommitted changes
   list [--json]              — all registered worktrees + orphans
   setup [--print]            — one-time domain infra: dnsmasq rule, resolver, launchd proxy daemon (needs sudo)
@@ -23,6 +25,27 @@ const USAGE = `Usage: kf worktree <subcommand>
 
 function worktreeInfoLines(wt: { path: string; branch: string; domain: string; port: number }): string {
   return `  path:   ${wt.path}\n  branch: ${wt.branch}\n  domain: http://${wt.domain}\n  direct: http://127.0.0.1:${wt.port}`;
+}
+
+const real = (p: string): string => (existsSync(p) ? realpathSync(p) : p);
+
+/** `git rev-parse --show-toplevel` / `branch --show-current` for an arbitrary cwd. */
+function gitCwd(cwd: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Render attach results as trailing output lines; empty when no ADE responded. */
+function adeLines(root: string, targets: AdeTarget[]): string {
+  const lines: string[] = [];
+  for (const target of targets) {
+    const rendered = renderAdeResults(attachWorktreeToAdes({ root, target }));
+    if (rendered) lines.push(rendered);
+  }
+  return lines.length ? `\n${lines.join("\n")}` : "";
 }
 
 async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -38,7 +61,8 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
   if (f.meta.worktree !== wt) {
     await writeFeatureMeta(f.dir, { ...f.meta, worktree: wt });
   }
-  return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}` };
+  const ade = adeLines(root.root, [{ path: wt.path, branch: wt.branch, label: name }]);
+  return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${ade}` };
 }
 
 async function cmdWorktreeRemove(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -62,6 +86,49 @@ async function cmdWorktreeRemove(args: ParsedArgs, cwd: string): Promise<CmdResu
     code: 0,
     stdout: `Removed worktree for '${name}'${result.removed ? ` (${f.meta.worktree.path})` : " (was already gone)"}\n  branch kept: ${result.branch}${unmerged}${warnings}`,
   };
+}
+
+/**
+ * `kf worktree sync [feature]` — broadcast worktrees to every reachable ADE.
+ * Named arg → that item's registered worktree. No arg inside a linked worktree
+ * → that checkout (registered or foreign; foreign ones get a branch/dir label
+ * and are never written to `.works`). No arg at the root → all registered.
+ */
+async function cmdWorktreeSync(args: ParsedArgs, cwd: string): Promise<CmdResult> {
+  const root = await findRoot(cwd);
+  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
+  const name = args.positionals[1];
+
+  const targets: { title: string; target: AdeTarget }[] = [];
+  if (name) {
+    const f = findFeature(root.root, name);
+    if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+    const wt = f.meta?.worktree;
+    if (!wt) return { code: 1, stdout: `Feature '${name}' has no worktree.`, stderr: "no worktree" };
+    targets.push({ title: name, target: { path: wt.path, branch: wt.branch, label: name } });
+  } else {
+    const top = gitCwd(cwd, ["rev-parse", "--show-toplevel"]);
+    if (top && real(top) !== real(root.root)) {
+      const topReal = real(top);
+      const owned = listFeatures(root.root).find((f) => f.meta?.worktree && real(f.meta.worktree.path) === topReal);
+      const branch = gitCwd(top, ["branch", "--show-current"]);
+      const label = owned?.name ?? branch?.split("/").pop() ?? basename(topReal);
+      targets.push({ title: label, target: { path: topReal, branch: owned?.meta?.worktree?.branch ?? branch, label } });
+    } else {
+      for (const f of listFeatures(root.root)) {
+        const wt = f.meta?.worktree;
+        if (wt) targets.push({ title: f.name, target: { path: wt.path, branch: wt.branch, label: f.name } });
+      }
+      if (targets.length === 0) return { code: 0, stdout: "No worktrees registered." };
+    }
+  }
+
+  const lines: string[] = [];
+  for (const t of targets) {
+    const rendered = renderAdeResults(attachWorktreeToAdes({ root: root.root, target: t.target }));
+    lines.push(rendered ? `${t.title}:\n${rendered}` : `${t.title}: no ADEs reachable`);
+  }
+  return { code: 0, stdout: lines.join("\n") };
 }
 
 async function cmdWorktreeList(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -138,6 +205,7 @@ async function cmdWorktreeSetup(args: ParsedArgs): Promise<CmdResult> {
 export async function cmdWorktree(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   switch (args.positionals[0]) {
     case "create": return cmdWorktreeCreate(args, cwd);
+    case "sync": return cmdWorktreeSync(args, cwd);
     case "remove": return cmdWorktreeRemove(args, cwd);
     case "list": return cmdWorktreeList(args, cwd);
     case "setup": return cmdWorktreeSetup(args);

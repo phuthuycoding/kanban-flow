@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -12,6 +13,8 @@ export interface WorktreeConfig {
   /** Directory worktrees are created under; default `<repo>-worktrees` next to the repo. */
   baseDir: string;
   branchPrefix: string;
+  /** Optional name whose slug becomes the default branch prefix (`<name>/`). */
+  gitconfigName?: string;
   /** Public suffix of the worktree domain: `<feature>.<baseDomain>`. */
   baseDomain: string;
   portBase: number;
@@ -26,6 +29,8 @@ export interface MachineConfig {
   fallbackUpstream: string | null;
   /** Machine-global routing table the proxy reads; project `worktree.routesFile` overrides for tests. */
   routesFile: string;
+  /** ADE sync (Orca/Herdr attach on worktree create/sync); default on. */
+  adeSync?: boolean;
 }
 
 export const MACHINE_CONFIG_DIR = resolve(homedir(), ".config", "kanban-flow");
@@ -69,7 +74,38 @@ export function parseWorktreeConfig(raw: unknown, file: string): Partial<Worktre
     throw new Error(`Invalid project config: ${file} — worktree.portBase must be an integer 1024–65000`);
   if (w.routesFile !== undefined && typeof w.routesFile !== "string")
     throw new Error(`Invalid project config: ${file} — worktree.routesFile must be a string`);
+  if (w.gitconfigName !== undefined && typeof w.gitconfigName !== "string")
+    throw new Error(`Invalid project config: ${file} — worktree.gitconfigName must be a string`);
   return w as Partial<WorktreeConfig>;
+}
+
+/** The historical default, kept to recognize pre-gitconfigName leftovers as managed. */
+export const LEGACY_BRANCH_PREFIX = "kf/";
+
+/** `git config user.name` (merged local+global+system); null when unset/unreadable. */
+function gitUserName(root: string): string | null {
+  try {
+    const name = execFileSync("git", ["-C", root, "config", "user.name"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Default branch prefix: `worktree.gitconfigName` slug → `git config user.name`
+ * slug → "kf/". Slugs that can't produce a DNS-safe name fall through.
+ */
+function defaultBranchPrefix(root: string, gitconfigName: string | undefined): string {
+  for (const candidate of [gitconfigName, gitUserName(root)]) {
+    if (!candidate) continue;
+    try {
+      return `${slugify(candidate)}/`;
+    } catch {
+      continue;
+    }
+  }
+  return LEGACY_BRANCH_PREFIX;
 }
 
 /** Effective worktree settings for a repo root. */
@@ -77,11 +113,19 @@ export function worktreeConfig(root: string, raw: Partial<WorktreeConfig> | unde
   return {
     enabled: raw?.enabled ?? true,
     baseDir: raw?.baseDir ?? `${root}-worktrees`,
-    branchPrefix: raw?.branchPrefix ?? "kf/",
+    branchPrefix: raw?.branchPrefix ?? defaultBranchPrefix(root, raw?.gitconfigName),
     baseDomain: raw?.baseDomain ?? `${repoSlug(root)}.test`,
     portBase: raw?.portBase ?? 5100,
     routesFile: raw?.routesFile ?? DEFAULT_ROUTES_FILE,
   };
+}
+
+/**
+ * Orphan detection must keep recognizing worktrees created before the prefix
+ * chain existed — a resolved `<user>/` prefix must not hide `kf/` leftovers.
+ */
+export function isManagedBranch(branch: string, cfg: WorktreeConfig): boolean {
+  return branch.startsWith(cfg.branchPrefix) || branch.startsWith(LEGACY_BRANCH_PREFIX);
 }
 
 export function worktreeDir(cfg: WorktreeConfig, feature: string): string {
@@ -111,6 +155,7 @@ export function readMachineConfig(file = MACHINE_CONFIG_FILE): MachineConfig {
   if ((c.proxyListen !== undefined && typeof c.proxyListen !== "string")
     || (c.domainZone !== undefined && typeof c.domainZone !== "string")
     || (c.routesFile !== undefined && typeof c.routesFile !== "string")
+    || (c.adeSync !== undefined && typeof c.adeSync !== "boolean")
     || (c.fallbackUpstream !== undefined && c.fallbackUpstream !== null && typeof c.fallbackUpstream !== "string")) {
     throw new Error(`Invalid machine config: ${file}`);
   }

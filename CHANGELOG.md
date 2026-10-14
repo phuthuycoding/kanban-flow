@@ -2,6 +2,14 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Added
+- **ADE sync for worktrees.** After `kf worktree create` (and the stage → implementation auto-create), every reachable agentic development environment gets the checkout attached through a per-tool adapter (`src/integrations/ade/`): Herdr opens it as a workspace, Orca registers the repo and verifies the worktree is listed (warning when the repo hides external worktrees — that toggle is app-side only). Teardown detaches again (Herdr closes the bound workspace). Adapter failures are `⚠` warnings, never blockers.
+- **`kf worktree sync [feature]`** — broadcast worktrees to ADEs on demand: a feature name syncs that worktree from anywhere; run inside a linked worktree it syncs that checkout even when an ADE created it (labelled by branch/dir, never written to `.works`); bare at the root it syncs every registered worktree.
+- **Git-name branch prefix.** `worktree.branchPrefix` still wins when set; otherwise the prefix resolves `worktree.gitconfigName` → `git config user.name` → `kf/`, so branches come out as `<user>/<feature>` matching ADE conventions. Orphan detection keeps recognizing legacy `kf/` worktrees.
+- **`adeSync` machine opt-out.** `adeSync: false` in `~/.config/kanban-flow/config.json`, or `KF_ADE_SYNC=0|off|false` in the environment, disables all ADE calls (handy for CI).
+
 ## [0.10.0] - 2026-10-14
 
 ### Added

@@ -12,6 +12,7 @@ import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
 import { readProjectConfig } from "../../project/config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../../worktree/lifecycle.js";
+import { attachWorktreeToAdes, renderAdeResults } from "../../integrations/ade/index.js";
 import type { WorktreeRegistration } from "../../workflow/features.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -189,7 +190,13 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
-  const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})` : "";
+  const adeNote = worktree
+    ? (() => {
+        const r = renderAdeResults(attachWorktreeToAdes({ root: root.root, target: { path: worktree.path, branch: worktree.branch, label: name } }));
+        return r ? `\n${r}` : "";
+      })()
+    : "";
+  const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})${adeNote}` : "";
   const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${worktreeNote}${hookNote}${bypassNote(recorded)}`;
 
   // An item reopened into `dones` must end up as archived as it was: `status: "archived"` back,
