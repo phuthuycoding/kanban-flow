@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.11.0] - 2026-10-14
 
 ### Added
 - **ADE sync for worktrees.** After `kf worktree create` (and the stage → implementation auto-create), every reachable agentic development environment gets the checkout attached through a per-tool adapter (`src/integrations/ade/`): Herdr opens it as a workspace, Orca registers the repo and verifies the worktree is listed (warning when the repo hides external worktrees — that toggle is app-side only). Teardown detaches again (Herdr closes the bound workspace). Adapter failures are `⚠` warnings, never blockers.
