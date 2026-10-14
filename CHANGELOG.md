@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.11.1] - 2026-10-14
 
 ### Fixed
 - **Herdr attach actually opens the workspace now.** `worktree open` was called with mutually exclusive `--path`/`--branch` (usage error, exit 2) and with no repo context — Herdr resolved paths against whichever repo its UI was showing. The adapter now passes `--cwd <repo>` + `--path` and drops `--branch`.
