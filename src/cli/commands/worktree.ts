@@ -11,6 +11,7 @@ import { ensureWorktree, forceRemoveWorktree, teardownWorktree } from "../../wor
 import { listWorktrees } from "../../worktree/manager.js";
 import { buildSetupPlan, renderPlan, type SetupStep } from "../../worktree/setup.js";
 import { attachWorktreeToAdes, renderAdeResults, type AdeTarget } from "../../integrations/ade/index.js";
+import { syncBase } from "../../project/base-sync.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -57,12 +58,15 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
   if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
   const cfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
+  // Sync the base checkout to upstream before the kf/<feature> branch is cut.
+  const sync = syncBase(root.root);
   const wt = await ensureWorktree(root.root, f, cfg);
   if (f.meta.worktree !== wt) {
     await writeFeatureMeta(f.dir, { ...f.meta, worktree: wt });
   }
+  const syncNote = sync.warning ? `\n  ⚠ ${sync.warning}` : sync.note ? `\n  ${sync.note}` : "";
   const ade = adeLines(root.root, [{ path: wt.path, branch: wt.branch, label: name }]);
-  return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${ade}` };
+  return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${syncNote}${ade}` };
 }
 
 async function cmdWorktreeRemove(args: ParsedArgs, cwd: string): Promise<CmdResult> {
