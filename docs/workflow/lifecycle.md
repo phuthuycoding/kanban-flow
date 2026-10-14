@@ -82,6 +82,7 @@ sequenceDiagram
     User-->>Orchestrator: start now / defer
     Orchestrator->>CLI: kf stage item implementation or backlog
     CLI->>FS: Provision the git worktree + <feature>.<baseDomain> route (fails closed when it cannot)
+    CLI->>FS: Attach the worktree into reachable ADEs (Orca/Herdr — best-effort, warnings only)
 ```
 
 ## Fixing a failure, step by step

@@ -140,7 +140,7 @@ describe("stage → implementation provisions the worktree (FR-001, FR-002)", ()
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code, res.stdout).toBe(0);
     const wt = feature().meta!.worktree!;
-    expect(wt.branch).toBe("kf/demo");
+    expect(wt.branch).toBe("t/demo"); // user.name=t → default prefix "<git-user>/"
     expect(wt.domain).toBe("demo.repo.test");
     expect(wt.port).toBe(5100);
     expect(existsSync(wt.path)).toBe(true);
@@ -196,7 +196,7 @@ describe("reuse on re-entry (FR-001, FR-002, UC-006)", () => {
     await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(feature().meta!.worktree).toMatchObject({ path: first.path, port: first.port, domain: first.domain });
 
-    // delete the worktree by hand → next create rebuilds it from kf/demo
+    // delete the worktree by hand → next create rebuilds it from its kept branch
     git(root, "worktree", "remove", "--force", first.path);
     expect(existsSync(first.path)).toBe(false);
     const res = await cmdWorktree(args("worktree", ["create", "demo"]), root);
@@ -205,7 +205,7 @@ describe("reuse on re-entry (FR-001, FR-002, UC-006)", () => {
   });
 
   it("refuses a branch that exists but is not managed", async () => {
-    git(root, "branch", "kf/demo");
+    git(root, "branch", "t/demo");
     await approvedItem();
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code).toBe(1);
@@ -248,7 +248,7 @@ describe("worktree lifecycle hooks", () => {
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code, res.stdout).toBe(0);
     const out = readFileSync(join(root, "create.out"), "utf8");
-    expect(out).toContain("demo.repo.test:5100:kf/demo");
+    expect(out).toContain("demo.repo.test:5100:t/demo");
     expect(out).toContain(feature().meta!.worktree!.path);
     // re-entry reuses the worktree — the hook does not re-fire
     await rm(join(root, "create.out"));
@@ -268,7 +268,7 @@ describe("worktree lifecycle hooks", () => {
     expect(feature().stage).toBe("planning");
     expect(existsSync(join(scratch, "wts", "demo"))).toBe(false);
     // branch must be rolled back too — a retry must not trip the unmanaged-branch refusal
-    expect(git(root, "branch", "--list", "kf/demo")).toBe("");
+    expect(git(root, "branch", "--list", "t/demo")).toBe("");
     await rm(join(root, ".kf", "hooks", "worktree-create.sh"));
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
   });
@@ -301,7 +301,7 @@ describe("teardown (FR-007, FR-008)", () => {
     expect(res.code, res.stdout).toBe(0);
     expect(existsSync(wt.path)).toBe(false);
     expect(readRoutes(join(scratch, "routes.json")).routes["demo.repo.test"]).toBeUndefined();
-    expect(git(root, "branch", "--list", "kf/demo")).toContain("kf/demo");
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(res.stdout).toMatch(/unmerged|not merged/);
     expect(feature().stage).toBe("dones");
     expect(feature().meta!.worktree).toBeUndefined();
@@ -322,7 +322,7 @@ describe("teardown (FR-007, FR-008)", () => {
     const rm = await cmdWorktree(args("worktree", ["remove", "demo"], { force: true }), root);
     expect(rm.code, rm.stdout).toBe(0);
     expect(existsSync(wt.path)).toBe(false);
-    expect(git(root, "branch", "--list", "kf/demo")).toContain("kf/demo");
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
   });
 
@@ -335,7 +335,7 @@ describe("teardown (FR-007, FR-008)", () => {
     expect(dirty.code).toBe(0); // clean → ok
     expect(existsSync(wt.path)).toBe(false);
     expect(readRoutes(join(scratch, "routes.json")).routes["demo.repo.test"]).toBeUndefined();
-    expect(git(root, "branch", "--list", "kf/demo")).toContain("kf/demo");
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(feature().stage).toBe("cancelled");
     expect(feature().meta!.worktree).toBeUndefined();
   });
