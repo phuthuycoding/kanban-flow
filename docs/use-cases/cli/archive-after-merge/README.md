@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Index
 
+> **Partly superseded by `archive-docs-latest`:** UC-006 (sync candidate set) — `kf sync` now sweeps review items and only dones items not yet `delivered`; a delivered dones item is skipped (reconcile it with a manual `kf archive`). Kept for history.
+
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
 
 ## Use Case Files

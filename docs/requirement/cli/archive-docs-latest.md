@@ -1,11 +1,10 @@
 ---
-feature: "archive-docs-latest"
-context: "cli"
-created: "20261013_0957"
+feature: archive-docs-latest
+context: cli
+created: 20261013_0957
 kind: feature
-status: confirmed
+status: archived
 ---
-
 # Spec Requirement
 
 ## Feature
