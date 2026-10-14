@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.10.0] - 2026-10-14
 
 ### Added
 - **Superseded-docs reconcile at closure.** `kanban-archive` gains a mandatory step (`skills/kanban-archive/reconcile.md`): before `kf archive`, find earlier canonical docs that contradict the feature's new behavior, mark them with a `Superseded by <feature>` banner, update `docs/workflow/*`, and record the result in the feature report's new `## Docs Reconciled` section (`None — <reason>` when nothing is affected).
