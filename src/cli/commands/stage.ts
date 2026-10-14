@@ -150,10 +150,16 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   // Only a newly created worktree is rolled back below; a reused one (re-enter after FAIL)
   // stays, because it predates this transition.
   let worktree: WorktreeRegistration | null = null;
+  let adeResults: ReturnType<typeof attachWorktreeToAdes> = [];
   const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
   if (to === "implementation" && wtCfg.enabled) {
     try {
       worktree = await ensureWorktree(root.root, f, wtCfg);
+      // Attach before the meta write so an implicitly-created ADE anchor
+      // workspace id lands on the registration teardown reads later.
+      adeResults = attachWorktreeToAdes({ root: root.root, target: { path: worktree.path, branch: worktree.branch, label: name, focus: true } });
+      const autoWs = adeResults.find((r) => r.autoWorkspaceId)?.autoWorkspaceId;
+      if (autoWs) worktree = { ...worktree, adeRepoWorkspaceId: autoWs };
     } catch (err) {
       return {
         code: 1,
@@ -201,12 +207,8 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
-  const adeNote = worktree
-    ? (() => {
-        const r = renderAdeResults(attachWorktreeToAdes({ root: root.root, target: { path: worktree.path, branch: worktree.branch, label: name, focus: true } }));
-        return r ? `\n${r}` : "";
-      })()
-    : "";
+  const renderedAde = worktree ? renderAdeResults(adeResults) : "";
+  const adeNote = renderedAde ? `\n${renderedAde}` : "";
   const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})${adeNote}` : "";
   const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${baseNote}${worktreeNote}${hookNote}${bypassNote(recorded)}`;
 

@@ -2,6 +2,12 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Changed
+- **Herdr attach migrates your pane into the worktree workspace** — when `kf worktree create` / stage → implementation runs inside a Herdr pane, that pane (terminal + agent session) moves into the new workspace instead of merely focusing a sibling one. Sync stays `--no-focus` and never moves panes.
+- **Herdr teardown cleans the repo anchor workspace** it implicitly created (never user-opened ones), and detaching never kills the pane running the command — it is moved to the repo workspace first, or the close is skipped with a warning.
+
 ## [0.11.1] - 2026-10-14
 
 ### Fixed

@@ -39,16 +39,6 @@ function gitCwd(cwd: string, args: string[]): string | null {
   }
 }
 
-/** Render attach results as trailing output lines; empty when no ADE responded. */
-function adeLines(root: string, targets: AdeTarget[]): string {
-  const lines: string[] = [];
-  for (const target of targets) {
-    const rendered = renderAdeResults(attachWorktreeToAdes({ root, target }));
-    if (rendered) lines.push(rendered);
-  }
-  return lines.length ? `\n${lines.join("\n")}` : "";
-}
-
 async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[1];
   if (!name) return { code: 1, stdout: "Usage: kf worktree create <feature>", stderr: "missing feature" };
@@ -60,12 +50,16 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
   const cfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
   // Sync the base checkout to upstream before the kf/<feature> branch is cut.
   const sync = syncBase(root.root);
-  const wt = await ensureWorktree(root.root, f, cfg);
+  const created = await ensureWorktree(root.root, f, cfg);
+  const adeResults = attachWorktreeToAdes({ root: root.root, target: { path: created.path, branch: created.branch, label: name, focus: true } });
+  const autoWs = adeResults.find((r) => r.autoWorkspaceId)?.autoWorkspaceId;
+  const wt = autoWs ? { ...created, adeRepoWorkspaceId: autoWs } : created;
   if (f.meta.worktree !== wt) {
     await writeFeatureMeta(f.dir, { ...f.meta, worktree: wt });
   }
   const syncNote = sync.warning ? `\n  ⚠ ${sync.warning}` : sync.note ? `\n  ${sync.note}` : "";
-  const ade = adeLines(root.root, [{ path: wt.path, branch: wt.branch, label: name, focus: true }]);
+  const rendered = renderAdeResults(adeResults);
+  const ade = rendered ? `\n${rendered}` : "";
   return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${syncNote}${ade}` };
 }
 
