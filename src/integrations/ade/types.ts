@@ -16,6 +16,12 @@ export interface AdeTarget {
    * Adapters without a focus concept ignore it.
    */
   focus?: boolean;
+  /**
+   * Id of the repo anchor workspace the attach implicitly created (persisted by
+   * the caller on the worktree registration); detach uses it to clean that
+   * anchor up. Adapters without an anchor concept leave it unset.
+   */
+  adeRepoWorkspaceId?: string;
 }
 
 export interface AdeContext {
@@ -32,6 +38,12 @@ export interface AdeSyncResult {
   detail?: string;
   /** Advisory or failure text — rendered as `⚠ <ade>: <warning>`. */
   warning?: string;
+  /**
+   * Id of an anchor/workspace the attach implicitly created beside the target
+   * (e.g. Herdr creates a repo workspace when opening a worktree of a repo it
+   * never saw). Callers persist it so detach can tear it down again.
+   */
+  autoWorkspaceId?: string;
 }
 
 export interface AdeAdapter {

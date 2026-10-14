@@ -44,6 +44,11 @@ if [ "\${0##*/}" = "herdr" ] && [ "\${1-}" = "worktree" ] && [ "\${2-}" = "open"
 fi
 key=$(printf '%s_%s' "\${1-}" "\${2-}" | sed 's/[^A-Za-z0-9]/_/g')
 base="$KF_FAKE_DIR/\${0##*/}.$key"
+# Sequential responses: herdr.seqN consumed in call order, so tests can
+# model state changing between two invocations of the same command.
+n=$(( $(cat "$KF_FAKE_DIR/.seq.$key" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$KF_FAKE_DIR/.seq.$key"
+if [ -f "$base.seq$n" ]; then cat "$base.seq$n"; exit 0; fi
 if [ -f "$base.exit" ]; then
   [ -f "$base" ] && cat "$base" >&2
   exit "$(cat "$base.exit")"
@@ -69,6 +74,11 @@ function respond(bin: string, a: string, b: string, body: string, exit?: number)
   const base = join(fakeDir, `${bin}.${keyOf(a, b)}`);
   writeFileSync(base, body);
   if (exit !== undefined) writeFileSync(`${base}.exit`, String(exit));
+}
+
+/** Response for the Nth invocation of `<bin> a b` (1-based, per key). */
+function respondSeq(bin: string, a: string, b: string, n: number, body: string): void {
+  writeFileSync(join(fakeDir, `${bin}.${keyOf(a, b)}.seq${n}`), body);
 }
 
 function argvLog(bin: string): string[][] {
@@ -131,7 +141,9 @@ function orcaUp(worktreePaths: string[] = []): void {
 
 function herdrUp(opened = false): void {
   respond("herdr", "status", "", HERDR_UP);
-  respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: opened } }));
+  respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: opened, workspace: { workspace_id: "wX" } } }));
+  // `attach` lists worktrees before/after open to detect the repo anchor ws.
+  respond("herdr", "worktree", "list", JSON.stringify({ result: { worktrees: [] } }));
 }
 
 async function itemWithWorktree(name = "demo"): Promise<string> {
@@ -197,22 +209,60 @@ describe("adapter registry + orchestration", () => {
 
 describe("herdr adapter", () => {
   it("opens the worktree as a workspace; --path only, focus hint on", () => {
-    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false } }));
+    respond("herdr", "worktree", "list", JSON.stringify({ result: { worktrees: [{ path: root, open_workspace_id: "wR" }] } }));
+    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false, workspace: { workspace_id: "wT" } } }));
     const res = herdrAdapter.attach({ root, target: { path: "/tmp/some-wt", branch: "t/demo", label: "demo", focus: true } });
     expect(res.ok).toBe(true);
-    const calls = argvLog("herdr");
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual(["worktree", "open", "--cwd", root, "--path", "/tmp/some-wt", "--label", "demo", "--focus"]);
+    const open = argvLog("herdr").find((c) => c[1] === "open")!;
+    expect(open).toEqual(["worktree", "open", "--cwd", root, "--path", "/tmp/some-wt", "--label", "demo", "--focus"]);
     expect(res.detail).toContain("demo");
   });
 
   it("defaults to --no-focus and never sends --branch", () => {
-    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false } }));
+    respond("herdr", "worktree", "list", JSON.stringify({ result: { worktrees: [{ path: root, open_workspace_id: "wR" }] } }));
+    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false, workspace: { workspace_id: "wT" } } }));
     herdrAdapter.attach(ctx("/tmp/some-wt", "demo", "t/demo"));
-    const call = argvLog("herdr").pop()!;
-    expect(call).toContain("--no-focus");
-    expect(call).not.toContain("--branch");
-    expect(call).not.toContain("--focus");
+    const open = argvLog("herdr").find((c) => c[1] === "open")!;
+    expect(open).toContain("--no-focus");
+    expect(open).not.toContain("--branch");
+    expect(open).not.toContain("--focus");
+  });
+
+  it("migrates the invoking pane into the new workspace on focused attach inside Herdr", () => {
+    respond("herdr", "worktree", "list", JSON.stringify({ result: { worktrees: [{ path: root, open_workspace_id: "wR" }] } }));
+    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false, workspace: { workspace_id: "wT" } } }));
+    respond("herdr", "pane", "move", JSON.stringify({ result: { move_result: { changed: true } } }));
+    process.env.HERDR_PANE_ID = "wR:p1";
+    process.env.HERDR_WORKSPACE_ID = "wR";
+    try {
+      herdrAdapter.attach({ root, target: { path: "/tmp/some-wt", branch: null, label: "demo", focus: true } });
+    } finally {
+      delete process.env.HERDR_PANE_ID;
+      delete process.env.HERDR_WORKSPACE_ID;
+    }
+    const move = argvLog("herdr").find((c) => c[0] === "pane" && c[1] === "move");
+    expect(move).toEqual(["pane", "move", "wR:p1", "--new-tab", "--workspace", "wT", "--label", "demo", "--focus"]);
+  });
+
+  it("does not move panes without focus hint or Herdr env", () => {
+    respond("herdr", "worktree", "list", JSON.stringify({ result: { worktrees: [{ path: root, open_workspace_id: "wR" }] } }));
+    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false, workspace: { workspace_id: "wT" } } }));
+    process.env.HERDR_PANE_ID = "wR:p1";
+    try {
+      herdrAdapter.attach(ctx("/tmp/some-wt", "demo", "t/demo")); // no focus
+    } finally {
+      delete process.env.HERDR_PANE_ID;
+    }
+    expect(argvLog("herdr").some((c) => c[0] === "pane")).toBe(false);
+  });
+
+  it("reports the repo anchor workspace the open implicitly created", () => {
+    // first list call (pre-open): repo has no ws; second (post-open): it does
+    respondSeq("herdr", "worktree", "list", 1, JSON.stringify({ result: { worktrees: [{ path: root }] } }));
+    respondSeq("herdr", "worktree", "list", 2, JSON.stringify({ result: { worktrees: [{ path: root, open_workspace_id: "wR-auto" }] } }));
+    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false, workspace: { workspace_id: "wT" } } }));
+    const res = herdrAdapter.attach(ctx("/tmp/some-wt", "demo", "t/demo"));
+    expect(res.autoWorkspaceId).toBe("wR-auto");
   });
 
   it("already_open counts as success", () => {
@@ -238,6 +288,58 @@ describe("herdr adapter", () => {
   it("detach is a no-op when nothing is open", () => {
     respond("herdr", "worktree", "list", JSON.stringify({ result: { worktrees: [{ path: "/other" }] } }));
     expect(herdrAdapter.detach!(ctx("/tmp/some-wt"))).toBeNull();
+  });
+
+  it("detach group-closes the repo anchor the attach auto-created", () => {
+    respond("herdr", "worktree", "list", JSON.stringify({
+      result: { worktrees: [
+        { path: root, open_workspace_id: "wR-auto" },
+        { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
+      ] },
+    }));
+    respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
+    const res = herdrAdapter.detach!({ root, target: { path: "/tmp/some-wt", branch: null, label: "demo", adeRepoWorkspaceId: "wR-auto" } });
+    expect(res?.ok).toBe(true);
+    const closes = argvLog("herdr").filter((c) => c[0] === "workspace" && c[1] === "close");
+    expect(closes).toContainEqual(["workspace", "close", "w9"]);
+    expect(closes).toContainEqual(["workspace", "close", "wR-auto", "--group"]);
+  });
+
+  it("detach leaves a user-owned repo workspace alone", () => {
+    respond("herdr", "worktree", "list", JSON.stringify({
+      result: { worktrees: [
+        { path: root, open_workspace_id: "wR-user" },
+        { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
+      ] },
+    }));
+    respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
+    herdrAdapter.detach!({ root, target: { path: "/tmp/some-wt", branch: null, label: "demo", adeRepoWorkspaceId: "wR-stale" } });
+    const closes = argvLog("herdr").filter((c) => c[0] === "workspace" && c[1] === "close");
+    expect(closes).toEqual([["workspace", "close", "w9"]]); // id mismatch → never closed
+  });
+
+  it("detach migrates the calling pane out before closing its workspace", () => {
+    respond("herdr", "worktree", "list", JSON.stringify({
+      result: { worktrees: [
+        { path: root, open_workspace_id: "wR" },
+        { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
+      ] },
+    }));
+    respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
+    respond("herdr", "pane", "move", JSON.stringify({ result: { move_result: { changed: true } } }));
+    process.env.HERDR_WORKSPACE_ID = "w9";
+    process.env.HERDR_PANE_ID = "w9:p1";
+    try {
+      herdrAdapter.detach!(ctx("/tmp/some-wt"));
+    } finally {
+      delete process.env.HERDR_WORKSPACE_ID;
+      delete process.env.HERDR_PANE_ID;
+    }
+    const calls = argvLog("herdr");
+    const moveIdx = calls.findIndex((c) => c[0] === "pane" && c[1] === "move");
+    const closeIdx = calls.findIndex((c) => c[0] === "workspace" && c[1] === "close");
+    expect(calls[moveIdx]).toEqual(["pane", "move", "w9:p1", "--new-tab", "--workspace", "wR", "--no-focus"]);
+    expect(moveIdx).toBeLessThan(closeIdx);
   });
 
   it("detects availability from `herdr status`, not bare binary presence", () => {

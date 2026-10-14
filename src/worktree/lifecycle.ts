@@ -186,7 +186,7 @@ function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration,
  * exists so adapters can resolve it. Always best-effort — returns warnings.
  */
 function runAdeDetach(root: string, feature: Feature, wt: WorktreeRegistration, wtPath: string): string[] {
-  return detachWorktreeFromAdes({ root, target: { path: wtPath, branch: wt.branch, label: feature.name } });
+  return detachWorktreeFromAdes({ root, target: { path: wtPath, branch: wt.branch, label: feature.name, adeRepoWorkspaceId: wt.adeRepoWorkspaceId } });
 }
 
 /**
