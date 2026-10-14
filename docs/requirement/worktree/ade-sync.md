@@ -1,11 +1,10 @@
 ---
-feature: "ade-sync"
-context: "worktree"
-created: "20261014_2059"
+feature: ade-sync
+context: worktree
+created: 20261014_2059
 kind: feature
-status: confirmed
+status: archived
 ---
-
 # Spec Requirement
 
 ## Feature
