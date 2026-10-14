@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `archive-docs-latest`:** main flow step 1 (candidate set) — `kf sync` now sweeps review items and only dones items not yet `delivered`; a delivered dones item is skipped (reconcile it with a manual `kf archive`). Kept for history.
+
 ## Overview
 
 | Field | Value |

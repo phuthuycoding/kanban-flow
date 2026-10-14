@@ -7,6 +7,8 @@ kind: feature
 ---
 # Spec Requirement — archive-after-merge
 
+> **Partly superseded by `archive-docs-latest`:** the `kf sync` scope ("iterates review/dones items") — `kf sync` now sweeps review items and only dones items not yet `delivered`; a delivered dones item is skipped (reconcile it with a manual `kf archive`). Kept for history.
+
 ## Objective
 
 Make `kf archive` the **single post-delivery gate**: the moment an item is accepted as truly shipped — folder move to `dones`, canonical docs sync, issue close, board "Done", `delivered` flag — all happen together, and only after the work has actually landed (PR merged, or the human confirms delivery by running it).
