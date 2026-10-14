@@ -39,12 +39,13 @@ export function gitWorktreePaths(root: string): string[] {
   return gitWorktreeEntries(root).map((e) => e.path);
 }
 
-interface GitWorktreeEntry {
+export interface GitWorktreeEntry {
   path: string;
   branch: string | null;
 }
 
-function gitWorktreeEntries(root: string): GitWorktreeEntry[] {
+/** Every linked worktree git knows (main checkout first), with its branch when on one. */
+export function gitWorktreeEntries(root: string): GitWorktreeEntry[] {
   const out = git(root, ["worktree", "list", "--porcelain"]);
   const entries: GitWorktreeEntry[] = [];
   for (const line of out.split("\n")) {

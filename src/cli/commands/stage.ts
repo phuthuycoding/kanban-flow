@@ -203,7 +203,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
   const adeNote = worktree
     ? (() => {
-        const r = renderAdeResults(attachWorktreeToAdes({ root: root.root, target: { path: worktree.path, branch: worktree.branch, label: name } }));
+        const r = renderAdeResults(attachWorktreeToAdes({ root: root.root, target: { path: worktree.path, branch: worktree.branch, label: name, focus: true } }));
         return r ? `\n${r}` : "";
       })()
     : "";

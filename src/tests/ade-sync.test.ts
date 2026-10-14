@@ -35,6 +35,13 @@ import type { ParsedArgs } from "../cli/args.js";
 const SCRIPT = `#!/usr/bin/env bash
 printf '%s\\0' "$@" >> "$KF_FAKE_DIR/\${0##*/}.argv"
 printf '\\n' >> "$KF_FAKE_DIR/\${0##*/}.argv"
+# Real CLI contract: 'herdr worktree open' takes --path XOR --branch — a caller
+# passing both gets a usage error, so tests must not send them together.
+if [ "\${0##*/}" = "herdr" ] && [ "\${1-}" = "worktree" ] && [ "\${2-}" = "open" ]; then
+  case " $* " in
+    *" --path "*" --branch "*) echo "usage: herdr worktree open (--path PATH | --branch NAME) ..." >&2; exit 2;;
+  esac
+fi
 key=$(printf '%s_%s' "\${1-}" "\${2-}" | sed 's/[^A-Za-z0-9]/_/g')
 base="$KF_FAKE_DIR/\${0##*/}.$key"
 if [ -f "$base.exit" ]; then
@@ -189,14 +196,23 @@ describe("adapter registry + orchestration", () => {
 });
 
 describe("herdr adapter", () => {
-  it("opens the worktree as a workspace with label/branch", () => {
+  it("opens the worktree as a workspace; --path only, focus hint on", () => {
     respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false } }));
-    const res = herdrAdapter.attach(ctx("/tmp/some-wt", "demo", "t/demo"));
+    const res = herdrAdapter.attach({ root, target: { path: "/tmp/some-wt", branch: "t/demo", label: "demo", focus: true } });
     expect(res.ok).toBe(true);
     const calls = argvLog("herdr");
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual(["worktree", "open", "--path", "/tmp/some-wt", "--label", "demo", "--no-focus", "--branch", "t/demo"]);
+    expect(calls[0]).toEqual(["worktree", "open", "--cwd", root, "--path", "/tmp/some-wt", "--label", "demo", "--focus"]);
     expect(res.detail).toContain("demo");
+  });
+
+  it("defaults to --no-focus and never sends --branch", () => {
+    respond("herdr", "worktree", "open", JSON.stringify({ result: { type: "worktree_opened", already_open: false } }));
+    herdrAdapter.attach(ctx("/tmp/some-wt", "demo", "t/demo"));
+    const call = argvLog("herdr").pop()!;
+    expect(call).toContain("--no-focus");
+    expect(call).not.toContain("--branch");
+    expect(call).not.toContain("--focus");
   });
 
   it("already_open counts as success", () => {
@@ -315,7 +331,8 @@ describe("create + sync through the command layer", () => {
     expect(res.stdout).toContain("Herdr:");
     expect(res.stdout).toContain("Orca:");
     const wtPath = feature().meta!.worktree!.path;
-    expect(argvLog("herdr").some((c) => c.includes("open") && c.includes(wtPath))).toBe(true);
+    // creation attaches WITH focus — the ADE switches its terminal to the new checkout
+    expect(argvLog("herdr").some((c) => c.includes("open") && c.includes(wtPath) && c.includes("--focus"))).toBe(true);
     expect(argvLog("orca").some((c) => c[0] === "repo" && c[1] === "add" && c.includes(root))).toBe(true);
   });
 
@@ -390,6 +407,33 @@ describe("kf worktree sync", () => {
     expect(all.code, all.stdout).toBe(0);
     expect(all.stdout).toContain("alpha:");
     expect(all.stdout).toContain("beta:");
+    // sync never steals focus
+    expect(argvLog("herdr").slice(before).filter((c) => c.includes("open")).every((c) => c.includes("--no-focus"))).toBe(true);
+  });
+
+  it("bare sync at root also covers foreign (non-registered) worktrees", async () => {
+    herdrUp();
+    const aPath = await itemWithWorktree("alpha");
+    const foreign = join(scratch, "foreign-wt");
+    git(root, "worktree", "add", "-b", "side/exp", foreign);
+
+    const res = await cmdWorktree(args("worktree", ["sync"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("alpha:");   // registered keeps its feature title
+    expect(res.stdout).toContain("exp:");     // foreign labelled by branch basename
+    const opens = argvLog("herdr").filter((c) => c.includes("open"));
+    expect(opens.some((c) => c.includes(real(foreign)))).toBe(true);
+    expect(opens.some((c) => c.includes(real(aPath)))).toBe(true);
+  });
+
+  it("bare sync on a repo whose only worktrees are foreign is not silent", async () => {
+    herdrUp();
+    const foreign = join(scratch, "foreign-wt");
+    git(root, "worktree", "add", "--detach", foreign);
+    const res = await cmdWorktree(args("worktree", ["sync"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain(`${basename(real(foreign))}:`);
+    expect(res.stdout).not.toContain("No worktrees registered");
   });
 
   it("sync with no reachable ADEs reports it and exits 0", async () => {

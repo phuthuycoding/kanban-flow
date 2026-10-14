@@ -8,7 +8,7 @@ import { readProjectConfig } from "../../project/config.js";
 import { createProxyServer } from "../../proxy/server.js";
 import { readMachineConfig, splitListen, worktreeConfig } from "../../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree, teardownWorktree } from "../../worktree/lifecycle.js";
-import { listWorktrees } from "../../worktree/manager.js";
+import { listWorktrees, gitWorktreeEntries } from "../../worktree/manager.js";
 import { buildSetupPlan, renderPlan, type SetupStep } from "../../worktree/setup.js";
 import { attachWorktreeToAdes, renderAdeResults, type AdeTarget } from "../../integrations/ade/index.js";
 import { syncBase } from "../../project/base-sync.js";
@@ -65,7 +65,7 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
     await writeFeatureMeta(f.dir, { ...f.meta, worktree: wt });
   }
   const syncNote = sync.warning ? `\n  ⚠ ${sync.warning}` : sync.note ? `\n  ${sync.note}` : "";
-  const ade = adeLines(root.root, [{ path: wt.path, branch: wt.branch, label: name }]);
+  const ade = adeLines(root.root, [{ path: wt.path, branch: wt.branch, label: name, focus: true }]);
   return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${syncNote}${ade}` };
 }
 
@@ -119,9 +119,23 @@ async function cmdWorktreeSync(args: ParsedArgs, cwd: string): Promise<CmdResult
       const label = owned?.name ?? branch?.split("/").pop() ?? basename(topReal);
       targets.push({ title: label, target: { path: topReal, branch: owned?.meta?.worktree?.branch ?? branch, label } });
     } else {
+      // Registered kf worktrees keep their feature label…
+      const seen = new Set<string>();
       for (const f of listFeatures(root.root)) {
         const wt = f.meta?.worktree;
-        if (wt) targets.push({ title: f.name, target: { path: wt.path, branch: wt.branch, label: f.name } });
+        if (wt) {
+          targets.push({ title: f.name, target: { path: wt.path, branch: wt.branch, label: f.name } });
+          seen.add(real(wt.path));
+        }
+      }
+      // …plus every other linked worktree of the repo (created by an ADE or by
+      // hand) — "No worktrees" only when git lists the main checkout alone.
+      const mainPath = real(root.root);
+      for (const e of gitWorktreeEntries(root.root)) {
+        const p = real(e.path);
+        if (p === mainPath || seen.has(p)) continue;
+        const label = e.branch?.split("/").pop() ?? basename(p);
+        targets.push({ title: label, target: { path: p, branch: e.branch, label } });
       }
       if (targets.length === 0) return { code: 0, stdout: "No worktrees registered." };
     }
