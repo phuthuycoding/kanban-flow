@@ -53,7 +53,15 @@ if [ -f "$base.exit" ]; then
   [ -f "$base" ] && cat "$base" >&2
   exit "$(cat "$base.exit")"
 fi
-[ -f "$base" ] && cat "$base"
+# Unstubbed list calls answer an empty result — adapters call these eagerly.
+if [ -f "$base" ]; then
+  cat "$base"
+else
+  case "$key" in
+    workspace_list) echo '{"result":{"workspaces":[]}}';;
+    pane_list) echo '{"result":{"panes":[]}}';;
+  esac
+fi
 exit 0
 `;
 
@@ -297,6 +305,9 @@ describe("herdr adapter", () => {
         { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
       ] },
     }));
+    respond("herdr", "workspace", "list", JSON.stringify({
+      result: { workspaces: [{ workspace_id: "wR-auto", worktree: { checkout_path: root } }] },
+    }));
     respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
     const res = herdrAdapter.detach!({ root, target: { path: "/tmp/some-wt", branch: null, label: "demo", adeRepoWorkspaceId: "wR-auto" } });
     expect(res?.ok).toBe(true);
@@ -325,6 +336,9 @@ describe("herdr adapter", () => {
         { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
       ] },
     }));
+    respond("herdr", "workspace", "list", JSON.stringify({
+      result: { workspaces: [{ workspace_id: "wR-auto", worktree: { checkout_path: root } }] },
+    }));
     respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
     // caller lives in the repo anchor ws — the group close must not fire
     process.env.HERDR_WORKSPACE_ID = "wR-auto";
@@ -344,6 +358,9 @@ describe("herdr adapter", () => {
         { path: root, open_workspace_id: "wR" },
         { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
       ] },
+    }));
+    respond("herdr", "workspace", "list", JSON.stringify({
+      result: { workspaces: [{ workspace_id: "wR", worktree: { checkout_path: root } }] },
     }));
     respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
     respond("herdr", "pane", "move", JSON.stringify({ result: { move_result: { changed: true } } }));
