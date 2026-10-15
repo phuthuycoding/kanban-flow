@@ -2,6 +2,11 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [0.11.4] - 2026-10-15
+
+### Fixed
+- **Herdr detach no longer kills the calling session**: the repo-anchor group-close is skipped with a warning when the invoking workspace belongs to that group.
+
 ## [0.11.3] - 2026-10-15
 
 ### Changed
