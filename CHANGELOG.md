@@ -2,6 +2,11 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [0.11.5] - 2026-10-15
+
+### Fixed
+- **Herdr detach session-kill for real this time**: `worktree list` never reports the repo row, so the caller/group guard was dead code — repo anchor now resolves via `workspace list` (`checkout_path` match) and the calling pane via `pane list` cwd when env vars are absent.
+
 ## [0.11.4] - 2026-10-15
 
 ### Fixed
