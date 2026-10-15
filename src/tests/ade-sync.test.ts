@@ -318,6 +318,26 @@ describe("herdr adapter", () => {
     expect(closes).toEqual([["workspace", "close", "w9"]]); // id mismatch → never closed
   });
 
+  it("detach never group-closes a workspace group containing the caller", () => {
+    respond("herdr", "worktree", "list", JSON.stringify({
+      result: { worktrees: [
+        { path: root, open_workspace_id: "wR-auto" },
+        { path: real("/tmp/some-wt"), open_workspace_id: "w9" },
+      ] },
+    }));
+    respond("herdr", "workspace", "close", JSON.stringify({ result: { type: "workspace_closed" } }));
+    // caller lives in the repo anchor ws — the group close must not fire
+    process.env.HERDR_WORKSPACE_ID = "wR-auto";
+    try {
+      const res = herdrAdapter.detach!({ root, target: { path: "/tmp/some-wt", branch: null, label: "demo", adeRepoWorkspaceId: "wR-auto" } });
+      expect(res?.warning).toMatch(/left open/i);
+    } finally {
+      delete process.env.HERDR_WORKSPACE_ID;
+    }
+    const closes = argvLog("herdr").filter((c) => c[0] === "workspace" && c[1] === "close");
+    expect(closes).toEqual([["workspace", "close", "w9"]]); // wt ws only — anchor spared
+  });
+
   it("detach migrates the calling pane out before closing its workspace", () => {
     respond("herdr", "worktree", "list", JSON.stringify({
       result: { worktrees: [
