@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
-import { realpathSync, existsSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { realpathSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
 import { runHook } from "../integrations/hooks.js";
@@ -33,6 +33,23 @@ function git(root: string, args: string[]): string {
   } catch (err) {
     const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr: unknown }).stderr).trim() : "";
     throw new Error(`git ${args.join(" ")} failed${stderr ? `: ${stderr}` : ""}`, { cause: err });
+  }
+}
+
+/** Ensure the top-level dir containing `wtPath` is ignored at `root` when it lives inside the repo. */
+function ensureDirIgnored(root: string, wtPath: string): void {
+  const rel = relative(realpathSync(root), wtPath);
+  if (rel.startsWith("..") || isAbsolute(rel) || !rel) return;
+  const top = rel.split(sep)[0] + "/";                    // e.g. ".worktrees/"
+  const gi = join(root, ".gitignore");
+  const content = existsSync(gi) ? readFileSync(gi, "utf8") : "";
+  const covered = content.split("\n").some((l) => {
+    const t = l.trim();
+    return t === top || t === top.slice(0, -1) || t === `/${top}`;
+  });
+  if (!covered) {
+    const pad = content && !content.endsWith("\n") ? "\n" : "";
+    writeFileSync(gi, `${content}${pad}# kanban-flow\n${top}\n`, "utf8");
   }
 }
 
@@ -99,6 +116,15 @@ export async function ensureWorktree(
   const rawPath = worktreeDir(cfg, feature.name);
   await mkdir(dirname(rawPath), { recursive: true });
   const path = join(realpathSync(dirname(rawPath)), basename(rawPath));
+
+  // A worktree living inside the repo must be gitignored before the branch is
+  // cut — otherwise the main checkout reads dirty on every status. Lazily
+  // covers repos initialized before the `.worktrees/` convention existed.
+  try {
+    ensureDirIgnored(root, path);
+  } catch {
+    /* ignore-write is best-effort; the worktree still works unignored */
+  }
 
   const createdBranch = !branchExists(root, branch);
   if (createdBranch) {

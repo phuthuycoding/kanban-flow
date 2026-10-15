@@ -57,7 +57,7 @@ export function shouldSuggestIgnoreWorks(root: string): boolean {
 
 export function appendIgnoreWorks(root: string): void {
   const gi = join(root, ".gitignore");
-  const add = "\n# kanban-flow\n.works/\n";
+  const add = "\n# kanban-flow\n.works/\n.worktrees/\n";
   if (!existsSync(gi)) writeFileSync(gi, add, "utf8");
   else writeFileSync(gi, readFileSync(gi, "utf8") + add, "utf8");
 }
@@ -267,7 +267,7 @@ export async function askAll(
 
   let ignoreWorks = d.ignoreWorks;
   if (d.ignoreWorks) {
-    ignoreWorks = await confirm(rl, "Add .works/ to .gitignore?", true);
+    ignoreWorks = await confirm(rl, "Add .works/ + .worktrees/ to .gitignore?", true);
   }
 
   const seedFeature = await confirm(rl, "Seed a demo feature to show the structure?", false);

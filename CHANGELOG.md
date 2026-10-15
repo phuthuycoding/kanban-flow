@@ -2,6 +2,11 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Changed
+- **Worktrees now default to `<repo>/.worktrees/<feature>`** instead of the sibling `<repo>-worktrees/` — the dir is lazily added to `.gitignore` on create (and in `kf init`), so the main checkout stays clean. Explicit `worktree.baseDir` still wins; existing sibling worktrees keep working.
+
 ## [0.11.2] - 2026-10-14
 
 ### Changed
