@@ -10,7 +10,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
  */
 export interface WorktreeConfig {
   enabled: boolean;
-  /** Directory worktrees are created under; default `<repo>-worktrees` next to the repo. */
+  /** Directory worktrees are created under; default `<repo>/.worktrees` inside the repo. */
   baseDir: string;
   branchPrefix: string;
   /** Optional name whose slug becomes the default branch prefix (`<name>/`). */
@@ -112,7 +112,7 @@ function defaultBranchPrefix(root: string, gitconfigName: string | undefined): s
 export function worktreeConfig(root: string, raw: Partial<WorktreeConfig> | undefined): WorktreeConfig {
   return {
     enabled: raw?.enabled ?? true,
-    baseDir: raw?.baseDir ?? `${root}-worktrees`,
+    baseDir: raw?.baseDir ?? join(root, ".worktrees"),
     branchPrefix: raw?.branchPrefix ?? defaultBranchPrefix(root, raw?.gitconfigName),
     baseDomain: raw?.baseDomain ?? `${repoSlug(root)}.test`,
     portBase: raw?.portBase ?? 5100,

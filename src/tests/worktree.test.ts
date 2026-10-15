@@ -102,6 +102,29 @@ describe("worktree config", () => {
     expect(() => parseWorktreeConfig("nope", "f")).toThrow(/worktree must be an object/);
   });
 
+  it("defaults baseDir to <repo>/.worktrees and ignores it on create", async () => {
+    expect(worktreeConfig("/r/my-repo", undefined).baseDir).toBe(join("/r/my-repo", ".worktrees"));
+    // point baseDir inside the repo: the dir must be gitignored on create
+    const cfgFile = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(readFileSync(cfgFile, "utf8"));
+    cfg.worktree.baseDir = join(root, ".worktrees");
+    writeFileSync(cfgFile, JSON.stringify(cfg));
+    const gi = join(root, ".gitignore");
+    writeFileSync(gi, "node_modules/\n");
+    expect((await cmdNew(args("new", ["demo"], { context: "app" }), root)).code).toBe(0);
+    expect((await cmdNew(args("new", ["demo2"], { context: "app" }), root)).code).toBe(0);
+    const res = await cmdWorktree(args("worktree", ["create", "demo"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    const wt = feature().meta!.worktree!;
+    expect(wt.path).toBe(join(realpathSync(root), ".worktrees", "demo"));
+    expect(readFileSync(gi, "utf8")).toContain(".worktrees/");
+    expect(git(root, "status", "--porcelain")).not.toContain(".worktrees"); // ignored → main stays clean
+    // second create → no duplicate line
+    const before = readFileSync(gi, "utf8");
+    await cmdWorktree(args("worktree", ["create", "demo2"]), root);
+    expect(readFileSync(gi, "utf8")).toBe(before);
+  });
+
   it("slugifies into DNS-safe domains", () => {
     expect(slugify("My Feature_X")).toBe("my-feature-x");
     const cfg = worktreeConfig(root, { baseDomain: "repo.test" });
