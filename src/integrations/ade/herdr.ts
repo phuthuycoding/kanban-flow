@@ -103,17 +103,22 @@ export const herdrAdapter: AdeAdapter = {
         return { ade: "Herdr", ok: true, detail: `workspace '${ctx.target.label}' kept open`, warning: "command is running inside the workspace being closed — left it open" };
       }
     }
+    // A group close kills EVERY workspace bound to the repo — including the one
+    // hosting the pane running this command. If our ws is in the group, leave
+    // the anchor open with a warning instead of murdering the caller.
+    const ownWsInGroup = ownWs != null && entries.some(
+      (w) => w.open_workspace_id === ownWs,
+    );
     const anchor = ctx.target.adeRepoWorkspaceId;
-    const closeAnchor = Boolean(anchor && closingRepoToo && repoWs === anchor);
+    const closeAnchor = Boolean(anchor && closingRepoToo && repoWs === anchor && !ownWsInGroup);
+    const anchorWarn = anchor && closingRepoToo && repoWs === anchor && ownWsInGroup
+      ? "repo workspace left open — this command is running inside it" : undefined;
     if (!wsToClose) {
-      // Worktree ws already gone — the auto-created repo anchor may still leak.
       if (closeAnchor) runCli(BIN, ["workspace", "close", repoWs!, "--group"], { cwd: ctx.root });
-      return null;
+      return anchorWarn ? { ade: "Herdr", ok: true, warning: anchorWarn } : null;
     }
     runCliJson(BIN, ["workspace", "close", wsToClose], { cwd: ctx.root });
-    // Close the repo anchor we implicitly created, once nothing else of this
-    // repo stays open. Group-close is required while sibling worktree ws exist.
     if (closeAnchor) runCli(BIN, ["workspace", "close", repoWs!, "--group"], { cwd: ctx.root });
-    return { ade: "Herdr", ok: true, detail: `closed workspace '${ctx.target.label}'` };
+    return { ade: "Herdr", ok: true, detail: `closed workspace '${ctx.target.label}'`, warning: anchorWarn };
   },
 };
