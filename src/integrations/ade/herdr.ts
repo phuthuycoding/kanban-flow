@@ -12,12 +12,38 @@ interface HerdrWorktree {
   open_workspace_id?: string | null;
 }
 
+interface HerdrWorkspace {
+  workspace_id?: string;
+  worktree?: { checkout_path?: string; repo_root?: string };
+}
+
+interface HerdrPane {
+  pane_id?: string;
+  workspace_id?: string;
+  cwd?: string;
+  foreground_cwd?: string;
+}
+
 /** `herdr worktree list --cwd <root>` — the flag selects the repo; Herdr otherwise uses its ambient context. */
 function listWorktrees(root: string): HerdrWorktree[] {
   const res = runCliJson(BIN, ["worktree", "list", "--cwd", root], { cwd: root }) as {
     result?: { worktrees?: HerdrWorktree[] };
   };
   return res.result?.worktrees ?? [];
+}
+
+function listWorkspaces(root: string): HerdrWorkspace[] {
+  const res = runCliJson(BIN, ["workspace", "list"], { cwd: root }) as {
+    result?: { workspaces?: HerdrWorkspace[] };
+  };
+  return res.result?.workspaces ?? [];
+}
+
+function listPanes(root: string): HerdrPane[] {
+  const res = runCliJson(BIN, ["pane", "list"], { cwd: root }) as {
+    result?: { panes?: HerdrPane[] };
+  };
+  return res.result?.panes ?? [];
 }
 
 export const herdrAdapter: AdeAdapter = {
@@ -84,34 +110,54 @@ export const herdrAdapter: AdeAdapter = {
   detach(ctx: AdeContext): AdeSyncResult | null {
     const entries = listWorktrees(ctx.root);
     const wt = entries.find((w) => w.path && real(w.path) === real(ctx.target.path));
-    const repoWs = entries.find((w) => w.path && real(w.path) === real(ctx.root) && w.open_workspace_id)?.open_workspace_id;
     const wsToClose = wt?.open_workspace_id ?? null;
+    // `worktree list` never tags the repo row — the anchor ws must come from
+    // `workspace list`, where the repo workspace reports checkout_path == root.
+    const workspaces = listWorkspaces(ctx.root);
+    const repoWs = workspaces.find(
+      (w) => w.worktree?.checkout_path && real(w.worktree.checkout_path) === real(ctx.root),
+    )?.workspace_id ?? null;
+    const panes = listPanes(ctx.root);
 
-    // Detach must never kill the pane running this command — when it lives in
-    // the workspace about to close, migrate it to the repo anchor first; no
-    // safe target → leave the workspace open and warn instead.
-    const ownWs = process.env.HERDR_WORKSPACE_ID;
-    const pane = process.env.HERDR_PANE_ID;
+    // Identify the pane running this command. Env vars are fastest; when they
+    // are absent (agent shells don't always inherit them) fall back to the
+    // pane whose cwd sits inside the checkout being torn down.
+    const envPane = process.env.HERDR_PANE_ID;
+    const envWs = process.env.HERDR_WORKSPACE_ID;
+    const caller = envPane
+      ? panes.find((p) => p.pane_id === envPane)
+      : panes.find(
+          (p) => p.workspace_id === wsToClose && (p.foreground_cwd ?? p.cwd)
+            && real((p.foreground_cwd ?? p.cwd)!).startsWith(real(ctx.target.path)),
+        );
+    const callerWs = envWs ?? caller?.workspace_id ?? null;
+    const callerPaneId = envPane ?? caller?.pane_id ?? null;
+
     const closingRepoToo = Boolean(ctx.target.adeRepoWorkspaceId) && !entries.some(
       (w) => w.path && real(w.path) !== real(ctx.root) && real(w.path) !== real(ctx.target.path) && w.open_workspace_id,
     );
     const safeTarget = repoWs && !closingRepoToo ? repoWs : null;
-    if (wsToClose && ownWs === wsToClose && pane) {
-      if (safeTarget) {
-        runCli(BIN, ["pane", "move", pane, "--new-tab", "--workspace", safeTarget, "--no-focus"], { cwd: ctx.root });
+
+    // Detach must never kill the pane running this command.
+    if (wsToClose && callerWs === wsToClose) {
+      if (safeTarget && callerPaneId) {
+        runCli(BIN, ["pane", "move", callerPaneId, "--new-tab", "--workspace", safeTarget, "--no-focus"], { cwd: ctx.root });
       } else {
         return { ade: "Herdr", ok: true, detail: `workspace '${ctx.target.label}' kept open`, warning: "command is running inside the workspace being closed — left it open" };
       }
     }
-    // A group close kills EVERY workspace bound to the repo — including the one
-    // hosting the pane running this command. If our ws is in the group, leave
-    // the anchor open with a warning instead of murdering the caller.
-    const ownWsInGroup = ownWs != null && entries.some(
-      (w) => w.open_workspace_id === ownWs,
-    );
+
+    // A group close kills EVERY workspace bound to the repo — including the
+    // one hosting this command. If our ws is in the group, leave the anchor
+    // open with a warning instead of murdering the caller.
+    const groupWs = new Set([
+      repoWs,
+      ...entries.map((w) => w.open_workspace_id),
+    ].filter((id): id is string => Boolean(id)));
     const anchor = ctx.target.adeRepoWorkspaceId;
-    const closeAnchor = Boolean(anchor && closingRepoToo && repoWs === anchor && !ownWsInGroup);
-    const anchorWarn = anchor && closingRepoToo && repoWs === anchor && ownWsInGroup
+    const callerInGroup = callerWs != null && groupWs.has(callerWs);
+    const closeAnchor = Boolean(anchor && closingRepoToo && repoWs === anchor && !callerInGroup);
+    const anchorWarn = anchor && closingRepoToo && repoWs === anchor && callerInGroup
       ? "repo workspace left open — this command is running inside it" : undefined;
     if (!wsToClose) {
       if (closeAnchor) runCli(BIN, ["workspace", "close", repoWs!, "--group"], { cwd: ctx.root });
