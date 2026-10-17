@@ -3,9 +3,9 @@ name: kanban-ship
 description: 'Kanban ship stage — publish the item as a PR, wait or schedule the merge, then run release and changelog via `kf ship`. Use when a work item is in the shipping stage, or right after a PASS review when the human chooses to ship.'
 ---
 
-# Kanban Shipping — the last mile (Human gate + Agent)
+# Kanban Shipping (Human gate + Agent)
 
-The pipeline's third human gate lives here: review PASS → **ship now or archive directly?** Ask once. Non-code items (docs, config, research) and projects with ship automation off go straight to `kf archive` from review — never force items through shipping.
+The pipeline's third human gate lives here: review PASS → **ship now or archive directly?** Ask once. Non-code items (docs, config, research) and projects with ship automation off go straight to `kf archive` from review — never move an item into `shipping` that has nothing to deliver.
 
 ## Entry
 
@@ -33,7 +33,7 @@ Config lives in `.kf/config.json` (`ship` block); flags (`--draft`, `--skip-rele
 
 ## When ship automation is off
 
-`ship.enabled` unset/false → `kf ship` prints the manual checklist for the item (push, `gh pr create`, `kf issues link <f> --pr`, merge/release/changelog by hand, then `kf archive`) and exits 1. Nothing is written. The `shipping` stage itself is still usable as a parking lane while a PR awaits merge — move items there manually if the board should show "waiting for merge".
+`ship.enabled` unset/false → `kf ship` prints the manual checklist for the item (push, `gh pr create`, `kf issues link <f> --pr`, merge/release/changelog by hand, then `kf archive`) and exits 1. Nothing is written. The `shipping` stage itself remains usable as a waiting state while a PR awaits merge — move items there manually if the board should show "waiting for merge".
 
 ## Project hook
 
@@ -53,12 +53,12 @@ kf archive {feature_name}           # shipping → dones — delivery gate, docs
 
 - Never force a review FAIL/REJECT/REQUIREMENT_BUG item into shipping — the gate refuses; loop back per the review skill.
 - Never merge a PR yourself — `merge: "auto"` schedules `--auto` at most; `--merge`/`--admin`/`--force` on `gh pr merge` is not allowed.
-- A PR closed unmerged is a stop-and-report, not something to silently republish.
+- A PR closed unmerged means stop and report to the human — never silently republish.
 - Do not edit approved contract artifacts; ship progress lives in `meta.ship` only.
 
 ## Done
 
-Item delivered or parked truthfully. Hand off:
+The item is either delivered or visibly waiting for merge. Hand off:
 
 ```text
 Ship complete → kf archive {feature_name} (kanban-archive).

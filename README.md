@@ -17,13 +17,13 @@ Every work item walks one pipeline, and only the CLI moves it between stages:
 
 ```text
 brainstorm → planning → implementation → testing → review ─┬→ shipping → dones
-                 ↘ backlog ↗                 ↺ FAIL loops └→ dones (no-code items)
+                 ↘ backlog ↗     ↺ FAIL loops back          └→ dones (non-code items)
 any stage → cancelled, with a reason on the record
 ```
 
-`shipping` is the optional last leg for items that deliver code: `kf ship` pushes the branch, opens the PR, waits on the merge (or schedules `--auto`), tags a release and writes the changelog — each step is switchable in `.kf/config.json` and the run resumes where it stopped. Items with nothing to ship archive straight from review.
+`shipping` is the optional last leg for items that deliver code: `kf ship` pushes the branch, opens the PR, waits for the merge (or schedules `gh pr merge --auto`), tags a release and writes the changelog — each step is switchable in `.kf/config.json` and re-runs resume where they stopped. Items with nothing to ship archive straight from review.
 
-Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop | run`); the flat commands stay permanent aliases.
+Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop | run`); the flat commands remain permanent aliases.
 
 ```mermaid
 flowchart LR

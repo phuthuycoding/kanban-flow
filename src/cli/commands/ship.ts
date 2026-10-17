@@ -67,7 +67,7 @@ export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (m.stamp) { Object.assign(ship, m.stamp); f.meta = { ...f.meta, ship }; await writeFeatureMeta(f.dir, f.meta); }
   lines.push(`${m.ok ? "✓" : "✗"} ${m.line}`);
   if (!m.ok) return fail(m);
-  if (!m.proceed) return { code: 0, stdout: [...lines, "", `Not ready to archive — ${m.line.includes("waiting") ? "waiting on the merge." : "see above."}`].join("\n") };
+  if (!m.proceed) return { code: 0, stdout: [...lines, "", `Not ready to archive — ${m.line.includes("waiting") ? "waiting for the merge." : "see above."}`].join("\n") };
 
   // Step 3 — release (per config/override).
   if (ship.release === undefined) {

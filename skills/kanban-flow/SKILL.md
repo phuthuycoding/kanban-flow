@@ -35,7 +35,7 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 | 3. Implement | `kanban-implement` | — (tasks.md tracks) | Autonomous |
 | 4. Testing | `kanban-test` | `phase-4-testing-result.md` (`status: PASS`) | FAIL/REJECT → loop to implementation |
 | 5. Review | `kanban-review` | `phase-5-review-report.md` (`status: PASS`) | FAIL/REJECT → loop; REQUIREMENT_BUG → STOP |
-| 5.5 Shipping | `kanban-ship` | — (`meta.ship` tracks) | Optional leg — code items only; **third human gate: ship now or archive direct?** |
+| 5.5 Shipping | `kanban-ship` | — (`meta.ship` tracks) | Optional leg — code items only; **third human gate: ship now or archive directly?** |
 | 6. Closure | `kanban-archive` | Feature: `phase-6-feature-report.md`; bug: current test/review evidence | Feature canonical docs or affected bug docs, then archive — accepts review **or** shipping |
 
 **Two gate layers on every move:**

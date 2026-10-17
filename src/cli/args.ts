@@ -239,7 +239,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   ship: {
-    help: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]  — resumable shipping pipeline for items in the `shipping` stage: publish (push + gh pr create + record meta.pr) → merge gate → release → changelog; each step is per-config/per-run disableable and re-runnable. Requires \"ship.enabled\": true in .kf/config.json; without it, prints the manual ship checklist instead",
+    help: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]  — resumable shipping pipeline for items in the `shipping` stage: publish (push + gh pr create + record meta.pr) → merge gate → release → changelog; each step can be disabled in config or per run, and re-runs resume where the last run stopped. Requires \"ship.enabled\": true in .kf/config.json; without it, prints the manual ship checklist instead",
     allowPositionals: true,
     options: {
       draft: { type: "boolean" },

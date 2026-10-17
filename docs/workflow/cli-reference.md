@@ -2,7 +2,7 @@
 
 The binary is `kf`. Every command *except* `kf init` looks for `.works/` from the current directory upwards to the project root, so you can run it from the root or from any subdirectory.
 
-Every lifecycle command also has a canonical git-flow-style spelling: `kf feature <verb>` or `kf bug <verb>` with verbs `start | list | show | move | approve | ship | finish | drop | run` — dispatching to the same handlers (`feature move` ≡ `kf stage`, `feature finish` ≡ `kf archive`, `feature drop` ≡ `kf cancel`, `bug start` implies `--type bug`, and so on). Using the wrong noun on an existing item is refused; the flat spellings in this reference stay permanent aliases. `kf help <noun> <verb>` resolves nested help.
+Every lifecycle command also has a canonical git-flow-style spelling: `kf feature <verb>` or `kf bug <verb>` with verbs `start | list | show | move | approve | ship | finish | drop | run` — dispatching to the same handlers (`feature move` is `kf stage`, `feature finish` is `kf archive`, `feature drop` is `kf cancel`, `bug start` implies `--type bug`, and so on). Using the wrong noun on an existing item is refused; the flat spellings in this reference stay permanent aliases. `kf help <noun> <verb>` resolves nested help.
 
 `kf init` is the exception: it resolves its path argument against the current directory and does not search upwards. Running it inside a subdirectory of a project that is already initialised creates a second `.works/`, `.kf/` and skills set there rather than finding the existing one.
 

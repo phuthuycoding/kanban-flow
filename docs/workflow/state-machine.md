@@ -50,7 +50,7 @@ stateDiagram-v2
 | `implementation` | The agent executes against the approved contract | `testing`, `planning` |
 | `testing` | Run the tests from the test plan and record the outcome | `review`, `implementation`, `planning` |
 | `review` | Review the code, the scope and the architecture, and write the report | `shipping`, `dones`, `implementation`, `planning` |
-| `shipping` | Optional leg for items that ship code — publish the PR, wait on the merge, run release/changelog | `dones` (via `kf archive`) |
+| `shipping` | Optional leg for items that ship code — publish the PR, wait for the merge, run release/changelog | `dones` (via `kf archive`) |
 | `dones` | Archived; a terminal state | `cancelled`, via `kf cancel` |
 | `cancelled` | Stopped for good; it sits off the linear track, so no artifact is ever demanded of it | Back to `cancellation.fromStage` only |
 

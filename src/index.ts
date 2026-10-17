@@ -42,7 +42,7 @@ function portFrom(parsed: ParsedArgs): number {
 async function help(parts: string[]): Promise<CmdResult> {
   const topic = parts.join(" ");
   if (topic) return { code: 0, stdout: commandHelp(topic) };
-  const canonical = `  kf feature <verb>  — ${"start | list | show | move | approve | ship | finish | drop | run"}\n  kf bug <verb>      — same lifecycle for bugs ("bug start" implies --type bug)`;
+  const canonical = "  kf feature <verb>  — start | list | show | move | approve | ship | finish | drop | run\n  kf bug <verb>      — same lifecycle for bugs (\"bug start\" implies --type bug)";
   const cmds = allCommands().map((c) => `  ${c.padEnd(12)} ${commandHelp(c).split("\n")[0]}`).join("\n");
   return {
     code: 0,

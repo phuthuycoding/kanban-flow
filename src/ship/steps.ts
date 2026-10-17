@@ -94,7 +94,7 @@ export function shipMerge(
   if (state === "closed") return { ok: false, proceed: false, line: `merge: ${pr} was closed unmerged — human decides (fix + reopen, or cancel ship)` };
   if (state === "unknown") return { ok: false, proceed: false, line: `merge: could not read ${pr} — ${err}` };
   if (cfg.merge === "auto") {
-    if (f.meta?.ship?.autoMerge) return { ok: true, proceed: false, line: `merge: --auto already scheduled for ${pr} — waiting on CI/review` };
+    if (f.meta?.ship?.autoMerge) return { ok: true, proceed: false, line: `merge: --auto already scheduled for ${pr} — waiting for CI/review` };
     const res = gh(["pr", "merge", pr, "-R", repo, "--auto", "--squash"]);
     if (!res.ok) {
       return { ok: false, proceed: false, line: `merge: ${res.missing ? "gh CLI not found" : `gh pr merge --auto failed (allow-auto-merge off for the repo?):\n${res.stderr.trim() || res.stdout.trim()}`}` };

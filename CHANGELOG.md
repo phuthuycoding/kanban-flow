@@ -6,9 +6,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Added
 
-- New `shipping` stage between `review` and `dones`: an optional leg for items that actually ship (PR, release). `review → shipping` requires a current PASS review report; `shipping → dones` and direct `review → dones` both archive. Non-code items skip it entirely.
-- `kf ship <feature>` — resumable shipping pipeline: publish (push + `gh pr create` + record `meta.pr`) → merge gate (`ship.merge: "manual"` default waits for the human; `"auto"` schedules `gh pr merge --auto` once) → `gh release create` tag → CHANGELOG entry. Each step is per-config/per-run disableable (`--draft`, `--skip-release`, `--skip-changelog`) and progress is stamped in `meta.ship` for idempotent re-runs. `ship.enabled` absent/false keeps today's manual flow and prints a manual checklist instead.
-- `kanban-ship` skill for the ship gate and pipeline ritual; `shipping.sh` added to the GitHub hook seed pack; `kf sync` now sweeps shipping items whose recorded PR merged.
+- New `shipping` stage between `review` and `dones`: an optional leg for items that ship code (PR, release). `review → shipping` requires a current PASS review report; `shipping → dones` and direct `review → dones` both archive. Non-code items skip it entirely.
+- `kf ship <feature>` — resumable shipping pipeline: publish (push + `gh pr create` + record `meta.pr`) → merge gate (`ship.merge: "manual"` default waits for the human; `"auto"` schedules `gh pr merge --auto` once) → `gh release create` tag → CHANGELOG entry. Each step can be disabled in config or per run (`--draft`, `--skip-release`, `--skip-changelog`), and progress is stamped in `meta.ship` so re-runs resume where they stopped. `ship.enabled` absent/false keeps the manual flow and prints a manual checklist instead.
+- `kanban-ship` skill covering the ship gate and the resumable pipeline; `shipping.sh` added to the GitHub hook seed pack; `kf sync` now sweeps shipping items whose recorded PR merged.
 - Git-flow-style canonical commands: `kf feature <verb>` / `kf bug <verb>` with verbs `start | list | show | move | approve | ship | finish | drop | run` dispatching to the same handlers as the flat commands. `bug start` implies `--type bug`; using the wrong noun on an existing item is refused clearly. `kf help` renders the canonical tree first and `kf help <noun> <verb>` resolves nested help. All existing flat commands stay permanent aliases with identical behaviour and exit codes.
 
 ### Changed
