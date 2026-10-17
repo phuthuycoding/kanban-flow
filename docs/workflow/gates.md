@@ -14,7 +14,8 @@ One group is not shared: the *direction* gate, which decides where a PASS or FAI
 | 2 — Planning (feature) | `phase-2-use-case-diagram.md` | A valid actor and use case diagram | Traceability |
 | 2 — Planning (feature) | `phase-2-test-case.md` | TC-XXX entries linked to FR-XXX and UC-XXX | The testing contract |
 | 4 — Testing | `phase-4-testing-result.md` | The current execution id, a PASS/FAIL/REJECT/BLOCKED verdict, the evidence | Review, or the repair loop |
-| 5 — Review | `phase-5-review-report.md` | The current execution id, a PASS/FAIL/REJECT/REQUIREMENT_BUG verdict, the findings | Archive, or the repair loop |
+| 5 — Review | `phase-5-review-report.md` | The current execution id, a PASS/FAIL/REJECT/REQUIREMENT_BUG verdict, the findings | Shipping or archive, or the repair loop |
+| 5.5 — Shipping | — (no artifact; `meta.ship` in `.kfw.json` tracks pipeline steps) | — | Archive via `kf archive` |
 | 6 — Artifact (feature) | `phase-6-feature-report.md` | The summary, what changed, the tests, the docs, the known limits | A finished feature |
 
 Implementation has no required artifact of its own in the schema, but the implement skill must finish the tasks in the plan and leave the code in a state that can be tested.
@@ -47,7 +48,9 @@ flowchart LR
     I -->|implementation complete + tasks done| T[testing]
     T -->|PASS + current execution| R[review]
     T -->|FAIL/REJECT| I
+    R -->|PASS + current execution + ship decision| SH[shipping]
     R -->|PASS + current execution + merged/confirmed delivery<br/>feature additionally requires feature report| D[dones]
+    SH -->|merged recorded PR / human archive| D
     R -->|FAIL/REJECT| I
     T -->|scope change| P
     R -->|scope change| P

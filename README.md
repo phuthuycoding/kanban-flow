@@ -16,10 +16,14 @@ the agent's summary, they read `.works/`.
 Every work item walks one pipeline, and only the CLI moves it between stages:
 
 ```text
-brainstorm → planning → implementation → testing → review → dones
-                 ↘ backlog ↗                 ↺ FAIL loops back
+brainstorm → planning → implementation → testing → review ─┬→ shipping → dones
+                 ↘ backlog ↗                 ↺ FAIL loops └→ dones (no-code items)
 any stage → cancelled, with a reason on the record
 ```
+
+`shipping` is the optional last leg for items that deliver code: `kf ship` pushes the branch, opens the PR, waits on the merge (or schedules `--auto`), tags a release and writes the changelog — each step is switchable in `.kf/config.json` and the run resumes where it stopped. Items with nothing to ship archive straight from review.
+
+Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop | run`); the flat commands stay permanent aliases.
 
 ```mermaid
 flowchart LR
@@ -69,7 +73,7 @@ cd kanban-flow && npm install && npm run build && npm link
 
 ## Onboard your agent
 
-`kf init` does the filesystem half: it installs the eight kanban skills into the
+`kf init` does the filesystem half: it installs the nine kanban skills into the
 agent's skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`; `claude` is
 the default, and several agents read each other's directories) and seeds
 `AGENTS.md` when the project does not already have one. By default the install is
@@ -112,8 +116,11 @@ kf stage user-login implementation  # or backlog — decision three; when the pr
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
-# write the review report, then the feature report
-kf archive user-login               # refused unless the review says PASS
+# write the review report — decision four: ship or archive directly
+kf stage user-login shipping        # optional leg for code items
+kf ship user-login                  # publish → merge gate → release → changelog, resumable
+# write the feature report
+kf archive user-login               # refused until the review says PASS and a recorded PR is merged
 ```
 
 ## What is actually different

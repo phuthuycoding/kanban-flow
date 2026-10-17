@@ -13,7 +13,9 @@ stateDiagram-v2
     testing --> review: testing result PASS
     testing --> implementation: testing FAIL/REJECT
     testing --> planning: scope change
+    review --> shipping: review PASS + item ships code
     review --> dones: review PASS + closure for kind
+    shipping --> dones: kf archive (recorded PR merged)
     review --> implementation: review FAIL/REJECT
     review --> planning: scope change
     dones --> [*]
@@ -23,6 +25,7 @@ stateDiagram-v2
     implementation --> cancelled: kf cancel --reason
     testing --> cancelled: kf cancel --reason
     review --> cancelled: kf cancel --reason
+    shipping --> cancelled: kf cancel --reason
     dones --> cancelled: kf cancel --reason
     cancelled --> brainstorm: reopen at cancellation.fromStage
     cancelled --> [*]
@@ -46,7 +49,8 @@ stateDiagram-v2
 | `backlog` | The contract is approved but work has not started | `implementation`, `planning` |
 | `implementation` | The agent executes against the approved contract | `testing`, `planning` |
 | `testing` | Run the tests from the test plan and record the outcome | `review`, `implementation`, `planning` |
-| `review` | Review the code, the scope and the architecture, and write the report | `dones`, `implementation`, `planning` |
+| `review` | Review the code, the scope and the architecture, and write the report | `shipping`, `dones`, `implementation`, `planning` |
+| `shipping` | Optional leg for items that ship code — publish the PR, wait on the merge, run release/changelog | `dones` (via `kf archive`) |
 | `dones` | Archived; a terminal state | `cancelled`, via `kf cancel` |
 | `cancelled` | Stopped for good; it sits off the linear track, so no artifact is ever demanded of it | Back to `cancellation.fromStage` only |
 
@@ -58,8 +62,9 @@ The CLI allows only the edges above. Never move a `.works/` folder by hand.
 - Leaving `planning` needs all four planning artifacts and the UC files for a feature; a bug needs only a filled bug report and a real human's approval. The approval stores a fingerprint of the matching contract, so editing the contents afterwards makes it stale.
 - Every entry into `testing` mints a new `executionId`. Both `phase-4-testing-result.md` and `phase-5-review-report.md` must carry the current one.
 - `FAIL` and `REJECT` return to `implementation`. `BLOCKED` stops the flow. `REQUIREMENT_BUG` is a stop condition in review: never rewrite the requirement or move the state on your own.
-- Only a `PASS` review whose testing and review match the current execution reaches `dones`. A feature also needs `phase-6-feature-report.md`; a bug does not. On top of that, `kf archive` is the delivery gate: a recorded `pr` must be verifiably merged — an item that passed review but has not landed waits in `review` ("awaiting merge" in status/doctor) — and `delivered`/`deliveredAt` is stamped on `.kfw.json` when finalization completes.
-- Entering `implementation` with `worktree.enabled` (the default) also provisions the item's git worktree on branch `<prefix>/<feature>` plus its `<feature>.<baseDomain>` route — the transition fails closed when that cannot happen, and code work happens there rather than on the main checkout. The prefix resolves `worktree.branchPrefix` → `worktree.gitconfigName` → `git config user.name` → `kf/`; reachable ADEs get the worktree attached (Herdr opens it, Orca registers the repo). `kf archive` and `kf cancel` tear the worktree and route down but keep the branch, refuse while it is dirty, and warn when its commits are not merged into HEAD.
+- Only a `PASS` review whose testing and review match the current execution reaches `shipping` or `dones`. A feature also needs `phase-6-feature-report.md`; a bug does not. On top of that, `kf archive` is the delivery gate: a recorded `pr` must be verifiably merged — an item that passed review but has not landed waits in `review` or `shipping` ("awaiting merge" in status/doctor) — and `delivered`/`deliveredAt` is stamped on `.kfw.json` when finalization completes.
+- `shipping` is the optional last leg for items that ship code. `kf ship` runs it: publish (push the branch, open the PR, record `meta.pr`) → merge gate (`ship.merge: "manual"` waits for the human; `"auto"` schedules `gh pr merge --auto` — kf never merges itself) → `gh release create` → changelog append. Every completed step is stamped into `meta.ship`, so the command is resumable; `ship.enabled`, `release` and `changelog` in `.kf/config.json` turn each step on or off (absent block = manual flow, `kf ship` prints a checklist instead). Items with nothing to ship go `review → dones` directly. `kf sync` sweeps shipping items whose recorded PR merged.
+- Entering `implementation` with `worktree.enabled` (opt-in, off by default) also provisions the item's git worktree on branch `<prefix>/<feature>` plus its `<feature>.<baseDomain>` route — the transition fails closed when that cannot happen, and code work happens there rather than on the main checkout. The prefix resolves `worktree.branchPrefix` → `worktree.gitconfigName` → `git config user.name` → `kf/`; reachable ADEs get the worktree attached (Herdr opens it, Orca registers the repo). `kf archive` and `kf cancel` tear the worktree and route down but keep the branch, refuse while it is dirty, and warn when its commits are not merged into HEAD.
 - The only way into `cancelled` is `kf cancel`, and `--reason` is mandatory. The only way out is back to the stage it stopped in (`cancellation.fromStage`), at which point `cancellation` and `status` are cleared from the metadata — except a reopen straight back into `dones`, which restores `status: archived` and re-syncs the canonical docs through the archive path. `kf archive` refuses a cancelled item.
 
 The minimum metadata looks like this:
