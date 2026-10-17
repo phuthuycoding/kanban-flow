@@ -27,7 +27,31 @@ export interface ProjectConfig {
   skills?: SkillsConfig;
   harness?: HarnessConfig;
   worktree?: Partial<WorktreeConfig>;
+  ship?: ShipConfig;
   created: string;
+}
+
+/** The `ship` block: per-step automation switches for the shipping stage. */
+export interface ShipConfig {
+  enabled: boolean;
+  /** "manual" = human merges the PR; "auto" = `gh pr merge --auto` schedules it (CI/review still enforced by GitHub). */
+  merge: "manual" | "auto";
+  release: boolean;
+  changelog: boolean;
+}
+
+export const SHIP_DEFAULTS: ShipConfig = { enabled: false, merge: "manual", release: false, changelog: false };
+
+export function parseShipConfig(raw: unknown, file: string): ShipConfig {
+  if (raw === undefined) return { ...SHIP_DEFAULTS };
+  const bad = () => new Error(`Invalid project config: ${file} — ship must be {enabled?, merge?: "manual"|"auto", release?, changelog?}`);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw bad();
+  const s = raw as Record<string, unknown>;
+  if (s.enabled !== undefined && typeof s.enabled !== "boolean") throw bad();
+  if (s.merge !== undefined && s.merge !== "manual" && s.merge !== "auto") throw bad();
+  if (s.release !== undefined && typeof s.release !== "boolean") throw bad();
+  if (s.changelog !== undefined && typeof s.changelog !== "boolean") throw bad();
+  return { ...SHIP_DEFAULTS, ...s } as ShipConfig;
 }
 
 export interface SkillsConfig {
@@ -137,6 +161,7 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
+  cfg.ship = parseShipConfig(cfg.ship, f);
   cfg.skills = parseSkillsBlock(cfg.skills, f);
   cfg.project = parseProjectBlock(cfg.project, f);
   return cfg;

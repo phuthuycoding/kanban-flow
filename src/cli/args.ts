@@ -1,9 +1,14 @@
 import { parseArgs } from "node:util";
 
+import { buildCommandTree, resolveCommandPath, type CommandNode } from "./tree.js";
+import type { WorkItemKind } from "../workflow/schema.js";
+
 export interface ParsedArgs {
   command: string;
   positionals: string[];
   options: Record<string, unknown>;
+  /** Set when invoked through a canonical noun path (kf feature|bug <verb>); the dispatcher gates on it. */
+  noun?: WorkItemKind;
 }
 
 export interface CmdSpec {
@@ -216,7 +221,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   worktree: {
-    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains; 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
+    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
@@ -231,6 +236,16 @@ const COMMANDS: Record<string, CmdSpec> = {
       listen: { type: "string" },
       routes: { type: "string" },
       fallback: { type: "string" },
+    },
+  },
+  ship: {
+    help: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]  — resumable shipping pipeline for items in the `shipping` stage: publish (push + gh pr create + record meta.pr) → merge gate → release → changelog; each step can be disabled in config or per run, and re-runs resume where the last run stopped. Requires \"ship.enabled\": true in .kf/config.json; without it, prints the manual ship checklist instead",
+    allowPositionals: true,
+    options: {
+      draft: { type: "boolean" },
+      "skip-release": { type: "boolean" },
+      "skip-changelog": { type: "boolean" },
+      json: { type: "boolean" },
     },
   },
   contexts: {
@@ -252,10 +267,20 @@ const COMMANDS: Record<string, CmdSpec> = {
   version: {},
 };
 
+const COMMAND_TREE = buildCommandTree(COMMANDS);
+
+export function commandTree(): Record<string, CommandNode> {
+  return COMMAND_TREE;
+}
+
 export function parseArgsCli(argv: string[]): ParsedArgs {
-  const command = argv[0] ?? "help";
-  const spec = COMMANDS[command];
-  if (!spec) return { command, positionals: argv.slice(1), options: {} };
+  const res = resolveCommandPath(COMMAND_TREE, argv);
+  const spec = res?.node.spec;
+  const node = res?.node;
+  if (!res || !spec || !node?.dispatch) {
+    return { command: argv[0] ?? "help", positionals: argv.slice(1), options: {} };
+  }
+  const argvArgs = res.rest;
   const opts: Record<string, OptDef> = {};
   for (const [k, v] of Object.entries(spec.options ?? {})) {
     const d: OptDef = { type: v.type };
@@ -266,18 +291,25 @@ export function parseArgsCli(argv: string[]): ParsedArgs {
   }
   opts.help = { type: "boolean", short: "h" };
   const { values, positionals } = parseArgs({
-    args: argv.slice(1),
+    args: argvArgs,
     options: opts,
     allowPositionals: spec.allowPositionals ?? false,
     strict: true,
   });
-  return { command, positionals, options: values as Record<string, unknown> };
+  for (const [k, v] of Object.entries(node.inject ?? {})) {
+    (values as Record<string, unknown>)[k] ??= v;
+  }
+  return {
+    command: node.dispatch,
+    positionals,
+    options: values as Record<string, unknown>,
+    noun: node.noun,
+  };
 }
 
 export function commandHelp(command: string): string {
-  const spec = COMMANDS[command];
-  if (!spec) return `Unknown command: ${command}. Use "kf help".`;
-  return spec.help ?? `kf ${command}`;
+  const res = resolveCommandPath(COMMAND_TREE, command.split(" "));
+  return res?.node?.help ?? `Unknown command: ${command}. Use "kf help".`;
 }
 
 export function allCommands(): string[] {

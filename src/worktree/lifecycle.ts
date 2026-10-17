@@ -101,7 +101,7 @@ export async function ensureWorktree(
   }
 
   if (!isGitRepo(root)) {
-    throw new Error(`Cannot create a worktree: ${root} is not a git repository. Set "worktree.enabled": false in .kf/config.json to opt out.`);
+    throw new Error(`Cannot create a worktree: ${root} is not a git repository.`);
   }
   const branch = worktreeBranch(cfg, feature.name);
   const domain = worktreeDomain(cfg, feature.name);

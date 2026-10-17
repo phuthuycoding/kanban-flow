@@ -24,6 +24,7 @@ export const MANAGED_SKILLS = [
   "kanban-implement",
   "kanban-test",
   "kanban-review",
+  "kanban-ship",
   "kanban-archive",
 ];
 

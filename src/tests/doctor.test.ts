@@ -50,6 +50,15 @@ describe("kf doctor on a healthy project", () => {
     expect(res.stdout).toContain("Healthy");
   });
 
+  it("never probes worktree domain infra on an opted-out project", async () => {
+    // worktrees are opt-in now: no worktree block → no probe, no setup suggestion
+    await project();
+    const res = await cmdDoctor(args("doctor"), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout).not.toContain("worktree infra");
+    expect(res.stdout).not.toContain("worktree setup");
+  });
+
   it("does not call an invalid work item a broken project", async () => {
     // A pipeline in motion is full of items that are not valid yet. Failing on those would make
     // the verdict useless — it would be red almost always.

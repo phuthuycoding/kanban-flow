@@ -7,6 +7,8 @@ src/
 ├── index.ts              # CLI entrypoint and command dispatch
 ├── cli/
 │   ├── args.ts           # argument parsing and help metadata
+│   ├── tree.ts           # declarative command tree (flat commands + feature|bug noun verbs)
+│   ├── noun-gate.ts      # kind check for `kf feature|bug <verb>` paths
 │   ├── result.ts         # command result contract
 │   └── commands/         # command handlers, split by use
 │       ├── init.ts       # project initialization
@@ -19,6 +21,7 @@ src/
 │       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
 │       ├── run.ts        # kf run / kf runs (hand a stage to a worker agent)
 │       ├── harness.ts    # kf harness (effective harness config)
+│       ├── ship.ts       # kf ship — resumable publish/merge/release/changelog pipeline
 │       └── archive.ts    # closure and canonical docs sync
 ├── workflow/             # domain state, artifacts and validation
 │   ├── schema.ts         # stages, artifacts, transitions
@@ -33,6 +36,7 @@ src/
 │   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
 │   └── validate.ts       # facade: composes the checks, renders results, re-exports
 ├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor
+├── ship/                 # ship pipeline steps: publish, merge gate, release, changelog
 ├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation, hooks, and ade/ — ADE (Orca, Herdr) adapters that attach worktrees into running dev environments
 ├── dashboard/            # analytics HTTP server and HTML view

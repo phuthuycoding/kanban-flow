@@ -152,7 +152,7 @@ describe("dashboardData", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     const flow = elements["#flow-chart"].innerHTML;
-    for (const stage of ["brainstorm", "planning", "implementation", "testing", "review", "dones"]) {
+    for (const stage of ["brainstorm", "planning", "implementation", "testing", "review", "shipping", "dones"]) {
       expect(flow, stage).toContain(">" + stage + "<");
     }
     expect(flow, "backlog branches off and is not a node on the line").not.toContain(">backlog<");

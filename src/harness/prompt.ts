@@ -14,6 +14,7 @@ export const STAGE_SKILL: Record<Stage, string | null> = {
   implementation: "kanban-implement",
   testing: "kanban-test",
   review: "kanban-review",
+  shipping: "kanban-ship",
   dones: "kanban-archive",
   cancelled: null,
 };

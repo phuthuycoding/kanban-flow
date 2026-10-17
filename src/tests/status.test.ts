@@ -37,17 +37,17 @@ async function makeFeature(name = "todo-list", stage: Stage = "brainstorm", ctx 
   if (stage !== "brainstorm" && stage !== "planning" || (stage === "planning")) {
     await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: confirmed\n---\n# Spec\nreal content\nFR-001");
   }
-  if (stage === "planning" || stage === "backlog" || stage === "implementation" || stage === "testing" || stage === "review" || stage === "dones") {
+  if (stage === "planning" || stage === "backlog" || stage === "implementation" || stage === "testing" || stage === "review" || stage === "shipping" || stage === "dones") {
     for (const f of ["phase-2-implementation-plan.md", "phase-2-use-case-specification.md", "phase-2-use-case-diagram.md", "phase-2-test-case.md"]) {
       await writeFile(join(dir, f), `# ${f}\nreal content\n## TC-001\nFR-001 UC-001`);
     }
     await mkdir(join(dir, "use-cases"), { recursive: true });
     await writeFile(join(dir, "use-cases", "UC-001.md"), "# UC-001\nreal content");
   }
-  if (stage === "testing" || stage === "review" || stage === "dones") {
+  if (stage === "testing" || stage === "review" || stage === "shipping" || stage === "dones") {
     await writeFile(join(dir, "phase-4-testing-result.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Test\nreal content\nOverall: 85%\n## Commands and Evidence\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |");
   }
-  if (stage === "review" || stage === "dones") {
+  if (stage === "review" || stage === "shipping" || stage === "dones") {
     await writeFile(join(dir, "phase-5-review-report.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Review\nreal content");
   }
   if (stage === "dones") {
@@ -55,9 +55,9 @@ async function makeFeature(name = "todo-list", stage: Stage = "brainstorm", ctx 
   }
   await writeFeatureMeta(dir, {
     schema: "kanban-flow", feature: name, context: ctx, created: ts,
-    approval: approved || ["backlog", "implementation", "testing", "review", "dones"].includes(stage)
+    approval: approved || ["backlog", "implementation", "testing", "review", "shipping", "dones"].includes(stage)
       ? { status: "approved", by: "human", at: ts, contractHash: executionContractHash(dir)! } : undefined,
-    executionId: ["testing", "review", "dones"].includes(stage) ? "test-run" : undefined,
+    executionId: ["testing", "review", "shipping", "dones"].includes(stage) ? "test-run" : undefined,
   });
 }
 
@@ -285,6 +285,6 @@ describe("statusToJson", () => {
 
 describe("stage movement contract", () => {
   it("all workflow stages exist as folders", async () => {
-    expect(STAGES.length).toBe(8);
+    expect(STAGES.length).toBe(9);
   });
 });

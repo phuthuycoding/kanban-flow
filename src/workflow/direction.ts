@@ -49,13 +49,15 @@ export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
     }
   }
 
-  // review → dones requires PASS; REQUIREMENT_BUG stops the feature entirely.
-  if (feature.stage === "review") {
+  // review → dones|shipping requires PASS; REQUIREMENT_BUG stops the feature entirely.
+  // Items in shipping keep answering to the review report: it is still the only
+  // verdict that may carry them into dones.
+  if (feature.stage === "review" || feature.stage === "shipping") {
     const file = ARTIFACTS["review-report"].file;
     const status = read(file);
-    if (to === "dones" && status !== "PASS") {
+    if ((to === "dones" || to === "shipping") && status !== "PASS") {
       issues.push(finding(feature, "ERROR", file, "review_not_pass",
-        `review-report status is ${status ?? "missing"}; only PASS may enter dones (FAIL/REJECT loop to implementation)`));
+        `review-report status is ${status ?? "missing"}; only PASS may enter ${to} (FAIL/REJECT loop to implementation)`));
     }
     if (status === "REQUIREMENT_BUG") {
       issues.push(finding(feature, "ERROR", file, "requirement_bug_stop",

@@ -44,7 +44,11 @@ flowchart TD
     AA --> AB{Review result?}
     AB -- FAIL/REJECT --> O
     AB -- REQUIREMENT_BUG --> AC([Stop and ask the user to decide])
-    AB -- PASS --> AD{Work item kind?}
+    AB -- PASS --> SG{Ship gate: ship now or archive directly?}
+    SG -- Ship --> SH[kf stage item shipping + kf ship: publish, merge gate, release, changelog]
+    SG -- "Nothing to ship (docs/config/research)" --> AD{Work item kind?}
+    SH -->|PR merged / steps complete| AD
+    SH -->|waiting on merge| SG
     AD -- Feature --> FC[Write feature-report]
     FC --> AE[kf archive: copy requirement, use-case and testplan docs]
     AD -- Bug --> BC[Update the related feature docs if needed]
@@ -55,7 +59,7 @@ flowchart TD
 
 There is a second way out of this flow: `kf cancel <feature> --reason "<why>"` stops a work item for good at any stage, `dones` included when something supersedes it. The reason is mandatory and is stored in `.kfw.json` together with the stage it stopped in, so reopening it is `kf stage <feature> <that stage>`. This is the user's decision; the agent only suggests it on a `REQUIREMENT_BUG` or a dead scope.
 
-Phase 1, the Phase 2 approval and the start-or-backlog decision are the points where the user decides. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once start is chosen the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
+Phase 1, the Phase 2 approval, the start-or-backlog decision and the ship gate after a PASS review are the points where the user decides. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once start is chosen the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
 
 ## Starting a feature, step by step
 
@@ -81,7 +85,7 @@ sequenceDiagram
     Orchestrator->>User: Start now, or send to backlog?
     User-->>Orchestrator: start now / defer
     Orchestrator->>CLI: kf stage item implementation or backlog
-    CLI->>FS: Provision the git worktree + <feature>.<baseDomain> route (fails closed when it cannot)
+    CLI->>FS: Provision the git worktree + <feature>.<baseDomain> route (only when worktree.enabled; fails closed when it cannot)
     CLI->>FS: Attach the worktree into reachable ADEs (Orca/Herdr — best-effort, warnings only)
 ```
 

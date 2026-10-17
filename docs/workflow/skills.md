@@ -19,7 +19,10 @@ flowchart TD
     T -->|PASS| R[kanban-review]
     T -->|FAIL/REJECT| I
     T -->|scope change| P
-    R -->|PASS| A[kanban-archive]
+    R -->|PASS| SG{Ship gate: human}
+    SG -->|Ship| SH[kanban-ship]
+    SG -->|Nothing to ship| A[kanban-archive]
+    SH -->|steps complete / PR merged| A
     R -->|FAIL/REJECT| I
     R -->|scope change| P
     A --> DONE[feature canonical docs or bug docs update + dones]
@@ -35,7 +38,8 @@ flowchart TD
 | `kanban-bug` | Triage the bug: reproduce it, record actual against expected, severity, root cause and the regression requirement | Bug report `status: confirmed` — the same gate as brainstorm | Never settle on a root cause alone, never start implementation alone |
 | `kanban-implement` | Execute the tasks in the contract, hold the scope, update code and tests; subagents run under a prompt contract of task, files, acceptance and constraints, plus the status protocol | No artifact of its own; every `tasks.md` checkbox ticked | Never widen the scope or skip the plan without returning to planning |
 | `kanban-test` | Run the tests, record the execution id and the evidence, classify as PASS, FAIL, REJECT or BLOCKED | `phase-4-testing-result.md` carrying `status: PASS` on the current execution id | Never turn a BLOCKED into a PASS |
-| `kanban-review` | Review the implementation, the tests, the architecture, the security and the scope, including the AI-risk lens: phantom tests, catch-and-swallow, scope drift | `phase-5-review-report.md` carrying `status: PASS` on the same execution id | Never archive when the report is not PASS |
+| `kanban-review` | Review the implementation, the tests, the architecture, the security and the scope, including the AI-risk lens: phantom tests, catch-and-swallow, scope drift | `phase-5-review-report.md` carrying `status: PASS` on the same execution id | Never archive or ship when the report is not PASS |
+| `kanban-ship` | The optional shipping leg: move the item to `shipping`, run the resumable `kf ship` pipeline (publish → merge gate → release → changelog) under the project's `ship` config, and hand delivery back to archive | The human's ship-or-archive decision after review PASS; `meta.ship` stamps record each step | Never merge a PR itself — `merge: "auto"` schedules `gh pr merge --auto` at most; a closed-unmerged PR is a stop-and-report, never a silent republish |
 | `kanban-archive` | For a feature, reconcile earlier docs the feature supersedes (banner + `docs/workflow/*` update, recorded under `## Docs Reconciled`), write the feature report and then call `kf archive`, which is what copies the canonical docs; for a bug, settle the docs impact and update only the related docs when needed | `kf archive`: current PASS reports plus, for a feature, `phase-6-feature-report.md` — then the `dones` hook and the canonical sync | Never copy the canonical docs by hand — a hand copy lands before the archive gates (merge check, PASS reports) have run, so the docs claim delivery the system has not confirmed. Mark superseded docs with a banner; never rewrite another feature's snapshot body. Never delete data, never deploy or publish on its own |
 
 The directional gates — which report status allows which move — are detailed in [gates](gates.md#what-each-direction-requires).

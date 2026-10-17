@@ -49,7 +49,7 @@ describe("the user-facing surface is English", () => {
   it("leaves no Vietnamese in the skills or the templates, and keeps every skill intact", () => {
     const skillFiles = walk(join(ROOT, "skills"), (p) => p.endsWith("SKILL.md"));
     const templates = walk(join(ROOT, "kanban-flow", "templates"), (p) => p.endsWith(".md"));
-    expect(skillFiles).toHaveLength(8);
+    expect(skillFiles).toHaveLength(9);
     expect(offenders([...skillFiles, ...templates])).toEqual([]);
     for (const file of skillFiles) {
       const head = readFileSync(file, "utf8").split("---")[1] ?? "";

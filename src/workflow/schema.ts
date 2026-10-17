@@ -5,6 +5,7 @@ export const STAGES = [
   "implementation",
   "testing",
   "review",
+  "shipping",
   "dones",
   "cancelled",
 ] as const;
@@ -110,7 +111,7 @@ export const ARTIFACTS: Record<ArtifactId, ArtifactDef> = {
     file: "phase-6-feature-report.md",
     template: "phase-6-feature-report.md",
     phase: "artifact",
-    dueFromStage: 6,
+    dueFromStage: 7,
     unlocks: "Phase 6 — overall Feature Report completes the feature",
   },
 };
@@ -126,6 +127,7 @@ export const STAGE_GATES: Record<Stage, ArtifactId[]> = {
   implementation: [],
   testing: ["testing-result"],
   review: ["review-report"],
+  shipping: [],
   dones: [],
   cancelled: [],
 };
@@ -141,7 +143,8 @@ export const TRANSITIONS: Record<Stage, Stage[]> = {
   backlog: ["implementation", "planning"],
   implementation: ["testing", "planning"],
   testing: ["review", "implementation", "planning"],
-  review: ["dones", "implementation", "planning"],
+  review: ["shipping", "dones", "implementation", "planning"],
+  shipping: ["dones"],
   dones: [],
   // Entered through `kf cancel`, left only back to the stage it was cancelled from.
   cancelled: [],
@@ -154,7 +157,8 @@ export const STAGE_INDEX: Record<Stage, number> = {
   implementation: 3,
   testing: 4,
   review: 5,
-  dones: 6,
+  shipping: 6,
+  dones: 7,
   /** Off the linear track on purpose: a negative index turns every "is this artifact due yet"
    *  and "past planning" comparison false, so a cancelled item is never asked for anything. */
   cancelled: -1,
@@ -168,6 +172,7 @@ export const PHASE_NAMES: Record<Stage, string> = {
   implementation: "Phase 3 — Implement",
   testing: "Phase 4 — Testing",
   review: "Phase 5 — Review",
+  shipping: "Phase 5.5 — Shipping",
   dones: "Phase 6 — Artifact",
   cancelled: "Cancelled — stopped for good",
 };

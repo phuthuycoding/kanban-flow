@@ -7,7 +7,7 @@ Run `kf dashboard` and open `http://localhost:8787`. Change the port with `--por
 | Metric | How it is computed |
 |---|---|
 | Work items | Every feature and bug matching the filter, `dones` included |
-| In execution | Items in `implementation`, `testing` or `review` |
+| In execution | Items in `implementation`, `testing` or `review` — `shipping` is drawn on the pipeline strip but counts as waiting on delivery, not executing |
 | Backlog | Items in `backlog` |
 | Completed | Items in `dones`; the rate is dones divided by total items **minus cancelled ones** |
 | Cancelled | Items in `cancelled`; shown so the gap in the completion rate's denominator is visible |

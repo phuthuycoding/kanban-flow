@@ -16,10 +16,14 @@ the agent's summary, they read `.works/`.
 Every work item walks one pipeline, and only the CLI moves it between stages:
 
 ```text
-brainstorm → planning → implementation → testing → review → dones
-                 ↘ backlog ↗                 ↺ FAIL loops back
+brainstorm → planning → implementation → testing → review ─┬→ shipping → dones
+                 ↘ backlog ↗     ↺ FAIL loops back          └→ dones (non-code items)
 any stage → cancelled, with a reason on the record
 ```
+
+`shipping` is the optional last leg for items that deliver code: `kf ship` pushes the branch, opens the PR, waits for the merge (or schedules `gh pr merge --auto`), tags a release and writes the changelog — each step is switchable in `.kf/config.json` and re-runs resume where they stopped. Items with nothing to ship archive straight from review.
+
+Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop | run`); the flat commands remain permanent aliases.
 
 ```mermaid
 flowchart LR
@@ -69,7 +73,7 @@ cd kanban-flow && npm install && npm run build && npm link
 
 ## Onboard your agent
 
-`kf init` does the filesystem half: it installs the eight kanban skills into the
+`kf init` does the filesystem half: it installs the nine kanban skills into the
 agent's skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`; `claude` is
 the default, and several agents read each other's directories) and seeds
 `AGENTS.md` when the project does not already have one. By default the install is
@@ -104,15 +108,19 @@ kf instruct spec-requirement --change user-login
 kf stage user-login planning
 # write the plan, the use-case index, one file per UC, the diagram, the test plan
 kf approve user-login               # decision two; fingerprints all of it
-kf stage user-login implementation  # or backlog — decision three; this also provisions
-                                    # a git worktree on <git-user>/user-login with its own
+kf stage user-login implementation  # or backlog — decision three; when the project opted in
+                                    # (`worktree.enabled: true`) this also provisions a git
+                                    # worktree on <git-user>/user-login with its own
                                     # <feature>.<repo>.test domain, and attaches it into
                                     # running ADEs (Orca, Herdr) — see docs/workflow
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
-# write the review report, then the feature report
-kf archive user-login               # refused unless the review says PASS
+# write the review report — decision four: ship or archive directly
+kf stage user-login shipping        # optional leg for code items
+kf ship user-login                  # publish → merge gate → release → changelog, resumable
+# write the feature report
+kf archive user-login               # refused until the review says PASS and a recorded PR is merged
 ```
 
 ## What is actually different

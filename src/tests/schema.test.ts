@@ -21,6 +21,7 @@ describe("schema", () => {
       "implementation",
       "testing",
       "review",
+      "shipping",
       "dones",
       "cancelled",
     ]);
@@ -63,7 +64,8 @@ describe("schema", () => {
     expect(TRANSITIONS.planning).toEqual(["implementation", "backlog"]);
     expect(TRANSITIONS.backlog).toEqual(["implementation", "planning"]);
     expect(TRANSITIONS.testing).toEqual(["review", "implementation", "planning"]);
-    expect(TRANSITIONS.review).toEqual(["dones", "implementation", "planning"]);
+    expect(TRANSITIONS.review).toEqual(["shipping", "dones", "implementation", "planning"]);
+    expect(TRANSITIONS.shipping).toEqual(["dones"]);
     expect(TRANSITIONS.dones).toEqual([]);
   });
 

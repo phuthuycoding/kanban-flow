@@ -93,10 +93,13 @@ async function reviewReadyItem(name = "demo"): Promise<void> {
 
 describe("worktree config", () => {
   it("defaults and validates the worktree block", () => {
+    // worktrees are opt-in: absent flag/block resolves disabled
     expect(worktreeConfig("/r/my-repo", undefined)).toMatchObject({
-      enabled: true, branchPrefix: "kf/", portBase: 5100, baseDomain: "my-repo.test",
+      enabled: false, branchPrefix: "kf/", portBase: 5100, baseDomain: "my-repo.test",
     });
-    expect(worktreeConfig("/r/my-repo", { enabled: false, portBase: 6000 }).enabled).toBe(false);
+    expect(worktreeConfig("/r/my-repo", {}).enabled).toBe(false);
+    expect(worktreeConfig("/r/my-repo", { enabled: true, portBase: 6000 })).toMatchObject({ enabled: true, portBase: 6000 });
+    expect(worktreeConfig("/r/my-repo", { enabled: false }).enabled).toBe(false);
     expect(() => parseWorktreeConfig({ portBase: "abc" }, "f")).toThrow(/portBase/);
     expect(() => parseWorktreeConfig({ enabled: "yes" }, "f")).toThrow(/enabled/);
     expect(() => parseWorktreeConfig("nope", "f")).toThrow(/worktree must be an object/);
@@ -204,6 +207,41 @@ describe("stage → implementation provisions the worktree (FR-001, FR-002)", ()
     await approvedItem();
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect(feature().meta!.worktree).toBeUndefined();
+  });
+
+  it("absent enabled flag provisions nothing — opt-in is the default", async () => {
+    await writeCfg({}); // block present, no enabled
+    await approvedItem();
+    const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().meta!.worktree).toBeUndefined();
+    expect(res.stdout).not.toContain("Worktree:");
+    expect(existsSync(join(scratch, "wts", "demo"))).toBe(false);
+  });
+
+  it("operator commands ignore the flag — explicit create works under default-off", async () => {
+    await writeCfg({ enabled: false });
+    await cmdNew(args("new", ["demo"], { context: "app" }), root);
+    const list = await cmdWorktree(args("worktree", ["list"]), root);
+    expect(list.code).toBe(0);
+    const res = await cmdWorktree(args("worktree", ["create", "demo"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().meta!.worktree).toBeDefined();
+    expect(existsSync(feature().meta!.worktree!.path)).toBe(true);
+  });
+
+  it("teardown still runs under default-off for items carrying a recorded worktree", async () => {
+    // provisioned while enabled, flag flipped afterwards — teardown must not consult it
+    await approvedItem();
+    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    const wt = feature().meta!.worktree!;
+    expect(existsSync(wt.path)).toBe(true);
+    await writeCfg({ enabled: false });
+    const res = await cmdCancel(args("cancel", ["demo"], { reason: "x" }), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(existsSync(wt.path)).toBe(false);
+    expect(feature().meta!.worktree).toBeUndefined();
+    expect(feature().stage).toBe("cancelled");
   });
 });
 
