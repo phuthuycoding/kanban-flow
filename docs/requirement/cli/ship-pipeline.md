@@ -1,11 +1,10 @@
 ---
-feature: "ship-pipeline"
-context: "cli"
-created: "20261017_1739"
+feature: ship-pipeline
+context: cli
+created: 20261017_1739
 kind: feature
-status: confirmed
+status: archived
 ---
-
 # Spec Requirement
 
 ## Feature
