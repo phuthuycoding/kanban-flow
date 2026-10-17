@@ -17,10 +17,12 @@ import { cmdArchive } from "./cli/commands/archive.js";
 import { cmdSync } from "./cli/commands/sync.js";
 import { cmdCancel } from "./cli/commands/cancel.js";
 import { cmdApprove } from "./cli/commands/approve.js";
+import { cmdShip } from "./cli/commands/ship.js";
 import { cmdWorktree, cmdProxyServe } from "./cli/commands/worktree.js";
 import { cmdInstall, cmdUninstall, scopeFromArgs } from "./integrations/install.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
 import { parseAgentIds } from "./integrations/agents.js";
+import { nounKindGate } from "./cli/noun-gate.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PKG_ROOT } from "./shared/paths.js";
@@ -38,12 +40,13 @@ function portFrom(parsed: ParsedArgs): number {
 }
 
 async function help(parts: string[]): Promise<CmdResult> {
-  const topic = parts[0];
+  const topic = parts.join(" ");
   if (topic) return { code: 0, stdout: commandHelp(topic) };
+  const canonical = `  kf feature <verb>  — ${"start | list | show | move | approve | ship | finish | drop | run"}\n  kf bug <verb>      — same lifecycle for bugs ("bug start" implies --type bug)`;
   const cmds = allCommands().map((c) => `  ${c.padEnd(12)} ${commandHelp(c).split("\n")[0]}`).join("\n");
   return {
     code: 0,
-    stdout: `kanban-flow CLI v${PKG_VERSION}\n\nUsage: kf <command> [args]\n\nCommands:\n${cmds}\n\nRun "kf help <command>" for details.`,
+    stdout: `kanban-flow CLI v${PKG_VERSION}\n\nUsage: kf <command> [args]\n\nCanonical (git-flow style):\n${canonical}\n\nFlat commands (permanent aliases):\n${cmds}\n\nRun "kf help <command>" or "kf help <noun> <verb>" for details.`,
   };
 }
 
@@ -58,6 +61,10 @@ async function main(argv: string[]): Promise<CmdResult> {
   }
   const parsed = parseArgsCli(argv);
   if (parsed.options.help) return help([parsed.command]);
+  if (parsed.noun) {
+    const gated = nounKindGate(parsed, cwd);
+    if (gated) return gated;
+  }
   switch (parsed.command) {
     case "help":
       return help(parsed.positionals);
@@ -109,6 +116,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdContexts(parsed, cwd);
     case "issues":
       return cmdIssues(parsed, cwd);
+    case "ship":
+      return cmdShip(parsed, cwd);
     case "worktree":
       return cmdWorktree(parsed, cwd);
     case "proxy":

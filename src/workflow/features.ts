@@ -103,6 +103,34 @@ export interface FeatureMeta {
   runs?: RunRecord[];
   /** Git worktree + domain allocated for implementation; absent until created. */
   worktree?: WorktreeRegistration;
+  /** Ship pipeline progress; written by `kf ship`, absent until it first runs. */
+  ship?: ShipState;
+}
+
+/** Per-step ship progress so `kf ship` stays resumable/idempotent. */
+export interface ShipState {
+  /** ISO stamp — PR created/recorded (meta.pr is the value itself). */
+  published?: string;
+  /** ISO stamp — `gh pr merge --auto` scheduled once under merge:auto. */
+  autoMerge?: string;
+  /** ISO stamp — gh observed the recorded PR merged. */
+  merged?: string;
+  /** "done" | "skipped" — release step outcome. */
+  release?: "done" | "skipped";
+  releaseTag?: string;
+  /** "done" | "skipped" — changelog step outcome. */
+  changelog?: "done" | "skipped";
+}
+
+function isShipState(value: unknown): value is ShipState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const s = value as Partial<ShipState>;
+  return (s.published === undefined || typeof s.published === "string")
+    && (s.autoMerge === undefined || typeof s.autoMerge === "string")
+    && (s.merged === undefined || typeof s.merged === "string")
+    && (s.release === undefined || s.release === "done" || s.release === "skipped")
+    && (s.releaseTag === undefined || typeof s.releaseTag === "string")
+    && (s.changelog === undefined || s.changelog === "done" || s.changelog === "skipped");
 }
 
 export interface Feature {
@@ -190,7 +218,8 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.runs !== undefined && (!Array.isArray(meta.runs) || !meta.runs.every(isRunRecord)))
     || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
     || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))
-    || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))) {
+    || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))
+    || (meta.ship !== undefined && !isShipState(meta.ship))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");

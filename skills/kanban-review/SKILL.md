@@ -70,7 +70,7 @@ Set `execution:` to the current id from instruct and keep Review Status/Final De
 
 ## 4. The directional gate decides
 
-- `PASS` → load kanban-archive for the applicable feature/bug closure before running `kf archive`.
+- `PASS` → ask the human once: **ship or archive directly?** Ship (code item, PR/release wanted) → load kanban-ship and `kf stage <f> shipping`. Nothing to ship (docs/config/research) → load kanban-archive and `kf archive` straight from review.
 - `FAIL`/`REJECT` → **structural fix needed**: loop back, re-implement, then the feature must be **re-tested before review again** (kanban-test skill).
 
 ```bash
@@ -86,7 +86,7 @@ kf stage {feature_name} implementation
 A decisive report written. Hand off:
 
 ```text
-If PASS: load the kanban-archive skill.
+If PASS: ship gate — kanban-ship when there is something to deliver, kanban-archive when there is not.
 If FAIL/REJECT: load kanban-implement (then kanban-test before returning here).
 If REQUIREMENT_BUG: stop and report to the user.
 ```

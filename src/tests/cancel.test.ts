@@ -241,9 +241,9 @@ describe("a cancelled item is asked for nothing but its reason", () => {
   });
 
   it("keeps cancelled off the linear pipeline", () => {
-    expect(STAGES).toHaveLength(8);
-    expect(STAGES[6]).toBe("dones");
-    expect(STAGES[7]).toBe("cancelled");
+    expect(STAGES).toHaveLength(9);
+    expect(STAGES[7]).toBe("dones");
+    expect(STAGES[8]).toBe("cancelled");
     expect(STAGE_INDEX.cancelled).toBe(-1);
   });
 
@@ -653,7 +653,7 @@ describe("cancelled work stays visible without skewing the numbers", () => {
 
     const metrics = dashboardData(root).metrics;
     expect(metrics).toMatchObject({ total: 4, completed: 2, cancelled: 1, completionRate: 67 });
-    expect(dashboardData(root).stages).toHaveLength(8);
+    expect(dashboardData(root).stages).toHaveLength(9);
     expect((await cmdView(args("view"), root)).stdout).toContain("Cancelled: 1");
     // Runs of dropped work are history: out of the default list, still visible by name.
     await writeFeatureMeta(feature("dropped").dir, {

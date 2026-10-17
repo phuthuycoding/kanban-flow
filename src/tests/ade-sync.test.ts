@@ -124,7 +124,7 @@ beforeEach(async () => {
   await mkdir(join(root, ".kf"), { recursive: true });
   await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
     schema: "kanban-flow", created: "x",
-    worktree: { baseDir: join(scratch, "wts"), routesFile: join(scratch, "routes.json") },
+    worktree: { enabled: true, baseDir: join(scratch, "wts"), routesFile: join(scratch, "routes.json") },
   }));
 });
 

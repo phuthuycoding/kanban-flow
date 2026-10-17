@@ -21,7 +21,7 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (!repo) return noRepository();
 
   const candidates = listFeatures(root.root).filter(
-    (f) => (f.stage === "review" || (f.stage === "dones" && !f.meta?.delivered)) && Boolean(f.meta?.pr),
+    (f) => (f.stage === "review" || f.stage === "shipping" || (f.stage === "dones" && !f.meta?.delivered)) && Boolean(f.meta?.pr),
   );
   if (candidates.length === 0) {
     return { code: 0, stdout: "No PR-linked items awaiting delivery — nothing to sync." };

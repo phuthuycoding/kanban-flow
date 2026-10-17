@@ -17,7 +17,7 @@ import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
 const USAGE = `Usage: kf worktree <subcommand>
-  create <feature>           — create the item's worktree + domain (also runs automatically on stage → implementation)
+  create <feature>           — create the item's worktree + domain (stage → implementation does this automatically when "worktree.enabled": true)
   sync [feature]             — attach worktrees into detected ADEs (Orca, Herdr); inside a worktree syncs that checkout, no arg at the root syncs all
   remove <feature> [--force] — remove worktree + route; branch is kept; --force discards uncommitted changes
   list [--json]              — all registered worktrees + orphans

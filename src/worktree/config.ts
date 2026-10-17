@@ -111,7 +111,7 @@ function defaultBranchPrefix(root: string, gitconfigName: string | undefined): s
 /** Effective worktree settings for a repo root. */
 export function worktreeConfig(root: string, raw: Partial<WorktreeConfig> | undefined): WorktreeConfig {
   return {
-    enabled: raw?.enabled ?? true,
+    enabled: raw?.enabled ?? false,
     baseDir: raw?.baseDir ?? join(root, ".worktrees"),
     branchPrefix: raw?.branchPrefix ?? defaultBranchPrefix(root, raw?.gitconfigName),
     baseDomain: raw?.baseDomain ?? `${repoSlug(root)}.test`,

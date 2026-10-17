@@ -215,7 +215,7 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) =>
 const percent = (value) => value === null ? '—' : value + '%';
 /* Approval is a state, not an identity, so it wears status colours and never a series hue. */
 const colors = { feature: '#3987e5', bug: '#d95926', pending: '#a9b8ce', approved: '#0ca30c', changed: '#d03b3b' };
-const LINEAR = ['brainstorm', 'planning', 'implementation', 'testing', 'review', 'dones'];
+const LINEAR = ['brainstorm', 'planning', 'implementation', 'testing', 'review', 'shipping', 'dones'];
 function bars(rows, stacked) {
   const maximum = Math.max(1, ...rows.map((row) => row.count));
   return rows.map((row) => {

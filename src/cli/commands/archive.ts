@@ -236,10 +236,10 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
         `Feature '${name}' is already in dones.\n${copies.length > 0 ? `Canonical docs synced:\n${copies.map((copy) => `  ${copy.destination}`).join("\n")}` : args.options["skip-specs"] ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}${deliveredNote}${issueNote}${bypassNote(recorded)}`,
     };
   }
-  if (f.stage !== "review") {
+  if (f.stage !== "review" && f.stage !== "shipping") {
     return {
       code: 1,
-      stdout: `Cannot archive '${name}': feature is in stage "${f.stage}". Archive only from review (run: kf stage ${name} review first).`,
+      stdout: `Cannot archive '${name}': feature is in stage "${f.stage}". Archive only from review or shipping (run: kf stage ${name} review first).`,
       stderr: "wrong stage",
     };
   }

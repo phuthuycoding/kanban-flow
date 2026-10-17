@@ -539,7 +539,7 @@ describe("CLI output and persisted data", () => {
     }
     await cmdApprove(args("approve", ["demo"]), root);
     expect((await cmdValidate(args("validate", [], { change: "demo", json: true }), root)).code).toBe(0);
-    expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).stages).toHaveLength(8);
+    expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).stages).toHaveLength(9);
   });
 
   it("reports corrupt metadata and config instead of silently falling back", async () => {
