@@ -1,20 +1,9 @@
-import { rename, rm } from "node:fs/promises";
-import { mkdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { relative } from "node:path";
 
-import { findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
-import { withLock } from "../../shared/lock.js";
-import { findSecretLike } from "../../workflow/validate.js";
-import { runningRun } from "../../harness/run.js";
-import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
-import { readProjectConfig } from "../../project/config.js";
 import { selectOption } from "../../project/bootstrap.js";
-import { nowTimestamp } from "../../shared/time.js";
-import { canonicalDocPaths } from "../../workflow/canonical-docs.js";
+import { cancelItem, refuseReason } from "../../workflow/cancel.js";
 import { findRoot } from "./helpers.js";
-import { recordBypasses, bypassNote } from "../../workflow/bypass.js";
-import { worktreeConfig } from "../../worktree/config.js";
-import { teardownWorktree } from "../../worktree/lifecycle.js";
+import { bypassNote } from "../../workflow/bypass.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -26,131 +15,41 @@ import type { CmdResult } from "../result.js";
 export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: 'Usage: kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]', stderr: "missing feature" };
-  const reason = typeof args.options.reason === "string" ? args.options.reason.trim() : "";
-  if (!reason) {
-    return { code: 1, stdout: 'Cancelling needs a reason: kf cancel ' + name + ' --reason "<why it is being dropped>"', stderr: "missing reason" };
-  }
-  const secrets = findSecretLike(reason);
-  if (secrets.length > 0) {
-    return { code: 1, stdout: "The reason looks like it contains a credential; rewrite it without the secret.", stderr: "secret in reason" };
-  }
+  const reason = typeof args.options.reason === "string" ? args.options.reason : "";
+  const badReason = refuseReason(name, reason);
+  if (badReason?.kind === "refused") return { code: 1, stdout: badReason.stdout, stderr: badReason.stderrTag };
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
-  if (f.stage === "cancelled") {
-    return { code: 1, stdout: `'${name}' is already cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}).`, stderr: "already cancelled" };
-  }
-  if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
 
-  const force = Boolean(args.options.force);
-  const forcedCodes: string[] = [];
-  const active = runningRun(f);
-  if (active) {
-    if (!force) {
-      return { code: 1, stdout: `Run ${active.id} (${active.role} @ ${active.stage}) is still running for '${name}'. Wait for it, or re-run with --force.`, stderr: "run in progress" };
-    }
-    forcedCodes.push("run_in_progress");
-  }
-
-  const skipHooks = Boolean(args.options["skip-hooks"]);
-  const skippedHook: HookSource | null = skipHooks ? resolveHook(root.root, "cancelled") : null;
-  if (!skipHooks) {
-    const hook = runHook(root.root, {
-      feature: f.name, context: f.context, dir: f.dir, root: root.root,
-      from: f.stage, to: "cancelled", approval: f.meta.approval?.status ?? "pending",
-    });
-    if (hook.ran && !hook.ok) {
-      return {
-        code: 1,
-        stdout: `Hook 'cancelled' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\nCancel refused.\n\n${hook.output}\n\nRe-run with --skip-hooks to bypass.`,
-        stderr: "hook failed",
-      };
-    }
-  }
-
-  const docs = f.stage === "dones" ? canonicalDocPaths(root.root, f) : [];
-  const purge = Boolean(args.options["purge-docs"]);
-  let purgeApproved = false;
-  if (purge && docs.length > 0) {
-    if (force) {
-      purgeApproved = true;
-    } else if (!process.stdin.isTTY) {
-      return {
-        code: 1,
-        stdout: `Refusing to delete canonical docs without confirmation:\n${docs.map((d) => `  ${relative(root.root, d)}`).join("\n")}\nRe-run with --force.`,
-        stderr: "purge requires interactive confirmation or --force",
-      };
-    } else {
-      const pick = await selectOption(
-        `Delete these canonical docs of '${name}'? (↑/↓ + Enter)\n${docs.map((d) => `  ${relative(root.root, d)}`).join("\n")}`,
-        ["Keep them — only cancel the work item", "Delete them"],
-      );
-      if (pick !== 1) {
-        return { code: 0, stdout: `Cancelled nothing. Re-run without --purge-docs to drop the work item and keep the docs.` };
+  const outcome = await cancelItem(root.root, name, {
+    reason,
+    by: typeof args.options.by === "string" ? args.options.by : undefined,
+    force: Boolean(args.options.force),
+    skipHooks: Boolean(args.options["skip-hooks"]),
+    purgeDocs: Boolean(args.options["purge-docs"]),
+    confirmPurge: process.stdin.isTTY
+      ? async (docs) => {
+        const pick = await selectOption(
+          `Delete these canonical docs of '${name}'? (↑/↓ + Enter)\n${docs.map((d) => `  ${relative(root.root, d)}`).join("\n")}`,
+          ["Keep them — only cancel the work item", "Delete them"],
+        );
+        return pick === 1;
       }
-      purgeApproved = true;
-    }
-  }
-
-  const by = typeof args.options.by === "string" && args.options.by.trim()
-    ? args.options.by.trim()
-    : readProjectConfig(root.root).reviewer ?? "human";
-
-  // Same rule as archive: a dirty worktree refuses teardown so uncommitted work cannot be
-  // lost by a cancel. The branch is kept either way — a cancelled item may reopen.
-  let teardown: Awaited<ReturnType<typeof teardownWorktree>> | null = null;
-  if (f.meta.worktree) {
-    const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
-    try {
-      teardown = await teardownWorktree(root.root, f, wtCfg);
-    } catch (err) {
-      return {
-        code: 1,
-        stdout: `Cannot cancel '${name}': ${err instanceof Error ? err.message : String(err)}`,
-        stderr: "worktree dirty",
-      };
-    }
-  }
-
-  const recorded = recordBypasses(f.stage, "cancelled", forcedCodes, skippedHook);
-  const cancellation = { at: nowTimestamp(), by, reason, fromStage: f.stage };
-  const dest = stageDir(root.root, "cancelled");
-  mkdirSync(dest, { recursive: true });
-  const target = join(dest, f.folder);
-  const moveError = await withLock(root.root, f.name, async (): Promise<CmdResult | null> => {
-    const cur = findFeature(root.root, f.name);
-    if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
-      return { code: 1, stdout: `Cannot cancel '${name}': it changed while the cancel was running. Re-run: kf cancel ${name}`, stderr: "changed concurrently" };
-    }
-    await writeFeatureMeta(cur.dir, {
-      ...cur.meta,
-      status: "cancelled",
-      cancellation,
-      worktree: undefined,
-      ...(recorded.length > 0 ? { bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : {}),
-    });
-    try {
-      await rename(cur.dir, target);
-    } catch (err) {
-      try {
-        await writeFeatureMeta(cur.dir, cur.meta);
-      } catch (rollbackError) {
-        throw new AggregateError([err, rollbackError], `Cancel failed and metadata rollback was incomplete for '${name}'.`);
-      }
-      throw err;
-    }
-    return null;
+      : undefined,
   });
-  if (moveError) return moveError;
-
-  // Deleting docs cannot be undone, so it happens only after the move succeeded.
-  let purged = false;
-  if (purgeApproved) {
-    for (const doc of docs) await rm(doc, { recursive: true, force: true });
-    purged = true;
+  switch (outcome.kind) {
+    case "error":
+      throw outcome.error;
+    case "refused":
+    case "hook-failed":
+      return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };
+    case "kept":
+      return { code: 0, stdout: outcome.stdout };
+    case "cancelled":
+      break;
   }
 
+  const { docs, purged, teardown, cancellation, by, target } = outcome;
   const docsNote = docs.length === 0
     ? ""
     : purged
@@ -165,6 +64,6 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
     : "";
   return {
     code: 0,
-    stdout: `✓ Cancelled '${name}' (was ${cancellation.fromStage}) by ${by}\n  Reason: ${reason.split("\n")[0]}\n  ${target}${docsNote}${worktreeNote}\n  Reopen with: kf stage ${name} ${cancellation.fromStage}${bypassNote(recorded)}`,
+    stdout: `✓ Cancelled '${name}' (was ${cancellation.fromStage}) by ${by}\n  Reason: ${outcome.reason.split("\n")[0]}\n  ${target}${docsNote}${worktreeNote}\n  Reopen with: kf stage ${name} ${cancellation.fromStage}${bypassNote(outcome.bypasses)}`,
   };
 }
