@@ -10,7 +10,7 @@ import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.
 import { readProjectConfig } from "../../project/config.js";
 import { selectOption } from "../../project/bootstrap.js";
 import { nowTimestamp } from "../../shared/time.js";
-import { canonicalDocPaths } from "./archive.js";
+import { canonicalDocPaths } from "../../workflow/canonical-docs.js";
 import { findRoot } from "./helpers.js";
 import { recordBypasses, bypassNote } from "../../workflow/bypass.js";
 import { worktreeConfig } from "../../worktree/config.js";
