@@ -5,7 +5,6 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
 import { runHook } from "../integrations/hooks.js";
-import { detachWorktreeFromAdes } from "../integrations/ade/index.js";
 import { listFeatures, type Feature, type WorktreeRegistration } from "../workflow/features.js";
 import {
   allocatePort,
@@ -208,14 +207,6 @@ function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration,
 }
 
 /**
- * ADE detach: close ADE-side state (e.g. a Herdr workspace) while the path still
- * exists so adapters can resolve it. Always best-effort — returns warnings.
- */
-function runAdeDetach(root: string, feature: Feature, wt: WorktreeRegistration, wtPath: string): string[] {
-  return detachWorktreeFromAdes({ root, target: { path: wtPath, branch: wt.branch, label: feature.name, adeRepoWorkspaceId: wt.adeRepoWorkspaceId } });
-}
-
-/**
  * Remove worktree + route for an item that is closing. Refuses on a dirty worktree —
  * uncommitted work must be committed or deliberately discarded via `worktree remove --force`.
  */
@@ -236,7 +227,7 @@ export async function teardownWorktree(
     );
   }
 
-  const warnings = missing ? [] : [...runRemoveHook(root, feature, wt, wtPath), ...runAdeDetach(root, feature, wt, wtPath)];
+  const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
   if (!missing) git(root, ["worktree", "remove", wtPath]);
   await removeRoute(cfg.routesFile, wt.domain);
 
@@ -254,7 +245,7 @@ export async function forceRemoveWorktree(
   if (!wt) return { removed: false, unmergedCommits: 0, branch: null, warnings: [] };
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
-  const warnings = missing ? [] : [...runRemoveHook(root, feature, wt, wtPath), ...runAdeDetach(root, feature, wt, wtPath)];
+  const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
   if (!missing) git(root, ["worktree", "remove", "--force", wtPath]);
   await removeRoute(cfg.routesFile, wt.domain);
   const unmergedCommits = branchExists(root, wt.branch) ? unmergedCommitCount(root, wt.branch) : 0;

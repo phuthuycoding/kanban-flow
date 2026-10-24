@@ -38,7 +38,7 @@ src/
 ├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor
 ├── ship/                 # ship pipeline steps: publish, merge gate, release, changelog
 ├── project/              # project config, declared contexts and bootstrap prompts
-├── integrations/         # agents, skill installation, hooks, and ade/ — ADE (Orca, Herdr) adapters that attach worktrees into running dev environments
+├── integrations/         # agents, skill installation, hooks
 ├── dashboard/            # analytics HTTP server and HTML view
 ├── shared/               # filesystem paths, frontmatter and time helpers
 └── tests/                # all Vitest tests, grouped separately from runtime

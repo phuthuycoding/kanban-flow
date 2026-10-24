@@ -21,14 +21,29 @@ Read `kf status --change {feature_name}`. Move only when coming from planning or
 kf stage {feature_name} implementation
 ```
 
-**Worktree:** when the project opted in with `worktree.enabled: true`, entering implementation provisions a git worktree + a `.<tld>` domain for the item — `kf status --change {feature_name}` prints `Worktree:` (path), `Domain:` (`http://<feature>.<baseDomain>`) and the direct `127.0.0.1:<port>` fallback. **All code work happens inside that worktree on branch `kf/<feature>` — never on the user's main checkout.** Commit your changes there; the merge back is the human's call, not yours. `.works/` artifacts and `kf` commands keep working from inside the worktree (project root resolves through the git common dir). If domain DNS is not set up on the machine yet, the direct `127.0.0.1:<port>` URL always works; `kf worktree setup` (sudo, once) fixes the domain. A project `worktree-create.sh` hook may already have installed deps and seeded `.env` — check before re-installing.
+**Worktree:** when the project opted in with `worktree.enabled: true`, entering implementation provisions a git worktree + a `.<tld>` domain for the item — `kf status --change {feature_name}` prints `Worktree:` (path), `Domain:` (`http://<feature>.<baseDomain>`) and the direct `127.0.0.1:<port>` fallback. **All code work happens inside that worktree on its branch (`<prefix>/<feature>`, printed as `Worktree: … (branch …)`) — never on the user's main checkout.** Commit your changes there; the merge back is the human's call, not yours. `.works/` artifacts and `kf` commands keep working from inside the worktree (project root resolves through the git common dir). If domain DNS is not set up on the machine yet, the direct `127.0.0.1:<port>` URL always works; `kf worktree setup` (sudo, once) fixes the domain. A project `worktree-create.sh` hook may already have installed deps and seeded `.env` — check before re-installing.
 
-Create tasks.md if missing: `- [ ] 1. ...` checkboxes mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. Preserve completed tasks on resume; add the required fix tasks when looping. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes. When a worktree exists, the baseline HEAD is the `kf/<feature>` branch point, recorded from inside the worktree.
+Create tasks.md if missing: `- [ ] 1. ...` checkboxes mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. Preserve completed tasks on resume; add the required fix tasks when looping. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes. When a worktree exists, the baseline HEAD is the worktree branch's branch point, recorded from inside the worktree.
 
-## 2. Work by dependency order
+## 2. Hand off to an assigned coder, if any
+
+Skip this section when your prompt starts with `kf-run:` — you are already the worker.
+
+After the move, read `kf status --change {feature_name} --json`. When `assignedRoles` is non-empty, the project's harness assigned implementation to those roles: you are the orchestrator, not the implementer. Do not write the code yourself — hand it off and act on the result as the `kanban-flow` skill's "Multi-agent harness" section describes:
+
+```bash
+kf run {feature_name} --detach   # implementation is long; returns a chain id
+kf runs {feature_name}           # poll until done, then read each run's STATUS
+```
+
+`DONE` → continue at section 4 (build gate) to verify the worker's result yourself; `DONE_WITH_CONCERNS` → read the concerns in the run log first; `BLOCKED` / `NEEDS_CONTEXT`, a missing `STATUS:` line or a non-zero exit → stop and ask the user. Do the work yourself only when `assignedRoles` is empty or the user says so.
+
+## 3. Work by dependency order
 
 - Independent tasks → **parallelize via subagents**.
 - Sequential / dependent tasks → main agent.
+
+**Pick the agent that fits the task.** When your runtime offers specialized agent types, dispatch each task to the one whose description matches its kind — a test-writing agent for test tasks, a stack or framework agent (frontend, backend, mobile, database) for code in that stack, a fresh-context reviewer for a self-check before ticking a risky task. Match on the agent's description against the task and the project's stack, not on its name alone. No matching agent, or a runtime without agent types → a general-purpose subagent. No subagent tool → do the task yourself in the same order.
 
 **Subagent prompt contract** — every subagent prompt must state:
 
@@ -49,7 +64,7 @@ Concerns/Blockers: (optional)
 
 Treat `DONE_WITH_CONCERNS` and `BLOCKED` as not-done: resolve the concern or unblock before ticking the task.
 
-## 3. Tick tasks as they land; gate on build
+## 4. Tick tasks as they land; gate on build
 
 ```bash
 {build_command}
