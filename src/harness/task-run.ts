@@ -14,6 +14,7 @@ import { revParse, runGit } from "../shared/git.js";
 import { assignRole, buildTaskPrompt, type Assignment } from "./prompt.js";
 import { applyRunRecord, executeRun, liveRecords, writeRunPlan, type RunOutcome, type RunPlan } from "./run.js";
 import type { HarnessConfig } from "./config.js";
+import { runCompletionPipeline } from "./task-pipeline.js";
 
 export const taskSessionKey = (taskId: string): string => `task:${taskId}`;
 
@@ -135,17 +136,26 @@ export interface CompleteTaskInput {
   task: PlannedTask;
   worktree: TaskWorktree;
   run: RunRecord;
+  /** Per-command limit for kf's own git commit and the verify commands; 0 = no limit. */
+  timeoutMs: number;
 }
 
 export interface TaskCompletion {
   state: TaskStateName;
   reason?: string;
+  /** Set when the driver must stop: the plan's `Files` must change, or git left the item branch in an unknown state. */
+  stop?: "plan_change_needed" | "git_error";
+  /** True only for `failed`; the driver retries those, a manual run does not. */
+  retryable: boolean;
+  /** The reason to hand the worker on the next attempt (`previousFailure`); set for `failed`. */
+  failureForRetry?: string;
+  /** Non-fatal problem, e.g. the task worktree could not be removed. */
+  warning?: string;
 }
 
-/** TASK-010 integration point: called once after a DONE/DONE_WITH_CONCERNS worker exits; returns the task's resulting state. Until then it only marks the task `verifying`. */
-export async function completeTask(input: CompleteTaskInput): Promise<TaskCompletion> {
-  await setTaskState(input.root, input.feature, input.harness, input.task.id, { state: "verifying" });
-  return { state: "verifying" };
+/** Called once after a DONE/DONE_WITH_CONCERNS worker exits: commit, merge, verify (see task-pipeline.ts). */
+export function completeTask(input: CompleteTaskInput): Promise<TaskCompletion> {
+  return runCompletionPipeline(input);
 }
 
 export interface TaskRunOptions {
@@ -158,7 +168,7 @@ export interface TaskRunOptions {
 
 export type TaskRunResult =
   | { started: false; reason: string }
-  | { started: true; outcome: RunOutcome | null; state: TaskStateName; reason?: string };
+  | ({ started: true; outcome: RunOutcome | null } & Omit<TaskCompletion, "retryable"> & { retryable?: boolean });
 
 /** Prompt and session plan shared by a real run and `--dry-run`; the run id is a placeholder in a dry run. */
 export function taskPrompt(root: string, feature: Feature, ctx: TaskRunContext, runId: string, previousFailure?: string): string {
@@ -185,6 +195,9 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
   const logRel = join("runs", `${runId}.log`);
   const key = taskSessionKey(task.id);
   const baseline = captureBaseline(root, feature);
+  // A manual re-run of a failed task tells the worker why the last attempt failed.
+  const prior = feature.meta.tasks?.[task.id];
+  const previousFailure = opts.previousFailure ?? (prior?.state === "failed" ? prior.reason : undefined);
 
   // The claim carries this process as supervisor, so the run counts as live before the worker has a pid.
   const claim: RunRecord = {
@@ -209,7 +222,7 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
       ...withTask(meta, task.id, { state: "failed", reason }),
       runs: applyRunRecord(meta.runs, { ...claim, status: "failed", endedAt, error: reason }),
     }));
-    return { started: true, outcome: null, state: "failed", reason };
+    return { started: true, outcome: null, state: "failed", reason, retryable: true, failureForRetry: reason };
   };
 
   let worktree: TaskWorktree;
@@ -223,7 +236,7 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
   const current = findFeature(root, featureName)!;
   const plan: RunPlan = {
     id: runId, root, feature: featureName, role: ctx.assignment.role, runnerName: ctx.assignment.runnerName, stage: "implementation",
-    runner: ctx.assignment.runner, prompt: taskPrompt(root, current, ctx, runId, opts.previousFailure), output: ctx.assignment.output,
+    runner: ctx.assignment.runner, prompt: taskPrompt(root, current, ctx, runId, previousFailure), output: ctx.assignment.output,
     task: task.id, cwd: worktree.path, sessionKey: key,
     // The first attempt of a task never inherits a stale session; later attempts resume the task's own.
     fresh: opts.fresh || ctx.attempts === 0, timeoutMs: opts.timeoutMs,
@@ -243,12 +256,12 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
 
   if (outcome.ok) {
     await setTaskState(root, featureName, harness, task.id, { state: "running", ...sessionPatch });
-    const done = await completeTask({ root, feature: featureName, harness, task, worktree, run: record });
+    const done = await completeTask({ root, feature: featureName, harness, task, worktree, run: record, timeoutMs: opts.timeoutMs });
     return { started: true, outcome, ...done };
   }
   const blocked = record.exitCode === 0 && /^(BLOCKED|NEEDS_CONTEXT)\b/.test(record.statusLine ?? "");
   const reason = blocked ? (record.summary ?? record.statusLine ?? "worker blocked") : workerReason(outcome);
   const state = blocked ? "blocked" : "failed";
   await setTaskState(root, featureName, harness, task.id, { state, reason, ...sessionPatch });
-  return { started: true, outcome, state, reason };
+  return { started: true, outcome, state, reason, retryable: state === "failed", ...(state === "failed" ? { failureForRetry: reason } : {}) };
 }

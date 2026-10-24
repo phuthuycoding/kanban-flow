@@ -120,6 +120,8 @@ export interface TaskState {
   branch?: string;
   base?: string;
   mergeSha?: string;
+  /** Item branch HEAD recorded just before a task merge; the reset target when verify fails. */
+  preMergeSha?: string;
   session?: string;
   updatedAt?: string;
 }
@@ -133,6 +135,7 @@ function isTaskState(value: unknown): value is TaskState {
     && (t.branch === undefined || typeof t.branch === "string")
     && (t.base === undefined || typeof t.base === "string")
     && (t.mergeSha === undefined || typeof t.mergeSha === "string")
+    && (t.preMergeSha === undefined || typeof t.preMergeSha === "string")
     && (t.session === undefined || typeof t.session === "string")
     && (t.updatedAt === undefined || typeof t.updatedAt === "string");
 }

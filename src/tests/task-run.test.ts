@@ -121,7 +121,7 @@ describe("kf run --task runs one task in its worktree (TC-009)", () => {
     const meta = p.readMeta()!;
     expect(meta.runs).toHaveLength(1);
     expect(meta.runs![0]).toMatchObject({ role: "tester", runner: "fakeb", stage: "implementation", task: "TASK-001", status: "done" });
-    expect(meta.tasks!["TASK-001"]).toMatchObject({ state: "verifying", attempts: 1, branch: expect.stringContaining("--task-001"), base: expect.any(String) });
+    expect(meta.tasks!["TASK-001"]).toMatchObject({ state: "done", attempts: 1, branch: expect.stringContaining("--task-001"), base: expect.any(String) });
 
     const text = await cmdRuns(args("runs", ["demo"]), p.root);
     expect(text.stdout).toContain("TASK-001");
@@ -138,7 +138,7 @@ describe("kf run --task runs one task in its worktree (TC-009)", () => {
     p.cli.scenario("fakeb", { stdout: "STATUS: DONE_WITH_CONCERNS\nSummary: works, one nit" });
     const res = await run(p, { task: "TASK-001" });
     expect(res.code, res.stdout).toBe(0);
-    expect(p.readMeta()!.tasks!["TASK-001"].state).toBe("verifying");
+    expect(p.readMeta()!.tasks!["TASK-001"].state).toBe("done");
   });
 
   it("records BLOCKED with the worker summary and a failed worker as failed", async () => {
