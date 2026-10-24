@@ -62,3 +62,16 @@ Snapshots alone go stale when a later feature changes the same behavior, so clos
 - [ ] Testing and review both `PASS`, on the current execution.
 - [ ] The feature report records what changed, which tests ran, which docs moved, which earlier docs were reconciled (or `None` with a reason) and what limits remain. Not required for a bug.
 - [ ] Canonical docs synced where needed, and no database, deploy or publish action outside the approved scope.
+
+## The implementation plan's Task Breakdown
+
+The `## Task Breakdown` table in `phase-2-implementation-plan.md` is what the [task harness](harness.md#task-harness-kf-drive) schedules:
+
+| Column | Meaning |
+| --- | --- |
+| `Task` | `TASK-###`, unique |
+| `Dependencies` | `TASK-###` ids this task waits for; `-`, `none` or empty for none |
+| `Role` | a key of `harness.roles`, or `-` for the implementation default |
+| `Files` | comma-separated paths, directories or globs the task may change — its allowlist. Tasks whose Files overlap never run at the same time; an empty cell means "files unknown" and the task runs alone |
+
+`kf validate` reports a duplicate id (`task_duplicate`), a missing dependency (`task_dep_missing`), a cycle (`task_dep_cycle`) and an undeclared role (`task_role_unknown`) as errors. The table is part of the approved contract: editing it after `kf approve` means approving again. Plans written before these columns existed still parse — every task gets role `-` and unknown files.

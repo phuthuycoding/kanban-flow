@@ -79,6 +79,8 @@ Two **event hooks** sit outside stage transitions and only exist under worktrees
 
 They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
 
+A third event hook, `drive-stop.sh`, runs whenever a [`kf drive`](harness.md#task-harness-kf-drive) ends — at the ship decision or at any stop — with `KFW_EVENT=drive-stop`, `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` on top of the standard set; use it to send yourself a notification. It is opt-in: `kf init` does not seed it. A failing `drive-stop.sh` is recorded as a warning on the drive and never changes its result.
+
 ```bash
 #!/usr/bin/env bash
 # .kf/hooks/testing.sh — refuse to enter testing while the build is red

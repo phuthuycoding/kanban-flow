@@ -112,6 +112,9 @@ kf stage user-login implementation  # or backlog — decision three; when the pr
                                     # (`worktree.enabled: true`) this also provisions a git
                                     # worktree on <git-user>/user-login with its own
                                     # <feature>.<repo>.test domain — see docs/workflow
+kf drive user-login                 # optional, with a task harness configured: runs the plan's
+                                    # tasks in parallel worktrees, then testing and review, and
+                                    # stops at the ship decision — see docs/workflow/harness.md
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
