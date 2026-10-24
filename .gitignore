@@ -18,3 +18,5 @@ dist/
 .devin/skills/
 
 .playwright-mcp
+# kanban-flow
+.worktrees/

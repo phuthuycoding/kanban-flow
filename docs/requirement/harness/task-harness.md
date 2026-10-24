@@ -1,11 +1,10 @@
 ---
-feature: "task-harness"
-context: "harness"
-created: "20261024_1055"
+feature: task-harness
+context: harness
+created: 20261024_1055
 kind: feature
-status: confirmed
+status: archived
 ---
-
 # Spec Requirement
 
 ## Feature
