@@ -66,7 +66,7 @@ kf status --change {feature}   # current phase + artifact checklist + Next: + Ap
 
 Then **load the skill for the feature's CURRENT phase** and follow it to its endpoint (each skill ends pointing at the next one). Do not re-read old phase instructions you've already executed; go straight at the target.
 
-If planning is already approved and its fingerprint is unchanged, ask whether to start now or keep the item in backlog. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, the item is at the ship gate — ask the human once: ship via `kanban-ship` (`kf stage <f> shipping` → `kf ship`) or archive directly from review (non-code items). `kf archive` refuses while a recorded PR is unmerged and accepts items in either review or shipping. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
+If planning is already approved and its fingerprint is unchanged, first check `.kf/config.json`: when `harness.verify.stage` is set and `worktree.enabled` is not `true`, the drive cannot start, so ask the human to enable worktrees before asking anything else. Then ask whether to start now or keep the item in backlog. After the human chooses start, if a drive is configured (`harness.verify.stage` set and `worktree.enabled: true`), run `kf drive {feature}` instead of loading `kanban-implement` yourself, monitor it with `kf drive {feature} --status`, and handle stops as the `kanban-implement` stop-code table says. Human gates stay human: when the drive reports "ready for ship decision", ask the ship decision yourself. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, the item is at the ship gate — ask the human once: ship via `kanban-ship` (`kf stage <f> shipping` → `kf ship`) or archive directly from review (non-code items). `kf archive` refuses while a recorded PR is unmerged and accepts items in either review or shipping. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
 
 ## Multi-agent harness
 
@@ -84,6 +84,8 @@ A stage can list several roles (`brainstorm: ["researcher", "writer"]`); they ru
 When polling a detached chain, check the chain column in `kf runs` (`1/2`, `2/2`): a run marked `chain stopped 1/2` means the later roles never ran, so the stage is **not** done even though nothing is running. Treat it like a stopped chain: read that role's log before deciding.
 
 Then act on the worker's `STATUS:`: `DONE` → `kf validate --change {feature}` and decide the transition as usual (gates, not the worker's word, decide); `DONE_WITH_CONCERNS` → read the concerns in the run log, then decide; `BLOCKED` / `NEEDS_CONTEXT` → stop and ask the user. A run without a `STATUS:` line or with a non-zero exit is not done. Never do an assigned stage yourself unless the user says so. Human gates stay with you.
+
+**Task harness (implementation):** when `harness.verify.stage` is set and worktrees are on, implementation is driven task by task instead of through a stage chain. The plan's Task Breakdown supplies each task's Role and Files allowlist; `kf tasks {feature}` lists the tasks, `kf run {feature} --task TASK-###` makes one attempt (no auto-retry), and `kf drive {feature}` runs them detached, with kf committing, merging and verifying each result via the pinned `harness.verify` commands. `kf drive` needs the item in implementation (or testing/review, to resume a stopped drive), a current approval, `worktree.enabled: true` and `harness.verify.stage`. It stops at the ship gate ("ready for ship decision") or with a stop code and the next command; a file outside a task's allowlist ends in `plan_change_needed` (edit the plan's Files, `kf approve`, `kf drive`).
 
 If you are resuming mid-pipeline (the feature already exists), skip straight to the phase skill for its current phase. **Never trust a folder location alone — a stage folder is not "done"; artifact + report completeness is.**
 
@@ -115,6 +117,9 @@ kf validate --change {feature}  # gate + traceability issues
 kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
 kf run {feature} [--detach]    # run the roles assigned to the current stage (harness.stages), in order
 kf runs {feature}              # worker run history (role, runner) + STATUS lines
+kf tasks {feature} [--json]    # task harness: tasks parsed from the approved plan, with state
+kf run {feature} --task TASK-### [--dry-run]   # one task attempt, no auto-retry
+kf drive {feature} [--status|--stop] [--json]  # detached task-harness drive up to the ship gate
 kf stage {feature} shipping    # optional leg for code items (review+PASS only)
 kf ship {feature}              # resumable: publish → merge gate → release → changelog (ship.enabled)
 kf archive {feature}           # the delivery gate: merged-PR check → review/shipping → dones + docs + issue close + board + delivered stamp
