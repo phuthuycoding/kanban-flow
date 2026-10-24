@@ -1,4 +1,4 @@
-import { findFeature, writeFeatureMeta } from "../../workflow/features.js";
+import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
 import { findRoot, gh } from "./helpers.js";
 import { shipPublish, shipMerge, shipRelease, shipChangelog, type StepResult } from "../../ship/steps.js";
@@ -58,13 +58,13 @@ export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult>
 
   // Step 1 — publish (skipped once meta.pr exists).
   const pub = shipPublish(root.root, f, repo, gh, { draft: Boolean(args.options.draft) });
-  if (pub.stamp) { Object.assign(ship, { published: pub.stamp.published }); f.meta = { ...f.meta, pr: pub.stamp.pr as string | undefined ?? f.meta.pr, ship }; await writeFeatureMeta(f.dir, f.meta); }
+  if (pub.stamp) { Object.assign(ship, { published: pub.stamp.published }); const pr = pub.stamp.pr as string | undefined; f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, pr: pr ?? meta.pr, ship }))).meta!; }
   lines.push(`${pub.ok ? "✓" : "✗"} ${pub.line}`);
   if (!pub.ok) return fail({ ...pub, line: pub.line });
 
   // Step 2 — merge gate.
   const m = shipMerge(f, repo, cfg, gh);
-  if (m.stamp) { Object.assign(ship, m.stamp); f.meta = { ...f.meta, ship }; await writeFeatureMeta(f.dir, f.meta); }
+  if (m.stamp) { Object.assign(ship, m.stamp); f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!; }
   lines.push(`${m.ok ? "✓" : "✗"} ${m.line}`);
   if (!m.ok) return fail(m);
   if (!m.proceed) return { code: 0, stdout: [...lines, "", `Not ready to archive — ${m.line.includes("waiting") ? "waiting for the merge." : "see above."}`].join("\n") };
@@ -73,12 +73,11 @@ export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (ship.release === undefined) {
     if (!wantRelease) {
       ship = { ...ship, release: "skipped" };
-      f.meta = { ...f.meta, ship };
-      await writeFeatureMeta(f.dir, f.meta);
+      f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!;
       lines.push("- release: skipped (manual)");
     } else {
       const r = shipRelease(root.root, f, repo, gh);
-      if (r.stamp) { Object.assign(ship, r.stamp); f.meta = { ...f.meta, ship }; await writeFeatureMeta(f.dir, f.meta); }
+      if (r.stamp) { Object.assign(ship, r.stamp); f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!; }
       lines.push(`${r.ok ? "✓" : "✗"} ${r.line}`);
       if (!r.ok) return fail(r);
     }
@@ -90,14 +89,12 @@ export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (ship.changelog === undefined) {
     if (!wantChangelog) {
       ship = { ...ship, changelog: "skipped" };
-      f.meta = { ...f.meta, ship };
-      await writeFeatureMeta(f.dir, f.meta);
+      f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!;
       lines.push("- changelog: skipped (manual)");
     } else {
       const c = shipChangelog(root.root, f);
       Object.assign(ship, c.stamp ?? {});
-      f.meta = { ...f.meta, ship };
-      await writeFeatureMeta(f.dir, f.meta);
+      f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!;
       lines.push(`✓ ${c.line}`);
     }
   } else {

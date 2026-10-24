@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { findFeature, writeFeatureMeta, type Feature, type RunRecord } from "../workflow/features.js";
+import { isPidAlive } from "../shared/process.js";
+import { findFeature, updateFeatureMeta, type Feature, type RunRecord, type RunStatus } from "../workflow/features.js";
 import type { Stage } from "../workflow/schema.js";
 import type { RunnerConfig } from "./config.js";
 import { buildWorkerPrompt, currentFailReport, runMarker, type Assignment, type PreviousStep } from "./prompt.js";
 import { captureSession, isResumeFailure, parseUsage, provisionSession } from "./session.js";
 
+export { isPidAlive };
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const TAIL_BYTES = 64 * 1024;
 const KILL_GRACE_MS = 5_000;
@@ -38,42 +40,54 @@ export interface RunOutcome {
   note?: string;
 }
 
-export function isPidAlive(pid: number | undefined): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if (err instanceof Error && "code" in err && err.code === "ESRCH") return false;
-    if (err instanceof Error && "code" in err && err.code === "EPERM") return true;
-    throw err;
-  }
-}
-
 function loadFeature(root: string, name: string): Feature {
   const feature = findFeature(root, name);
   if (!feature || !feature.meta) throw new Error(`Work item '${name}' disappeared or lost its metadata while a run was in progress.`);
   return feature;
 }
 
-/** Re-read metadata right before writing so a concurrent `kf stage` or supervisor update is not clobbered. */
+const FINISHED: ReadonlySet<RunStatus> = new Set(["done", "failed", "timeout", "reset"]);
+const statusRank = (status: RunStatus): number => (FINISHED.has(status) ? 1 : 0);
+/** Outcome fields a late, lower-ranked write must never change on a finished record. */
+const OUTCOME_KEYS = ["status", "statusLine", "summary", "usage", "exitCode", "endedAt", "error", "warning"] as const;
+
+const definedFields = (record: RunRecord): Partial<RunRecord> =>
+  Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as Partial<RunRecord>;
+
+/**
+ * Merge a write into the stored record of the same id. A finished record never goes back to
+ * `running`: a late write (e.g. the pid or supervisor pid landing after the final write) only
+ * contributes fields the stored record lacks. Equal or higher rank wins; absent fields are kept.
+ */
+export function mergeRunRecord(stored: RunRecord, incoming: RunRecord): RunRecord {
+  const fields = definedFields(incoming);
+  if (statusRank(incoming.status) >= statusRank(stored.status)) return { ...stored, ...fields };
+  for (const key of OUTCOME_KEYS) delete fields[key];
+  return { ...fields, ...definedFields(stored) } as RunRecord;
+}
+
+/** Add or merge `record` into a runs list; used inside an already-held item lock. */
+export function applyRunRecord(runs: RunRecord[] | undefined, record: RunRecord): RunRecord[] {
+  const next = [...(runs ?? [])];
+  const index = next.findIndex((r) => r.id === record.id);
+  if (index === -1) next.push(record);
+  else next[index] = mergeRunRecord(next[index], record);
+  return next;
+}
+
+/** Re-reads and writes under the per-item lock so a concurrent `kf stage` or supervisor update is not clobbered. */
 async function upsertRun(root: string, name: string, record: RunRecord): Promise<Feature> {
-  const feature = loadFeature(root, name);
-  const runs = [...(feature.meta!.runs ?? [])];
-  const index = runs.findIndex((r) => r.id === record.id);
-  if (index === -1) runs.push(record);
-  else runs[index] = record;
-  await writeFeatureMeta(feature.dir, { ...feature.meta!, runs });
-  return feature;
+  return updateFeatureMeta(root, name, (meta) => ({ ...meta, runs: applyRunRecord(meta.runs, record) }));
 }
 
 /** Sessions are keyed by role, not runner: two roles on the same CLI must not share context. */
 async function saveSession(root: string, name: string, role: string, session: string | null): Promise<void> {
-  const feature = loadFeature(root, name);
-  const sessions = { ...feature.meta!.sessions };
-  if (session === null) delete sessions[role];
-  else sessions[role] = session;
-  await writeFeatureMeta(feature.dir, { ...feature.meta!, sessions: Object.keys(sessions).length > 0 ? sessions : undefined });
+  await updateFeatureMeta(root, name, (meta) => {
+    const sessions = { ...meta.sessions };
+    if (session === null) delete sessions[role];
+    else sessions[role] = session;
+    return { ...meta, sessions: Object.keys(sessions).length > 0 ? sessions : undefined };
+  });
 }
 
 export function runningRun(feature: Feature): RunRecord | null {

@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
+import { withLock } from "../shared/lock.js";
 
 export interface Approval {
   status: ApprovalStatus;
@@ -103,6 +104,35 @@ export interface FeatureMeta {
   worktree?: WorktreeRegistration;
   /** Ship pipeline progress; written by `kf ship`, absent until it first runs. */
   ship?: ShipState;
+  /** Per-task progress of the task harness, keyed by task id; tasks with no entry are pending or ready (computed). */
+  tasks?: Record<string, TaskState>;
+}
+
+export const TASK_STATES = ["pending", "ready", "running", "verifying", "merging", "done", "failed", "blocked"] as const;
+export type TaskStateName = (typeof TASK_STATES)[number];
+
+export interface TaskState {
+  state: TaskStateName;
+  reason?: string;
+  attempts?: number;
+  branch?: string;
+  base?: string;
+  mergeSha?: string;
+  session?: string;
+  updatedAt?: string;
+}
+
+function isTaskState(value: unknown): value is TaskState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const t = value as Partial<TaskState>;
+  return typeof t.state === "string" && (TASK_STATES as readonly string[]).includes(t.state)
+    && (t.reason === undefined || typeof t.reason === "string")
+    && (t.attempts === undefined || (typeof t.attempts === "number" && Number.isInteger(t.attempts) && t.attempts >= 0))
+    && (t.branch === undefined || typeof t.branch === "string")
+    && (t.base === undefined || typeof t.base === "string")
+    && (t.mergeSha === undefined || typeof t.mergeSha === "string")
+    && (t.session === undefined || typeof t.session === "string")
+    && (t.updatedAt === undefined || typeof t.updatedAt === "string");
 }
 
 /** Per-step ship progress so `kf ship` stays resumable/idempotent. */
@@ -217,7 +247,9 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
     || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))
     || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))
-    || (meta.ship !== undefined && !isShipState(meta.ship))) {
+    || (meta.ship !== undefined && !isShipState(meta.ship))
+    || (meta.tasks !== undefined && (!meta.tasks || typeof meta.tasks !== "object" || Array.isArray(meta.tasks)
+      || !Object.values(meta.tasks).every(isTaskState)))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");
@@ -259,6 +291,24 @@ export async function writeFeatureMeta(
   meta: FeatureMeta,
 ): Promise<void> {
   await writeFileAtomic(join(dir, METADATA_FILE), `${JSON.stringify(meta, null, 2)}\n`);
+}
+
+/**
+ * Read-modify-write of one item's `.kfw.json` under its lock. The item is re-found by name
+ * inside the lock because a stage move may have renamed its folder since the caller looked.
+ */
+export async function updateFeatureMeta(
+  root: string,
+  name: string,
+  fn: (meta: FeatureMeta) => FeatureMeta | Promise<FeatureMeta>,
+): Promise<Feature> {
+  return withLock(root, name, async () => {
+    const feature = findFeature(root, name);
+    if (!feature?.meta) throw new Error(`Work item '${name}' disappeared or lost its metadata while it was being updated.`);
+    const meta = await fn(feature.meta);
+    await writeFeatureMeta(feature.dir, meta);
+    return { ...feature, meta };
+  });
 }
 
 export function assertPathName(value: string, label: string): void {

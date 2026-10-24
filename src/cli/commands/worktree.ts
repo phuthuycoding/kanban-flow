@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findFeature, writeFeatureMeta } from "../../workflow/features.js";
+import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
 import { createProxyServer } from "../../proxy/server.js";
 import { readMachineConfig, splitListen, worktreeConfig } from "../../worktree/config.js";
@@ -39,7 +39,7 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
   const sync = syncBase(root.root);
   const wt = await ensureWorktree(root.root, f, cfg);
   if (f.meta.worktree !== wt) {
-    await writeFeatureMeta(f.dir, { ...f.meta, worktree: wt });
+    await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, worktree: wt }));
   }
   const syncNote = sync.warning ? `\n  ⚠ ${sync.warning}` : sync.note ? `\n  ${sync.note}` : "";
   return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${syncNote}` };
@@ -57,7 +57,7 @@ async function cmdWorktreeRemove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const result = args.options.force
     ? await forceRemoveWorktree(root.root, f, cfg)
     : await teardownWorktree(root.root, f, cfg);
-  await writeFeatureMeta(f.dir, { ...f.meta, worktree: undefined });
+  await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, worktree: undefined }));
   const unmerged = result.unmergedCommits > 0
     ? `\n  ⚠ Branch ${result.branch} has ${result.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
     : "";

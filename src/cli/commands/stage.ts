@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 
 import { STAGES, TRANSITIONS, type Stage } from "../../workflow/schema.js";
 import { findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
+import { withLock } from "../../shared/lock.js";
 import { cmdArchive } from "./archive.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../../integrations/hooks.js";
@@ -75,8 +76,8 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   // `kf stage` refused the very reopen `kf cancel` prints, and blamed a stage it was not in. The
   // only way through was --force, which stamps a permanent bypass for a gate that should not hold.
   const check = to === "planning" && f.stage !== "brainstorm" && f.stage !== "cancelled"
-    ? validateFeature({ ...f, stage: "brainstorm" }, false, false)
-    : validateFeature(f);
+    ? validateFeature({ ...f, stage: "brainstorm" }, false, false, readProjectConfig(root.root).harness)
+    : validateFeature(f, false, true, readProjectConfig(root.root).harness);
   if (!check.valid) {
     if (!force) {
       return {
@@ -163,40 +164,60 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   }
 
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
-  let metadataUpdated = false;
-  try {
-    let meta = recorded.length > 0 ? { ...f.meta, bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : f.meta;
-    if (worktree) meta = { ...meta, worktree };
-    // Putting an item back in `dones` means putting back the state it had there. `status` does
-    // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
-    // which can legitimately refuse on an item that was never fully valid.
-    if (f.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "dones" ? "archived" : undefined };
-    if (to === "planning") {
-      await writeFeatureMeta(f.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
-      metadataUpdated = true;
-    } else if (to === "testing" || to === "implementation") {
-      await writeFeatureMeta(f.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
-      metadataUpdated = true;
-    } else if (recorded.length > 0 || f.stage === "cancelled" || worktree) {
-      await writeFeatureMeta(f.dir, meta);
-      metadataUpdated = true;
-    }
-    await rename(f.dir, target);
-  } catch (err) {
-    if (metadataUpdated) {
+  const removeNewWorktree = async (): Promise<void> => {
+    if (worktree && !f.meta!.worktree) {
       try {
-        await writeFeatureMeta(f.dir, f.meta);
-      } catch (rollbackError) {
-        throw new AggregateError([err, rollbackError], `Transition failed and metadata rollback was incomplete for '${name}'.`);
-      }
-    }
-    if (worktree && !f.meta.worktree) {
-      try {
-        await forceRemoveWorktree(root.root, { ...f, meta: { ...f.meta, worktree } }, wtCfg);
+        await forceRemoveWorktree(root.root, { ...f, meta: { ...f.meta!, worktree } }, wtCfg);
       } catch {
         /* best-effort rollback — the failed move is the error that matters */
       }
     }
+  };
+  try {
+    // Only the re-read, the write and the rename hold the lock — gates, hooks and the worktree stay outside.
+    const refused = await withLock(root.root, f.name, async (): Promise<CmdResult | null> => {
+      const cur = findFeature(root.root, f.name);
+      if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
+        return { code: 1, stdout: `Cannot move '${name}': it changed while the transition was running. Re-run: kf stage ${name} ${to}`, stderr: "changed concurrently" };
+      }
+      if (existsSync(target)) return { code: 1, stdout: `Target already exists: ${target}`, stderr: "target exists" };
+      let metadataUpdated = false;
+      try {
+        let meta = recorded.length > 0 ? { ...cur.meta, bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : cur.meta;
+        if (worktree) meta = { ...meta, worktree };
+        // Putting an item back in `dones` means putting back the state it had there. `status` does
+        // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
+        // which can legitimately refuse on an item that was never fully valid.
+        if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "dones" ? "archived" : undefined };
+        if (to === "planning") {
+          await writeFeatureMeta(cur.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
+          metadataUpdated = true;
+        } else if (to === "testing" || to === "implementation") {
+          await writeFeatureMeta(cur.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
+          metadataUpdated = true;
+        } else if (recorded.length > 0 || cur.stage === "cancelled" || worktree) {
+          await writeFeatureMeta(cur.dir, meta);
+          metadataUpdated = true;
+        }
+        await rename(cur.dir, target);
+      } catch (err) {
+        if (metadataUpdated) {
+          try {
+            await writeFeatureMeta(cur.dir, cur.meta);
+          } catch (rollbackError) {
+            throw new AggregateError([err, rollbackError], `Transition failed and metadata rollback was incomplete for '${name}'.`);
+          }
+        }
+        throw err;
+      }
+      return null;
+    });
+    if (refused) {
+      await removeNewWorktree();
+      return refused;
+    }
+  } catch (err) {
+    await removeNewWorktree();
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";

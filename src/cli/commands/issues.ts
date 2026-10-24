@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { readProjectConfig } from "../../project/config.js";
 import { issueUrl, prUrl } from "../../project/repository.js";
-import { findFeature, writeFeatureMeta } from "../../workflow/features.js";
+import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
 import { splitFrontmatter, isFilledFile } from "../../shared/frontmatter.js";
 import { ARTIFACTS } from "../../workflow/schema.js";
 import { findRoot, gh, ghFailure, noRepository } from "./helpers.js";
@@ -123,7 +123,7 @@ async function cmdCreate(root: string, repo: string, name: string | undefined, l
   if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(url)) {
     return { code: 1, stdout: `gh did not return an issue URL:\n${res.stdout.trim()}`, stderr: "no issue url" };
   }
-  await writeFeatureMeta(f.dir, { ...f.meta, issue: url });
+  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, issue: url }));
   return { code: 0, stdout: `Created ${url}\nRecorded on work item '${f.name}' (${f.dir}/.kfw.json).` };
 }
 
@@ -152,7 +152,7 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
     else return { code: 1, stdout: `'${target}' is neither an issue number nor a GitHub issue URL.`, stderr: "invalid issue" };
   }
   if (!f.meta) return { code: 1, stdout: `'${f.name}' has no metadata file — cannot record the link.`, stderr: "no meta" };
-  await writeFeatureMeta(f.dir, { ...f.meta, ...(isPrRef ? { pr: url } : { issue: url }) });
+  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, ...(isPrRef ? { pr: url } : { issue: url }) }));
   return { code: 0, stdout: `Linked '${f.name}' → ${url}` };
 }
 
