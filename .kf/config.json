@@ -32,5 +32,116 @@
       "review": "In review",
       "dones": "Done"
     }
+  },
+  "harness": {
+    "main": "architect",
+    "roles": {
+      "architect": {
+        "runner": "claude-dev",
+        "brief": "Orchestrates the pipeline and keeps the human gates."
+      },
+      "coder": {
+        "runner": "claude-dev",
+        "brief": "Implements exactly the task or repair it is given, inside its file allowlist."
+      },
+      "tester": {
+        "runner": "claude-dev",
+        "brief": "Runs the real suite and records exact commands and exit codes against the approved test plan."
+      },
+      "reviewer": {
+        "runner": "claude-dev",
+        "brief": "Audits the diff against the approved scope and the review rules."
+      }
+    },
+    "stages": {
+      "implementation": [
+        "coder"
+      ],
+      "testing": [
+        "tester"
+      ],
+      "review": [
+        "reviewer"
+      ]
+    },
+    "runners": {
+      "claude-dev": {
+        "start": [
+          "claude",
+          "-p",
+          "{prompt}",
+          "--session-id",
+          "{session}",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(npm run *)",
+          "Bash(npm test*)",
+          "Bash(npx vitest *)",
+          "Bash(npx tsc *)",
+          "Bash(git status*)",
+          "Bash(git diff*)",
+          "Bash(git log*)",
+          "Bash(kf status*)",
+          "Bash(kf instruct*)",
+          "Bash(kf validate*)",
+          "Bash(kf tasks*)",
+          "--output-format",
+          "json"
+        ],
+        "resume": [
+          "claude",
+          "-p",
+          "{prompt}",
+          "-r",
+          "{session}",
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(npm run *)",
+          "Bash(npm test*)",
+          "Bash(npx vitest *)",
+          "Bash(npx tsc *)",
+          "Bash(git status*)",
+          "Bash(git diff*)",
+          "Bash(git log*)",
+          "Bash(kf status*)",
+          "Bash(kf instruct*)",
+          "Bash(kf validate*)",
+          "Bash(kf tasks*)",
+          "--output-format",
+          "json"
+        ],
+        "session": "provided",
+        "usage": "json",
+        "skillsDir": ".claude/skills"
+      }
+    },
+    "verify": {
+      "task": [
+        [
+          "npm",
+          "run",
+          "typecheck"
+        ]
+      ],
+      "stage": [
+        [
+          "npm",
+          "run",
+          "build"
+        ],
+        [
+          "npm",
+          "test"
+        ]
+      ]
+    },
+    "parallel": 3,
+    "retries": 1,
+    "maxLoops": 2,
+    "budget": {
+      "maxRuns": 10
+    }
   }
 }
