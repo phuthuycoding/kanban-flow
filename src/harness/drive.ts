@@ -740,7 +740,10 @@ class Driver {
     const why = out.kind === "hook-failed"
       ? `hook '${to}' failed (exit ${out.hook.code})${out.hook.output ? `: ${out.hook.output}` : ""}`
       : out.kind === "refused" ? out.stdout : message(out.error);
-    this.log({ event: "stage", from, to, refused: oneLine(why) });
+    this.log({
+      event: "stage", from, to, refused: oneLine(why),
+      ...(out.kind === "error" && out.error instanceof Error ? { stack: out.error.stack } : {}),
+    });
     this.requestStop({ code: "transition_refused", reason: `cannot move '${this.name}' ${from} → ${to}: ${oneLine(why)}` });
     return false;
   }

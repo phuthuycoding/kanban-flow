@@ -451,3 +451,16 @@ describe("detached drive (TC-024, TC-025)", () => {
     expect(events(pr).some((e) => e.event === "merge" && e.task === "TASK-001" && e.resumed === true && e.merged === true)).toBe(true);
   });
 });
+
+describe("transition errors keep their stack (review FINDING-002)", () => {
+  it("logs the stack of an error outcome to the drive log", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }]);
+    const failing: Transition = async () => ({ kind: "error", error: new Error("rename exploded") });
+    const out = await drive(pr, failing);
+    expect(out.stopCode).toBe("transition_refused");
+    expect(out.reason).toContain("rename exploded");
+    const stage = events(pr).find((e) => e.event === "stage" && e.refused);
+    expect(String(stage?.stack)).toContain("rename exploded");
+    expect(String(stage?.stack)).toMatch(/\n\s+at /);
+  });
+});
