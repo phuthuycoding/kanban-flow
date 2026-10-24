@@ -1,6 +1,7 @@
 import { updateFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
-import { resolveItem, gh } from "./helpers.js";
+import { resolveItem } from "./helpers.js";
+import { gh } from "../../integrations/github.js";
 import { shipPublish, shipMerge, shipRelease, shipChangelog, type StepResult } from "../../ship/steps.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";

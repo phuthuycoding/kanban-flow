@@ -2,9 +2,6 @@ import { findWorksRoot, findFeature, type Feature } from "../../workflow/feature
 import type { GhResult } from "../../integrations/github.js";
 import type { CmdResult } from "../result.js";
 
-// cli/commands/ship.ts still imports gh from here; it is outside this change's scope.
-export { gh } from "../../integrations/github.js";
-
 export async function findRoot(cwd: string): Promise<{ root: string; ok: boolean; err?: string }> {
   const root = findWorksRoot(cwd);
   if (!root) {
