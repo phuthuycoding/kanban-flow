@@ -1,6 +1,7 @@
 import { readProjectConfig } from "../../project/config.js";
 import { listFeatures } from "../../workflow/features.js";
-import { findRoot, gh, noRepository } from "./helpers.js";
+import { findRoot, noRepository } from "./helpers.js";
+import { gh } from "../../integrations/github.js";
 import { cmdArchive } from "./archive.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
