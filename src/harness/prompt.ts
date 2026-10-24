@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 
 import { ARTIFACTS, type Stage } from "../workflow/schema.js";
 import type { Feature } from "../workflow/features.js";
+import type { PlannedTask } from "../workflow/tasks.js";
 import { skillsDirFor } from "../integrations/agents.js";
 import type { HarnessConfig, RoleConfig, RunnerConfig } from "./config.js";
 
@@ -42,6 +43,15 @@ function assign(role: string, config: RoleConfig, harness: HarnessConfig, stage:
     return `Skill ${relative(root, skillPath)} is missing for role "${role}" (runner ${config.runner}) — run: kf install --agent ${config.runner} (or set harness.runners.${config.runner}.skillsDir).`;
   }
   return { role, runnerName: config.runner, runner, stage, skill: skillName, skillPath, brief: config.brief, output: config.output };
+}
+
+/** Bind one named role to its runner and the stage skill; a string is the reason it cannot run. */
+export function assignRole(harness: HarnessConfig, role: string, stage: Stage, root: string): Assignment | string {
+  const skillName = STAGE_SKILL[stage];
+  if (!skillName) return `Stage "${stage}" has no work to hand off.`;
+  const config = harness.roles[role];
+  if (!config) return `Unknown role "${role}". Known roles: ${Object.keys(harness.roles).join(", ")}.`;
+  return assign(role, config, harness, stage, skillName, root);
 }
 
 /**
@@ -149,6 +159,48 @@ export function buildWorkerPrompt(input: PromptInput): string {
     "- Never run `kf stage`, `kf approve`, `kf archive`, or `kf run`; the main agent decides transitions.",
     "- Never edit approved contract artifacts (requirement, plan, use cases, test cases); track progress in tasks.md.",
     "- Do not commit or push.",
+    "- Finish with two final lines exactly in this form:",
+    "STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT",
+    "Summary: <one or two sentences>",
+  );
+  return lines.join("\n");
+}
+
+export interface TaskPromptInput {
+  runId: string;
+  feature: Feature;
+  root: string;
+  assignment: Assignment;
+  task: PlannedTask;
+  /** Why the previous attempt failed; included only on a retry. */
+  previousFailure?: string;
+}
+
+/** Prompt for one task worker: runs in the task worktree, which has no `.works`, so the item folder is given absolute. */
+export function buildTaskPrompt(input: TaskPromptInput): string {
+  const { feature, root, assignment, runId, task } = input;
+  const lines = [
+    `${runMarker(runId)} ${task.id}`,
+    `You are the "${assignment.role}" worker for task ${task.id} of the kanban-flow feature "${feature.name}" (context ${feature.context ?? "n/a"}). Do this one task only.`,
+  ];
+  if (assignment.brief) lines.push(`Your role: ${assignment.brief}`);
+  lines.push(
+    `Task ${task.id}: ${task.description}`,
+    `FR / UC references: ${task.refs ?? "none declared"}`,
+    `Expected output: ${task.expectedOutput ?? "none declared"}`,
+    task.files
+      ? `Files allowlist: ${task.files.join(", ")}\nOnly change files in the allowlist; a change outside it blocks the task.`
+      : "Files allowlist: files unknown (the plan declares none).",
+    `Your working directory is the task worktree, a checkout of the item branch; it has no .works folder. Project root: ${root}`,
+    `Work item folder (absolute, read the contract here): ${feature.dir}`,
+    `Load and follow the skill: ${relative(root, assignment.skillPath)} (${assignment.skill}) in task-worker mode. Skip its "move to stage" step — the stage is already set. kf tracks task state; do not edit tasks.md.`,
+  );
+  if (input.previousFailure) lines.push(`The previous attempt failed: ${input.previousFailure}\nFix exactly that.`);
+  lines.push(
+    "Contract:",
+    "- Never run `kf stage`, `kf approve`, `kf archive`, or `kf run`; the main agent decides transitions.",
+    "- Never edit approved contract artifacts (requirement, plan, use cases, test cases).",
+    "- Do not commit or push; kf commits and merges your changes.",
     "- Finish with two final lines exactly in this form:",
     "STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT",
     "Summary: <one or two sentences>",

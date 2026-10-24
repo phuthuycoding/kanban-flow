@@ -49,6 +49,8 @@ export interface RunRecord {
   log: string;
   /** Position in the stage's role chain, so a chain that stopped early is visible. */
   chain?: { id: string; index: number; total: number };
+  /** Task id when this run executed one planned task (`kf run --task`). */
+  task?: string;
   status: RunStatus;
   exitCode?: number;
   pid?: number;
@@ -280,6 +282,7 @@ function isRunRecord(value: unknown): value is RunRecord {
   const r = value as Partial<RunRecord>;
   if (r.chain !== undefined && (typeof r.chain !== "object" || r.chain === null
     || typeof r.chain.id !== "string" || typeof r.chain.index !== "number" || typeof r.chain.total !== "number")) return false;
+  if (r.task !== undefined && typeof r.task !== "string") return false;
   return typeof r.id === "string" && typeof r.role === "string" && typeof r.runner === "string"
     && typeof r.stage === "string" && STAGES.includes(r.stage)
     && (r.mode === "start" || r.mode === "resume") && typeof r.at === "string" && typeof r.log === "string"

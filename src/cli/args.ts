@@ -200,11 +200,12 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   run: {
-    help: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]  — run the roles assigned to the work item's stage (harness.stages) as worker agents, in order, and record each run",
+    help: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]  — run the roles assigned to the work item's stage (harness.stages) as worker agents, in order, and record each run. kf run <feature> --task TASK-### [--fresh] [--timeout <min>] [--dry-run]  — run one planned task in its own task worktree (needs worktree.enabled; cannot combine with --stage, --role or --detach)",
     allowPositionals: true,
     options: {
       stage: { type: "string" },
       role: { type: "string" },
+      task: { type: "string" },
       agent: { type: "string" },
       fresh: { type: "boolean" },
       detach: { type: "boolean" },

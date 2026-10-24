@@ -29,6 +29,11 @@ export interface RunPlan {
   output?: string;
   /** Position in the stage's role chain. */
   chain?: { id: string; index: number; total: number };
+  /** Set for a task run: recorded on the run, and the worker runs in `cwd` under session key `sessionKey`. */
+  task?: string;
+  cwd?: string;
+  /** Key of the stored session; defaults to the role. */
+  sessionKey?: string;
   fresh: boolean;
   timeoutMs: number;
 }
@@ -90,8 +95,15 @@ async function saveSession(root: string, name: string, role: string, session: st
   });
 }
 
+export const liveRuns = (feature: Feature): RunRecord[] => liveRecords(feature.meta?.runs);
+
 export function runningRun(feature: Feature): RunRecord | null {
-  return (feature.meta?.runs ?? []).find((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid))) ?? null;
+  return liveRuns(feature)[0] ?? null;
+}
+
+/** Every run of the item whose worker or supervisor is still alive. */
+export function liveRecords(runs: RunRecord[] | undefined): RunRecord[] {
+  return (runs ?? []).filter((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid)));
 }
 
 export function planPath(feature: Feature, id: string): string {
@@ -237,19 +249,20 @@ function spawnWorker(argv: string[], opts: { cwd: string; env: NodeJS.ProcessEnv
  */
 export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process.env, allowReset = true): Promise<RunOutcome> {
   const feature = loadFeature(plan.root, plan.feature);
-  const stored = feature.meta!.sessions?.[plan.role];
+  const sessionKey = plan.sessionKey ?? plan.role;
+  const stored = feature.meta!.sessions?.[sessionKey];
   const provisioned = provisionSession(plan.runner, stored, plan.prompt, plan.fresh);
   const logRel = join("runs", `${plan.id}.log`);
   mkdirSync(join(feature.dir, "runs"), { recursive: true });
   const supervisorPid = feature.meta!.runs?.find((r) => r.id === plan.id)?.supervisorPid;
   let record: RunRecord = {
     id: plan.id, role: plan.role, runner: plan.runnerName, stage: plan.stage, mode: provisioned.mode, session: provisioned.session,
-    at: new Date().toISOString(), log: logRel, status: "running", supervisorPid, chain: plan.chain,
+    at: new Date().toISOString(), log: logRel, status: "running", supervisorPid, chain: plan.chain, ...(plan.task ? { task: plan.task } : {}),
   };
   await upsertRun(plan.root, plan.feature, record);
 
   const result = await spawnWorker(provisioned.argv, {
-    cwd: plan.root, env, logPath: join(feature.dir, logRel), timeoutMs: plan.timeoutMs,
+    cwd: plan.cwd ?? plan.root, env, logPath: join(feature.dir, logRel), timeoutMs: plan.timeoutMs,
     onSpawn: async (pid) => {
       record = { ...record, pid };
       await upsertRun(plan.root, plan.feature, record);
@@ -275,14 +288,14 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
   if (provisioned.mode === "resume" && isResumeFailure(plan.runner, exitCode, output)) {
     record = { ...record, status: "reset", error: "Resume failed: session no longer usable; stored session dropped." };
     await upsertRun(plan.root, plan.feature, record);
-    await saveSession(plan.root, plan.feature, plan.role, null);
+    await saveSession(plan.root, plan.feature, sessionKey, null);
     if (!allowReset) return { record, ok: false };
     const retry = await executeRun({ ...plan, id: randomUUID().slice(0, 8), fresh: true }, env, false);
     return { ...retry, note: `Session for role ${plan.role} was reset (run ${plan.id}); re-ran as ${retry.record.id}.` };
   }
   if (provisioned.mode === "start") {
-    const captured = captureSession(plan.runner, provisioned.session, { stdout: output, marker: runMarker(plan.id), cwd: plan.root, env });
-    if (captured) await saveSession(plan.root, plan.feature, plan.role, captured);
+    const captured = captureSession(plan.runner, provisioned.session, { stdout: output, marker: runMarker(plan.id), cwd: plan.cwd ?? plan.root, env });
+    if (captured) await saveSession(plan.root, plan.feature, sessionKey, captured);
     else if (plan.runner.session !== undefined) record = { ...record, warning: "Session id not captured from worker output; the next run will start fresh." };
     if (captured) record = { ...record, session: captured };
   }
