@@ -1,8 +1,8 @@
-import { findFeature, updateFeatureMeta, executionContractHash } from "../../workflow/features.js";
+import { updateFeatureMeta, executionContractHash } from "../../workflow/features.js";
 import { validateFeature, renderValidateText } from "../../workflow/validate.js";
 import { readProjectConfig } from "../../project/config.js";
 import { nowTimestamp } from "../../shared/time.js";
-import { findRoot } from "./helpers.js";
+import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -13,10 +13,9 @@ import type { CmdResult } from "../result.js";
 export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: "Usage: kf approve <feature> [--by <name>]", stderr: "missing feature" };
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const f = root.item;
 
   if (f.stage !== "planning") {
     return {
