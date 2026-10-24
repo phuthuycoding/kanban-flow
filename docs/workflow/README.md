@@ -23,7 +23,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 6. [Agent onboarding](autoconfig.md) — `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 7. [Skill routing](skills.md) — which skill loads in which state.
 8. [Dashboard](dashboard.md) — the KPIs, the charts, the filters and what each number means.
-9. [Agent harness](harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`.
+9. [Agent harness](harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`, and the task harness: `kf tasks`, `kf run --task` and `kf drive`, which runs an approved item from implementation to the ship gate.
 10. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
 
 ## The rules that never bend
