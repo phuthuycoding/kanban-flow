@@ -4,9 +4,9 @@ import { join } from "node:path";
 
 import { ARTIFACTS } from "../workflow/schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
-import { driveLive, findFeature, updateFeatureMeta, type DriveState, type Feature, type FeatureMeta, type RunRecord, type TaskState, type TaskStateName } from "../workflow/features.js";
+import { driveLive, findFeature, type DriveState, type Feature, type RunRecord } from "../workflow/features.js";
 import { approvalState } from "../workflow/status.js";
-import { checkTaskGraph, parseTaskGraph, resolveTaskRole, taskView, writeTasksMd, type PlannedTask, type TasksBaseline } from "../workflow/tasks.js";
+import { checkTaskGraph, parseTaskGraph, resolveTaskRole, type PlannedTask, type TasksBaseline } from "../workflow/tasks.js";
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { createTaskWorktree, taskBranch, taskWorktreePath, type TaskWorktree } from "../worktree/tasks.js";
@@ -15,6 +15,9 @@ import { assignRole, buildTaskPrompt, type Assignment } from "./prompt.js";
 import { applyRunRecord, executeRun, liveRecords, writeRunPlan, type RunOutcome, type RunPlan } from "./run.js";
 import type { HarnessConfig } from "./config.js";
 import { runCompletionPipeline } from "./task-pipeline.js";
+import { setTaskState, updateTasks, withTask, type CompleteTaskInput, type TaskCompletion } from "./task-state.js";
+
+export { setTaskState, type CompleteTaskInput, type TaskCompletion } from "./task-state.js";
 
 export const taskSessionKey = (taskId: string): string => `task:${taskId}`;
 
@@ -107,31 +110,6 @@ export function prepareTaskRun(root: string, feature: Feature, rawId: string, op
 
 class Refused extends Error {}
 
-/**
- * Apply `fn` to the item's meta and re-render tasks.md from the result, both under the item lock,
- * so concurrent task runs cannot write a stale task list over a newer one.
- */
-async function updateTasks(root: string, name: string, harness: HarnessConfig, fn: (meta: FeatureMeta) => FeatureMeta, baseline?: TasksBaseline): Promise<void> {
-  await updateFeatureMeta(root, name, async (meta) => {
-    const next = fn(meta);
-    const feature = findFeature(root, name)!;
-    const updated: Feature = { ...feature, meta: next };
-    await writeTasksMd(updated, taskView(updated, harness), baseline);
-    return next;
-  });
-}
-
-const withTask = (meta: FeatureMeta, id: string, patch: Partial<TaskState>): FeatureMeta => {
-  const next: TaskState = { ...meta.tasks?.[id], ...patch, state: patch.state ?? meta.tasks?.[id]?.state ?? "pending", updatedAt: new Date().toISOString() };
-  if (patch.reason === undefined) delete next.reason;
-  return { ...meta, tasks: { ...meta.tasks, [id]: next } };
-};
-
-/** Record a task's state (and optional fields) in `.kfw.json` and tasks.md. A state change drops the old reason unless one is given. */
-export async function setTaskState(root: string, name: string, harness: HarnessConfig, id: string, patch: Partial<TaskState>): Promise<void> {
-  await updateTasks(root, name, harness, (meta) => withTask(meta, id, patch));
-}
-
 export function captureBaseline(root: string, feature: Feature): TasksBaseline | undefined {
   const tasksFile = join(feature.dir, "tasks.md");
   if (existsSync(tasksFile) && /^## Baseline[ \t]*$/m.test(readFileSync(tasksFile, "utf8"))) return undefined;
@@ -140,30 +118,6 @@ export function captureBaseline(root: string, feature: Feature): TasksBaseline |
   if (!sha) throw new Error(`Cannot resolve HEAD of the item worktree ${itemPath}.`);
   const porcelain = runGit(itemPath, ["status", "--porcelain"]).stdout.split("\n").filter(Boolean);
   return { sha, porcelain };
-}
-
-export interface CompleteTaskInput {
-  root: string;
-  feature: string;
-  harness: HarnessConfig;
-  task: PlannedTask;
-  worktree: TaskWorktree;
-  run: RunRecord;
-  /** Per-command limit for kf's own git commit and the verify commands; 0 = no limit. */
-  timeoutMs: number;
-}
-
-export interface TaskCompletion {
-  state: TaskStateName;
-  reason?: string;
-  /** Set when the driver must stop: the plan's `Files` must change, or git left the item branch in an unknown state. */
-  stop?: "plan_change_needed" | "git_error";
-  /** True only for `failed`; the driver retries those, a manual run does not. */
-  retryable: boolean;
-  /** The reason to hand the worker on the next attempt (`previousFailure`); set for `failed`. */
-  failureForRetry?: string;
-  /** Non-fatal problem, e.g. the task worktree could not be removed. */
-  warning?: string;
 }
 
 /** Called once after a DONE/DONE_WITH_CONCERNS worker exits: commit, merge, verify (see task-pipeline.ts). */
