@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { claimDrive, superviseDrive, type DriveOutcome } from "../harness/drive.js";
 import { cmdDrive } from "../cli/commands/drive.js";
 import { transitionItem, type Transition } from "../workflow/transition.js";
-import { findFeature } from "../workflow/features.js";
+import { findFeature, updateFeatureMeta } from "../workflow/features.js";
+import { createTaskWorktree } from "../worktree/tasks.js";
+import { worktreeConfig } from "../worktree/config.js";
+import { readProjectConfig } from "../project/config.js";
 import { gitDriveProject, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -407,5 +410,44 @@ describe("detached drive (TC-024, TC-025)", () => {
     const done = await until(pr, (s) => s.state !== "running");
     expect(done.state, done.reason).toBe("ready");
     expect(taskCalls(pr, "TASK-001")).toHaveLength(1);
+  });
+
+  it("resumes after a crash mid-merge: aborts the half merge, merges again, does not re-run the task (TC-025)", async () => {
+    const pr = await project([
+      { id: "TASK-001", files: ["src/a.txt"] },
+      { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
+    ]);
+    pr.cli.scenario("claude", { write: { "src/b.txt": "b" } }, "TASK-002");
+    reports(pr);
+
+    // State a supervisor leaves when it dies between `git merge` and its commit: the task's work is committed on
+    // its branch, the item worktree holds MERGE_HEAD, the task is `merging` and the drive still says running.
+    const item = pr.worktreePath()!;
+    const preMergeSha = pr.git(item, "rev-parse", "HEAD");
+    const wt = await createTaskWorktree(pr.root, pr.feature(), "TASK-001", worktreeConfig(pr.root, readProjectConfig(pr.root).worktree));
+    mkdirSync(join(wt.path, "src"), { recursive: true });
+    writeFileSync(join(wt.path, "src", "a.txt"), "a");
+    pr.git(wt.path, "add", "-A");
+    pr.git(wt.path, "commit", "-qm", "task(TASK-001): Do TASK-001");
+    pr.git(item, "merge", "--no-ff", "--no-commit", wt.branch);
+    expect(existsSync(join(pr.git(item, "rev-parse", "--absolute-git-dir"), "MERGE_HEAD"))).toBe(true);
+    const now = new Date().toISOString();
+    await updateFeatureMeta(pr.root, "demo", (meta) => ({
+      ...meta,
+      tasks: { "TASK-001": { state: "merging", branch: wt.branch, base: wt.base, preMergeSha, attempts: 1, updatedAt: now } },
+      drive: { id: "deadbeef", status: "running", step: "implementation", loops: 0, runs: 1, configHash: "stale", supervisorPid: 999999, startedAt: now, updatedAt: now },
+    }));
+
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    const meta = pr.readMeta()!;
+    expect(meta.drive!.id).toBe("deadbeef");
+    expect(meta.tasks!["TASK-001"].state).toBe("done");
+    expect(meta.tasks!["TASK-002"].state).toBe("done");
+    expect(taskCalls(pr, "TASK-001")).toHaveLength(0);
+    expect(existsSync(join(pr.git(item, "rev-parse", "--absolute-git-dir"), "MERGE_HEAD"))).toBe(false);
+    expect(readFileSync(join(item, "src", "a.txt"), "utf8")).toBe("a");
+    expect(readFileSync(join(item, "src", "b.txt"), "utf8")).toBe("b");
+    expect(events(pr).some((e) => e.event === "merge" && e.task === "TASK-001" && e.resumed === true && e.merged === true)).toBe(true);
   });
 });
