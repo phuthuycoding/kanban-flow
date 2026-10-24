@@ -220,6 +220,13 @@ const COMMANDS: Record<string, CmdSpec> = {
       json: { type: "boolean" },
     },
   },
+  tasks: {
+    help: "Usage: kf tasks <feature> [--json]  — list the planned tasks of a work item with wave, state, resolved role, dependencies and files (read-only)",
+    allowPositionals: true,
+    options: {
+      json: { type: "boolean" },
+    },
+  },
   worktree: {
     help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
     allowPositionals: true,

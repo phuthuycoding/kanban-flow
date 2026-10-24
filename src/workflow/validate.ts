@@ -6,6 +6,8 @@ import { checkApproval, checkBypasses } from "./validate-approval.js";
 import { checkTasks, checkTestingResult, checkReviewReport, checkDonesArtifacts } from "./validate-reports.js";
 import { checkTraceability, checkAffectedSurfaces } from "./validate-traceability.js";
 import { checkCancellation } from "./validate-cancel.js";
+import { checkTaskGraph } from "./tasks.js";
+import type { HarnessConfig } from "../harness/config.js";
 
 export type { Severity, Finding, ValidationResult } from "./findings.js";
 export { findSecretLike } from "./secrets.js";
@@ -13,7 +15,7 @@ export { checkDirectionGate } from "./direction.js";
 export { STAGES };
 
 /** Checks for the CURRENT stage. If the feature can leave the current stage, all its gate artifacts must exist & be filled. */
-export function validateFeature(feature: Feature, strict = false, requireApproval = true): ValidationResult {
+export function validateFeature(feature: Feature, strict = false, requireApproval = true, harness?: HarnessConfig): ValidationResult {
   const issues: Finding[] = [];
   if (!feature.meta) {
     issues.push(finding(feature, "ERROR", ".kfw.json", feature.metaError ? "metadata_invalid" : "metadata_missing",
@@ -46,6 +48,7 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
       ...checkReviewReport(feature),
       ...checkTraceability(feature),
       ...checkAffectedSurfaces(feature),
+      ...checkTaskGraph(feature, harness),
       ...checkDonesArtifacts(feature),
     ]));
 

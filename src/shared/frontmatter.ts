@@ -75,3 +75,25 @@ export function sectionItems(section: string): string[] {
     .map((line) => line.trim().replace(/^[-*+]\s+/, "").trim())
     .filter((line) => line.length > 0 && !/^\{[a-z0-9_-]+\}$/i.test(line));
 }
+
+const TABLE_SEPARATOR = /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?$/;
+
+function splitTableRow(line: string): string[] {
+  const inner = line.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "");
+  return inner.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, "|").trim());
+}
+
+/** First pipe table in a markdown section: a header row, a separator row, then data rows until the first non-table line. Null when there is none. */
+export function parseMarkdownTable(sectionBody: string): { headers: string[]; rows: string[][] } | null {
+  const lines = sectionBody.replace(/<!--[\s\S]*?-->/g, "").split("\n").map((line) => line.trim());
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (!lines[i].startsWith("|") || !lines[i + 1].includes("-") || !TABLE_SEPARATOR.test(lines[i + 1])) continue;
+    const rows: string[][] = [];
+    for (const line of lines.slice(i + 2)) {
+      if (!line.startsWith("|")) break;
+      rows.push(splitTableRow(line));
+    }
+    return { headers: splitTableRow(lines[i]), rows };
+  }
+  return null;
+}

@@ -301,7 +301,7 @@ export function runDoctor(root: string): DoctorReport {
   // Invalid work items are the normal state of a running pipeline, so they are counted and
   // reported but deliberately kept out of `findings` — they must not decide the verdict.
   const items = listFeatures(root);
-  const invalidItems = items.filter((f) => !validateFeature(f).valid).length;
+  const invalidItems = items.filter((f) => !validateFeature(f, false, true, config.cfg?.harness).valid).length;
 
   return {
     root,

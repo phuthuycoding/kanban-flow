@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   STAGES,
@@ -9,7 +12,7 @@ import {
   type Stage,
 } from "../workflow/schema.js";
 import { splitFrontmatter, applyFrontmatter, hasUnresolvedPlaceholders, isFilledFile } from "../shared/frontmatter.js";
-import { parseFolderName, featureFolderName } from "../workflow/features.js";
+import { parseFolderName, featureFolderName, readFeatureMeta } from "../workflow/features.js";
 import { countTasks } from "../workflow/status.js";
 
 describe("schema", () => {
@@ -148,5 +151,33 @@ describe("tasks", () => {
   it("ignores non-task bullets", () => {
     const md = "- just a note\n- [x] done";
     expect(countTasks(md)).toEqual({ done: 1, total: 1 });
+  });
+});
+
+describe("feature meta tasks", () => {
+  const readWith = (extra: Record<string, unknown>) => {
+    const dir = mkdtempSync(join(tmpdir(), "kf-meta-"));
+    try {
+      writeFileSync(join(dir, ".kfw.json"), JSON.stringify({ schema: "kanban-flow", feature: "demo", context: "app", created: "20260101_0900", ...extra }));
+      return readFeatureMeta(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("accepts valid task state and unknown extra keys", () => {
+    const tasks = {
+      "TASK-001": { state: "done", attempts: 1, branch: "b", base: "abc", mergeSha: "def", session: "s", updatedAt: "now", future: true },
+      "TASK-002": { state: "blocked", reason: "conflict" },
+    };
+    expect(readWith({ tasks, other: 1 })?.tasks).toEqual(tasks);
+  });
+
+  it("rejects malformed task state", () => {
+    expect(() => readWith({ tasks: { "TASK-001": { state: "finished" } } })).toThrow("Invalid feature metadata");
+    expect(() => readWith({ tasks: { "TASK-001": { state: "done", attempts: "1" } } })).toThrow("Invalid feature metadata");
+    expect(() => readWith({ tasks: { "TASK-001": { state: "failed", reason: 5 } } })).toThrow("Invalid feature metadata");
+    expect(() => readWith({ tasks: [] })).toThrow("Invalid feature metadata");
+    expect(() => readWith({ tasks: { "TASK-001": "done" } })).toThrow("Invalid feature metadata");
   });
 });
