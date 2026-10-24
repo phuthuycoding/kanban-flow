@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { cmdRun } from "../cli/commands/run.js";
 import { readProjectConfig } from "../project/config.js";
 import { executeTaskRun, prepareTaskRun, setTaskState } from "../harness/task-run.js";
-import { pathAllowed, recoverItemMerge } from "../harness/task-pipeline.js";
+import { pathAllowed, recoverItemMerge, mergeLockWait } from "../harness/task-pipeline.js";
+import { LOCK_TIMEOUT_MS } from "../shared/lock.js";
 import { gitDriveProject, type DriveTask, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -265,5 +266,13 @@ describe("recoverItemMerge (TC-025)", () => {
     await recoverItemMerge(p.root, "demo");
     expect(itemHead()).toBe(head);
     expect(state().state).toBe("verifying");
+  });
+});
+
+describe("merge lock wait (review FINDING-001)", () => {
+  it("outlasts the holder's run timeout instead of the generic 30s lock wait", () => {
+    expect(mergeLockWait(30 * 60_000)).toBe(30 * 60_000 + LOCK_TIMEOUT_MS);
+    expect(mergeLockWait(60_000)).toBeGreaterThan(LOCK_TIMEOUT_MS);
+    expect(mergeLockWait(0)).toBe(Number.MAX_SAFE_INTEGER);
   });
 });

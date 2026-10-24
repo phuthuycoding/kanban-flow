@@ -3,20 +3,29 @@ import { spawnSync } from "node:child_process";
 import { findFeature, type TaskState } from "../workflow/features.js";
 import type { PlannedTask } from "../workflow/tasks.js";
 import type { HarnessConfig } from "./config.js";
-import { withLock } from "../shared/lock.js";
+import { LOCK_TIMEOUT_MS, withLock } from "../shared/lock.js";
 import { readProjectConfig } from "../project/config.js";
 import {
   changedPathsSince, commitAll, mergeAbort, mergeInProgress, mergeNoFf, resetHard, revParse, runGit, trackedChanges, untrackedFiles,
 } from "../shared/git.js";
 import { removeTaskWorktree, taskBranch, taskWorktreePath, type TaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
-import { setTaskState, type CompleteTaskInput, type TaskCompletion } from "./task-run.js";
+import { setTaskState, type CompleteTaskInput, type TaskCompletion } from "./task-state.js";
 
 const SUBJECT_MAX = 72;
 const OUTPUT_TAIL = 2000;
 const VERIFY_MAX_BUFFER = 64 * 1024 * 1024;
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
+ * How long a task waits for the item's merge lock. Verify runs while the lock is held, so the generic 30s lock wait
+ * would fail a second `kf run --task` (another process) behind any verify slower than that; wait out the holder's
+ * run timeout instead. A run without a timeout waits without one.
+ */
+export function mergeLockWait(runTimeoutMs: number): number {
+  return runTimeoutMs > 0 ? runTimeoutMs + LOCK_TIMEOUT_MS : Number.MAX_SAFE_INTEGER;
+}
 
 const normalise = (pattern: string): string => {
   let p = pattern.replace(/`/g, "").trim();
@@ -136,7 +145,7 @@ function mergeAndVerify(input: MergeInput, item: { path: string }, finish: Finis
       return finish("failed", failure);
     }
     return finish("done", undefined, {}, { mergeSha });
-  });
+  }, { timeoutMs: mergeLockWait(input.timeoutMs) });
 }
 
 /**
