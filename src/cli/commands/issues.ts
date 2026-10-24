@@ -10,7 +10,8 @@ import { splitFrontmatter, isFilledFile } from "../../shared/frontmatter.js";
 import { ARTIFACTS } from "../../workflow/schema.js";
 import { findRoot, ghFailure, noRepository } from "./helpers.js";
 import { gh } from "../../integrations/github.js";
-import { cmdArchive } from "./archive.js";
+import { renderArchive } from "./archive.js";
+import { archiveItem } from "../../workflow/archive.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -162,9 +163,9 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
  * the run itself is the confirmation, and the merge gate + dones hook cover what the
  * delivered pseudo-stage used to do. Kept as a thin alias that forwards to `kf archive`.
  */
-async function cmdDoneAlias(name: string | undefined, cwd: string): Promise<CmdResult> {
+async function cmdDoneAlias(root: string, name: string | undefined): Promise<CmdResult> {
   if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues done <feature> (deprecated — use kf archive <feature>)", stderr: "missing feature" };
-  const res = await cmdArchive({ command: "archive", positionals: [name], options: {} }, cwd);
+  const res = renderArchive(await archiveItem(root, name));
   return {
     ...res,
     stdout: `⚠ 'kf issues done' is deprecated — delivery is finalized by 'kf archive' (forwarding).\n${res.stdout}`,
@@ -181,7 +182,7 @@ export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label, args.options.title);
   if (sub === "sync") return cmdSync(root.root, repo, args.positionals[1]);
   if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2], Boolean(args.options.pr));
-  if (sub === "done") return cmdDoneAlias(args.positionals[1], cwd);
+  if (sub === "done") return cmdDoneAlias(root.root, args.positionals[1]);
   if (sub === "view") return cmdView(repo, args.positionals[1]);
   if (sub !== undefined && /^\d+$/.test(sub)) return cmdView(repo, sub);
   if (sub !== undefined) {
