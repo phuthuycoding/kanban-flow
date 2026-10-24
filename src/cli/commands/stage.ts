@@ -1,5 +1,6 @@
 import { STAGES, type Stage } from "../../workflow/schema.js";
-import { cmdArchive } from "./archive.js";
+import { renderArchive } from "./archive.js";
+import { archiveItem } from "../../workflow/archive.js";
 import { findRoot } from "./helpers.js";
 import { transitionItem } from "../../workflow/transition.js";
 import type { ParsedArgs } from "../args.js";
@@ -32,7 +33,13 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     case "hook-failed":
       return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };
     case "refused":
-      if (outcome.reason === "archive-required") return cmdArchive({ ...args, command: "archive", positionals: [name] }, cwd);
+      if (outcome.reason === "archive-required") {
+        return renderArchive(await archiveItem(root.root, name, {
+          force: Boolean(args.options.force),
+          skipHooks: Boolean(args.options["skip-hooks"]),
+          skipSpecs: Boolean(args.options["skip-specs"]),
+        }));
+      }
       return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };
     case "moved":
       break;
@@ -48,17 +55,15 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     // snapshot", which would destroy hand edits on a command that never offered to. A re-sync
     // that refuses is the correct outcome here, and archive says why.
     //
-    // Archive can throw as well as return non-zero — a missing source artifact, an unwritable
-    // docs tree. The move and the metadata write have already committed by now, so a throw must
-    // not turn a successful reopen into exit 1.
-    let resync: CmdResult;
-    try {
-      resync = await cmdArchive({ command: "archive", positionals: [name], options: {} }, cwd);
-    } catch (err) {
-      const why = err instanceof Error ? err.message : String(err);
+    // Archive can fail as well as refuse — a missing source artifact, an unwritable docs tree.
+    // The move and the metadata write have already committed by now, so a failure must not
+    // turn a successful reopen into exit 1.
+    const resync = await archiveItem(root.root, name);
+    if (resync.kind === "error") {
+      const why = resync.error instanceof Error ? resync.error.message : String(resync.error);
       return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced: ${why}\n  Fix that, then run: kf archive ${name}` };
     }
-    if (resync.code !== 0) {
+    if (resync.kind === "refused" || resync.kind === "hook-failed") {
       return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced. Run: kf archive ${name}\n${resync.stdout}` };
     }
     return { code: 0, stdout: `${moved}\n${resync.stdout}` };
