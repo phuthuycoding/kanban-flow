@@ -169,7 +169,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 8 kanban skills for agent skill dirs (default agent: claude). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
+    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 9 kanban skills for agent skill dirs (default agent: claude). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },
