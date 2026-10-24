@@ -8,7 +8,7 @@ import { findFeature, stageDir, writeFeatureMeta, type Bypass, type WorktreeRegi
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { withLock } from "../shared/lock.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
-import { recordBypasses, bypassNote } from "../cli/commands/helpers.js";
+import { recordBypasses, bypassNote } from "./bypass.js";
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
