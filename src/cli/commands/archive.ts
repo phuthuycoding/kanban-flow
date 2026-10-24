@@ -364,6 +364,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
       (teardown.unmergedCommits > 0
         ? `\n  ⚠ ${teardown.branch} has ${teardown.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
         : "") +
+      teardown.taskBranches.map((b) => `\n  kept task branch: ${b}`).join("") +
       teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("")
     : "";
   const issueNote = f.meta?.issue ? "" : "\n  ⚠ no linked issue — tracker has no delivery record.";

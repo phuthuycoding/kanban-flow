@@ -83,6 +83,7 @@ async function cmdWorktreeList(args: ParsedArgs, cwd: string): Promise<CmdResult
     lines.push(`  path:   ${i.path}${i.missing ? "  (missing)" : ""}`);
     lines.push(`  branch: ${i.branch}${i.dirty === null ? "" : i.dirty ? "  (dirty)" : ""}`);
     lines.push(`  domain: http://${i.domain}  → 127.0.0.1:${i.port}`);
+    if (i.tasks) lines.push(`  tasks:  ${i.tasks.map((t) => `${t.task}${t.branch ? ` (${t.branch})` : ""}${t.dirty ? " (dirty)" : ""}`).join(", ")}`);
   }
   if (orphans.length > 0) {
     lines.push("", "Orphans:");

@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, join, sep } from "node:path";
 
 import { listFeatures } from "../workflow/features.js";
 import { portsInUse, readRoutes } from "./routes.js";
-import { isManagedBranch, type WorktreeConfig } from "./config.js";
+import { isManagedBranch, taskWorktreesDir, type WorktreeConfig } from "./config.js";
 
 export type { WorktreeRegistration } from "../workflow/features.js";
 
@@ -57,6 +58,14 @@ export function gitWorktreeEntries(root: string): GitWorktreeEntry[] {
   return entries;
 }
 
+/** Linked worktrees git lists under `<baseDir>/<feature>.tasks/` (git reports canonical paths). */
+export function taskWorktreeEntries(root: string, cfg: WorktreeConfig, feature: string): GitWorktreeEntry[] {
+  const dir = taskWorktreesDir(cfg, feature);
+  const parent = dirname(dir);
+  const prefix = join(existsSync(parent) ? realpathSync(parent) : parent, basename(dir)) + sep;
+  return gitWorktreeEntries(root).filter((e) => e.path.startsWith(prefix));
+}
+
 /** Uncommitted or untracked content → teardown must refuse, never silently drop it. */
 export function worktreeDirty(path: string): boolean {
   const status = git(path, ["status", "--porcelain"]);
@@ -98,6 +107,15 @@ export interface WorktreeListRow {
   dirty: boolean | null;
   /** Item registry points at a path git no longer tracks. */
   missing: boolean;
+  /** Task worktrees of this item; omitted when it has none. */
+  tasks?: TaskWorktreeRow[];
+}
+
+export interface TaskWorktreeRow {
+  task: string;
+  path: string;
+  branch: string | null;
+  dirty: boolean;
 }
 
 export interface Orphan {
@@ -130,6 +148,16 @@ export function listWorktrees(root: string, cfg: WorktreeConfig): { items: Workt
       dirty: missing || !existsSync(wt.path) ? null : worktreeDirty(wtPath),
       missing,
     });
+    const taskEntries = !isGitRepo(root) ? [] : taskWorktreeEntries(root, cfg, f.name);
+    if (taskEntries.length > 0) {
+      for (const t of taskEntries) managedPaths.add(t.path);
+      items[items.length - 1].tasks = taskEntries.map((t) => ({
+        task: basename(t.path),
+        path: t.path,
+        branch: t.branch,
+        dirty: worktreeDirty(t.path),
+      }));
+    }
     if (missing) orphans.push({ kind: "missing-worktree", detail: `${f.name}: registry path ${wt.path} is not a git worktree` });
   }
 
