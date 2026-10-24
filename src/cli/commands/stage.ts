@@ -1,20 +1,7 @@
-import { rename } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-
-import { STAGES, TRANSITIONS, type Stage } from "../../workflow/schema.js";
-import { findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
-import { withLock } from "../../shared/lock.js";
+import { STAGES, type Stage } from "../../workflow/schema.js";
 import { cmdArchive } from "./archive.js";
-import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
-import { runHook, resolveHook, type HookResult, type HookSource } from "../../integrations/hooks.js";
-import { findRoot, recordBypasses, bypassNote } from "./helpers.js";
-import { readProjectConfig } from "../../project/config.js";
-import { worktreeConfig } from "../../worktree/config.js";
-import { ensureWorktree, forceRemoveWorktree } from "../../worktree/lifecycle.js";
-import { syncBase } from "../../project/base-sync.js";
-import type { WorktreeRegistration } from "../../workflow/features.js";
+import { findRoot } from "./helpers.js";
+import { transitionItem } from "../../workflow/transition.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -33,201 +20,29 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   }
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
-  if (f.stage === "dones") {
-    return { code: 1, stdout: `Feature '${name}' is already archived (dones).`, stderr: "already dones" };
-  }
 
-  // A cancelled item has exactly one way back: the stage it was cancelled from.
-  let isReopen = false;
-  if (f.stage === "cancelled") {
-    const from = f.meta?.cancellation?.fromStage;
-    if (!from) {
-      return { code: 1, stdout: `'${name}' is cancelled but its metadata has no fromStage, so kf cannot tell where it belongs. Re-run with --force to place it anywhere.`, stderr: "cancellation missing" };
-    }
-    if (to !== from && !(args.options.force as boolean)) {
-      return { code: 1, stdout: `Cancelled '${name}' can only be reopened at ${from} (where it was cancelled). Run: kf stage ${name} ${from}`, stderr: "wrong reopen stage" };
-    }
-    isReopen = to === from;
+  const outcome = await transitionItem(root.root, name, to, {
+    force: Boolean(args.options.force),
+    skipHooks: Boolean(args.options["skip-hooks"]),
+    cwd,
+  });
+  switch (outcome.kind) {
+    case "error":
+      throw outcome.error;
+    case "hook-failed":
+      return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };
+    case "refused":
+      if (outcome.reason === "archive-required") return cmdArchive({ ...args, command: "archive", positionals: [name] }, cwd);
+      return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };
+    case "moved":
+      break;
   }
-
-  const allowed = TRANSITIONS[f.stage];
-  if (f.stage !== "cancelled" && !allowed.includes(to)) {
-    const desc = allowed.join(", ");
-    return {
-      code: 1,
-      stdout: `Cannot move '${name}' ${f.stage} → ${to}. Allowed: ${desc}.`,
-      stderr: "not allowed transition",
-    };
-  }
-  // Reopening into `dones` is putting an item back where it was, not archiving it again. Routing
-  // it through archive made `kf cancel`'s own advertised reopen command refuse itself, with no
-  // escape: archive rejects a cancelled item before it ever looks at --force. The move happens
-  // below, and the archive state it had is restored right after — see the isReopen tail.
-  if (to === "dones" && !isReopen) return cmdArchive({ ...args, command: "archive", positionals: [name] }, cwd);
-
-  // Gate: feature must be valid for its CURRENT stage before leaving it.
-  const force = Boolean(args.options.force);
-  const forcedCodes: string[] = [];
-  // Returning to planning is checked against the brainstorm gate: the requirement must still be
-  // confirmed. A cancelled item is exempt — pretending it sits in brainstorm walked straight past
-  // the `cancelled` shortcut inside validateFeature, so `kf validate` called the item valid while
-  // `kf stage` refused the very reopen `kf cancel` prints, and blamed a stage it was not in. The
-  // only way through was --force, which stamps a permanent bypass for a gate that should not hold.
-  const check = to === "planning" && f.stage !== "brainstorm" && f.stage !== "cancelled"
-    ? validateFeature({ ...f, stage: "brainstorm" }, false, false, readProjectConfig(root.root).harness)
-    : validateFeature(f, false, true, readProjectConfig(root.root).harness);
-  if (!check.valid) {
-    if (!force) {
-      return {
-        code: 1,
-        stdout: `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`,
-        stderr: "gate failed",
-      };
-    }
-    forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
-  }
-
-  // Directional gate: PASS/FAIL/REQUIREMENT_BUG semantics of the reports.
-  const direction = checkDirectionGate(f, to);
-  if (direction.length > 0) {
-    if (!force) {
-      const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-      return {
-        code: 1,
-        stdout: `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\nOr re-run with --force.`,
-        stderr: "direction gate failed",
-      };
-    }
-    forcedCodes.push(...direction.map((i) => i.code));
-  }
-
-  // Freshness: before planning surveys code or implementation cuts the worktree
-  // branch, fast-forward the base checkout to upstream — a transition that is
-  // going to fail (gates above) never reaches this.
-  let baseNote = "";
-  if (to === "planning" || to === "implementation") {
-    const sync = syncBase(root.root);
-    if (sync.warning) baseNote = `\n  ⚠ ${sync.warning}`;
-    else if (sync.note) baseNote = `\n  ${sync.note}`;
-  }
-
-  // Phase hook: run the hook of the stage we are entering (before the move).
-  // If it exits non-zero the transition is refused, unless --skip-hooks.
-  const skipHooks = Boolean(args.options["skip-hooks"]);
-  let hookResult: HookResult | null = null;
-  const skippedHook: HookSource | null = skipHooks ? resolveHook(root.root, to) : null;
-  if (!skipHooks) {
-    hookResult = runHook(root.root, {
-      feature: f.name,
-      context: f.context,
-      dir: f.dir,
-      root: root.root,
-      from: f.stage,
-      to,
-      approval: to === "planning" ? "pending" : f.meta?.approval?.status ?? "pending",
-    });
-    if (hookResult.ran && !hookResult.ok) {
-      return {
-        code: 1,
-        stdout:
-          `Hook '${to}' failed (exit ${hookResult.code})${hookResult.hook ? ` [${hookResult.hook.path}]` : ""}.\nTransition refused.\n\n${hookResult.output}\n\nRe-run with --skip-hooks to bypass.`,
-        stderr: "hook failed",
-      };
-    }
-  }
-
-  const dest = stageDir(root.root, to);
-  const target = join(dest, f.folder);
-  if (existsSync(target)) {
-    return { code: 1, stdout: `Target already exists: ${target}`, stderr: "target exists" };
-  }
-  if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
-
-  // Worktree lifecycle: entering implementation provisions the environment. Fail-closed —
-  // a work item implementing on the user's main checkout is exactly what this prevents.
-  // Only a newly created worktree is rolled back below; a reused one (re-enter after FAIL)
-  // stays, because it predates this transition.
-  let worktree: WorktreeRegistration | null = null;
-  const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
-  if (to === "implementation" && wtCfg.enabled) {
-    try {
-      worktree = await ensureWorktree(root.root, f, wtCfg);
-    } catch (err) {
-      return {
-        code: 1,
-        stdout: `Cannot move '${name}' to implementation — worktree setup failed:\n  ${err instanceof Error ? err.message : String(err)}\n\nFix that, or set "worktree.enabled": false in .kf/config.json.`,
-        stderr: "worktree setup failed",
-      };
-    }
-  }
-
-  const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
-  const removeNewWorktree = async (): Promise<void> => {
-    if (worktree && !f.meta!.worktree) {
-      try {
-        await forceRemoveWorktree(root.root, { ...f, meta: { ...f.meta!, worktree } }, wtCfg);
-      } catch {
-        /* best-effort rollback — the failed move is the error that matters */
-      }
-    }
-  };
-  try {
-    // Only the re-read, the write and the rename hold the lock — gates, hooks and the worktree stay outside.
-    const refused = await withLock(root.root, f.name, async (): Promise<CmdResult | null> => {
-      const cur = findFeature(root.root, f.name);
-      if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
-        return { code: 1, stdout: `Cannot move '${name}': it changed while the transition was running. Re-run: kf stage ${name} ${to}`, stderr: "changed concurrently" };
-      }
-      if (existsSync(target)) return { code: 1, stdout: `Target already exists: ${target}`, stderr: "target exists" };
-      let metadataUpdated = false;
-      try {
-        let meta = recorded.length > 0 ? { ...cur.meta, bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : cur.meta;
-        if (worktree) meta = { ...meta, worktree };
-        // Putting an item back in `dones` means putting back the state it had there. `status` does
-        // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
-        // which can legitimately refuse on an item that was never fully valid.
-        if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "dones" ? "archived" : undefined };
-        if (to === "planning") {
-          await writeFeatureMeta(cur.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
-          metadataUpdated = true;
-        } else if (to === "testing" || to === "implementation") {
-          await writeFeatureMeta(cur.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
-          metadataUpdated = true;
-        } else if (recorded.length > 0 || cur.stage === "cancelled" || worktree) {
-          await writeFeatureMeta(cur.dir, meta);
-          metadataUpdated = true;
-        }
-        await rename(cur.dir, target);
-      } catch (err) {
-        if (metadataUpdated) {
-          try {
-            await writeFeatureMeta(cur.dir, cur.meta);
-          } catch (rollbackError) {
-            throw new AggregateError([err, rollbackError], `Transition failed and metadata rollback was incomplete for '${name}'.`);
-          }
-        }
-        throw err;
-      }
-      return null;
-    });
-    if (refused) {
-      await removeNewWorktree();
-      return refused;
-    }
-  } catch (err) {
-    await removeNewWorktree();
-    throw err;
-  }
-  const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
-  const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})` : "";
-  const moved = `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${baseNote}${worktreeNote}${hookNote}${bypassNote(recorded)}`;
+  const moved = outcome.stdout;
 
   // An item reopened into `dones` must end up as archived as it was: `status: "archived"` back,
   // and canonical docs re-synced, since `kf cancel --purge-docs` may have deleted them. Archive
   // is idempotent once the item is in `dones`, so hand off rather than duplicate its logic.
-  if (isReopen && to === "dones") {
+  if (outcome.reopened && to === "dones") {
     // The caller's flags are deliberately NOT forwarded. `--force` on `kf stage` means "skip a
     // gate"; inside archive it also means "overwrite canonical docs that changed since the
     // snapshot", which would destroy hand edits on a command that never offered to. A re-sync
