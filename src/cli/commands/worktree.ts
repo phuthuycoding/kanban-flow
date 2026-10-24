@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
+import { updateFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
 import { createProxyServer } from "../../proxy/server.js";
 import { readMachineConfig, splitListen, worktreeConfig } from "../../worktree/config.js";
@@ -11,7 +11,7 @@ import { ensureWorktree, forceRemoveWorktree, teardownWorktree } from "../../wor
 import { listWorktrees } from "../../worktree/manager.js";
 import { buildSetupPlan, renderPlan, type SetupStep } from "../../worktree/setup.js";
 import { syncBase } from "../../project/base-sync.js";
-import { findRoot } from "./helpers.js";
+import { findRoot, resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -29,10 +29,9 @@ function worktreeInfoLines(wt: { path: string; branch: string; domain: string; p
 async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[1];
   if (!name) return { code: 1, stdout: "Usage: kf worktree create <feature>", stderr: "missing feature" };
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const f = root.item;
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
   const cfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
   // Sync the base checkout to upstream before the kf/<feature> branch is cut.
@@ -48,10 +47,9 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
 async function cmdWorktreeRemove(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[1];
   if (!name) return { code: 1, stdout: "Usage: kf worktree remove <feature> [--force]", stderr: "missing feature" };
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const f = root.item;
   if (!f.meta?.worktree) return { code: 1, stdout: `Feature '${name}' has no worktree.`, stderr: "no worktree" };
   const cfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
   const result = args.options.force

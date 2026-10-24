@@ -6,7 +6,7 @@ import { computeStatus, renderStatusText, statusToJson } from "../../workflow/st
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
 import { readProjectConfig } from "../../project/config.js";
-import { findRoot } from "./helpers.js";
+import { findRoot, resolveItem } from "./helpers.js";
 import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
 import type { Finding } from "../../workflow/findings.js";
@@ -39,10 +39,9 @@ export async function cmdList(args: ParsedArgs, cwd: string): Promise<CmdResult>
 export async function cmdShow(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: "Missing feature name.", stderr: "missing feature" };
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const f = root.item;
   const specPath = join(f.dir, ARTIFACTS["spec-requirement"].file);
   let content: string;
   try {

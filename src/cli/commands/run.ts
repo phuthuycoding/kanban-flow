@@ -9,7 +9,7 @@ import { executeChain, planFor, type ChainResultSummary } from "../../harness/ch
 import { isPidAlive, DEFAULT_TIMEOUT_MS, type RunOutcome } from "../../harness/run.js";
 import { executeTaskRun, prepareTaskRun, runConflict, taskPrompt, taskSessionKey } from "../../harness/task-run.js";
 import { startDetached, superviseRun } from "../../harness/supervise.js";
-import { findRoot } from "./helpers.js";
+import { findRoot, resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -89,10 +89,9 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
   if (args.options.agent !== undefined) {
     return { code: 1, stdout: "--agent was replaced by --role: stages are assigned to roles (harness.roles), and a role points at a runner. See: kf harness", stderr: "agent flag removed" };
   }
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const feature = findFeature(root.root, name);
-  if (!feature) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const feature = root.item;
 
   if (typeof args.options.supervise === "string") {
     const summary = await superviseRun(root.root, name, args.options.supervise);
