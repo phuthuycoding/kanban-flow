@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { findFeature, writeFeatureMeta, type Feature, type RunRecord } from "../workflow/features.js";
+import { isPidAlive } from "../shared/process.js";
+import { findFeature, updateFeatureMeta, type Feature, type RunRecord, type RunStatus } from "../workflow/features.js";
 import type { Stage } from "../workflow/schema.js";
 import type { RunnerConfig } from "./config.js";
 import { buildWorkerPrompt, currentFailReport, runMarker, type Assignment, type PreviousStep } from "./prompt.js";
 import { captureSession, isResumeFailure, parseUsage, provisionSession } from "./session.js";
 
+export { isPidAlive };
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const TAIL_BYTES = 64 * 1024;
 const KILL_GRACE_MS = 5_000;
@@ -27,6 +29,11 @@ export interface RunPlan {
   output?: string;
   /** Position in the stage's role chain. */
   chain?: { id: string; index: number; total: number };
+  /** Set for a task run: recorded on the run, and the worker runs in `cwd` under session key `sessionKey`. */
+  task?: string;
+  cwd?: string;
+  /** Key of the stored session; defaults to the role. */
+  sessionKey?: string;
   fresh: boolean;
   timeoutMs: number;
 }
@@ -38,46 +45,65 @@ export interface RunOutcome {
   note?: string;
 }
 
-export function isPidAlive(pid: number | undefined): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    if (err instanceof Error && "code" in err && err.code === "ESRCH") return false;
-    if (err instanceof Error && "code" in err && err.code === "EPERM") return true;
-    throw err;
-  }
-}
-
 function loadFeature(root: string, name: string): Feature {
   const feature = findFeature(root, name);
   if (!feature || !feature.meta) throw new Error(`Work item '${name}' disappeared or lost its metadata while a run was in progress.`);
   return feature;
 }
 
-/** Re-read metadata right before writing so a concurrent `kf stage` or supervisor update is not clobbered. */
+const FINISHED: ReadonlySet<RunStatus> = new Set(["done", "failed", "timeout", "reset"]);
+const statusRank = (status: RunStatus): number => (FINISHED.has(status) ? 1 : 0);
+/** Outcome fields a late, lower-ranked write must never change on a finished record. */
+const OUTCOME_KEYS = ["status", "statusLine", "summary", "usage", "exitCode", "endedAt", "error", "warning"] as const;
+
+const definedFields = (record: RunRecord): Partial<RunRecord> =>
+  Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as Partial<RunRecord>;
+
+/**
+ * Merge a write into the stored record of the same id. A finished record never goes back to
+ * `running`: a late write (e.g. the pid or supervisor pid landing after the final write) only
+ * contributes fields the stored record lacks. Equal or higher rank wins; absent fields are kept.
+ */
+export function mergeRunRecord(stored: RunRecord, incoming: RunRecord): RunRecord {
+  const fields = definedFields(incoming);
+  if (statusRank(incoming.status) >= statusRank(stored.status)) return { ...stored, ...fields };
+  for (const key of OUTCOME_KEYS) delete fields[key];
+  return { ...fields, ...definedFields(stored) } as RunRecord;
+}
+
+/** Add or merge `record` into a runs list; used inside an already-held item lock. */
+export function applyRunRecord(runs: RunRecord[] | undefined, record: RunRecord): RunRecord[] {
+  const next = [...(runs ?? [])];
+  const index = next.findIndex((r) => r.id === record.id);
+  if (index === -1) next.push(record);
+  else next[index] = mergeRunRecord(next[index], record);
+  return next;
+}
+
+/** Re-reads and writes under the per-item lock so a concurrent `kf stage` or supervisor update is not clobbered. */
 async function upsertRun(root: string, name: string, record: RunRecord): Promise<Feature> {
-  const feature = loadFeature(root, name);
-  const runs = [...(feature.meta!.runs ?? [])];
-  const index = runs.findIndex((r) => r.id === record.id);
-  if (index === -1) runs.push(record);
-  else runs[index] = record;
-  await writeFeatureMeta(feature.dir, { ...feature.meta!, runs });
-  return feature;
+  return updateFeatureMeta(root, name, (meta) => ({ ...meta, runs: applyRunRecord(meta.runs, record) }));
 }
 
 /** Sessions are keyed by role, not runner: two roles on the same CLI must not share context. */
 async function saveSession(root: string, name: string, role: string, session: string | null): Promise<void> {
-  const feature = loadFeature(root, name);
-  const sessions = { ...feature.meta!.sessions };
-  if (session === null) delete sessions[role];
-  else sessions[role] = session;
-  await writeFeatureMeta(feature.dir, { ...feature.meta!, sessions: Object.keys(sessions).length > 0 ? sessions : undefined });
+  await updateFeatureMeta(root, name, (meta) => {
+    const sessions = { ...meta.sessions };
+    if (session === null) delete sessions[role];
+    else sessions[role] = session;
+    return { ...meta, sessions: Object.keys(sessions).length > 0 ? sessions : undefined };
+  });
 }
 
+export const liveRuns = (feature: Feature): RunRecord[] => liveRecords(feature.meta?.runs);
+
 export function runningRun(feature: Feature): RunRecord | null {
-  return (feature.meta?.runs ?? []).find((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid))) ?? null;
+  return liveRuns(feature)[0] ?? null;
+}
+
+/** Every run of the item whose worker or supervisor is still alive. */
+export function liveRecords(runs: RunRecord[] | undefined): RunRecord[] {
+  return (runs ?? []).filter((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid)));
 }
 
 export function planPath(feature: Feature, id: string): string {
@@ -88,14 +114,23 @@ export function createRunPlan(
   root: string,
   feature: Feature,
   assignment: Assignment,
-  opts: { fresh: boolean; timeoutMs: number; previous?: PreviousStep | null },
+  opts: {
+    fresh: boolean;
+    timeoutMs: number;
+    previous?: PreviousStep | null;
+    /** Where the worker runs; set by the driver (the item worktree). */
+    cwd?: string;
+    /** Report a repair run must fix. Undefined picks the current one for an implementation run; null means none. */
+    failReport?: string | null;
+  },
 ): RunPlan {
   const id = randomUUID().slice(0, 8);
-  const failReport = assignment.stage === "implementation" ? currentFailReport(feature) : null;
-  const prompt = buildWorkerPrompt({ runId: id, feature, root, assignment, failReport, previous: opts.previous });
+  const failReport = opts.failReport !== undefined ? opts.failReport : assignment.stage === "implementation" ? currentFailReport(feature) : null;
+  const prompt = buildWorkerPrompt({ runId: id, feature, root, assignment, failReport, previous: opts.previous, absolutePaths: opts.cwd !== undefined });
   return {
     id, root, feature: feature.name, role: assignment.role, runnerName: assignment.runnerName,
     stage: assignment.stage, runner: assignment.runner, prompt, output: assignment.output,
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
     fresh: opts.fresh, timeoutMs: opts.timeoutMs,
   };
 }
@@ -171,7 +206,7 @@ interface SpawnResult {
   spawnError?: Error;
 }
 
-function killGroup(pid: number, signal: NodeJS.Signals): void {
+export function killGroup(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-pid, signal);
   } catch (err) {
@@ -223,19 +258,20 @@ function spawnWorker(argv: string[], opts: { cwd: string; env: NodeJS.ProcessEnv
  */
 export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process.env, allowReset = true): Promise<RunOutcome> {
   const feature = loadFeature(plan.root, plan.feature);
-  const stored = feature.meta!.sessions?.[plan.role];
+  const sessionKey = plan.sessionKey ?? plan.role;
+  const stored = feature.meta!.sessions?.[sessionKey];
   const provisioned = provisionSession(plan.runner, stored, plan.prompt, plan.fresh);
   const logRel = join("runs", `${plan.id}.log`);
   mkdirSync(join(feature.dir, "runs"), { recursive: true });
   const supervisorPid = feature.meta!.runs?.find((r) => r.id === plan.id)?.supervisorPid;
   let record: RunRecord = {
     id: plan.id, role: plan.role, runner: plan.runnerName, stage: plan.stage, mode: provisioned.mode, session: provisioned.session,
-    at: new Date().toISOString(), log: logRel, status: "running", supervisorPid, chain: plan.chain,
+    at: new Date().toISOString(), log: logRel, status: "running", supervisorPid, chain: plan.chain, ...(plan.task ? { task: plan.task } : {}),
   };
   await upsertRun(plan.root, plan.feature, record);
 
   const result = await spawnWorker(provisioned.argv, {
-    cwd: plan.root, env, logPath: join(feature.dir, logRel), timeoutMs: plan.timeoutMs,
+    cwd: plan.cwd ?? plan.root, env, logPath: join(feature.dir, logRel), timeoutMs: plan.timeoutMs,
     onSpawn: async (pid) => {
       record = { ...record, pid };
       await upsertRun(plan.root, plan.feature, record);
@@ -261,14 +297,14 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
   if (provisioned.mode === "resume" && isResumeFailure(plan.runner, exitCode, output)) {
     record = { ...record, status: "reset", error: "Resume failed: session no longer usable; stored session dropped." };
     await upsertRun(plan.root, plan.feature, record);
-    await saveSession(plan.root, plan.feature, plan.role, null);
+    await saveSession(plan.root, plan.feature, sessionKey, null);
     if (!allowReset) return { record, ok: false };
     const retry = await executeRun({ ...plan, id: randomUUID().slice(0, 8), fresh: true }, env, false);
     return { ...retry, note: `Session for role ${plan.role} was reset (run ${plan.id}); re-ran as ${retry.record.id}.` };
   }
   if (provisioned.mode === "start") {
-    const captured = captureSession(plan.runner, provisioned.session, { stdout: output, marker: runMarker(plan.id), cwd: plan.root, env });
-    if (captured) await saveSession(plan.root, plan.feature, plan.role, captured);
+    const captured = captureSession(plan.runner, provisioned.session, { stdout: output, marker: runMarker(plan.id), cwd: plan.cwd ?? plan.root, env });
+    if (captured) await saveSession(plan.root, plan.feature, sessionKey, captured);
     else if (plan.runner.session !== undefined) record = { ...record, warning: "Session id not captured from worker output; the next run will start fresh." };
     if (captured) record = { ...record, session: captured };
   }

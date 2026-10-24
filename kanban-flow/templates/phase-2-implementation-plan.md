@@ -28,11 +28,11 @@ status: planning
 
 ## Task Breakdown
 
-| Task | Description | Area | Dependencies | Expected output | FR / UC references |
-|---|---|---|---|---|---|
-| TASK-001 | {task_description} | {area} | {dependencies} | {expected_output} | {requirement_reference} |
+| Task | Description | Area | Dependencies | Expected output | FR / UC references | Role | Files |
+|---|---|---|---|---|---|---|---|
+| TASK-001 | {task_description} | {area} | {dependencies} | {expected_output} | {requirement_reference} | {role_or_dash} | {file_paths_dirs_or_globs} |
 
-Add one row per task. Track execution progress separately in `tasks.md` so the approved plan remains unchanged. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or a `## Documentation Impact` entry — or `kf validate` warns it is uncovered.
+Add one row per task. Execution progress lives outside the approved plan: in `.kfw.json` and the `tasks.md` that kf renders when the task harness runs, or in a hand-maintained `tasks.md` otherwise. **Role** is a key of `harness.roles` in `.kf/config.json`, or `-` for no specific role. **Files** is a comma-separated list of paths, directories or globs: the allowlist of everything the task may touch. Tasks with overlapping Files run one after another; an empty Files cell means the files are unknown and the task runs alone. Dependencies are `TASK-###` tokens or `-`. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or a `## Documentation Impact` entry — or `kf validate` warns it is uncovered.
 
 ## Complexity
 - Level: {complexity_level}

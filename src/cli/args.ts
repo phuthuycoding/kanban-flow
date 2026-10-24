@@ -200,11 +200,12 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   run: {
-    help: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]  — run the roles assigned to the work item's stage (harness.stages) as worker agents, in order, and record each run",
+    help: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]  — run the roles assigned to the work item's stage (harness.stages) as worker agents, in order, and record each run. kf run <feature> --task TASK-### [--fresh] [--timeout <min>] [--dry-run]  — run one planned task in its own task worktree (needs worktree.enabled; cannot combine with --stage, --role or --detach)",
     allowPositionals: true,
     options: {
       stage: { type: "string" },
       role: { type: "string" },
+      task: { type: "string" },
       agent: { type: "string" },
       fresh: { type: "boolean" },
       detach: { type: "boolean" },
@@ -218,6 +219,23 @@ const COMMANDS: Record<string, CmdSpec> = {
     allowPositionals: true,
     options: {
       json: { type: "boolean" },
+    },
+  },
+  tasks: {
+    help: "Usage: kf tasks <feature> [--json]  — list the planned tasks of a work item with wave, state, resolved role, dependencies and files (read-only)",
+    allowPositionals: true,
+    options: {
+      json: { type: "boolean" },
+    },
+  },
+  drive: {
+    help: "Usage: kf drive <feature> [--status] [--stop] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at the ship decision or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows where it is, --stop ends it and keeps worktrees",
+    allowPositionals: true,
+    options: {
+      status: { type: "boolean" },
+      stop: { type: "boolean" },
+      json: { type: "boolean" },
+      supervise: { type: "string" },
     },
   },
   worktree: {

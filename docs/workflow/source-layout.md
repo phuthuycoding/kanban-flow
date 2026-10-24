@@ -35,12 +35,12 @@ src/
 │   ├── validate-traceability.ts  # FR → UC → TC references
 │   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
 │   └── validate.ts       # facade: composes the checks, renders results, re-exports
-├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor
+├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor, task runs and completion pipeline, scheduler, kf drive
 ├── ship/                 # ship pipeline steps: publish, merge gate, release, changelog
 ├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation, hooks
 ├── dashboard/            # analytics HTTP server and HTML view
-├── shared/               # filesystem paths, frontmatter and time helpers
+├── shared/               # filesystem paths, frontmatter and time helpers, per-item lock, git helpers
 └── tests/                # all Vitest tests, grouped separately from runtime
     ├── helpers/          # fake agent CLIs and harness project fixture
     └── setup/            # vitest globalSetup (builds dist for detached-run tests)

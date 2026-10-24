@@ -136,7 +136,7 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
   // ERROR left out: it is not a defect in the artifacts but the human gate, and the `Approval:`
   // field and the `Next:` line below already say so. Listing it here would put a red ERROR on
   // every correctly-prepared item sitting in planning, which is exactly where the signal matters.
-  const blockers = validateFeature(feature).issues
+  const blockers = validateFeature(feature, false, true, harness).issues
     .filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
 
   return {

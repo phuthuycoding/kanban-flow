@@ -1,10 +1,14 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { STAGES } from "../workflow/schema.js";
-import { listFeatures, readFeatureMeta } from "../workflow/features.js";
+import { ARTIFACTS, STAGES } from "../workflow/schema.js";
+import { parseTaskGraph } from "../workflow/tasks.js";
+import { isPidAlive } from "../shared/process.js";
+import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
+import { worktreeConfig, worktreeDir } from "../worktree/config.js";
+import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, type ProjectConfig } from "./config.js";
@@ -266,6 +270,99 @@ function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): 
   return [];
 }
 
+/** Roles an open item's plan names that `harness.roles` does not declare. */
+function plannedRolesMissing(root: string, roles: Record<string, unknown>): DoctorFinding[] {
+  const findings: DoctorFinding[] = [];
+  for (const f of listFeatures(root).filter((x) => x.stage !== "dones")) {
+    const planFile = join(f.dir, ARTIFACTS["implementation-plan"].file);
+    if (!existsSync(planFile)) continue;
+    const missing = new Map<string, string[]>();
+    for (const t of parseTaskGraph(readFileSync(planFile, "utf8")).tasks) {
+      if (t.role === "-" || t.role in roles) continue;
+      missing.set(t.role, [...(missing.get(t.role) ?? []), t.id]);
+    }
+    for (const [role, ids] of missing) {
+      findings.push({
+        level: "ERROR",
+        area: `${f.stage}/${f.folder}`,
+        message: `${f.name}: ${ids.join(", ")} name role "${role}", which is not in harness.roles.`,
+        action: `declare harness.roles.${role} in .kf/config.json, or change the Role of ${ids.join(", ")} in the plan`,
+      });
+    }
+  }
+  return findings;
+}
+
+/** A run is live while its worker or supervisor pid answers; a drive records the same pids. */
+function hasLiveRunOrDrive(meta: ReturnType<typeof readFeatureMeta>): boolean {
+  if (!meta) return false;
+  if ((meta.runs ?? []).some((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid)))) return true;
+  return driveLive(meta.drive);
+}
+
+/** Task worktrees left behind by a drive or run that is no longer alive. */
+function staleTaskWorktrees(root: string, cfg: ReturnType<typeof readProjectConfig>): DoctorFinding[] {
+  const wt = worktreeConfig(root, cfg.worktree);
+  const baseDir = dirname(worktreeDir(wt, "x"));
+  const dirs = existsSync(baseDir) ? readdirSync(baseDir).filter((n) => n.endsWith(".tasks")) : [];
+  if (dirs.length === 0 || !isGitRepo(root)) return [];
+  const items = listFeatures(root);
+  const findings: DoctorFinding[] = [];
+  for (const dir of dirs) {
+    const feature = dir.slice(0, -".tasks".length);
+    const item = items.find((i) => i.name === feature && i.stage !== "dones");
+    if (item && hasLiveRunOrDrive(item.meta)) continue;
+    for (const entry of taskWorktreeEntries(root, wt, feature)) {
+      findings.push({
+        level: "WARNING",
+        area: entry.path,
+        message: `task worktree of ${feature} has no live run or drive.`,
+        action: item ? `kf worktree remove ${feature} --force` : `git worktree remove ${entry.path}`,
+      });
+    }
+  }
+  return findings;
+}
+
+/** A lock whose holder died is taken over by the next writer, but it keeps showing up until then. */
+function deadLocks(root: string): DoctorFinding[] {
+  const dir = join(root, ".works", ".locks");
+  if (!existsSync(dir)) return [];
+  const findings: DoctorFinding[] = [];
+  for (const name of readdirSync(dir).filter((n) => n.endsWith(".lock"))) {
+    const path = join(dir, name);
+    const holder = readFileSync(path, "utf8").trim();
+    if (!/^\d+$/.test(holder) || isPidAlive(Number(holder))) continue;
+    findings.push({
+      level: "WARNING",
+      area: path,
+      message: `lock held by pid ${holder}, which is dead.`,
+      action: `rm ${path}`,
+    });
+  }
+  return findings;
+}
+
+/** Harness readiness; the verify check applies only once a stage is assigned, the rest whenever a harness exists. */
+function checkHarness(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+  const harness = cfg?.harness;
+  if (!cfg || !harness) return [];
+  const findings: DoctorFinding[] = [];
+  const assigned = Object.values(harness.stages).some((chain) => Array.isArray(chain) && chain.length > 0);
+  if (assigned && !harness.verify?.stage?.length) {
+    findings.push({
+      level: "WARNING",
+      area: ".kf/config.json",
+      message: "harness.verify.stage is not set; kf drive refuses to start without it.",
+      action: 'set harness.verify.stage in .kf/config.json, e.g. [["npm", "test"]]',
+    });
+  }
+  findings.push(...plannedRolesMissing(root, harness.roles));
+  findings.push(...staleTaskWorktrees(root, cfg));
+  findings.push(...deadLocks(root));
+  return findings;
+}
+
 /** The file as written, not as normalised by readProjectConfig, which fills stacks in from stack. */
 function readRawConfig(root: string): Record<string, unknown> | null {
   try {
@@ -297,11 +394,12 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkUndelivered(root));
   findings.push(...checkAwaitingMerge(root));
   findings.push(...checkStatusMap(config.cfg));
+  findings.push(...checkHarness(root, config.cfg));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
   // reported but deliberately kept out of `findings` — they must not decide the verdict.
   const items = listFeatures(root);
-  const invalidItems = items.filter((f) => !validateFeature(f).valid).length;
+  const invalidItems = items.filter((f) => !validateFeature(f, false, true, config.cfg?.harness).valid).length;
 
   return {
     root,

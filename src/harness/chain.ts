@@ -10,6 +10,12 @@ export interface ChainOptions {
   /** Reuse this id for the first run so a detached supervisor updates the record it announced. */
   firstRunId?: string;
   env?: NodeJS.ProcessEnv;
+  /** Working directory of every worker (the driver passes the item worktree). */
+  cwd?: string;
+  /** Report a repair run must fix; see createRunPlan. */
+  failReport?: string | null;
+  /** Called before each role starts; a returned reason ends the chain without running that role. */
+  beforeRun?: (assignment: Assignment, index: number) => Promise<string | null>;
 }
 
 export interface ChainResultSummary {
@@ -19,6 +25,8 @@ export interface ChainResultSummary {
   stoppedAt?: string;
   /** Roles that never ran because the chain stopped. */
   skipped: string[];
+  /** Set when `beforeRun` refused a role: the reason it gave. */
+  refused?: string;
 }
 
 function loadFeature(root: string, name: string): Feature {
@@ -37,7 +45,7 @@ export function planFor(
   position?: { id: string; index: number; total: number },
   id?: string,
 ): RunPlan {
-  const plan = createRunPlan(root, feature, assignment, { fresh: opts.fresh, timeoutMs: opts.timeoutMs, previous });
+  const plan = createRunPlan(root, feature, assignment, { fresh: opts.fresh, timeoutMs: opts.timeoutMs, previous, cwd: opts.cwd, failReport: opts.failReport });
   return { ...plan, ...(id ? { id } : {}), ...(position ? { chain: position } : {}) };
 }
 
@@ -52,6 +60,8 @@ export async function executeChain(root: string, featureName: string, chain: Ass
   let previous: PreviousStep | null = null;
   const chainId = opts.firstRunId ?? newChainId();
   for (const [index, assignment] of chain.entries()) {
+    const refused = opts.beforeRun ? await opts.beforeRun(assignment, index) : null;
+    if (refused) return { outcomes, ok: false, stoppedAt: assignment.role, skipped: chain.slice(index + 1).map((a) => a.role), refused };
     const feature = loadFeature(root, featureName);
     const position = { id: chainId, index: index + 1, total: chain.length };
     const plan = planFor(root, feature, assignment, opts, previous, position, index === 0 ? opts.firstRunId : undefined);

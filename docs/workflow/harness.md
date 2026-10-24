@@ -103,9 +103,80 @@ Adding a model means adding a runner and pointing a role at it. Two models on on
 5. The main agent reads `STATUS` and `Summary` from the tail of the log, without swallowing the transcript, runs `kf validate` and decides on the transition. The gate does not take the worker's word for anything.
 6. On the repair loop, the next `kf run` resumes that role's session for that work item, and the prompt gains the path to the current FAIL report. `--fresh` forces a new session.
 
-`kf run --role <name>` runs exactly one role from the chain. `--dry-run` prints the plan for the whole chain, one argv and prompt block per role. The timeout is 30 minutes by default (`--timeout <minutes>`, `0` for none); on expiry the whole process group is killed and the run is marked `timeout`. There is no automatic retry: a failed resume resets the session exactly once and starts fresh. A work item has at most one `running` run at a time.
+`kf run --role <name>` runs exactly one role from the chain. `--dry-run` prints the plan for the whole chain, one argv and prompt block per role. The timeout is 30 minutes by default (`--timeout <minutes>`, `0` for none); on expiry the whole process group is killed and the run is marked `timeout`. There is no automatic retry: a failed resume resets the session exactly once and starts fresh. A stage-level `kf run` is refused while any other run of the item, or its drive, is live.
 
 With `--detach`, kf writes the chain plan, spawns a detached `kf run --supervise <id>` as the supervisor and returns immediately. The supervisor runs the whole chain and finds the folder again by work item name before writing results; when the folder is gone it writes `.works/harness/orphan-<id>.json`. `kf runs` reports `failed (supervisor lost)` when a record is still `running` but its pid is dead, and it never repairs the metadata on its own.
+
+## Task harness: `kf drive`
+
+The stage-level flow above still needs a main agent to call `kf run`, read STATUS and move stages. `kf drive` takes that over after the human's start decision: it runs the item from implementation to the ship decision on its own and stops only at a human gate or a named stop.
+
+### What it needs
+
+- `"worktree": { "enabled": true }` — every task runs in its own worktree, so parallel workers never share a checkout. `kf validate` warns on items in planning or backlog when a drive is configured but worktrees are off.
+- `harness.verify` — the commands kf itself runs to check work, pinned by a human. Each is an argv array run without a shell; kf never runs a command read from an artifact, a report or worker output.
+- A plan whose Task Breakdown has `Role` and `Files` columns (see [the implementation plan](artifacts.md#the-implementation-plans-task-breakdown)). The plan is fingerprinted by `kf approve`, so the graph and the role of each task are part of the approved contract.
+
+```json
+"harness": {
+  "verify": {
+    "task":  [["npm", "run", "typecheck"]],
+    "stage": [["npm", "run", "build"], ["npm", "test"]]
+  },
+  "parallel": 3,
+  "retries": 1,
+  "maxLoops": 2,
+  "budget": { "maxRuns": 30 }
+}
+```
+
+`parallel`, `retries`, `maxLoops` and `budget.maxRuns` default to 3, 1, 2 and 30 when unset; `kf harness` shows the effective values.
+
+### Task graph
+
+`kf tasks <f> [--json]` lists the planned tasks with their wave, state (`pending`, `ready`, `running`, `verifying`, `merging`, `done`, `failed`, `blocked`), resolved role, dependencies and files. A task's role is the plan's `Role` when it names a declared role; `-` means the first role of `harness.stages.implementation`, else `harness.main`.
+
+`kf run <f> --task TASK-###` runs one task by hand: it refuses an unknown task, an unfinished dependency, an item outside implementation, a stale approval or worktrees off, and it never retries on its own.
+
+For every task kf:
+
+1. cuts a task worktree and branch beside the item's — `<item-branch>--task-001` at `<baseDir>/<feature>.tasks/task-001`, no port or route;
+2. runs the role's runner there with a prompt naming only that task, its references, expected output and `Files` allowlist;
+3. checks the worker's changes against the allowlist — a change outside it **blocks the task and stops the drive** with `plan_change_needed`, because the approved plan must change;
+4. commits the result itself (`task(TASK-###): …`) and merges it into the item branch, one merge at a time; a modified tracked file in the item worktree or a conflict blocks the task;
+5. runs `harness.verify.task` in the item worktree and resets the item branch to the pre-merge commit when it fails.
+
+A worker that reports `BLOCKED` or `NEEDS_CONTEXT` blocks its task at once. Other failures are retried up to `harness.retries` times in the same session with the failure in the prompt, then block. The scheduler runs up to `parallel` ready tasks at once, never two whose `Files` overlap, and runs a task without `Files` (or with `**`, `*`, `.`) alone.
+
+### The drive
+
+`kf drive <f>` refuses, naming the human step, unless the item is in implementation with a current approval, worktrees are on, `harness.verify.stage` is set and no drive is live. Then a detached supervisor:
+
+1. runs the task graph (a bug, which has no task table, gets one run of the implementation role instead);
+2. runs `harness.verify.stage` in the item worktree;
+3. moves to testing through the normal gates and hooks, runs the testing role(s), reads the report;
+4. on PASS moves to review, runs the review role(s) and on PASS stops with **ready for ship decision** — it never ships or archives;
+5. on FAIL or REJECT moves back to implementation, runs one repair run pointed at the report, verifies and tests again, at most `maxLoops` times.
+
+Before every run it checks the budget, the approval fingerprint and a hash of `harness.roles`, `harness.runners`, `harness.verify` and `worktree.enabled`. A stop takes effect at the next step boundary: runs already in progress finish, no new one starts.
+
+| Stop code | Meaning | Next |
+|---|---|---|
+| `plan_change_needed` | a task touched files outside its allowlist | edit the plan's Files, `kf approve`, `kf drive` |
+| `tasks_blocked` | no task can progress | `kf tasks <f>`, fix, `kf drive` (blocked tasks go back to pending) |
+| `worker_blocked` | a worker reported BLOCKED/NEEDS_CONTEXT or a role did not finish | answer it, `kf drive` |
+| `verify_failed` | `harness.verify.stage` failed | fix, `kf drive` |
+| `loop_limit` | `maxLoops` repair loops used | fix by hand or raise `maxLoops` |
+| `requirement_bug` | review says REQUIREMENT_BUG | back to planning with the human |
+| `transition_refused` | a gate or stage hook refused a move | fix the cause, `kf drive` |
+| `approval_changed` | the approved contract changed mid-drive | re-approve, `kf drive` |
+| `config_changed` | roles, runners, verify or worktrees changed mid-drive | check `.kf/config.json`, `kf drive` |
+| `budget` | `budget.maxRuns` worker runs used | raise it, `kf drive` |
+| `git_error` | a merge abort or reset failed; the item branch needs a human | `kf tasks <f>` |
+| `stopped_by_user` | `kf drive --stop` | `kf drive` |
+| `internal_error` | the supervisor itself failed; the stack is in the drive log | `kf drive` |
+
+`kf drive <f> --status [--json]` shows the step, loops, runs, running tasks and — once stopped — the code, reason and next command; a running drive whose supervisor died shows as `crashed`. `kf drive <f> --stop` ends the supervisor and its workers and keeps every worktree and branch. Running `kf drive` again resumes: done tasks are skipped, failed and blocked ones go back to pending, a half-finished merge is aborted and retried. Every event is appended to `runs/drive-<id>.jsonl`, and `.kf/hooks/drive-stop.sh`, when present, runs on every stop with `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` — see [phase hooks](autoconfig.md#phase-hooks).
 
 ## Observability
 
@@ -133,11 +204,13 @@ not a role; declare a role in harness.roles that points at it
 ## Limits
 
 - The "do not move the stage" rule is a contract in the prompt, not something kf can enforce, because the worker has `kf` on its PATH. `runs[]` and `bypasses[]` are there to check against.
-- Chains are always sequential, never parallel. Stopping midway leaves a half-done state: the first role wrote its file, the next never ran. `kf run` says so, `kf runs` marks it `chain stopped i/n`, and the stage's artifact gate is still what decides.
+- Role chains within a stage are sequential. Parallelism exists only between planned tasks under `kf drive`. Stopping a chain midway leaves a half-done state: the first role wrote its file, the next never ran. `kf run` says so, `kf runs` marks it `chain stopped i/n`, and the stage's artifact gate is still what decides.
 - Killing a process group uses `process.kill(-pid)`, which is POSIX. On Windows, kf cannot clean up a worker's children.
-- `.kfw.json` is written both by the supervisor and by the main agent's `kf stage`. kf re-reads before writing and writes atomically, but there is no lock.
+- Every read-modify-write of `.kfw.json` holds a per-item lock in `.works/.locks/<feature>.lock`; a lock whose pid is dead is taken over, a live one is waited on for 30 seconds. `kf doctor` reports dead locks.
+- kf commits task results, so the repository's own git hooks and signing apply to those commits. A hook that waits for input, such as a GPG passphrase prompt, hangs until the run timeout and fails the task.
+- A verify command that leaves untracked files behind does not block merges; one that modifies tracked files does, until they are committed or reverted.
 - A worker log can contain whatever sensitive content the CLI printed. `.works/` is usually gitignored; keep it that way.
-- There is no async bridge yet, meaning nothing wakes the main agent once it is gone, and no `kf run --task` for ad-hoc work outside a stage.
+- There is no async bridge between agents, and `kf run --task` takes only a planned `TASK-###`, not ad-hoc work.
 
 ## Terms of use
 

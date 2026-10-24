@@ -60,7 +60,7 @@ flowchart LR
     I -->|scope change| P
 ```
 
-`implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply.
+`implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply. Under the task harness kf renders `tasks.md` from the task states, ticking a task only once it is merged and verified.
 
 ## Contract and traceability
 
@@ -80,7 +80,7 @@ The secret scan is the one check that ignores the stage entirely. It runs on **e
 
 A testing report with `status: PASS` must also carry a table under the `## Commands and Evidence` heading with at least one command line and every Exit code cell equal to `0`; breaking that is `testing_exit_code`. The rule does not prove the tests ran. It only stops a PASS report that has no numeric evidence behind it. FAIL, REJECT and BLOCKED reports are not bound by it.
 
-The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every use-case file for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval.
+The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every use-case file for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval. That includes the plan's Task Breakdown — dependencies, `Role` and `Files` — so the dispatch `kf drive` performs is the one that was approved.
 
 ## Cancelled
 

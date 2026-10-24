@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { findFeature, stageDir, writeFeatureMeta } from "../../workflow/features.js";
+import { withLock } from "../../shared/lock.js";
 import { findSecretLike } from "../../workflow/validate.js";
 import { runningRun } from "../../harness/run.js";
 import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
@@ -116,23 +117,31 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
   const dest = stageDir(root.root, "cancelled");
   mkdirSync(dest, { recursive: true });
   const target = join(dest, f.folder);
-  await writeFeatureMeta(f.dir, {
-    ...f.meta,
-    status: "cancelled",
-    cancellation,
-    worktree: undefined,
-    ...(recorded.length > 0 ? { bypasses: [...(f.meta.bypasses ?? []), ...recorded] } : {}),
-  });
-  try {
-    await rename(f.dir, target);
-  } catch (err) {
-    try {
-      await writeFeatureMeta(f.dir, f.meta);
-    } catch (rollbackError) {
-      throw new AggregateError([err, rollbackError], `Cancel failed and metadata rollback was incomplete for '${name}'.`);
+  const moveError = await withLock(root.root, f.name, async (): Promise<CmdResult | null> => {
+    const cur = findFeature(root.root, f.name);
+    if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
+      return { code: 1, stdout: `Cannot cancel '${name}': it changed while the cancel was running. Re-run: kf cancel ${name}`, stderr: "changed concurrently" };
     }
-    throw err;
-  }
+    await writeFeatureMeta(cur.dir, {
+      ...cur.meta,
+      status: "cancelled",
+      cancellation,
+      worktree: undefined,
+      ...(recorded.length > 0 ? { bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : {}),
+    });
+    try {
+      await rename(cur.dir, target);
+    } catch (err) {
+      try {
+        await writeFeatureMeta(cur.dir, cur.meta);
+      } catch (rollbackError) {
+        throw new AggregateError([err, rollbackError], `Cancel failed and metadata rollback was incomplete for '${name}'.`);
+      }
+      throw err;
+    }
+    return null;
+  });
+  if (moveError) return moveError;
 
   // Deleting docs cannot be undone, so it happens only after the move succeeded.
   let purged = false;

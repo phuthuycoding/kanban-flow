@@ -3,12 +3,15 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { writeFeatureMeta } from "../workflow/features.js";
+import { createTaskWorktree } from "../worktree/tasks.js";
+import { worktreeConfig } from "../worktree/config.js";
+import { gitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
@@ -310,5 +313,40 @@ describe("kf doctor --fix", () => {
     expect(res.stdout).toContain("wrote .kf/config.json defaults");
     const cfg = JSON.parse(await readFile(join(root, ".kf", "config.json"), "utf8")) as { schema?: string };
     expect(cfg.schema).toBe("kanban-flow");
+  });
+});
+
+describe("kf doctor harness checks (TC-031)", () => {
+  it("reports the four harness findings, and no verify warning once no stage is assigned", async () => {
+    const p = await gitDriveProject({
+      tasks: [{ id: "TASK-001" }, { id: "TASK-002" }],
+      stages: { implementation: ["coder"] },
+      verify: {},
+    });
+    try {
+      // Approval refuses an unknown role, so the role goes missing after approval (a role removed from the config).
+      await p.writePlan([{ id: "TASK-001" }, { id: "TASK-002", role: "designer" }]);
+      const wt = worktreeConfig(p.root, { enabled: true, baseDir: join(p.scratch, "wt"), routesFile: join(p.scratch, "routes.json") });
+      const task = await createTaskWorktree(p.root, p.feature(), "TASK-001", wt);
+      await mkdir(join(p.root, ".works", ".locks"), { recursive: true });
+      const lock = join(p.root, ".works", ".locks", "demo.lock");
+      await writeFile(lock, "999999");
+
+      const findings = runDoctor(p.root).findings;
+      expect(findings.find((f) => f.message.includes("harness.verify.stage"))).toMatchObject({ level: "WARNING", action: expect.stringContaining("harness.verify.stage") });
+      expect(findings.find((f) => f.level === "ERROR" && f.message.includes("designer"))?.message).toMatch(/demo.*TASK-002/);
+      expect(findings.find((f) => f.area === task.path)).toMatchObject({ level: "WARNING", action: "kf worktree remove demo --force" });
+      expect(findings.find((f) => f.area === lock)).toMatchObject({ level: "WARNING", action: `rm ${lock}` });
+
+      const cfgFile = join(p.root, ".kf", "config.json");
+      const raw = JSON.parse(readFileSync(cfgFile, "utf8"));
+      raw.harness.stages = {};
+      await writeFile(cfgFile, JSON.stringify(raw));
+      const after = runDoctor(p.root).findings;
+      expect(after.some((f) => f.message.includes("harness.verify.stage"))).toBe(false);
+      expect(after.some((f) => f.message.includes("designer"))).toBe(true);
+    } finally {
+      await p.cleanup();
+    }
   });
 });

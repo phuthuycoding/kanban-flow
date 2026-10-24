@@ -2,12 +2,13 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { findFeature, writeFeatureMeta, type RunRecord } from "../workflow/features.js";
+import { findFeature, updateFeatureMeta, type RunRecord } from "../workflow/features.js";
 import type { Stage } from "../workflow/schema.js";
 import { readProjectConfig } from "../project/config.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import { executeChain, newChainId, type ChainResultSummary } from "./chain.js";
 import { resolveChain, type Assignment } from "./prompt.js";
+import { applyRunRecord } from "./run.js";
 
 /** Stored so the detached supervisor can rebuild the chain without the parent process. */
 export interface ChainPlan {
@@ -51,7 +52,7 @@ export async function startDetached(root: string, featureName: string, chain: As
     at: new Date().toISOString(), log: join("runs", `${id}.log`), status: "running", supervisorPid,
     chain: { id, index: 1, total: chain.length },
   };
-  await writeFeatureMeta(feature.dir, { ...feature.meta, runs: [...(feature.meta.runs ?? []), record] });
+  await updateFeatureMeta(root, featureName, (meta) => ({ ...meta, runs: applyRunRecord(meta.runs, record) }));
   return record;
 }
 

@@ -138,7 +138,8 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
   if (change && features.length === 0) {
     return { code: 1, stdout: `Unknown feature '${change}'.`, stderr: "unknown feature" };
   }
-  const results = features.map((f) => validateFeature(f, strict));
+  const harness = readProjectConfig(root.root).harness;
+  const results = features.map((f) => validateFeature(f, strict, true, harness));
 
   // Domain infra is environmental, not contractual — a WARNING telling the human to onboard,
   // never an ERROR that blocks a gate. It surfaces here because `kf validate` is the command
@@ -160,6 +161,23 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
         } satisfies Finding);
         if (strict) r.valid = !r.issues.some((i) => i.severity === "ERROR") && !r.issues.some((i) => i.severity === "WARNING");
       }
+    }
+  }
+
+  // Raised before the start decision, so the human enables worktrees before choosing to drive
+  // rather than learning it from a refused `kf drive`.
+  if (!wtCfg.enabled && (harness?.verify?.stage?.length ?? 0) > 0) {
+    for (const r of results) {
+      if (r.stage !== "planning" && r.stage !== "backlog") continue;
+      r.issues.push({
+        severity: "WARNING",
+        feature: r.feature,
+        stage: r.stage,
+        file: ".kf/config.json",
+        code: "task_harness_needs_worktree",
+        message: `The task harness (kf drive / kf run --task) cannot start while worktrees are off. Set "worktree": { "enabled": true } in .kf/config.json before starting '${r.feature}'.`,
+      } satisfies Finding);
+      if (strict) r.valid = false;
     }
   }
 

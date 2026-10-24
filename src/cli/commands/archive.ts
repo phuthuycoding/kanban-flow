@@ -3,7 +3,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE, UC_FILE_NAME, UC_FILE_PATTERN } from "../../workflow/schema.js";
-import { findFeature, stageDir, assertPathName, writeFeatureMeta, type Feature } from "../../workflow/features.js";
+import { findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Feature } from "../../workflow/features.js";
+import { withLock } from "../../shared/lock.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "../../workflow/validate.js";
 import { splitFrontmatter, applyFrontmatter, getFmValue } from "../../shared/frontmatter.js";
 import { writeFileAtomic } from "../../shared/paths.js";
@@ -163,7 +164,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
 
   // Only review → dones transition is archive-able. If already dones, refresh canonical docs idempotently.
   if (f.stage === "dones") {
-    const check = validateFeature(f);
+    const check = validateFeature(f, false, true, readProjectConfig(root.root).harness);
     if (!check.valid && !args.options.force) return { code: 1, stdout: renderValidateText(check), stderr: "gate failed" };
     const copies = args.options["skip-specs"] ? [] : prepareCanonicalCopies(root.root, f);
     const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
@@ -209,14 +210,14 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     const originalMeta = f.meta && existsSync(metaPath) ? readFileSync(metaPath, "utf8") : null;
     try {
       await writeCanonicalCopies(copies);
-      if (f.meta) await writeFeatureMeta(f.dir, {
-        ...f.meta,
-        bypasses: recorded.length > 0 ? [...(f.meta.bypasses ?? []), ...recorded] : f.meta.bypasses,
+      if (f.meta) await updateFeatureMeta(root.root, f.name, (meta) => ({
+        ...meta,
+        bypasses: recorded.length > 0 ? [...(meta.bypasses ?? []), ...recorded] : meta.bypasses,
         status: "archived",
         // Reconciling an item already stamped keeps its first delivery timestamp.
         delivered: true,
-        deliveredAt: f.meta.deliveredAt ?? new Date().toISOString(),
-      });
+        deliveredAt: meta.deliveredAt ?? new Date().toISOString(),
+      }));
     } catch (err) {
       const rollback = await Promise.allSettled([
         rollbackCanonicalCopies(copies),
@@ -246,7 +247,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
 
   const force = Boolean(args.options.force);
   const forcedCodes: string[] = [];
-  const check = validateFeature({ ...f, stage: "dones" });
+  const check = validateFeature({ ...f, stage: "dones" }, false, true, readProjectConfig(root.root).harness);
   if (!check.valid) {
     if (!force) {
       return {
@@ -301,7 +302,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     }
   }
 
-  const afterHook = validateFeature({ ...f, stage: "dones" });
+  const afterHook = validateFeature({ ...f, stage: "dones" }, false, true, readProjectConfig(root.root).harness);
   if (!afterHook.valid && !force) return { code: 1, stdout: renderValidateText(afterHook), stderr: "gate failed" };
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
 
@@ -323,39 +324,47 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
   }
 
   const recorded = recordBypasses(f.stage, "dones", forcedCodes, skippedHook);
-  const bypasses = recorded.length > 0 ? [...(f.meta.bypasses ?? []), ...recorded] : f.meta.bypasses;
   if (f.context) assertPathName(f.context, "context");
   assertPathName(f.name, "feature");
   const copies = args.options["skip-specs"] ? [] : prepareCanonicalCopies(root.root, f);
-  const originalMeta = readFileSync(join(f.dir, METADATA_FILE), "utf8");
-  let moved = false;
-  try {
-    await rename(f.dir, target);
-    moved = true;
-    await writeCanonicalCopies(copies);
-    // `delivered` is the terminal fact — written last, after every other side effect landed.
-    await writeFeatureMeta(target, { ...f.meta, bypasses, status: "archived", worktree: undefined, delivered: true, deliveredAt: new Date().toISOString() });
-  } catch (err) {
-    if (!moved) throw err;
-    const rollback = await Promise.allSettled([
-      writeFileAtomic(join(target, METADATA_FILE), originalMeta),
-      rollbackCanonicalCopies(copies),
-    ]);
-    const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
-    try {
-      await rename(target, f.dir);
-    } catch (rollbackError) {
-      failures.push(rollbackError);
+  const stale = await withLock(root.root, f.name, async (): Promise<CmdResult | null> => {
+    const cur = findFeature(root.root, f.name);
+    if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
+      return { code: 1, stdout: `Cannot archive '${name}': it changed while the archive was running. Re-run: kf archive ${name}`, stderr: "changed concurrently" };
     }
-    if (failures.length > 0) throw new AggregateError([err, ...failures], `Archive failed and rollback was incomplete for '${name}'.`);
-    throw new Error(`Archive failed for '${name}'; feature restored to review.`, { cause: err });
-  }
+    const originalMeta = readFileSync(join(cur.dir, METADATA_FILE), "utf8");
+    let moved = false;
+    try {
+      await rename(cur.dir, target);
+      moved = true;
+      await writeCanonicalCopies(copies);
+      // `delivered` is the terminal fact — written last, after every other side effect landed.
+      await writeFeatureMeta(target, { ...cur.meta, bypasses: recorded.length > 0 ? [...(cur.meta.bypasses ?? []), ...recorded] : cur.meta.bypasses, status: "archived", worktree: undefined, delivered: true, deliveredAt: new Date().toISOString() });
+    } catch (err) {
+      if (!moved) throw err;
+      const rollback = await Promise.allSettled([
+        writeFileAtomic(join(target, METADATA_FILE), originalMeta),
+        rollbackCanonicalCopies(copies),
+      ]);
+      const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
+      try {
+        await rename(target, cur.dir);
+      } catch (rollbackError) {
+        failures.push(rollbackError);
+      }
+      if (failures.length > 0) throw new AggregateError([err, ...failures], `Archive failed and rollback was incomplete for '${name}'.`);
+      throw new Error(`Archive failed for '${name}'; feature restored to review.`, { cause: err });
+    }
+    return null;
+  });
+  if (stale) return stale;
 
   const worktreeNote = teardown
     ? `\n  Worktree removed: ${f.meta?.worktree?.path ?? ""} (branch ${teardown.branch} kept)` +
       (teardown.unmergedCommits > 0
         ? `\n  ⚠ ${teardown.branch} has ${teardown.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
         : "") +
+      teardown.taskBranches.map((b) => `\n  kept task branch: ${b}`).join("") +
       teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("")
     : "";
   const issueNote = f.meta?.issue ? "" : "\n  ⚠ no linked issue — tracker has no delivery record.";

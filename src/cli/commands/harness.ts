@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import { readProjectConfig } from "../../project/config.js";
-import { HARNESS_STAGES, type RunnerConfig } from "../../harness/config.js";
+import { HARNESS_STAGES, harnessLimits, type RunnerConfig } from "../../harness/config.js";
 import { findWorksRoot } from "../../workflow/features.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -45,7 +45,10 @@ export async function cmdHarness(args: ParsedArgs, cwd: string): Promise<CmdResu
     session: sessionKind(runner),
     usage: runner.usage ?? null,
   }));
-  if (args.options.json) return { code: 0, stdout: JSON.stringify({ main: harness.main, stages, roles, runners }, null, 2) };
+  const verify = { task: harness.verify?.task ?? null, stage: harness.verify?.stage ?? null };
+  const limits = harnessLimits(harness);
+  if (args.options.json) return { code: 0, stdout: JSON.stringify({ main: harness.main, stages, roles, runners, verify, limits }, null, 2) };
+  const argvText = (list: string[][] | null) => (list && list.length > 0 ? list.map((a) => a.join(" ")).join("; ") : "not set");
 
   const lines = [
     `main role: ${harness.main} (${harness.roles[harness.main].runner})`,
@@ -58,6 +61,12 @@ export async function cmdHarness(args: ParsedArgs, cwd: string): Promise<CmdResu
     "",
     "runners:",
     ...runners.map((r) => `  ${r.name.padEnd(12)} ${r.cli.padEnd(10)} ${r.available ? "on PATH" : "missing"}   resume: ${r.resume ? "yes" : "no"}   session: ${r.session}${r.usage ? `   usage: ${r.usage}` : ""}`),
+    "",
+    "verify:",
+    `  task   ${argvText(verify.task)}`,
+    `  stage  ${argvText(verify.stage)}`,
+    "",
+    `limits: parallel ${limits.parallel}, retries ${limits.retries}, maxLoops ${limits.maxLoops}, maxRuns ${limits.maxRuns}`,
   ];
   return { code: 0, stdout: lines.join("\n") };
 }

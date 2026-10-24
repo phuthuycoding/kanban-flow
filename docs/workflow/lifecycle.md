@@ -61,6 +61,8 @@ There is a second way out of this flow: `kf cancel <feature> --reason "<why>"` s
 
 Phase 1, the Phase 2 approval, the start-or-backlog decision and the ship gate after a PASS review are the points where the user decides. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once start is chosen the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
 
+When the project configures a task harness (`harness.verify.stage` set, worktrees on), "runs on its own" is `kf drive`: a detached supervisor takes the item from implementation through testing and review and stops at the ship gate, or earlier with a stop code that names what the human must do. See [the task harness](harness.md#task-harness-kf-drive).
+
 ## Starting a feature, step by step
 
 ```mermaid

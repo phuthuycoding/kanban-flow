@@ -79,7 +79,8 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 
 ### implementation-plan
 - Scope: now / supporting / future / not-in-scope
-- `TASK-###` breakdown, complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
+- `TASK-###` breakdown (fill **Role** and **Files** for every task; Dependencies are `TASK-###` tokens or `-`), complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
+- **Role** is a key of `harness.roles` or `-`. **Files** is the task's allowlist and must name everything the task will touch — registering a flag in `args.ts` counts. A task that touches a file outside its Files stops the drive (`plan_change_needed`) and needs re-approval. When unsure, prefer directories or globs, at the cost of parallelism (overlapping Files run one after another; empty Files runs alone).
 - Read the spec's `## Affected surfaces` first: every declared surface gets a task row or a `## Documentation Impact` entry — `kf validate` warns on any surface the plan never mentions. `N/A` means none owed.
 - Testing strategy incl. **coverage target from the spec's Test Strategy (default >= 80%)** and Definition of Done
 - When Test Level is `full`: name the UI/E2E framework you will use (Playwright, Cypress and so on) and say which suite covers the critical flows and which covers everything.
@@ -135,6 +136,8 @@ Approval means the contract is valid; it does not mean implementation must start
 
 - Start now → `kf stage {feature_name} implementation`
 - Defer → `kf stage {feature_name} backlog`
+
+Before asking, read `.kf/config.json`: if `harness.verify.stage` is set and `worktree.enabled` is not `true`, tell the human the drive (`kf drive`) cannot start and ask them to enable worktrees first.
 
 Do not choose on the user's behalf. A deferred item keeps its approved contract in `backlog` and can resume to implementation later after the user chooses to start.
 

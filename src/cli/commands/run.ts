@@ -6,7 +6,8 @@ import { readProjectConfig } from "../../project/config.js";
 import { resolveChain, type Assignment } from "../../harness/prompt.js";
 import { provisionSession } from "../../harness/session.js";
 import { executeChain, planFor, type ChainResultSummary } from "../../harness/chain.js";
-import { isPidAlive, runningRun, DEFAULT_TIMEOUT_MS, type RunOutcome } from "../../harness/run.js";
+import { isPidAlive, DEFAULT_TIMEOUT_MS, type RunOutcome } from "../../harness/run.js";
+import { executeTaskRun, prepareTaskRun, runConflict, taskPrompt, taskSessionKey } from "../../harness/task-run.js";
 import { startDetached, superviseRun } from "../../harness/supervise.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -43,6 +44,45 @@ function renderChain(root: string, feature: Feature, summary: ChainResultSummary
   return lines.join("\n\n");
 }
 
+async function cmdRunTask(root: string, feature: Feature, rawId: string, args: ParsedArgs): Promise<CmdResult> {
+  const refuse = (stdout: string, stderr: string): CmdResult => ({ code: 1, stdout, stderr });
+  for (const flag of ["stage", "role", "detach"]) {
+    if (args.options[flag] !== undefined) return refuse(`--task cannot be combined with --${flag}.`, `--task with --${flag}`);
+  }
+  const prepared = prepareTaskRun(root, feature, rawId);
+  if (!prepared.ok) return refuse(prepared.reason, "task run refused");
+  const { ctx } = prepared;
+  const timeoutMs = parseTimeout(args.options.timeout);
+  const fresh = Boolean(args.options.fresh);
+
+  if (args.options["dry-run"]) {
+    const prompt = taskPrompt(root, feature, ctx, "<run-id>");
+    const provisioned = provisionSession(ctx.assignment.runner, feature.meta?.sessions?.[taskSessionKey(ctx.task.id)], prompt, fresh || ctx.attempts === 0);
+    return {
+      code: 0,
+      stdout: [
+        `Dry run — task ${ctx.task.id} (attempt ${ctx.attempts + 1}), role ${ctx.assignment.role} (${ctx.assignment.runnerName}) — ${provisioned.mode}`,
+        `Task worktree: ${ctx.path}`,
+        `Task branch: ${ctx.branch}`,
+        "",
+        "argv:",
+        ...provisioned.argv.map((a) => `  ${JSON.stringify(a)}`),
+        "",
+        "prompt:",
+        prompt,
+      ].join("\n"),
+    };
+  }
+
+  const result = await executeTaskRun(root, feature.name, ctx, { fresh, timeoutMs });
+  if (!result.started) return refuse(result.reason, "task run refused");
+  const latest = findFeature(root, feature.name) ?? feature;
+  const lines = result.outcome ? [renderOutcome(root, latest, result.outcome)] : [];
+  lines.push(`Task ${ctx.task.id}: ${result.state}${result.reason ? ` — ${result.reason}` : ""}`);
+  const bad = result.state === "failed" || result.state === "blocked";
+  return { code: bad ? 1 : 0, stdout: lines.join("\n"), stderr: bad ? `task ${result.state}` : undefined };
+}
+
 export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]", stderr: "missing feature" };
@@ -58,6 +98,8 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
     const summary = await superviseRun(root.root, name, args.options.supervise);
     return { code: summary.ok ? 0 : 1, stdout: renderChain(root.root, findFeature(root.root, name) ?? feature, summary) };
   }
+
+  if (args.options.task !== undefined) return cmdRunTask(root.root, feature, String(args.options.task), args);
 
   const stageRaw = args.options.stage;
   if (stageRaw !== undefined && !STAGES.includes(String(stageRaw) as Stage)) {
@@ -82,8 +124,8 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
     });
     return { code: 0, stdout: `Dry run — stage ${chain[0].stage}, chain: ${chain.map((a) => a.role).join(" → ")}\n\n${blocks.join("\n\n---\n\n")}` };
   }
-  const active = runningRun(feature);
-  if (active) return { code: 1, stdout: `Run ${active.id} (${active.role} @ ${active.stage}) is still running for '${name}'. Wait for it or check: kf runs ${name}`, stderr: "run in progress" };
+  const active = runConflict(feature.meta?.runs, name, null, { drive: feature.meta?.drive });
+  if (active) return { code: 1, stdout: active, stderr: "run in progress" };
 
   if (args.options.detach) {
     const record = await startDetached(root.root, name, chain, { fresh, timeoutMs });
@@ -149,7 +191,7 @@ export async function cmdRuns(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (args.options.json) return { code: 0, stdout: JSON.stringify(views, null, 2) };
   if (views.length === 0) return { code: 0, stdout: name ? `No runs for '${name}'.` : "No runs." };
   const lines = views.map((v) =>
-    `${v.id}  ${v.feature.padEnd(20)} ${(v.chain ? `${v.chain.index}/${v.chain.total} ` : "").padEnd(4)}${v.role.padEnd(12)} ${v.runner.padEnd(10)} ${v.stage.padEnd(14)} ${v.mode.padEnd(6)} ${v.displayStatus.padEnd(30)} ${v.at}${v.statusLine ? `  STATUS: ${v.statusLine}` : ""}`);
+    `${v.id}  ${v.feature.padEnd(20)} ${(v.chain ? `${v.chain.index}/${v.chain.total} ` : "").padEnd(4)}${v.task ? `${v.task}  ` : ""}${v.role.padEnd(12)} ${v.runner.padEnd(10)} ${v.stage.padEnd(14)} ${v.mode.padEnd(6)} ${v.displayStatus.padEnd(30)} ${v.at}${v.statusLine ? `  STATUS: ${v.statusLine}` : ""}`);
   const broken = views.filter((v) => v.chainBroken);
   if (broken.length > 0) {
     lines.push("", ...broken.map((v) => `⚠ ${v.feature}: role chain stopped at ${v.role} (${v.chain!.index}/${v.chain!.total}); the remaining roles never ran — re-run the stage with kf run.`));

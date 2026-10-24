@@ -112,6 +112,9 @@ kf stage user-login implementation  # or backlog — decision three; when the pr
                                     # (`worktree.enabled: true`) this also provisions a git
                                     # worktree on <git-user>/user-login with its own
                                     # <feature>.<repo>.test domain — see docs/workflow
+kf drive user-login                 # optional, with a task harness configured: runs the plan's
+                                    # tasks in parallel worktrees, then testing and review, and
+                                    # stops at the ship decision — see docs/workflow/harness.md
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
@@ -199,13 +202,44 @@ kf runs user-login --json      # each run: role, runner, status, usage where rep
 
 Presets ship for claude, codex, devin, gemini and opencode. Assign no stages and the harness stays out of the way.
 
+### From approval to the ship gate: `kf drive`
+
+After the human approves the plan and chooses to start, `kf drive` runs the rest
+on its own. The plan's task table names a `Role` and a `Files` allowlist for every
+task, and `kf approve` seals it, so the same plan always produces the same dispatch.
+
+```json
+"worktree": { "enabled": true },
+"harness": {
+  "verify": { "task": [["npm", "run", "typecheck"]], "stage": [["npm", "test"]] },
+  "parallel": 3, "retries": 1, "maxLoops": 2, "budget": { "maxRuns": 30 }
+}
+```
+
+- Each task runs in its own worktree with the role the plan declared. Up to
+  `parallel` run at once, and never two whose `Files` overlap.
+- kf, not the worker, decides a task is done. It checks the changed files against
+  the allowlist, commits, merges into the item branch, and runs the `verify`
+  commands you pinned. kf never runs a command taken from an artifact. A failing
+  verify resets the merge.
+- Testing and review then run through the normal gates, with bounded repair loops.
+  The drive stops at **ready for ship decision**, or earlier with a named stop
+  code and the next command to run.
+
+```bash
+kf tasks user-login            # the task graph: waves, states, roles, files
+kf drive user-login            # detached; starts from implementation after approval
+kf drive user-login --status   # where it is, or why it stopped and what to run next
+kf drive user-login --stop     # end it; worktrees and branches are kept
+```
+
 ## Documentation
 
 The full reference lives in [docs/workflow](docs/workflow/README.md): the [state
 machine](docs/workflow/state-machine.md), every [gate](docs/workflow/gates.md), the
 [artifacts](docs/workflow/artifacts.md), the [CLI reference](docs/workflow/cli-reference.md),
 [agent onboarding](docs/workflow/autoconfig.md) including phase hooks, the
-[harness](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
+[harness and `kf drive`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
 notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License — MIT

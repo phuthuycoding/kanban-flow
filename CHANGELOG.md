@@ -4,6 +4,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- **Task harness — `kf drive`.** After the human's start decision, `kf drive <feature>` runs an approved item from implementation to the ship decision in a detached supervisor: it schedules the plan's tasks as a dependency graph (in parallel up to `harness.parallel`, never two tasks with overlapping `Files`), runs each in its own task worktree with the role the plan declared, checks the changes against the task's `Files` allowlist, commits and merges them into the item branch one at a time, verifies with human-pinned `harness.verify` commands, then moves through testing and review with bounded repair loops. It stops with a named code and the next command (`plan_change_needed`, `tasks_blocked`, `worker_blocked`, `verify_failed`, `loop_limit`, `requirement_bug`, `transition_refused`, `approval_changed`, `config_changed`, `budget`, `git_error`, `stopped_by_user`); `--status` and `--stop` manage it, a killed supervisor shows as `crashed` and resumes. Every event goes to `runs/drive-<id>.jsonl`, and an opt-in `.kf/hooks/drive-stop.sh` runs on every stop.
+- `kf tasks <feature> [--json]` shows the task graph with waves and states; `kf run <feature> --task TASK-###` runs one planned task by hand.
+- The implementation plan's Task Breakdown gains `Role` and `Files` columns, validated by `kf validate` (`task_duplicate`, `task_dep_missing`, `task_dep_cycle`, `task_role_unknown`) and sealed by `kf approve`.
+- `harness.verify` (`task`, `stage` argv arrays), `harness.parallel`, `harness.retries`, `harness.maxLoops` and `harness.budget.maxRuns` in `.kf/config.json`; `kf harness` shows them. `kf validate` warns `task_harness_needs_worktree` before the start decision when a drive is configured but worktrees are off; `kf doctor` checks harness readiness, stale task worktrees and dead locks.
+
+### Changed
+- Every read-modify-write of `.kfw.json` now holds a per-item lock (`.works/.locks/<feature>.lock`, dead holders taken over, 30s wait), and a finished run record can no longer be set back to `running` by a late write.
+- `kf stage` is a thin wrapper over a typed transition; its output is unchanged.
+- `kf worktree list` shows task worktrees under their item; `kf archive`, `kf cancel` and `kf worktree remove` clean them up (a dirty one refuses, task branches are kept).
+- `kanban-plan` fills Role and Files; `kanban-implement` gains a task-worker mode and hands configured items to `kf drive`; `kanban-flow` checks worktrees at the start decision. The runtime "pick the agent that fits" guidance is gone: the plan's `Role` decides.
+
 ### Removed
 - **ADE sync (Orca, Herdr)**: kf no longer attaches worktrees to, or detaches them from, external ADEs on `kf worktree create`, stage → implementation, `worktree remove`, `cancel` or `archive` — kf manages its own worktrees only. `kf worktree sync` is gone; `adeSync` in the machine config and `KF_ADE_SYNC` are ignored. Herdr workspaces opened by earlier versions are no longer closed on teardown — close them by hand.
 

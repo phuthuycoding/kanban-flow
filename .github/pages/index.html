@@ -31,6 +31,7 @@
       <a href="#demo">See it run</a>
       <a href="#how">How it works</a>
       <a href="#mechanic">The mechanic</a>
+      <a href="#drive">kf drive</a>
       <a href="workflow/README.html">Docs</a>
       <a href="https://github.com/phuthuycoding/kanban-flow">GitHub</a>
     </nav>
@@ -173,6 +174,45 @@
     </div>
   </section>
 
+  <section class="reveal" id="drive">
+    <div class="wrap">
+      <h2>From approval to the ship gate, unattended</h2>
+      <div class="feature-row">
+        <div>
+          <p>Once you approve the plan and choose to start, <code>kf drive</code> runs the
+             rest in a detached supervisor. The plan's task table names a <strong>role</strong>
+             and a <strong>file allowlist</strong> for every task, and approval seals it, so
+             the same plan always produces the same dispatch.</p>
+          <p class="quiet" style="margin-top:14px">Tasks run in their own worktrees, in
+             parallel when their files do not overlap. kf decides when a task is done, not
+             the worker: it checks the files the task changed, commits, merges and runs the
+             verify commands you pinned in config. It stops at the ship decision, or earlier
+             with a named reason and the next command to run.</p>
+        </div>
+        <div class="term" data-replay><span class="line">$ kf drive auth</span><span class="line"><span class="c">Started drive 3f2a of 'auth' (supervisor pid 48211, …)</span></span><span class="line"> </span><span class="line">$ kf tasks auth</span><span class="line">TASK-001  wave 1  <span class="ok">done</span>       coder  deps: -  files: auth/</span><span class="line">TASK-002  wave 1  <span class="ok">done</span>       tester  deps: -  files: e2e/</span><span class="line">TASK-003  wave 1  <span class="k">verifying</span>  coder  deps: -  files: api/</span><span class="line"> </span><span class="line">$ kf drive auth --status</span><span class="line">Drive 3f2a of 'auth': <span class="ok">ready</span> (step review)</span><span class="line"><span class="c">  Loops: 0/2   Runs: 5/30</span></span><span class="line">  Result: <span class="ok">ready for ship decision</span></span><span class="line"><span class="c">  Next: kf status --change auth</span></span></div>
+      </div>
+      <div class="grid">
+        <div class="card reveal">
+          <h3>The plan decides who does what</h3>
+          <p>Every task's role and allowlist are part of the approved contract. Editing
+             them after approval means approving again.</p>
+        </div>
+        <div class="card reveal">
+          <h3>kf checks, the worker does not</h3>
+          <p>A file outside the allowlist stops the drive with
+             <code>plan_change_needed</code>. Verify commands come only from
+             <code>.kf/config.json</code>, never from an artifact.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Stops you can act on</h3>
+          <p>Budget spent, config or approval changed, a blocked worker, a loop limit:
+             each stop has a code and the next command. <code>--status</code>,
+             <code>--stop</code>, and resuming after a crash are built in.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="reveal" id="start">
     <div class="wrap">
       <h2>Start in one command</h2>
@@ -188,11 +228,13 @@ kf init                             <span class="c"># seeds .kf/, installs the s
 kf autoconfig                       <span class="c"># hand this briefing to your agent</span>
 kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstorm</span>
 kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
+kf drive user-login                 <span class="c"># after approval: tasks → testing → review, stops at the ship gate</span>
 kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
       <div class="cta" style="margin-top:26px">
         <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>
         <a class="btn" href="workflow/cli-reference.html">CLI reference</a>
         <a class="btn" href="workflow/autoconfig.html">Agent onboarding</a>
+        <a class="btn" href="workflow/harness.html">Harness and kf drive</a>
       </div>
     </div>
   </section>

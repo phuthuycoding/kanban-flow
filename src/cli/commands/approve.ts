@@ -1,4 +1,4 @@
-import { findFeature, writeFeatureMeta, executionContractHash } from "../../workflow/features.js";
+import { findFeature, updateFeatureMeta, executionContractHash } from "../../workflow/features.js";
 import { validateFeature, renderValidateText } from "../../workflow/validate.js";
 import { readProjectConfig } from "../../project/config.js";
 import { nowTimestamp } from "../../shared/time.js";
@@ -26,7 +26,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
     };
   }
 
-  const check = validateFeature(f, false, false);
+  const check = validateFeature(f, false, false, readProjectConfig(root.root).harness);
   if (!check.valid) {
     return { code: 1, stdout: `Cannot approve an incomplete execution contract:\n${renderValidateText(check)}`, stderr: "invalid contract" };
   }
@@ -36,7 +36,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const by = typeof args.options.by === "string" ? args.options.by : (cfg.reviewer ?? "human");
   if (!by.trim()) return { code: 1, stdout: "Approver name must not be empty.", stderr: "missing approver" };
   const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash };
-  await writeFeatureMeta(f.dir, { ...f.meta, approval, executionId: undefined });
+  await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined }));
   return {
     code: 0,
     stdout: `✓ Approved '${name}' (by ${by} at ${approval.at})\n  Execution contract is now the binding scope for autonomous phases.`,
