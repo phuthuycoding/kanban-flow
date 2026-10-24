@@ -36,7 +36,15 @@ export interface HarnessConfig {
   /** Stage → roles to run in order. A single role is normalized to a one-element chain. */
   stages: Partial<Record<Stage, string[]>>;
   runners: Record<string, RunnerConfig>;
+  /** Verification argv lists kf runs without a shell; set only by a human in .kf/config.json. */
+  verify?: { task?: string[][]; stage?: string[][] };
+  parallel?: number;
+  retries?: number;
+  maxLoops?: number;
+  budget?: { maxRuns?: number };
 }
+
+export const HARNESS_LIMIT_DEFAULTS = { parallel: 3, retries: 1, maxLoops: 2, maxRuns: 30 } as const;
 
 export const HARNESS_STAGES: Stage[] = STAGES.filter((s) => s !== "backlog");
 
@@ -108,6 +116,23 @@ function validateChain(stage: string, value: unknown, roles: Record<string, Role
   return chain;
 }
 
+function validateArgvList(at: string, value: unknown, fail: Fail): string[][] {
+  if (!Array.isArray(value)) fail(at, "must be an array of argv arrays, e.g. [[\"npm\", \"test\"]]");
+  value.forEach((argv, i) => {
+    const here = `${at}[${i}]`;
+    if (!isStringArray(argv) || argv.length === 0) fail(here, "must be a non-empty argv array of strings");
+    if (argv.some((a) => a === "")) fail(here, "must not contain an empty string");
+    if (argv[0].startsWith("-")) fail(here, "must not start with an option (first element begins with -)");
+    if (argv.some((a) => /\{[^}]*\}/.test(a))) fail(here, "must not contain {…} placeholders");
+  });
+  return value as string[][];
+}
+
+function validateInt(at: string, value: unknown, min: number, fail: Fail): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min) fail(at, `must be an integer >= ${min}`);
+  return value;
+}
+
 /** Validate the `harness` block of .kf/config.json; throws with the offending field. */
 export function validateHarness(value: unknown, file: string): HarnessConfig {
   const fail: Fail = (field, why) => {
@@ -137,7 +162,36 @@ export function validateHarness(value: unknown, file: string): HarnessConfig {
     if (!HARNESS_STAGES.includes(stage as Stage)) fail(`harness.stages.${stage}`, `is not an assignable stage (${HARNESS_STAGES.join(", ")})`);
     stages[stage as Stage] = validateChain(stage, chain, roles, runners, fail);
   }
-  return { main, roles, stages, runners };
+
+  // Carried through only when present: init writes this object back, so dropping a key here erases it.
+  const extra: Partial<HarnessConfig> = {};
+  if (h.verify !== undefined) {
+    if (!h.verify || typeof h.verify !== "object" || Array.isArray(h.verify)) fail("harness.verify", "must be an object { task?, stage? }");
+    const v = h.verify as Record<string, unknown>;
+    const verify: NonNullable<HarnessConfig["verify"]> = {};
+    if (v.task !== undefined) verify.task = validateArgvList("harness.verify.task", v.task, fail);
+    if (v.stage !== undefined) verify.stage = validateArgvList("harness.verify.stage", v.stage, fail);
+    extra.verify = verify;
+  }
+  if (h.parallel !== undefined) extra.parallel = validateInt("harness.parallel", h.parallel, 1, fail);
+  if (h.retries !== undefined) extra.retries = validateInt("harness.retries", h.retries, 0, fail);
+  if (h.maxLoops !== undefined) extra.maxLoops = validateInt("harness.maxLoops", h.maxLoops, 0, fail);
+  if (h.budget !== undefined) {
+    if (!h.budget || typeof h.budget !== "object" || Array.isArray(h.budget)) fail("harness.budget", "must be an object { maxRuns? }");
+    const b = h.budget as Record<string, unknown>;
+    extra.budget = b.maxRuns !== undefined ? { maxRuns: validateInt("harness.budget.maxRuns", b.maxRuns, 1, fail) } : {};
+  }
+  return { main, roles, stages, runners, ...extra };
+}
+
+/** Effective run limits; defaults are applied here and never written into the config. */
+export function harnessLimits(h?: HarnessConfig): { parallel: number; retries: number; maxLoops: number; maxRuns: number } {
+  return {
+    parallel: h?.parallel ?? HARNESS_LIMIT_DEFAULTS.parallel,
+    retries: h?.retries ?? HARNESS_LIMIT_DEFAULTS.retries,
+    maxLoops: h?.maxLoops ?? HARNESS_LIMIT_DEFAULTS.maxLoops,
+    maxRuns: h?.budget?.maxRuns ?? HARNESS_LIMIT_DEFAULTS.maxRuns,
+  };
 }
 
 /**

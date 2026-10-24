@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readProjectConfig } from "../project/config.js";
-import { harnessPresets, validateHarness, ROLE_BRIEFS } from "../harness/config.js";
+import { harnessPresets, harnessLimits, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdHarness } from "../cli/commands/harness.js";
 import { cmdAutoconfig } from "../cli/commands/autoconfig.js";
@@ -55,6 +55,40 @@ describe("harness config validation", () => {
     expect(() => readProjectConfig(dir)).toThrow("must list at least one role");
     await write({ ...base(), stages: { brainstorm: ["writer", "writer"] } });
     expect(() => readProjectConfig(dir)).toThrow('lists role "writer" twice');
+  });
+
+  it("rejects invalid verify and limit values naming the field (TC-028)", async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ verify: { task: "npm test" } }, "harness.verify.task"],
+      [{ verify: { task: [[]] } }, "harness.verify.task[0]"],
+      [{ verify: { task: [["npm", "test"], [""]] } }, "harness.verify.task[1]"],
+      [{ verify: { stage: [["-rf"]] } }, "harness.verify.stage[0]"],
+      [{ verify: { task: [["npm", "{x}"]] } }, "harness.verify.task[0]"],
+      [{ parallel: 0 }, "harness.parallel"],
+      [{ parallel: 1.5 }, "harness.parallel"],
+      [{ retries: -1 }, "harness.retries"],
+      [{ maxLoops: "2" }, "harness.maxLoops"],
+      [{ budget: { maxRuns: 0 } }, "harness.budget.maxRuns"],
+    ];
+    for (const [extra, field] of cases) {
+      await write({ ...base(), ...extra });
+      expect(() => readProjectConfig(dir), JSON.stringify(extra)).toThrow(field);
+    }
+  });
+
+  it("accepts valid verify and limits, including zero retries and loops", async () => {
+    const extra = { verify: { task: [["npm", "test"]], stage: [["npm", "run", "lint"]] }, parallel: 2, retries: 0, maxLoops: 0, budget: { maxRuns: 5 } };
+    await write({ ...base(), ...extra });
+    const h = readProjectConfig(dir).harness!;
+    expect(h.verify).toEqual(extra.verify);
+    expect(harnessLimits(h)).toEqual({ parallel: 2, retries: 0, maxLoops: 0, maxRuns: 5 });
+  });
+
+  it("applies limit defaults without writing them into the config", () => {
+    expect(harnessLimits(undefined)).toEqual({ parallel: 3, retries: 1, maxLoops: 2, maxRuns: 30 });
+    const seeded = seedHarness([]);
+    expect(harnessLimits(seeded)).toEqual({ parallel: 3, retries: 1, maxLoops: 2, maxRuns: 30 });
+    for (const key of ["verify", "parallel", "retries", "maxLoops", "budget"]) expect(seeded, key).not.toHaveProperty(key);
   });
 
   it("rejects backlog as an assignable stage", async () => {
@@ -131,6 +165,18 @@ describe("kf init seeds roles and runner presets", () => {
     expect(kept.stages.brainstorm).toEqual(["researcher", "writer"]);
   });
 
+  it("keeps verify and limits when init is re-run (TC-028)", async () => {
+    for (const options of [{ defaults: true }, { minimal: true }]) {
+      expect((await cmdInit(args("init", [], options), dir)).code).toBe(0);
+      const cfg = JSON.parse(await readFile(join(dir, ".kf", "config.json"), "utf8"));
+      Object.assign(cfg.harness, { verify: { task: [["npm", "test"]] }, parallel: 2, retries: 0, maxLoops: 4, budget: { maxRuns: 9 } });
+      await writeFile(join(dir, ".kf", "config.json"), JSON.stringify(cfg));
+      expect((await cmdInit(args("init", [], options), dir)).code).toBe(0);
+      const kept = JSON.parse(await readFile(join(dir, ".kf", "config.json"), "utf8")).harness;
+      expect(kept, JSON.stringify(options)).toMatchObject({ verify: { task: [["npm", "test"]] }, parallel: 2, retries: 0, maxLoops: 4, budget: { maxRuns: 9 } });
+    }
+  });
+
   it("seeds harness with --minimal too", async () => {
     expect((await cmdInit(args("init", [], { minimal: true }), dir)).code).toBe(0);
     expect(readProjectConfig(dir).harness?.main).toBe("architect");
@@ -155,9 +201,13 @@ describe("kf harness and autoconfig", () => {
     expect(text).toMatch(/researcher\s+codex\s+missing\s+output: research\.md/);
     expect(text).toContain("Explores breadth.");
     expect(text).toMatch(/gemini\s+gemini\s+on PATH\s+resume: no/);
+    expect(text).toMatch(/task\s+not set/);
+    expect(text).toContain("limits: parallel 3, retries 1, maxLoops 2, maxRuns 30");
 
     const json = JSON.parse((await cmdHarness(args("harness", [], { json: true }), p.root)).stdout);
     expect(json.main).toBe("architect");
+    expect(json.verify).toEqual({ task: null, stage: null });
+    expect(json.limits).toEqual({ parallel: 3, retries: 1, maxLoops: 2, maxRuns: 30 });
     expect(json.stages.find((s: { stage: string }) => s.stage === "brainstorm").roles).toEqual(["researcher", "writer"]);
     expect(json.roles.find((r: { name: string }) => r.name === "writer")).toMatchObject({ runner: "gemini", available: true });
     expect(json.runners.find((r: { name: string }) => r.name === "codex").available).toBe(false);
