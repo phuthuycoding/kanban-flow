@@ -23,6 +23,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - `kf stage` is a thin wrapper over a typed transition; its output is unchanged.
 - `kf worktree list` shows task worktrees under their item; `kf archive`, `kf cancel` and `kf worktree remove` clean them up (a dirty one refuses, task branches are kept).
 - `kanban-plan` fills Role and Files; `kanban-implement` gains a task-worker mode and hands configured items to `kf drive`; `kanban-flow` checks worktrees at the start decision. The runtime "pick the agent that fits" guidance is gone: the plan's `Role` decides.
+- Internal refactor, no change to commands, output or exit codes: `src/harness/drive.ts` is split into `src/harness/drive/` (`claim`, `control`, `driver`); the archive and cancel transactions move out of the command handlers into `src/workflow/archive.ts` (`archiveItem`) and `src/workflow/cancel.ts` (`cancelItem`); canonical docs sync moves to `src/workflow/canonical-docs.ts`, bypass records to `src/workflow/bypass.ts`, and the `gh` wrapper and PR merge gate to `src/integrations/github.ts`. See `docs/workflow/source-layout.md`.
 
 ### Removed
 - **ADE sync (Orca, Herdr)**: kf no longer attaches worktrees to, or detaches them from, external ADEs on `kf worktree create`, stage → implementation, `worktree remove`, `cancel` or `archive` — kf manages its own worktrees only. `kf worktree sync` is gone; `adeSync` in the machine config and `KF_ADE_SYNC` are ignored. Herdr workspaces opened by earlier versions are no longer closed on teardown — close them by hand.

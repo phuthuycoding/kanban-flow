@@ -22,10 +22,15 @@ src/
 │       ├── run.ts        # kf run / kf runs (hand a stage to a worker agent)
 │       ├── harness.ts    # kf harness (effective harness config)
 │       ├── ship.ts       # kf ship — resumable publish/merge/release/changelog pipeline
-│       └── archive.ts    # closure and canonical docs sync
+│       ├── cancel.ts     # kf cancel (argument parsing and output over workflow/cancel)
+│       └── archive.ts    # kf archive (argument parsing and output over workflow/archive)
 ├── workflow/             # domain state, artifacts and validation
 │   ├── schema.ts         # stages, artifacts, transitions
 │   ├── features.ts       # .kfw.json metadata (approval, execution id, bypasses), feature listing
+│   ├── bypass.ts         # --force/--skip-hooks audit records (recordBypasses, bypassNote)
+│   ├── canonical-docs.ts # canonical docs sync: content, paths, prepare/write/rollback copies
+│   ├── archive.ts        # archive transaction (archiveItem) behind kf archive
+│   ├── cancel.ts         # cancel transaction (cancelItem) behind kf cancel
 │   ├── status.ts         # artifact checklist rendering
 │   ├── findings.ts       # Finding/ValidationResult types
 │   ├── secrets.ts        # secret-like content scan
@@ -35,10 +40,16 @@ src/
 │   ├── validate-traceability.ts  # FR → UC → TC references
 │   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
 │   └── validate.ts       # facade: composes the checks, renders results, re-exports
-├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor, task runs and completion pipeline, scheduler, kf drive
+├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor, task runs and completion pipeline, scheduler
+│   ├── drive.ts          # kf drive facade: re-exports drive/
+│   └── drive/
+│       ├── claim.ts      # claim a drive, next command, start the detached supervisor
+│       ├── control.ts    # drive view, stop, finish
+│       └── driver.ts     # supervisor loop: tasks, verify, testing/review repair loops
 ├── ship/                 # ship pipeline steps: publish, merge gate, release, changelog
 ├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation, hooks
+│   └── github.ts         # gh CLI wrapper and PR merge gate (checkMergeGate)
 ├── dashboard/            # analytics HTTP server and HTML view
 ├── shared/               # filesystem paths, frontmatter and time helpers, per-item lock, git helpers
 └── tests/                # all Vitest tests, grouped separately from runtime
