@@ -17,7 +17,7 @@
   "created": "20260919_1205",
   "repository": "phuthuycoding/kanban-flow",
   "worktree": {
-    "enabled": false
+    "enabled": true
   },
   "project": {
     "owner": "phuthuycoding",
