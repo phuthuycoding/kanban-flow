@@ -117,7 +117,7 @@ const RECORDED = {
 const render = (res: { code: number; stdout: string; stderr?: string }, folder: string) =>
   ({ ...res, stdout: normalize(res.stdout).split(folder).join("<folder>") });
 
-describe("archiveItem — typed outcome (FR-005, UC-001)", () => {
+describe("archiveItem — typed outcome", () => {
   it("archives a merged review item", async () => {
     await reviewStage();
     const folder = feature().folder;
@@ -163,7 +163,7 @@ describe("archiveItem — typed outcome (FR-005, UC-001)", () => {
   });
 });
 
-describe("kf archive renders byte-identically to the recorded output (FR-008, UC-002)", () => {
+describe("kf archive renders byte-identically to the recorded output", () => {
   it("success", async () => {
     await reviewStage();
     const folder = feature().folder;
