@@ -106,7 +106,7 @@ export async function gitDriveProject(opts: GitDriveOptions): Promise<GitDrivePr
   const harness = {
     ...harnessWith((opts.stages ?? { implementation: ["coder"], testing: ["tester"] }) as never, { ...DEFAULT_ROLES, ...opts.roles }),
     verify: opts.verify ?? { stage: [["true"]] },
-    ...(opts.limits ? { limits: opts.limits } : {}),
+    ...opts.limits,
   };
   await mkdir(join(root, ".kf"), { recursive: true });
   await writeFile(join(root, ".kf", "config.json"), JSON.stringify({

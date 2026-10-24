@@ -8,7 +8,7 @@ import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
-import { listFeatures, readFeatureMeta } from "../workflow/features.js";
+import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, type ProjectConfig } from "./config.js";
@@ -297,8 +297,7 @@ function plannedRolesMissing(root: string, roles: Record<string, unknown>): Doct
 function hasLiveRunOrDrive(meta: ReturnType<typeof readFeatureMeta>): boolean {
   if (!meta) return false;
   if ((meta.runs ?? []).some((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid)))) return true;
-  const drive = (meta as { drive?: { pid?: number; supervisorPid?: number } }).drive;
-  return Boolean(drive && (isPidAlive(drive.pid) || isPidAlive(drive.supervisorPid)));
+  return driveLive(meta.drive);
 }
 
 /** Task worktrees left behind by a drive or run that is no longer alive. */

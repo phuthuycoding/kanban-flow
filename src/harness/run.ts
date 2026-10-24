@@ -114,14 +114,23 @@ export function createRunPlan(
   root: string,
   feature: Feature,
   assignment: Assignment,
-  opts: { fresh: boolean; timeoutMs: number; previous?: PreviousStep | null },
+  opts: {
+    fresh: boolean;
+    timeoutMs: number;
+    previous?: PreviousStep | null;
+    /** Where the worker runs; set by the driver (the item worktree). */
+    cwd?: string;
+    /** Report a repair run must fix. Undefined picks the current one for an implementation run; null means none. */
+    failReport?: string | null;
+  },
 ): RunPlan {
   const id = randomUUID().slice(0, 8);
-  const failReport = assignment.stage === "implementation" ? currentFailReport(feature) : null;
-  const prompt = buildWorkerPrompt({ runId: id, feature, root, assignment, failReport, previous: opts.previous });
+  const failReport = opts.failReport !== undefined ? opts.failReport : assignment.stage === "implementation" ? currentFailReport(feature) : null;
+  const prompt = buildWorkerPrompt({ runId: id, feature, root, assignment, failReport, previous: opts.previous, absolutePaths: opts.cwd !== undefined });
   return {
     id, root, feature: feature.name, role: assignment.role, runnerName: assignment.runnerName,
     stage: assignment.stage, runner: assignment.runner, prompt, output: assignment.output,
+    ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
     fresh: opts.fresh, timeoutMs: opts.timeoutMs,
   };
 }
@@ -197,7 +206,7 @@ interface SpawnResult {
   spawnError?: Error;
 }
 
-function killGroup(pid: number, signal: NodeJS.Signals): void {
+export function killGroup(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-pid, signal);
   } catch (err) {

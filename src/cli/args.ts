@@ -228,6 +228,16 @@ const COMMANDS: Record<string, CmdSpec> = {
       json: { type: "boolean" },
     },
   },
+  drive: {
+    help: "Usage: kf drive <feature> [--status] [--stop] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at the ship decision or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows where it is, --stop ends it and keeps worktrees",
+    allowPositionals: true,
+    options: {
+      status: { type: "boolean" },
+      stop: { type: "boolean" },
+      json: { type: "boolean" },
+      supervise: { type: "string" },
+    },
+  },
   worktree: {
     help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
     allowPositionals: true,

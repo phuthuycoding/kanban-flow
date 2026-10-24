@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS } from "../workflow/schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
-import { findFeature, updateFeatureMeta, type Feature, type FeatureMeta, type RunRecord, type TaskState, type TaskStateName } from "../workflow/features.js";
+import { driveLive, findFeature, updateFeatureMeta, type DriveState, type Feature, type FeatureMeta, type RunRecord, type TaskState, type TaskStateName } from "../workflow/features.js";
 import { approvalState } from "../workflow/status.js";
 import { checkTaskGraph, parseTaskGraph, resolveTaskRole, taskView, writeTasksMd, type PlannedTask, type TasksBaseline } from "../workflow/tasks.js";
 import { readProjectConfig } from "../project/config.js";
@@ -32,8 +32,21 @@ export interface TaskRunContext {
 
 export type TaskPrepared = { ok: true; ctx: TaskRunContext } | { ok: false; reason: string };
 
-/** Message for a run that cannot start because another is live; null when the way is clear. `taskId` null means a stage-level run. */
-export function runConflict(runs: RunRecord[] | undefined, featureName: string, taskId: string | null): string | null {
+export const WORKTREE_REQUIRED = 'The task harness needs worktrees: set "worktree": { "enabled": true } (worktree.enabled) in .kf/config.json, then re-run.';
+
+/**
+ * Message for a run that cannot start because another is live; null when the way is clear. `taskId` null means a
+ * stage-level run. A live drive refuses every run but its own (`driver`): the drive owns the item while it runs.
+ */
+export function runConflict(
+  runs: RunRecord[] | undefined,
+  featureName: string,
+  taskId: string | null,
+  opts: { drive?: DriveState; driver?: boolean } = {},
+): string | null {
+  if (!opts.driver && opts.drive && driveLive(opts.drive)) {
+    return `Drive ${opts.drive.id} of '${featureName}' is live (supervisor pid ${opts.drive.supervisorPid}); stage and task runs are the driver's while it runs. Check: kf drive ${featureName} --status, or stop it: kf drive ${featureName} --stop`;
+  }
   const live = liveRecords(runs);
   const same = taskId ? live.find((r) => r.task === taskId) : undefined;
   if (same) return `Task ${taskId} already has a live run ${same.id} (${same.role}) for '${featureName}'. Wait for it or check: kf runs ${featureName}`;
@@ -46,14 +59,14 @@ export function runConflict(runs: RunRecord[] | undefined, featureName: string, 
 }
 
 /** Every refusal of `kf run --task` that must happen before anything is created. */
-export function prepareTaskRun(root: string, feature: Feature, rawId: string): TaskPrepared {
+export function prepareTaskRun(root: string, feature: Feature, rawId: string, opts: { driver?: boolean } = {}): TaskPrepared {
   const taskId = rawId.toUpperCase();
   const fail = (reason: string): TaskPrepared => ({ ok: false, reason });
   const cfg = readProjectConfig(root);
   if (!cfg.harness) return fail("No harness configured in .kf/config.json — run: kf init (seeds roles and runner presets).");
   const wt = worktreeConfig(root, cfg.worktree);
   if (!wt.enabled) {
-    return fail('The task harness needs worktrees: set "worktree": { "enabled": true } (worktree.enabled) in .kf/config.json, then re-run.');
+    return fail(WORKTREE_REQUIRED);
   }
   if (feature.stage !== "implementation") return fail(`'${feature.name}' is in ${feature.stage}; --task needs the item in implementation.`);
   const approval = approvalState(feature);
@@ -76,7 +89,7 @@ export function prepareTaskRun(root: string, feature: Feature, rawId: string): T
     return fail(`${taskId} depends on ${unfinished.map((d) => `${d} (${stored[d]?.state ?? "pending"})`).join(", ")}, which is not done.`);
   }
   if (stored[taskId]?.state === "done") return fail(`${taskId} is already done.`);
-  const conflict = runConflict(feature.meta.runs, feature.name, taskId);
+  const conflict = runConflict(feature.meta.runs, feature.name, taskId, { drive: feature.meta.drive, driver: opts.driver });
   if (conflict) return fail(conflict);
 
   const role = resolveTaskRole(task, cfg.harness);
@@ -119,7 +132,7 @@ export async function setTaskState(root: string, name: string, harness: HarnessC
   await updateTasks(root, name, harness, (meta) => withTask(meta, id, patch));
 }
 
-function captureBaseline(root: string, feature: Feature): TasksBaseline | undefined {
+export function captureBaseline(root: string, feature: Feature): TasksBaseline | undefined {
   const tasksFile = join(feature.dir, "tasks.md");
   if (existsSync(tasksFile) && /^## Baseline[ \t]*$/m.test(readFileSync(tasksFile, "utf8"))) return undefined;
   const itemPath = feature.meta!.worktree!.path;
@@ -164,6 +177,8 @@ export interface TaskRunOptions {
   /** Why the previous attempt failed; the retry pipeline passes it so the worker can fix it. */
   previousFailure?: string;
   env?: NodeJS.ProcessEnv;
+  /** Set by the driver: its own task runs are allowed while its drive is live. */
+  driver?: boolean;
 }
 
 export type TaskRunResult =
@@ -206,7 +221,7 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
   };
   try {
     await updateTasks(root, featureName, harness, (meta) => {
-      const conflict = runConflict(meta.runs, featureName, task.id);
+      const conflict = runConflict(meta.runs, featureName, task.id, { drive: meta.drive, driver: opts.driver });
       if (conflict) throw new Refused(conflict);
       const claimed = withTask(meta, task.id, { state: "running", attempts: (meta.tasks?.[task.id]?.attempts ?? 0) + 1, branch: ctx.branch });
       return { ...claimed, runs: applyRunRecord(meta.runs, claim) };

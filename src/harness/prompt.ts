@@ -110,6 +110,8 @@ export interface PromptInput {
   /** Path of the current FAIL/REJECT report to point a repair run at. */
   failReport?: string | null;
   previous?: PreviousStep | null;
+  /** The worker runs outside the project root (the item worktree), so paths are given absolute. */
+  absolutePaths?: boolean;
 }
 
 /** Marker placed first in every worker prompt so sessions can be traced back to a run. */
@@ -129,7 +131,8 @@ export function currentFailReport(feature: Feature): string | null {
 export function buildWorkerPrompt(input: PromptInput): string {
   const { feature, root, assignment, runId } = input;
   const kind = feature.meta?.kind === "bug" ? "bug" : "feature";
-  const dir = relative(root, feature.dir);
+  const dir = input.absolutePaths ? feature.dir : relative(root, feature.dir);
+  const skill = input.absolutePaths ? assignment.skillPath : relative(root, assignment.skillPath);
   const lines = [
     runMarker(runId),
     `You are the "${assignment.role}" worker for the kanban-flow ${kind} "${feature.name}" (context ${feature.context ?? "n/a"}) at stage "${assignment.stage}".`,
@@ -138,7 +141,7 @@ export function buildWorkerPrompt(input: PromptInput): string {
   lines.push(
     `Project root: ${root}`,
     `Work item folder: ${dir}`,
-    `Load and follow the skill: ${relative(root, assignment.skillPath)} (${assignment.skill}). Skip its "move to stage" step — the stage is already set.`,
+    `Load and follow the skill: ${skill} (${assignment.skill}). Skip its "move to stage" step — the stage is already set.`,
     "Read the artifacts in the work item folder before acting; run `kf status --change " + feature.name + "` for the checklist and `kf instruct <artifact> --change " + feature.name + "` for the exact template and output path of anything you must write.",
   );
   if (input.previous) {
@@ -151,7 +154,7 @@ export function buildWorkerPrompt(input: PromptInput): string {
     lines.push(`Write your findings to ${join(dir, assignment.output)} so the next role can read them; this is in addition to the stage's own artifacts.`);
   }
   if (input.failReport) {
-    lines.push(`This is a repair loop: read ${relative(root, input.failReport)} first and fix exactly what it reports.`);
+    lines.push(`This is a repair loop: read ${input.absolutePaths ? input.failReport : relative(root, input.failReport)} first and fix exactly what it reports.`);
   }
   lines.push(
     "Contract:",

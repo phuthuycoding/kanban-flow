@@ -124,7 +124,7 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
     });
     return { code: 0, stdout: `Dry run — stage ${chain[0].stage}, chain: ${chain.map((a) => a.role).join(" → ")}\n\n${blocks.join("\n\n---\n\n")}` };
   }
-  const active = runConflict(feature.meta?.runs, name, null);
+  const active = runConflict(feature.meta?.runs, name, null, { drive: feature.meta?.drive });
   if (active) return { code: 1, stdout: active, stderr: "run in progress" };
 
   if (args.options.detach) {

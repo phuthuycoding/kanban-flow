@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { withLock } from "../shared/lock.js";
+import { isPidAlive } from "../shared/process.js";
 
 export interface Approval {
   status: ApprovalStatus;
@@ -108,6 +109,68 @@ export interface FeatureMeta {
   ship?: ShipState;
   /** Per-task progress of the task harness, keyed by task id; tasks with no entry are pending or ready (computed). */
   tasks?: Record<string, TaskState>;
+  /** State of the item's `kf drive`; written only by the driver and `kf drive --stop`. */
+  drive?: DriveState;
+}
+
+export const DRIVE_STATUSES = ["running", "stopped", "ready"] as const;
+export type DriveStatus = (typeof DRIVE_STATUSES)[number];
+
+export const DRIVE_STOP_CODES = [
+  "loop_limit", "requirement_bug", "worker_blocked", "plan_change_needed", "tasks_blocked", "verify_failed",
+  "transition_refused", "approval_changed", "config_changed", "budget", "stopped_by_user", "git_error", "internal_error",
+] as const;
+export type DriveStopCode = (typeof DRIVE_STOP_CODES)[number];
+
+export interface DriveState {
+  id: string;
+  status: DriveStatus;
+  /** Where the driver is (or stopped): implementation | repair | verify | testing | review. */
+  step: string;
+  /** Repair loops used; shared by testing and review. */
+  loops: number;
+  /** Worker runs started by this drive, retries and repairs included. */
+  runs: number;
+  stopCode?: DriveStopCode;
+  reason?: string;
+  nextCommand?: string;
+  /** Hash of harness.roles, harness.runners, harness.verify and worktree.enabled when the drive (re)started. */
+  configHash: string;
+  /** The same four sections hashed one by one, so a change can be named. */
+  configParts?: Record<string, string>;
+  /** Approval fingerprint at (re)start; a different one stops the drive. */
+  approvalHash?: string;
+  /** Report file (in the item folder) a pending repair run must fix; set while step is `repair`. */
+  repairReport?: string;
+  /** Warnings the driver recorded, e.g. a failed drive-stop hook. */
+  warnings?: string[];
+  supervisorPid?: number;
+  startedAt: string;
+  updatedAt: string;
+}
+
+/** A drive is live while it is running and its supervisor (the detached process, or the claiming CLI until it hands over) answers. */
+export function driveLive(drive: DriveState | undefined): boolean {
+  return drive?.status === "running" && isPidAlive(drive.supervisorPid);
+}
+
+function isDriveState(value: unknown): value is DriveState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const d = value as Partial<DriveState>;
+  const int = (n: unknown): boolean => typeof n === "number" && Number.isInteger(n) && n >= 0;
+  return typeof d.id === "string" && typeof d.status === "string" && (DRIVE_STATUSES as readonly string[]).includes(d.status)
+    && typeof d.step === "string" && int(d.loops) && int(d.runs)
+    && (d.stopCode === undefined || (DRIVE_STOP_CODES as readonly string[]).includes(d.stopCode))
+    && (d.reason === undefined || typeof d.reason === "string")
+    && (d.nextCommand === undefined || typeof d.nextCommand === "string")
+    && typeof d.configHash === "string"
+    && (d.configParts === undefined || (!!d.configParts && typeof d.configParts === "object" && !Array.isArray(d.configParts)
+      && Object.values(d.configParts).every((h) => typeof h === "string")))
+    && (d.approvalHash === undefined || typeof d.approvalHash === "string")
+    && (d.repairReport === undefined || typeof d.repairReport === "string")
+    && (d.warnings === undefined || (Array.isArray(d.warnings) && d.warnings.every((w) => typeof w === "string")))
+    && (d.supervisorPid === undefined || int(d.supervisorPid))
+    && typeof d.startedAt === "string" && typeof d.updatedAt === "string";
 }
 
 export const TASK_STATES = ["pending", "ready", "running", "verifying", "merging", "done", "failed", "blocked"] as const;
@@ -254,7 +317,8 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))
     || (meta.ship !== undefined && !isShipState(meta.ship))
     || (meta.tasks !== undefined && (!meta.tasks || typeof meta.tasks !== "object" || Array.isArray(meta.tasks)
-      || !Object.values(meta.tasks).every(isTaskState)))) {
+      || !Object.values(meta.tasks).every(isTaskState)))
+    || (meta.drive !== undefined && !isDriveState(meta.drive))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");
