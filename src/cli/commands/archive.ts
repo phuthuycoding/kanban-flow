@@ -9,7 +9,9 @@ import { validateFeature, checkDirectionGate, renderValidateText } from "../../w
 import { splitFrontmatter, applyFrontmatter, getFmValue } from "../../shared/frontmatter.js";
 import { writeFileAtomic } from "../../shared/paths.js";
 import { runHook, resolveHook, type HookSource } from "../../integrations/hooks.js";
-import { findRoot, recordBypasses, bypassNote, checkMergeGate } from "./helpers.js";
+import { findRoot } from "./helpers.js";
+import { recordBypasses, bypassNote } from "../../workflow/bypass.js";
+import { checkMergeGate } from "../../integrations/github.js";
 import { readProjectConfig } from "../../project/config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { teardownWorktree } from "../../worktree/lifecycle.js";
