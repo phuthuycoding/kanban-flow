@@ -67,8 +67,6 @@ export interface WorktreeRegistration {
   domain: string;
   port: number;
   createdAt: string;
-  /** Repo anchor workspace an ADE attach implicitly created (e.g. Herdr); teardown closes it. */
-  adeRepoWorkspaceId?: string;
 }
 
 function isWorktreeRegistration(value: unknown): value is WorktreeRegistration {

@@ -79,8 +79,6 @@ Two **event hooks** sit outside stage transitions and only exist under worktrees
 
 They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
 
-Separately from hooks, kf attaches each created worktree into reachable agentic development environments (Orca, Herdr) through adapters — see [Worktrees and local domains](cli-reference.md#worktrees-and-local-domains). That step is built-in and needs no script; the hooks above remain the project-owned extension point.
-
 ```bash
 #!/usr/bin/env bash
 # .kf/hooks/testing.sh — refuse to enter testing while the build is red

@@ -29,8 +29,6 @@ export interface MachineConfig {
   fallbackUpstream: string | null;
   /** Machine-global routing table the proxy reads; project `worktree.routesFile` overrides for tests. */
   routesFile: string;
-  /** ADE sync (Orca/Herdr attach on worktree create/sync); default on. */
-  adeSync?: boolean;
 }
 
 export const MACHINE_CONFIG_DIR = resolve(homedir(), ".config", "kanban-flow");
@@ -155,7 +153,6 @@ export function readMachineConfig(file = MACHINE_CONFIG_FILE): MachineConfig {
   if ((c.proxyListen !== undefined && typeof c.proxyListen !== "string")
     || (c.domainZone !== undefined && typeof c.domainZone !== "string")
     || (c.routesFile !== undefined && typeof c.routesFile !== "string")
-    || (c.adeSync !== undefined && typeof c.adeSync !== "boolean")
     || (c.fallbackUpstream !== undefined && c.fallbackUpstream !== null && typeof c.fallbackUpstream !== "string")) {
     throw new Error(`Invalid machine config: ${file}`);
   }

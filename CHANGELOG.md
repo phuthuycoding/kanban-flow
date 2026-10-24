@@ -2,6 +2,11 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Removed
+- **ADE sync (Orca, Herdr)**: kf no longer attaches worktrees to, or detaches them from, external ADEs on `kf worktree create`, stage → implementation, `worktree remove`, `cancel` or `archive` — kf manages its own worktrees only. `kf worktree sync` is gone; `adeSync` in the machine config and `KF_ADE_SYNC` are ignored. Herdr workspaces opened by earlier versions are no longer closed on teardown — close them by hand.
+
 ## [0.12.0] - 2026-10-17
 
 ### Added
