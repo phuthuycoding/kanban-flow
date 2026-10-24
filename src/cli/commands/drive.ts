@@ -1,6 +1,5 @@
-import { findFeature } from "../../workflow/features.js";
 import { claimDrive, driveView, startDetachedDrive, stopDrive, superviseDrive, type DriveOutcome, type DriveView } from "../../harness/drive.js";
-import { findRoot } from "./helpers.js";
+import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -29,10 +28,9 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: USAGE, stderr: "missing feature" };
   const json = Boolean(args.options.json);
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const feature = findFeature(root.root, name);
-  if (!feature) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const feature = root.item;
 
   if (typeof args.options.supervise === "string") {
     const outcome = await superviseDrive(root.root, feature.name, args.options.supervise);
