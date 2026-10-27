@@ -2,8 +2,8 @@
 
 kanban-flow is driven by an agent, so setting a project up means teaching the agent, not only creating directories. Three pieces do that:
 
-- `kf init` installs the eight kanban skills into the agent's project-level skills dir (`--agent` picks which, `claude` is the default; several agents also read each other's directories, which `kf install` reports) and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
-- The seeded `AGENTS.md` tells the agent the build, test and lint commands and the kanban conventions: the two human gates, `.works/` discipline, the `--force` policy. It is a starting point — edit it, because the agent reads it on every session.
+- `kf init` installs the nine kanban skills into the agent's project-level skills dir (`--agent` picks which, `claude` is the default; several agents also read each other's directories, which `kf install` reports) and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
+- The seeded `AGENTS.md` tells the agent the build, test and lint commands and the kanban conventions: the three human gates, `.works/` discipline, the `--force` policy. It is a starting point — edit it, because the agent reads it on every session.
 - `kf autoconfig` prints the briefing described below. Run it and hand the output to the agent — or tell the agent to run it, because it can work through the checklist itself.
 
 ## Onboarding for a human: `kf init`
@@ -16,7 +16,7 @@ each question in turn:
 - **Stacks** — confirms the detected list, or asks for one when nothing was detected.
 - **Default reviewer** — the name `kf approve` records; defaults to the git user.
 - **GitHub repository** — `owner/name` or a URL for `kf issues` and the `KFW_REPOSITORY` hook variable; defaults to the detected `origin` remote, and `none` leaves the project unlinked.
-- **Agents** — which agent CLIs get the eight skills installed.
+- **Agents** — which agent CLIs get the nine skills installed.
 - **GitHub sync hooks** — offered only when a repository is linked; yes copies the generic pack into `.kf/hooks/` (see [cli-reference](./cli-reference.md#the-hook-pack-and-the-project-board)).
 - **`.gitignore`** — whether to add `.works/`; asked only when `.git` exists and the entry is missing.
 - **Demo feature** — whether to seed one to show the structure.
@@ -34,7 +34,7 @@ Four sections, in order:
 1. **Project context** — the resolved root, the stacks (configured in `.kf/config.json`, or detected), a one-line config summary (default context, reviewer, agents) and which agents already have the skills at project scope.
 2. **Setup checklist** — every setup item, marked done or missing. Each missing item carries the command that fixes it.
 3. **Review rules to enforce** — the full text of the effective review rules, each labelled with its source. The agent adopts them as coding conventions *now*, not only when the review phase reads them.
-4. **Workflow guide** — the pipeline, the two human gates and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
+4. **Workflow guide** — the pipeline, the three human gates (requirement, plan + start, ship or archive), what `kf drive` does when a task harness is configured, and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
 
 ## The checklist, item by item
 

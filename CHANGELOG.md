@@ -10,6 +10,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - The implementation plan's Task Breakdown gains `Role` and `Files` columns, validated by `kf validate` (`task_duplicate`, `task_dep_missing`, `task_dep_cycle`, `task_role_unknown`) and sealed by `kf approve`.
 - `harness.verify` (`task`, `stage` argv arrays), `harness.parallel`, `harness.retries`, `harness.maxLoops` and `harness.budget.maxRuns` in `.kf/config.json`; `kf harness` shows them. `kf validate` warns `task_harness_needs_worktree` before the start decision when a drive is configured but worktrees are off; `kf doctor` checks harness readiness, stale task worktrees and dead locks.
 
+
+### Fixed
+- Agent-facing text caught up with 0.12 and the task harness: the `kf autoconfig` workflow guide lists `kf tasks`, `kf drive` and `kf ship`, shows the optional shipping leg and the ship decision as the third human gate, and names `kanban-ship`; the seeded `AGENTS.md`, `kf install` help (nine skills), the onboarding doc and the Pages demo say the same.
 ### Changed
 - Every read-modify-write of `.kfw.json` now holds a per-item lock (`.works/.locks/<feature>.lock`, dead holders taken over, 30s wait), and a finished run record can no longer be set back to `running` by a late write.
 - `kf stage` is a thin wrapper over a typed transition; its output is unchanged.
