@@ -7,7 +7,7 @@ export type SessionCapture =
   | { command: string[]; idField: string; matchField: string };
 
 export interface RunnerConfig {
-  /** argv for a fresh session; `{prompt}` required, `{session}` only with capture "provided". */
+  /** argv for a fresh session; `{prompt}` required, `{session}` only with capture "provided", `{itemDir}` filled with the absolute item folder. */
   start: string[];
   /** argv to continue a known session; must contain `{session}`. Absent = agent always starts fresh. */
   resume?: string[];
@@ -202,8 +202,8 @@ export function harnessLimits(h?: HarnessConfig): { parallel: number; retries: n
 export function harnessPresets(): Record<string, RunnerConfig> {
   return {
     claude: {
-      start: ["claude", "-p", "{prompt}", "--session-id", "{session}", "--permission-mode", "acceptEdits", "--output-format", "json"],
-      resume: ["claude", "-p", "{prompt}", "-r", "{session}", "--permission-mode", "acceptEdits", "--output-format", "json"],
+      start: ["claude", "-p", "{prompt}", "--session-id", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "json"],
+      resume: ["claude", "-p", "{prompt}", "-r", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "json"],
       session: "provided",
       usage: "json",
     },

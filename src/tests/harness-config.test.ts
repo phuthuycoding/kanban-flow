@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { readProjectConfig } from "../project/config.js";
 import { harnessPresets, harnessLimits, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
+import { provisionSession } from "../harness/session.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdHarness } from "../cli/commands/harness.js";
 import { cmdAutoconfig } from "../cli/commands/autoconfig.js";
@@ -12,6 +15,21 @@ import { harnessProject, type HarnessProject } from "./helpers/harness-fixture.j
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
+
+describe("claude item directory", () => {
+  it("fills {itemDir} on the preset start and resume argv", () => {
+    const claude = harnessPresets().claude;
+    expect(claude.start).toEqual(expect.arrayContaining(["--add-dir", "{itemDir}"]));
+    expect(claude.resume).toEqual(expect.arrayContaining(["--add-dir", "{itemDir}"]));
+    const resumed = provisionSession(claude, "sess-1", "prompt", false, { itemDir: "/tmp/item folder" });
+    expect(resumed.mode).toBe("resume");
+    expect(resumed.argv[resumed.argv.indexOf("--add-dir") + 1]).toBe("/tmp/item folder");
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+    const cfg = JSON.parse(readFileSync(join(repoRoot, ".kf/config.json"), "utf8")) as { harness: { runners: { "claude-dev": { start: string[]; resume: string[] } } } };
+    expect(cfg.harness.runners["claude-dev"].start).toEqual(expect.arrayContaining(["--add-dir", "{itemDir}"]));
+    expect(cfg.harness.runners["claude-dev"].resume).toEqual(expect.arrayContaining(["--add-dir", "{itemDir}"]));
+  });
+});
 
 describe("harness config validation", () => {
   let dir: string;
