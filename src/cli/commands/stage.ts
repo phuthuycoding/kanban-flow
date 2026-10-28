@@ -10,7 +10,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   if (!name || !toRaw) {
     return {
       code: 1,
-      stdout: "Usage: kf stage <feature> <next-stage>\nStages: brainstorm → planning → backlog → implementation → testing → review → dones",
+      stdout: "Usage: kf stage <feature> <next-stage>\nStages: brainstorm → planning → backlog → implementation → testing → review → shipping → dones",
       stderr: "missing args",
     };
   }
