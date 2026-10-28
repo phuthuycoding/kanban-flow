@@ -135,6 +135,23 @@ describe("cmdStage output is byte-identical to the pre-refactor CLI", () => {
     });
   });
 
+  it("missing args names shipping between review and dones", async () => {
+    await fixture(confirmed);
+    const none = await cmdStage(stageArgs([]), root);
+    expect(none.code).toBe(1);
+    expect(none.stderr).toBe("missing args");
+    expect(none.stdout).toContain("review → shipping → dones");
+    expect(none.stdout).not.toContain("cancelled");
+    const named = await cmdStage(stageArgs(["demo"]), root);
+    expect(named.code).toBe(1);
+    expect(named.stdout).toBe(none.stdout);
+    const unknown = await cmdStage(stageArgs(["demo", "nosuch"]), root);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toBe("unknown stage");
+    expect(unknown.stdout).toContain("shipping");
+    expect(unknown.stdout).toContain("cancelled");
+  });
+
   it("rename failure is re-thrown with the original error", async () => {
     if (process.getuid?.() === 0) return;
     await fixture(confirmed);
