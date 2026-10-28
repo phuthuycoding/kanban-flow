@@ -1,6 +1,7 @@
-import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
+import { updateFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
-import { findRoot, gh } from "./helpers.js";
+import { resolveItem } from "./helpers.js";
+import { gh } from "../../integrations/github.js";
 import { shipPublish, shipMerge, shipRelease, shipChangelog, type StepResult } from "../../ship/steps.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -14,10 +15,9 @@ import type { CmdResult } from "../result.js";
 export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]", stderr: "missing feature" };
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  const f = findFeature(root.root, name);
-  if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
+  const root = await resolveItem(cwd, name);
+  if (!root.ok) return root.refusal;
+  const f = root.item;
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
 
   if (f.stage !== "shipping") {

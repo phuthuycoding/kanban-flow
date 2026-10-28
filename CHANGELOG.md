@@ -2,6 +2,11 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Changed
+- Internal refactor, no change to commands, output or exit codes: `src/harness/drive.ts` is split into `src/harness/drive/` (`claim`, `control`, `driver`); the archive and cancel transactions move out of the command handlers into `src/workflow/archive.ts` (`archiveItem`) and `src/workflow/cancel.ts` (`cancelItem`); canonical docs sync moves to `src/workflow/canonical-docs.ts`, bypass records to `src/workflow/bypass.ts`, and the `gh` wrapper and PR merge gate to `src/integrations/github.ts`. See `docs/workflow/source-layout.md`.
+
 ## [0.13.0] - 2026-10-28
 
 ### Added

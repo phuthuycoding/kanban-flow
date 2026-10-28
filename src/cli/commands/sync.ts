@@ -1,7 +1,9 @@
 import { readProjectConfig } from "../../project/config.js";
 import { listFeatures } from "../../workflow/features.js";
-import { findRoot, gh, noRepository } from "./helpers.js";
-import { cmdArchive } from "./archive.js";
+import { findRoot, noRepository } from "./helpers.js";
+import { gh } from "../../integrations/github.js";
+import { renderArchive } from "./archive.js";
+import { archiveItem } from "../../workflow/archive.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -46,7 +48,7 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
       lines.push(`- ${f.name}: skipped (PR ${state.toLowerCase()})`);
       continue;
     }
-    const r = await cmdArchive({ command: "archive", positionals: [f.name], options: {} }, root.root);
+    const r = renderArchive(await archiveItem(root.root, f.name));
     if (r.code === 0) {
       lines.push(`✓ ${f.name}: archived (PR merged)`);
     } else {
