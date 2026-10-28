@@ -42,8 +42,8 @@ The `harness` block in `.kf/config.json`, which `kf harness` displays. This exam
   },
   "runners": {
     "claude-opus": {
-      "start":  ["claude", "-p", "{prompt}", "--session-id", "{session}", "--permission-mode", "acceptEdits", "--output-format", "json"],
-      "resume": ["claude", "-p", "{prompt}", "-r", "{session}", "--permission-mode", "acceptEdits", "--output-format", "json"],
+      "start":  ["claude", "-p", "{prompt}", "--session-id", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "json"],
+      "resume": ["claude", "-p", "{prompt}", "-r", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "json"],
       "session": "provided",
       "usage": "json"
     },

@@ -260,7 +260,7 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
   const feature = loadFeature(plan.root, plan.feature);
   const sessionKey = plan.sessionKey ?? plan.role;
   const stored = feature.meta!.sessions?.[sessionKey];
-  const provisioned = provisionSession(plan.runner, stored, plan.prompt, plan.fresh);
+  const provisioned = provisionSession(plan.runner, stored, plan.prompt, plan.fresh, { itemDir: feature.dir });
   const logRel = join("runs", `${plan.id}.log`);
   mkdirSync(join(feature.dir, "runs"), { recursive: true });
   const supervisorPid = feature.meta!.runs?.find((r) => r.id === plan.id)?.supervisorPid;
