@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { gitDriveProject, type GitDriveProject } from "./helpers/git-fixture.js";
@@ -63,6 +63,32 @@ describe("kf tasks (TC-006)", () => {
     expect(out.tasks[0]).toMatchObject({ state: "blocked", reason: "allowlist violation" });
     expect(out.tasks[1]).toMatchObject({ state: "pending", blockedBy: "TASK-001" });
     expect(existsSync(join(p.itemDir(), "tasks.md"))).toBe(false);
+  });
+
+  it("shows a hand-ticked task as done when meta.tasks is absent", async () => {
+    const { tasks: _tasks, ...rest } = p.readMeta()!;
+    await writeFeatureMeta(p.itemDir(), rest);
+    const file = join(p.itemDir(), "tasks.md");
+    writeFileSync(file, "# Tasks\n\n## Tasks\n\n- [x] TASK-001 — Do TASK-001\n- [ ] TASK-002 — later\n");
+    const before = readFileSync(file, "utf8");
+    const res = await cmdTasks(args({ json: true }), p.root);
+    expect(res.code).toBe(0);
+    const out = JSON.parse(res.stdout) as { tasks: Array<{ id: string; state: string; stateSource: string }> };
+    expect(out.tasks.map((t) => [t.id, t.state, t.stateSource])).toEqual([
+      ["TASK-001", "done", "tasks.md"],
+      ["TASK-002", "ready", "view"],
+      ["TASK-003", "pending", "view"],
+    ]);
+    expect(readFileSync(file, "utf8")).toBe(before);
+    const text = await cmdTasks(args(), p.root);
+    expect(text.stdout.split("\n")[0]).toContain("tasks.md");
+  });
+
+  it("keeps stored pending when the checkbox is ticked", async () => {
+    await setTasks({ "TASK-001": { state: "pending" } });
+    writeFileSync(join(p.itemDir(), "tasks.md"), "- [x] TASK-001 — Do TASK-001\n");
+    const out = JSON.parse((await cmdTasks(args({ json: true }), p.root)).stdout) as { tasks: Array<{ id: string; state: string; stateSource: string }> };
+    expect(out.tasks[0]).toMatchObject({ id: "TASK-001", state: "pending", stateSource: "meta" });
   });
 
   it("exits 1 for an unknown feature", async () => {
