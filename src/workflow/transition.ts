@@ -1,4 +1,4 @@
-import { rename } from "node:fs/promises";
+import { mkdir, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -225,6 +225,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
           await writeFeatureMeta(cur.dir, meta);
           metadataUpdated = true;
         }
+        await mkdir(dest, { recursive: true });
         await rename(cur.dir, target);
       } catch (err) {
         if (metadataUpdated) {
