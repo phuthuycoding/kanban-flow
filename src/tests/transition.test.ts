@@ -107,6 +107,24 @@ describe("cmdStage output is byte-identical to the pre-refactor CLI", () => {
     });
   });
 
+  it("creates a missing destination stage directory", async () => {
+    await fixture(confirmed);
+    await rm(join(root, ".works", "planning"), { recursive: true });
+    const res = await cmdStage(stageArgs(["demo", "planning"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(findFeature(root, "demo")!.stage).toBe("planning");
+  });
+
+  it("leaves the item in place when the destination path is a file", async () => {
+    await fixture(confirmed);
+    await rm(join(root, ".works", "planning"), { recursive: true });
+    await writeFile(join(root, ".works", "planning"), "not a directory");
+    let message = "";
+    await cmdStage(stageArgs(["demo", "planning"]), root).catch((e: Error) => { message = e.message; });
+    expect(message).toMatch(/EEXIST/);
+    expect(findFeature(root, "demo")!.stage).toBe("brainstorm");
+  });
+
   it("successful move", async () => {
     await fixture(confirmed);
     const res = await cmdStage(stageArgs(["demo", "planning"]), root);
