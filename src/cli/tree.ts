@@ -46,6 +46,14 @@ const VERB_DISPATCH: Record<string, { dispatch: string; verbHelp: string }> = {
   run: { dispatch: "run", verbHelp: "run the roles assigned to the current stage" },
 };
 
+/** Reverse of VERB_DISPATCH. Each dispatch id maps to one verb. */
+export function verbForDispatch(dispatch: string): string | undefined {
+  for (const [verb, meta] of Object.entries(VERB_DISPATCH)) {
+    if (meta.dispatch === dispatch) return verb;
+  }
+  return undefined;
+}
+
 function verbHelp(noun: WorkItemKind, verb: string, spec: CmdSpec): string {
   const usage = spec.help ?? "";
   // Rewrite the flat usage's command word to the canonical noun verb path.

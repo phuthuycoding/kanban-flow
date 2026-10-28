@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 
-import { buildCommandTree, resolveCommandPath, type CommandNode } from "./tree.js";
+import { buildCommandTree, resolveCommandPath, verbForDispatch, type CommandNode } from "./tree.js";
+import type { CmdResult } from "./result.js";
 import type { WorkItemKind } from "../workflow/schema.js";
 
 export interface ParsedArgs {
@@ -328,6 +329,55 @@ export function parseArgsCli(argv: string[]): ParsedArgs {
 export function commandHelp(command: string): string {
   const res = resolveCommandPath(COMMAND_TREE, command.split(" "));
   return res?.node?.help ?? `Unknown command: ${command}. Use "kf help".`;
+}
+
+/** Help topic for a parsed invocation. A noun path uses the canonical verb, not the flat dispatch id. */
+export function helpTopic(parsed: ParsedArgs): string {
+  if (parsed.noun) {
+    const verb = verbForDispatch(parsed.command);
+    if (verb) return `${parsed.noun} ${verb}`;
+  }
+  return parsed.command;
+}
+
+/**
+ * Help for a path. A full match exits 0. An unknown command exits 1. A leftover
+ * token under a noun group exits 1 with that group's help and names the token.
+ */
+export function renderHelp(topic: string): CmdResult {
+  const words = topic.split(/\s+/).filter((word) => word.length > 0);
+  const res = resolveCommandPath(COMMAND_TREE, words);
+  if (!res) {
+    return {
+      code: 1,
+      stdout: `Unknown command: ${topic}. Use "kf help".`,
+      stderr: `unknown command: ${words[0] ?? topic}`,
+    };
+  }
+  const stdout = res.node.help ?? commandHelp(res.path.join(" "));
+  if (!res.node.dispatch && res.rest.length > 0) {
+    return { code: 1, stdout, stderr: `unknown verb: ${res.rest[0]}` };
+  }
+  return { code: 0, stdout };
+}
+
+/**
+ * Default-branch result when parse stopped on a group or an unknown command.
+ * `--help` on a known noun prints that noun. A bare noun says `missing verb`.
+ */
+export function unknownInvocation(parsed: ParsedArgs): CmdResult {
+  const listed = commandHelp(parsed.command);
+  if (listed.startsWith("Unknown command:")) {
+    return { code: 1, stdout: listed, stderr: `unknown command: ${parsed.command}` };
+  }
+  const words = parsed.positionals.filter((word) => word !== "--help" && word !== "-h");
+  if (parsed.positionals.length > 0 && words.length === 0) {
+    return { code: 0, stdout: listed };
+  }
+  if (words.length === 0) {
+    return { code: 1, stdout: listed, stderr: "missing verb" };
+  }
+  return { code: 1, stdout: listed, stderr: `unknown verb: ${words[0]}` };
 }
 
 export function allCommands(): string[] {
