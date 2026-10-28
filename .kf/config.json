@@ -19,6 +19,12 @@
   "worktree": {
     "enabled": true
   },
+  "ship": {
+    "enabled": true,
+    "merge": "manual",
+    "release": false,
+    "changelog": false
+  },
   "project": {
     "owner": "phuthuycoding",
     "number": 3,
