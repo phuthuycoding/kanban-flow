@@ -1,4 +1,4 @@
-import { rename, rm } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -335,6 +335,7 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
     const originalMeta = readFileSync(join(cur.dir, METADATA_FILE), "utf8");
     let moved = false;
     try {
+      await mkdir(dest, { recursive: true });
       await rename(cur.dir, target);
       moved = true;
       await writeCanonicalCopies(copies);
