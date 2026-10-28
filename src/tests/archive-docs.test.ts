@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,7 +50,7 @@ async function report(id: "testing-result" | "review-report"): Promise<void> {
   await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
-async function archived(uc = ucFile): Promise<void> {
+async function archived(uc = ucFile, beforeArchive?: () => void): Promise<void> {
   expect((await cmdNew(args("new", ["demo"], { context: "app" }), root)).code).toBe(0);
   await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
@@ -66,6 +66,7 @@ async function archived(uc = ucFile): Promise<void> {
   expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
   await report("review-report");
   await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified scope and tests");
+  beforeArchive?.();
   const result = await cmdArchive(args("archive", ["demo"]), root);
   expect(result.code, result.stdout).toBe(0);
 }
@@ -90,6 +91,12 @@ describe("archive stamps canonical docs", () => {
       expect(content, path).not.toContain("status: planning");
     }
     expect(await readFile(docs.result(), "utf8")).toContain("status: PASS");
+  });
+
+  it("creates a missing dones directory before the move", async () => {
+    await archived(ucFile, () => rmSync(join(root, ".works", "dones"), { recursive: true, force: true }));
+    expect(feature().stage).toBe("dones");
+    expect(existsSync(join(root, ".works", "dones", feature().folder))).toBe(true);
   });
 
   it("copies a source without frontmatter unchanged", async () => {
