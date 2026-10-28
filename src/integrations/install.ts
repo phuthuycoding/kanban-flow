@@ -6,7 +6,6 @@ import { findWorksRoot } from "../workflow/features.js";
 import { selectOption } from "../project/bootstrap.js";
 import { readProjectConfig } from "../project/config.js";
 import { PKG_ROOT } from "../shared/paths.js";
-import type { CmdResult } from "../cli/result.js";
 import {
   AGENTS,
   DEFAULT_AGENT,
@@ -30,7 +29,14 @@ export const MANAGED_SKILLS = [
 
 const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
 
-function assertPackageSkills(): CmdResult | null {
+/** Text a caller prints. This module does not depend on the CLI result type. */
+export interface InstallReport {
+  code: number;
+  stdout: string;
+  stderr?: string;
+}
+
+function assertPackageSkills(): InstallReport | null {
   if (!existsSync(PKG_SKILLS_DIR)) {
     return {
       code: 1,
@@ -52,7 +58,7 @@ function assertPackageSkills(): CmdResult | null {
 }
 
 /** Copy the managed skills from the package into the given skill dir. */
-export async function copySkillsTo(skillsDir: string): Promise<CmdResult> {
+export async function copySkillsTo(skillsDir: string): Promise<InstallReport> {
   const missing = assertPackageSkills();
   if (missing) return missing;
   await mkdir(skillsDir, { recursive: true });
@@ -68,7 +74,7 @@ export async function copySkillsTo(skillsDir: string): Promise<CmdResult> {
 
 export type InstallMode = "link" | "copy";
 
-export interface SkillInstallResult extends CmdResult {
+export interface SkillInstallResult extends InstallReport {
   /** How the managed skills landed — only meaningful when code is 0. */
   mode?: InstallMode;
 }
@@ -244,7 +250,7 @@ export interface InstallSkillsOptions {
  * skills from the project's agent dirs — unless the project declared scope "project", where
  * a one-off global install must not dismantle the declared setup.
  */
-export async function installSkills(root: string | null, agents: AgentId[], scope: SkillScope, opts: InstallSkillsOptions = {}): Promise<CmdResult> {
+export async function installSkills(root: string | null, agents: AgentId[], scope: SkillScope, opts: InstallSkillsOptions = {}): Promise<InstallReport> {
   const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
   const lines: string[] = [];
   const cleaned: string[] = [];
@@ -281,7 +287,7 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
  * Global installs need no .works/ — outside a project the cleanup step is skipped.
  * Empty/missing agents fall back to the default agent (claude).
  */
-export async function cmdInstall(agents: AgentId[] = [DEFAULT_AGENT], opts: InstallScope = {}): Promise<CmdResult> {
+export async function cmdInstall(agents: AgentId[] = [DEFAULT_AGENT], opts: InstallScope = {}): Promise<InstallReport> {
   const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
   const base = opts.cwd ?? process.cwd();
   const root = findWorksRoot(base);
@@ -312,7 +318,7 @@ export async function cmdInstall(agents: AgentId[] = [DEFAULT_AGENT], opts: Inst
  * cleanup still works when .works/ was deleted manually. Empty/missing agents fall back to
  * the default agent (claude).
  */
-export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: InstallScope = {}): Promise<CmdResult> {
+export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: InstallScope = {}): Promise<InstallReport> {
   const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
   const base = opts.cwd ?? process.cwd();
   const foundRoot = findWorksRoot(base);

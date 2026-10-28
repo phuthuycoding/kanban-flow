@@ -63,10 +63,11 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
       const why = resync.error instanceof Error ? resync.error.message : String(resync.error);
       return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced: ${why}\n  Fix that, then run: kf archive ${name}` };
     }
+    const rendered = renderArchive(resync);
     if (resync.kind === "refused" || resync.kind === "hook-failed") {
-      return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced. Run: kf archive ${name}\n${resync.stdout}` };
+      return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced. Run: kf archive ${name}\n${rendered.stdout}` };
     }
-    return { code: 0, stdout: `${moved}\n${resync.stdout}` };
+    return { code: 0, stdout: `${moved}\n${rendered.stdout}` };
   }
   return { code: 0, stdout: moved };
 }

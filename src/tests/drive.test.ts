@@ -138,7 +138,10 @@ describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
     expect(readFileSync(join(wt, "src/b.txt"), "utf8")).toBe("b");
 
     const kinds = new Set(events(pr).map((e) => e.event));
-    for (const k of ["start", "task", "merge", "verify", "stage", "stop"]) expect(kinds.has(k), k).toBe(true);
+    for (const k of ["start", "run_start", "task", "merge", "verify", "stage", "stop"]) expect(kinds.has(k), k).toBe(true);
+    const started = events(pr).filter((e) => e.event === "run_start");
+    expect(started.length).toBeGreaterThan(0);
+    expect(started.every((e) => typeof e.run === "string" && typeof e.role === "string" && typeof e.runner === "string" && typeof e.log === "string")).toBe(true);
     const tasksMd = readFileSync(join(pr.itemDir(), "tasks.md"), "utf8");
     expect(tasksMd).toContain("## Baseline");
     expect(tasksMd).toMatch(/- \[x\] TASK-002/);

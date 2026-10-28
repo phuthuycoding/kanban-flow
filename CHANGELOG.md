@@ -4,7 +4,11 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- `kf drive <feature> --watch` (alias `--follow`) streams drive events as they are written, prints a heartbeat of the live runs at least every 15 seconds, and exits with the drive's result. Ctrl+C detaches the watcher only. `--status` lists each live run's role, runner, task, elapsed time and log path, plus the last event. A `run_start` event is appended when a worker starts. `--tail` prints the last lines of each live log under the heartbeat; `--json` streams one JSON object per line.
+
 ### Changed
+- `archiveItem` returns the archived and reconciled facts, and `kf archive` renders them. `checkMergeGate` returns a domain result. Skill install no longer imports the CLI result type. Command output is unchanged.
 - Internal refactor, no change to commands, output or exit codes: `src/harness/drive.ts` is split into `src/harness/drive/` (`claim`, `control`, `driver`); the archive and cancel transactions move out of the command handlers into `src/workflow/archive.ts` (`archiveItem`) and `src/workflow/cancel.ts` (`cancelItem`); canonical docs sync moves to `src/workflow/canonical-docs.ts`, bypass records to `src/workflow/bypass.ts`, and the `gh` wrapper and PR merge gate to `src/integrations/github.ts`. See `docs/workflow/source-layout.md`.
 
 ## [0.13.0] - 2026-10-28

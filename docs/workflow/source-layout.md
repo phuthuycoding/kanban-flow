@@ -45,11 +45,13 @@ src/
 │   └── drive/
 │       ├── claim.ts      # claim a drive, next command, start the detached supervisor
 │       ├── control.ts    # drive view, stop, finish
-│       └── driver.ts     # supervisor loop: tasks, verify, testing/review repair loops
+│       ├── driver.ts     # supervisor loop: tasks, verify, testing/review repair loops
+│       ├── progress.ts   # live-run labels and elapsed time for status and watch
+│       └── watch.ts      # kf drive --watch: tail the drive log until it stops
 ├── ship/                 # ship pipeline steps: publish, merge gate, release, changelog
 ├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation, hooks
-│   └── github.ts         # gh CLI wrapper and PR merge gate (checkMergeGate)
+│   └── github.ts         # gh CLI wrapper and PR merge gate (checkMergeGate); domain result, no CLI type
 ├── dashboard/            # analytics HTTP server and HTML view
 ├── shared/               # filesystem paths, frontmatter and time helpers, per-item lock, git helpers
 └── tests/                # all Vitest tests, grouped separately from runtime

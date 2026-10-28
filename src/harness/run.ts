@@ -7,6 +7,7 @@ import { isPidAlive } from "../shared/process.js";
 import { findFeature, updateFeatureMeta, type Feature, type RunRecord, type RunStatus } from "../workflow/features.js";
 import type { Stage } from "../workflow/schema.js";
 import type { RunnerConfig } from "./config.js";
+import { noteDriveRunStart } from "./drive-log.js";
 import { buildWorkerPrompt, currentFailReport, runMarker, type Assignment, type PreviousStep } from "./prompt.js";
 import { captureSession, isResumeFailure, parseUsage, provisionSession } from "./session.js";
 
@@ -269,6 +270,7 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
     at: new Date().toISOString(), log: logRel, status: "running", supervisorPid, chain: plan.chain, ...(plan.task ? { task: plan.task } : {}),
   };
   await upsertRun(plan.root, plan.feature, record);
+  noteDriveRunStart(plan.root, plan.feature, record);
 
   const result = await spawnWorker(provisioned.argv, {
     cwd: plan.cwd ?? plan.root, env, logPath: join(feature.dir, logRel), timeoutMs: plan.timeoutMs,

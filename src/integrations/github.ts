@@ -1,7 +1,5 @@
 import { spawnSync } from "node:child_process";
 
-import type { CmdResult } from "../cli/result.js";
-
 export interface GhResult {
   ok: boolean;
   missing: boolean;
@@ -21,50 +19,41 @@ export function gh(args: string[]): GhResult {
   };
 }
 
+/** Why a recorded PR cannot be treated as merged. Callers render the text. */
+export type MergeGateFailure =
+  | { reason: "no-repository"; pr: string }
+  | { reason: "unverifiable"; pr: string; detail: string }
+  | { reason: "parse"; pr: string; output: string }
+  | { reason: "not-merged"; pr: string; state: string };
+
 /**
  * The merge gate shared by `kf archive` and `kf sync`: a recorded PR must be verifiably
  * MERGED. Anything else — OPEN, CLOSED, a gh failure, a missing repository, unparseable
  * output — is unverifiable, and unverifiable is not merged: refuse before any side effect.
  * There is deliberately no --force escape (unlike the AC gate's force semantics).
- * Returns null when the gate passes or no PR is recorded; a refusal CmdResult otherwise.
+ * Returns null when the gate passes or no PR is recorded.
  */
 export function checkMergeGate(
-  feature: { name: string; meta?: { pr?: string } | null },
+  feature: { meta?: { pr?: string } | null },
   repo: string | undefined,
-): CmdResult | null {
+): MergeGateFailure | null {
   const pr = feature.meta?.pr;
   if (!pr) return null;
-  if (!repo) {
-    return {
-      code: 1,
-      stdout: `Cannot archive '${feature.name}': PR ${pr} is recorded but no "repository" is configured to verify it. Set one in .kf/config.json or archive after removing the pr link.`,
-      stderr: "no repository",
-    };
-  }
+  if (!repo) return { reason: "no-repository", pr };
   const res = gh(["pr", "view", pr, "-R", repo, "--json", "state"]);
   if (!res.ok) {
     return {
-      code: 1,
-      stdout: `Cannot archive '${feature.name}': could not verify merge state of ${pr} — unverifiable is not merged.\n${res.missing ? "gh CLI not found — install it and run gh auth login." : res.stderr.trim() || res.stdout.trim()}`,
-      stderr: "pr unverifiable",
+      reason: "unverifiable",
+      pr,
+      detail: res.missing ? "gh CLI not found — install it and run gh auth login." : res.stderr.trim() || res.stdout.trim(),
     };
   }
   let state = "UNKNOWN";
   try {
     state = ((JSON.parse(res.stdout) as { state?: string }).state ?? "UNKNOWN").toUpperCase();
   } catch {
-    return {
-      code: 1,
-      stdout: `Cannot archive '${feature.name}': gh pr view ${pr} returned unexpected output:\n${res.stdout.trim()}`,
-      stderr: "pr view parse",
-    };
+    return { reason: "parse", pr, output: res.stdout.trim() };
   }
-  if (state !== "MERGED") {
-    return {
-      code: 1,
-      stdout: `Cannot archive '${feature.name}': PR ${pr} is not merged (state: ${state}) — merge it first, then archive.`,
-      stderr: "pr not merged",
-    };
-  }
+  if (state !== "MERGED") return { reason: "not-merged", pr, state };
   return null;
 }

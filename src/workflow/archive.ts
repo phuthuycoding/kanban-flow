@@ -8,9 +8,9 @@ import { withLock } from "../shared/lock.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
-import { recordBypasses, bypassNote } from "./bypass.js";
+import { recordBypasses } from "./bypass.js";
 import { prepareCanonicalCopies, isUnstampedSnapshot, writeCanonicalCopies, rollbackCanonicalCopies } from "./canonical-docs.js";
-import { checkMergeGate } from "../integrations/github.js";
+import { checkMergeGate, type MergeGateFailure } from "../integrations/github.js";
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { teardownWorktree, type TeardownResult } from "../worktree/lifecycle.js";
@@ -38,27 +38,49 @@ export type ArchiveRefusalReason =
 export type ArchiveOutcome =
   | {
       kind: "archived";
+      name: string;
       from: Stage;
       dir: string;
       /** Canonical doc destinations written; empty when none were synced or skipSpecs was set. */
       docs: string[];
+      skipSpecs: boolean;
+      hasIssue: boolean;
       bypasses: Bypass[];
       teardown: TeardownResult | null;
-      stdout: string;
+      /** Worktree path printed when one was removed; null when there was no worktree. */
+      worktreePath: string | null;
     }
   | {
       /** The item was already in dones: canonical docs re-synced and delivery re-stamped. */
       kind: "reconciled";
+      name: string;
       dir: string;
       docs: string[];
+      skipSpecs: boolean;
+      /** True when delivery was already stamped before this reconcile. */
+      alreadyDelivered: boolean;
+      hasIssue: boolean;
       bypasses: Bypass[];
-      stdout: string;
     }
   | { kind: "refused"; reason: ArchiveRefusalReason; stdout: string; stderrTag: string }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
 
 const refuse = (reason: ArchiveRefusalReason, stderrTag: string, stdout: string): ArchiveOutcome => ({ kind: "refused", reason, stdout, stderrTag });
+
+/** The same sentences `kf archive` has always printed for a merge-gate refusal. */
+function refuseMerge(name: string, failure: MergeGateFailure): ArchiveOutcome {
+  switch (failure.reason) {
+    case "no-repository":
+      return refuse("merge-gate", "no repository", `Cannot archive '${name}': PR ${failure.pr} is recorded but no "repository" is configured to verify it. Set one in .kf/config.json or archive after removing the pr link.`);
+    case "unverifiable":
+      return refuse("merge-gate", "pr unverifiable", `Cannot archive '${name}': could not verify merge state of ${failure.pr} — unverifiable is not merged.\n${failure.detail}`);
+    case "parse":
+      return refuse("merge-gate", "pr view parse", `Cannot archive '${name}': gh pr view ${failure.pr} returned unexpected output:\n${failure.output}`);
+    case "not-merged":
+      return refuse("merge-gate", "pr not merged", `Cannot archive '${name}': PR ${failure.pr} is not merged (state: ${failure.state}) — merge it first, then archive.`);
+  }
+}
 
 const hookFailed = (hook: HookResult): ArchiveOutcome => ({
   kind: "hook-failed",
@@ -91,7 +113,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   // step, so an unmerged/unverifiable PR refuses before any side effect, on both the
   // review → dones move and the dones reconcile path. No --force escape.
   const merge = checkMergeGate(f, readProjectConfig(root).repository);
-  if (merge) return refuse("merge-gate", merge.stderr ?? "", merge.stdout);
+  if (merge) return refuseMerge(f.name, merge);
 
   // Only review → dones transition is archive-able. If already dones, refresh canonical docs idempotently.
   if (f.stage === "dones") {
@@ -151,17 +173,15 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       if (failures.length > 0) throw new AggregateError([err, ...failures], `Canonical docs sync failed and rollback was incomplete for '${name}'.`);
       throw new Error(`Canonical docs sync failed for '${name}'; feature remains in dones.`, { cause: err });
     }
-    const deliveredNote = f.meta?.delivered
-      ? "\n  Delivery finalized — item was already marked delivered; side effects re-checked."
-      : "\n  Delivery finalized — `delivered` stamped in .kfw.json.";
-    const issueNote = f.meta?.issue ? "" : "\n  ⚠ no linked issue — tracker has no delivery record.";
     return {
       kind: "reconciled",
+      name,
       dir: f.dir,
       docs: copies.map((copy) => copy.destination),
+      skipSpecs: Boolean(opts.skipSpecs),
+      alreadyDelivered: Boolean(f.meta?.delivered),
+      hasIssue: Boolean(f.meta?.issue),
       bypasses: recorded,
-      stdout:
-        `Feature '${name}' is already in dones.\n${copies.length > 0 ? `Canonical docs synced:\n${copies.map((copy) => `  ${copy.destination}`).join("\n")}` : opts.skipSpecs ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}${deliveredNote}${issueNote}${bypassNote(recorded)}`,
     };
   }
   if (f.stage !== "review" && f.stage !== "shipping") {
@@ -264,23 +284,16 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   });
   if (stale) return stale;
 
-  const worktreeNote = teardown
-    ? `\n  Worktree removed: ${f.meta?.worktree?.path ?? ""} (branch ${teardown.branch} kept)` +
-      (teardown.unmergedCommits > 0
-        ? `\n  ⚠ ${teardown.branch} has ${teardown.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
-        : "") +
-      teardown.taskBranches.map((b) => `\n  kept task branch: ${b}`).join("") +
-      teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("")
-    : "";
-  const issueNote = f.meta?.issue ? "" : "\n  ⚠ no linked issue — tracker has no delivery record.";
   return {
     kind: "archived",
+    name,
     from: f.stage,
     dir: target,
     docs: copies.map((copy) => copy.destination),
+    skipSpecs: Boolean(opts.skipSpecs),
+    hasIssue: Boolean(f.meta?.issue),
     bypasses: recorded,
     teardown,
-    stdout:
-      `✓ Archived '${name}'  review → dones\n  ${target}\n${copies.length > 0 ? `  Canonical docs synced:\n${copies.map((copy) => `    ${copy.destination}`).join("\n")}` : opts.skipSpecs ? "  (--skip-specs: canonical docs not touched)" : "  (no canonical docs synced)"}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote}${worktreeNote}${bypassNote(recorded)}`,
+    worktreePath: f.meta?.worktree?.path ?? null,
   };
 }
