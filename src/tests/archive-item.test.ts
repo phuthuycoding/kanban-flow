@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
-import { cmdArchive } from "../cli/commands/archive.js";
+import { cmdArchive, renderArchive } from "../cli/commands/archive.js";
 import { archiveItem } from "../workflow/archive.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
@@ -129,7 +129,8 @@ describe("archiveItem — typed outcome", () => {
     expect(outcome.docs.map((d) => normalize(d))).toEqual(DOCS.map((d) => `<root>/${d}`));
     expect(outcome.bypasses).toEqual([]);
     expect(outcome.teardown).toBeNull();
-    expect(render({ code: 0, stdout: outcome.stdout }, folder)).toEqual(RECORDED.success);
+    expect(outcome).not.toHaveProperty("stdout");
+    expect(render(renderArchive(outcome), folder)).toEqual(RECORDED.success);
     expect(feature().stage).toBe("dones");
     expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
   });
@@ -155,7 +156,8 @@ describe("archiveItem — typed outcome", () => {
     expect((await archiveItem(root, "shipit")).kind).toBe("archived");
     const outcome = await archiveItem(root, "shipit");
     expect(outcome.kind).toBe("reconciled");
-    expect(normalize(outcome.kind === "reconciled" ? outcome.stdout : "")).toBe(RECORDED.reconcile.stdout);
+    expect(outcome).not.toHaveProperty("stdout");
+    expect(normalize(renderArchive(outcome).stdout)).toBe(RECORDED.reconcile.stdout);
   });
 
   it("returns an unknown item as a refusal, not a throw", async () => {

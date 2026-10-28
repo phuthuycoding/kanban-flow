@@ -229,7 +229,8 @@ task, and `kf approve` seals it, so the same plan always produces the same dispa
 ```bash
 kf tasks user-login            # the task graph: waves, states, roles, files
 kf drive user-login            # detached; starts from implementation after approval
-kf drive user-login --status   # where it is, or why it stopped and what to run next
+kf drive user-login --status   # where it is, each live run, or why it stopped
+kf drive user-login --watch    # stream events and a heartbeat; Ctrl+C detaches only
 kf drive user-login --stop     # end it; worktrees and branches are kept
 ```
 

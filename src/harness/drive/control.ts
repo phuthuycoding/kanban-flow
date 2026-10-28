@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import {
   driveLive, findFeature, updateFeatureMeta,
   type DriveStopCode, type Feature, type TaskState,
@@ -7,7 +9,8 @@ import { readProjectConfig } from "../../project/config.js";
 import { isPidAlive } from "../../shared/process.js";
 import { harnessLimits } from "../config.js";
 import { applyRunRecord, killGroup, liveRecords } from "../run.js";
-import { appendDriveEvent } from "../drive-log.js";
+import { appendDriveEvent, lastDriveEvent } from "../drive-log.js";
+import { describeEvent, formatElapsed, type DriveLiveRun } from "./progress.js";
 
 export interface DriveEnd {
   status: "ready" | "stopped";
@@ -121,16 +124,24 @@ export interface DriveView {
   supervisorPid?: number;
   startedAt: string;
   updatedAt: string;
+  liveRuns: DriveLiveRun[];
+  lastEvent?: { at: string; summary: string };
 }
 
 const IN_FLIGHT = new Set<TaskState["state"]>(["running", "verifying", "merging"]);
 
-export function driveView(root: string, feature: Feature): DriveView | null {
+export function driveView(root: string, feature: Feature, nowMs: number = Date.now()): DriveView | null {
   const d = feature.meta?.drive;
   if (!d) return null;
   const limits = harnessLimits(readProjectConfig(root).harness);
   const crashed = d.status === "running" && !driveLive(d);
   const runningTasks = Object.entries(feature.meta?.tasks ?? {}).filter(([, t]) => IN_FLIGHT.has(t.state)).map(([id]) => id).sort();
+  const liveRuns: DriveLiveRun[] = liveRecords(feature.meta?.runs).map((r) => ({
+    id: r.id, role: r.role, runner: r.runner, stage: r.stage, ...(r.task ? { task: r.task } : {}),
+    at: r.at, elapsed: formatElapsed(r.at, nowMs), log: join(feature.dir, r.log),
+  }));
+  const last = lastDriveEvent(feature.dir, d.id);
+  const lastEvent = last ? { at: typeof last.at === "string" ? last.at : "", summary: describeEvent(last) } : undefined;
   return {
     feature: feature.name, id: d.id, state: crashed ? "crashed" : d.status, step: d.step,
     loops: d.loops, maxLoops: limits.maxLoops, runs: d.runs, maxRuns: limits.maxRuns, runningTasks,
@@ -139,7 +150,7 @@ export function driveView(root: string, feature: Feature): DriveView | null {
       ? { reason: `supervisor pid ${d.supervisorPid ?? "?"} is gone (killed or crashed) during step ${d.step}`, nextCommand: `kf drive ${feature.name}` }
       : { ...(d.reason ? { reason: d.reason } : {}), ...(d.nextCommand ? { nextCommand: d.nextCommand } : {}) }),
     warnings: d.warnings ?? [], ...(d.supervisorPid ? { supervisorPid: d.supervisorPid } : {}),
-    startedAt: d.startedAt, updatedAt: d.updatedAt,
+    startedAt: d.startedAt, updatedAt: d.updatedAt, liveRuns, ...(lastEvent ? { lastEvent } : {}),
   };
 }
 
