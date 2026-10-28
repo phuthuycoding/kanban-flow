@@ -57,7 +57,7 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
 
   if (args.options["dry-run"]) {
     const prompt = taskPrompt(root, feature, ctx, "<run-id>");
-    const provisioned = provisionSession(ctx.assignment.runner, feature.meta?.sessions?.[taskSessionKey(ctx.task.id)], prompt, fresh || ctx.attempts === 0);
+    const provisioned = provisionSession(ctx.assignment.runner, feature.meta?.sessions?.[taskSessionKey(ctx.task.id)], prompt, fresh || ctx.attempts === 0, { itemDir: feature.dir });
     return {
       code: 0,
       stdout: [
@@ -119,7 +119,7 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
     const blocks = chain.map((assignment, index) => {
       const plan = planFor(root.root, feature, assignment, { fresh, timeoutMs }, index === 0 ? null : { role: chain[index - 1].role, output: chain[index - 1].output, log: "<log of the previous run, known at run time>" },
         { id: "<chain>", index: index + 1, total: chain.length });
-      const provisioned = provisionSession(plan.runner, feature.meta?.sessions?.[plan.role], plan.prompt, fresh);
+      const provisioned = provisionSession(plan.runner, feature.meta?.sessions?.[plan.role], plan.prompt, fresh, { itemDir: feature.dir });
       return `[${index + 1}/${chain.length}] ${assignment.role} (${assignment.runnerName}) — ${provisioned.mode}\n\nargv:\n${provisioned.argv.map((a) => `  ${JSON.stringify(a)}`).join("\n")}\n\nprompt:\n${plan.prompt}`;
     });
     return { code: 0, stdout: `Dry run — stage ${chain[0].stage}, chain: ${chain.map((a) => a.role).join(" → ")}\n\n${blocks.join("\n\n---\n\n")}` };

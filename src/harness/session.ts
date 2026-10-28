@@ -11,17 +11,22 @@ export interface Provisioned {
 
 const DEFAULT_RESUME_FAILURE = /session|not found|no such|unknown|does not exist/i;
 
-function fill(template: string[], prompt: string, session: string | undefined): string[] {
-  return template.map((arg) => arg.replaceAll("{prompt}", prompt).replaceAll("{session}", session ?? ""));
+export interface SessionPaths {
+  /** Absolute work-item directory. Replaces `{itemDir}` in runner argv. */
+  itemDir: string;
+}
+
+function fill(template: string[], prompt: string, session: string | undefined, itemDir: string): string[] {
+  return template.map((arg) => arg.replaceAll("{prompt}", prompt).replaceAll("{session}", session ?? "").replaceAll("{itemDir}", itemDir));
 }
 
 /** Pick start vs resume and build argv. Sessions are never guessed: only a stored id is resumed. */
-export function provisionSession(runner: RunnerConfig, stored: string | undefined, prompt: string, fresh: boolean): Provisioned {
+export function provisionSession(runner: RunnerConfig, stored: string | undefined, prompt: string, fresh: boolean, paths: SessionPaths): Provisioned {
   if (!fresh && stored && runner.resume) {
-    return { mode: "resume", session: stored, argv: fill(runner.resume, prompt, stored) };
+    return { mode: "resume", session: stored, argv: fill(runner.resume, prompt, stored, paths.itemDir) };
   }
   const session = runner.session === "provided" ? randomUUID() : undefined;
-  return { mode: "start", session, argv: fill(runner.start, prompt, session) };
+  return { mode: "start", session, argv: fill(runner.start, prompt, session, paths.itemDir) };
 }
 
 export interface CaptureInput {

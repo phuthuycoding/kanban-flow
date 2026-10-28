@@ -216,3 +216,21 @@ describe("concurrency rules (TC-033)", () => {
     expect(p.readMeta()!.runs!.filter((r) => r.task === "TASK-001")).toHaveLength(1);
   });
 });
+
+describe("claude receives the item directory", () => {
+  it("writes outside the task worktree through --add-dir", async () => {
+    p = await gitDriveProject({ tasks: [{ id: "TASK-001", files: ["src/a.ts"] }] });
+    const argvFile = join(p.cli.dir, "claude.argv");
+    p.cli.scenario("claude", {
+      stdout: "STATUS: DONE\nSummary: wrote",
+      script: `perl -e 'local $/ = "\\0"; open my $f, "<", "${argvFile}" or die $!; my @a = <$f>; chomp @a; my $dir; for (my $i = 0; $i < @a; $i++) { if ($a[$i] eq "--add-dir") { $dir = $a[$i+1]; last } } die "no add-dir\\n" unless defined $dir && -d $dir; open my $o, ">", "$dir/phase-4-testing-result.md" or die $!; print $o "evidence\\n";'`,
+    });
+    const res = await run(p, { task: "TASK-001" });
+    expect(res.code, res.stdout).toBe(0);
+    const call = p.calls("claude")[0];
+    expect(existsSync(join(call.cwd, ".works"))).toBe(false);
+    const argv = p.cli.argv("claude");
+    expect(argv[argv.indexOf("--add-dir") + 1]).toBe(p.itemDir());
+    expect(await readFile(join(p.itemDir(), "phase-4-testing-result.md"), "utf8")).toBe("evidence\n");
+  });
+});
