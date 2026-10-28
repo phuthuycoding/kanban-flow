@@ -3,8 +3,8 @@
 `kanban-flow` drives a feature's life cycle through the `kf` CLI and the phase skills:
 
 ```text
-brainstorm → planning → implementation → testing → review → dones
-                 ↘ backlog ↗
+brainstorm → planning → implementation → testing → review ─┬→ shipping → dones
+                 ↘ backlog ↗     ↺ FAIL loops back          └→ dones (non-code items)
 
 any stage ──kf cancel──→ cancelled ──back to the stage it stopped in──→ (resumes)
 ```
