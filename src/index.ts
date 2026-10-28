@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { parseArgsCli, allCommands, commandHelp, type ParsedArgs } from "./cli/args.js";
+import { parseArgsCli, allCommands, commandHelp, helpTopic, renderHelp, unknownInvocation, type ParsedArgs } from "./cli/args.js";
 import { cmdInit } from "./cli/commands/init.js";
 import { cmdNew } from "./cli/commands/new.js";
 import { cmdList, cmdShow, cmdView, cmdStatus, cmdValidate } from "./cli/commands/inspect.js";
@@ -43,7 +43,7 @@ function portFrom(parsed: ParsedArgs): number {
 
 async function help(parts: string[]): Promise<CmdResult> {
   const topic = parts.join(" ");
-  if (topic) return { code: 0, stdout: commandHelp(topic) };
+  if (topic) return renderHelp(topic);
   const canonical = "  kf feature <verb>  — start | list | show | move | approve | ship | finish | drop | run\n  kf bug <verb>      — same lifecycle for bugs (\"bug start\" implies --type bug)";
   const cmds = allCommands().map((c) => `  ${c.padEnd(12)} ${commandHelp(c).split("\n")[0]}`).join("\n");
   return {
@@ -62,7 +62,7 @@ async function main(argv: string[]): Promise<CmdResult> {
     return help([]);
   }
   const parsed = parseArgsCli(argv);
-  if (parsed.options.help) return help([parsed.command]);
+  if (parsed.options.help) return renderHelp(helpTopic(parsed));
   if (parsed.noun) {
     const gated = nounKindGate(parsed, cwd);
     if (gated) return gated;
@@ -140,7 +140,7 @@ async function main(argv: string[]): Promise<CmdResult> {
         force: Boolean(parsed.options.force),
       });
     default:
-      return { code: 1, stdout: commandHelp(parsed.command), stderr: `unknown command: ${parsed.command}` };
+      return unknownInvocation(parsed);
   }
 }
 

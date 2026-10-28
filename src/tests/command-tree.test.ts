@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseArgsCli, commandHelp, allCommands } from "../cli/args.js";
+import { parseArgsCli, commandHelp, allCommands, helpTopic, renderHelp, unknownInvocation } from "../cli/args.js";
 import { nounKindGate } from "../cli/noun-gate.js";
 import { writeFeatureMeta } from "../workflow/features.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -117,5 +117,52 @@ describe("unknown/partial paths", () => {
     expect(parsed.command).toBe("feature");
     expect(parsed.noun).toBeUndefined();
     expect(commandHelp("feature")).toContain("<verb>");
+  });
+
+  it("names the unknown verb and keeps flat help byte-for-byte", () => {
+    const wat = unknownInvocation(parseArgsCli(["feature", "wat"]));
+    expect(wat.code).toBe(1);
+    expect(wat.stdout).toContain("kf feature <verb>");
+    expect(wat.stderr).toBe("unknown verb: wat");
+
+    const bug = unknownInvocation(parseArgsCli(["bug", "wat"]));
+    expect(bug.code).toBe(1);
+    expect(bug.stdout).toContain("kf bug <verb>");
+    expect(bug.stderr).toBe("unknown verb: wat");
+
+    const bare = unknownInvocation(parseArgsCli(["feature"]));
+    expect(bare.code).toBe(1);
+    expect(bare.stdout).toContain("kf feature <verb>");
+    expect(bare.stderr).toBe("missing verb");
+
+    const nounHelp = unknownInvocation(parseArgsCli(["feature", "--help"]));
+    expect(nounHelp.code).toBe(0);
+    expect(nounHelp.stdout).toContain("kf feature <verb>");
+    expect(nounHelp.stderr).toBeUndefined();
+
+    const move = parseArgsCli(["feature", "move", "--help"]);
+    expect(helpTopic(move)).toBe("feature move");
+    const moveHelp = renderHelp(helpTopic(move));
+    expect(moveHelp.code).toBe(0);
+    expect(moveHelp.stdout.startsWith("Usage: kf feature move")).toBe(true);
+
+    const stageHelp = renderHelp(helpTopic(parseArgsCli(["stage", "--help"])));
+    expect(stageHelp.code).toBe(0);
+    expect(stageHelp.stdout.startsWith("Usage: kf stage")).toBe(true);
+    expect(commandHelp("stage").startsWith("Usage: kf stage")).toBe(true);
+
+    const nested = renderHelp("feature wat");
+    expect(nested.code).toBe(1);
+    expect(nested.stdout).toContain("kf feature <verb>");
+    expect(nested.stderr).toBe("unknown verb: wat");
+
+    const missing = renderHelp("nosuch");
+    expect(missing.code).toBe(1);
+    expect(missing.stdout).toContain("Unknown command: nosuch");
+    expect(missing.stderr).toBe("unknown command: nosuch");
+
+    const unknown = unknownInvocation(parseArgsCli(["nosuch"]));
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toBe("unknown command: nosuch");
   });
 });
