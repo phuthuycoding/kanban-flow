@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -124,6 +124,16 @@ describe("stage gate into shipping (TC-002, TC-003)", () => {
     const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
     expect(res.code, res.stdout).toBe(0);
     expect(feature().stage).toBe("shipping");
+  });
+
+  it("creates a missing shipping directory before the move", async () => {
+    await writeCfg({ enabled: false });
+    await shipReadyItem();
+    rmSync(join(root, ".works", "shipping"), { recursive: true, force: true });
+    const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().stage).toBe("shipping");
+    expect(existsSync(join(root, ".works", "shipping", feature().folder))).toBe(true);
   });
 
   it("refuses without a PASS report and from other stages", async () => {
