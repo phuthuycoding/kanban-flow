@@ -154,8 +154,18 @@ describe("kf drive --watch on a live drive", () => {
     expect(text.stdout).toContain(live.log);
 
     const id = pr.readMeta()!.drive!.id;
-    const logged = readFileSync(join(pr.itemDir(), "runs", `drive-${id}.jsonl`), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    const start = logged.find((e) => e.event === "run_start" && e.task === "TASK-001");
+    const logPath = join(pr.itemDir(), "runs", `drive-${id}.jsonl`);
+    const events = () =>
+      existsSync(logPath)
+        ? readFileSync(logPath, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l))
+        : [];
+    let start: { event?: string; task?: string; role?: string; runner?: string; log?: string } | undefined;
+    for (;;) {
+      start = events().find((e) => e.event === "run_start" && e.task === "TASK-001");
+      if (start) break;
+      if (Date.now() > end) throw new Error(`timed out waiting for run_start; events ${JSON.stringify(events())}`);
+      await wait(50);
+    }
     expect(start).toMatchObject({ role: "coder", runner: live.runner, log: expect.stringContaining(`${live.id}.log`) });
 
     const child = spawn(process.execPath, [join(PKG_ROOT, "dist", "index.js"), "drive", "demo", "--watch", "--json"], { cwd: pr.root });
