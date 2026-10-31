@@ -137,9 +137,9 @@ export interface DriveState {
   stopCode?: DriveStopCode;
   reason?: string;
   nextCommand?: string;
-  /** Hash of harness.roles, harness.runners, harness.verify and worktree.enabled when the drive (re)started. */
+  /** Hash of every harness key, the config source and worktree.enabled when the drive (re)started. */
   configHash: string;
-  /** The same four sections hashed one by one, so a change can be named. */
+  /** The same pinned items one by one, so a change can be named: hashes, except harness.runners and harness.verify, stored as JSON values so a stop can show the old argv. */
   configParts?: Record<string, string>;
   /** Approval fingerprint at (re)start; a different one stops the drive. */
   approvalHash?: string;

@@ -213,6 +213,20 @@ export function originDefaultRef(dir: string): string | null {
   throw new Error(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${res.code}) in ${dir}: ${res.stderr.trim()}`);
 }
 
+/**
+ * A local branch whose work already reached origin even though origin no longer has the branch:
+ * its tip is in origin's default branch, or it still tracks origin/<branch> as `git push -u` set
+ * it, with that ref gone (the PR merged, GitHub deleted the branch and fetch --prune dropped the
+ * ref — the case a squash merge leaves, where the tip is not an ancestor). The docs branch is cut
+ * with --no-track, so that upstream exists only after the push.
+ */
+export function landedAndPruned(root: string, branch: string): boolean {
+  const base = originDefaultRef(root);
+  if (base && runGit(root, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, base]).code === 0) return true;
+  const upstream = (key: string) => runGit(root, ["config", "--get", `branch.${branch}.${key}`]).stdout.trim();
+  return upstream("remote") === "origin" && upstream("merge") === `refs/heads/${branch}`;
+}
+
 /** Fetch one branch of a remote so its remote-tracking ref is current; returns git's result. */
 export function fetchBranch(dir: string, remote: string, branch: string): GitResult {
   assertSafeArg("remote", remote);

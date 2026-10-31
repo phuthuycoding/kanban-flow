@@ -170,7 +170,7 @@ Before every run it checks the budget, the approval fingerprint and a hash of th
 | `requirement_bug` | review says REQUIREMENT_BUG | back to planning with the human |
 | `transition_refused` | a gate or stage hook refused a move | fix the cause, `kf drive` |
 | `approval_changed` | the approved contract changed mid-drive | re-approve, `kf drive` |
-| `config_changed` | a `harness` key, `worktree.enabled` or the config source changed mid-drive, or the config no longer parses; the reason names the keys and the resolved file | check that file, `kf drive` |
+| `config_changed` | a `harness` key, `worktree.enabled` or the config source changed mid-drive, or the config no longer parses; the reason names the keys (runner and verify argv as `old → new`) and the resolved file | check those commands, then `kf drive <f> --accept-config` |
 | `budget` | `budget.maxRuns` worker runs used | raise it, `kf drive` |
 | `usage_limit` | a worker hit the API usage limit (HTTP 429); no run or attempt is spent, the task is pending again and the worker session is kept | after the reset quoted in the reason, `kf drive <f>` resumes the same session |
 | `git_error` | a merge abort or reset failed; the item branch needs a human | `kf tasks <f>` |

@@ -516,6 +516,11 @@ describe("canonical docs when the primary checkout is behind origin", () => {
 
     git(root, "push", "-q", "origin", "docs/app-demo");
     expect(runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"))).toHaveLength(0);
+
+    git(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    git(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    git(root, "fetch", "-q", "--prune", "origin");
+    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo awaiting push");
   }, 15_000);
 });
 
@@ -622,7 +627,7 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
     await writeFile(join(feature("b").dir, ARTIFACTS["spec-requirement"].file), spec);
     expect((await cmdStage(args("stage", ["b", "planning"]), root)).code).toBe(0);
     await reviewItem("c");
-    git(root, "branch", "docs/app-d");
+    git(root, "branch", "docs/app-d", git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs"));
     await seed("done", "d", { status: "archived", delivered: true, docsBranch: "docs/app-d" });
     const now = new Date().toISOString();
     await seed("implementation", "e", {

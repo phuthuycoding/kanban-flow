@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `workflow-slim`:** the config is no longer simply re-taken at resume — a changed runner or verify argv, or a drive stopped on `config_changed`, is refused until `kf drive <feature> --accept-config` re-pins it. Kept for history.
+
 ## Overview
 
 | Field | Value |

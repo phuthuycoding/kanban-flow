@@ -7,7 +7,7 @@ import { ARTIFACTS, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
-import { branchPushed, originDefaultRef, runGit } from "../shared/git.js";
+import { branchPushed, landedAndPruned } from "../shared/git.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
@@ -134,20 +134,6 @@ function checkAwaitingMerge(root: string): DoctorFinding[] {
       message: `review passed and still in review — awaiting merge of ${f.meta!.pr}.`,
       action: `merge ${f.meta!.pr} on GitHub, then run: kf status --change ${f.name}`,
     }));
-}
-
-/**
- * A local branch whose work already reached origin even though origin no longer has the branch:
- * its tip is in origin's default branch, or it still tracks origin/<branch> as `git push -u` set
- * it, with that ref gone (the PR merged, GitHub deleted the branch and fetch --prune dropped the
- * ref — the case a squash merge leaves, where the tip is not an ancestor). The docs branch is cut
- * with --no-track, so that upstream exists only after the push.
- */
-function landedAndPruned(root: string, branch: string): boolean {
-  const base = originDefaultRef(root);
-  if (base && runGit(root, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, base]).code === 0) return true;
-  const upstream = (key: string) => runGit(root, ["config", "--get", `branch.${branch}.${key}`]).stdout.trim();
-  return upstream("remote") === "origin" && upstream("merge") === `refs/heads/${branch}`;
 }
 
 /** Canonical docs committed to a docs branch at close are not on the default branch until someone pushes and merges it. */

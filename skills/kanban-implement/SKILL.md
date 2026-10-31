@@ -58,7 +58,7 @@ The drive verifies each task mechanically (`harness.verify.task`) but runs no in
 | `verify_failed` | Read the `harness.verify` output; fix the cause, then `kf drive` again |
 | `transition_refused` | Read the refused gate, fix what it names, then re-drive |
 | `approval_changed` | The contract changed: return to planning for human approval |
-| `config_changed` | Config changed mid-drive: confirm with the human, then re-drive |
+| `config_changed` | Config changed mid-drive: check the argv `kf` printed with the human, then `kf drive <f> --accept-config` |
 | `budget` | Budget spent: ask the human whether to continue |
 | `stopped_by_user` | Wait for the human's decision |
 | `crashed` | Read the drive log; ask the human before re-driving |

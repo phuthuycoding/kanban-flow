@@ -13,7 +13,7 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed } from "../../shared/git.js";
+import { branchPushed, landedAndPruned } from "../../shared/git.js";
 import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
@@ -174,6 +174,7 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     ? computeBuckets(
       statuses,
       features.flatMap((f) => f.meta?.docsBranch && branchPushed(root.root, "origin", f.meta.docsBranch) === false
+        && !landedAndPruned(root.root, f.meta.docsBranch)
         ? [{ feature: f.name, branch: f.meta.docsBranch }]
         : []),
       features.filter((f) => driveLive(f.meta?.drive)).length,

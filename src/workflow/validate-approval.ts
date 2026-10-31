@@ -1,4 +1,5 @@
-import { STAGE_INDEX } from "./schema.js";
+import { STAGE_INDEX, type LegacyStageName, type Stage } from "./schema.js";
+import { LEGACY_REOPEN_STAGE } from "./transition.js";
 import { executionContractHash, type Feature } from "./features.js";
 import { finding, type Finding } from "./findings.js";
 
@@ -23,6 +24,7 @@ export function checkBypasses(feature: Feature): Finding[] {
   const bypasses = feature.meta?.bypasses ?? [];
   if (bypasses.length === 0) return [];
   const last = bypasses[bypasses.length - 1];
+  const current = (stage: Stage | LegacyStageName): Stage => Object.hasOwn(LEGACY_REOPEN_STAGE, stage) ? LEGACY_REOPEN_STAGE[stage as LegacyStageName] : stage as Stage;
   return [finding(feature, "WARNING", ".kfw.json", "gate_bypassed",
-    `${bypasses.length} gate/hook bypass${bypasses.length > 1 ? "es" : ""} recorded (last: --${last.flag} ${last.from ?? "?"} → ${last.to} at ${last.at}); review them before trusting this item`)];
+    `${bypasses.length} gate/hook bypass${bypasses.length > 1 ? "es" : ""} recorded (last: --${last.flag} ${last.from ? current(last.from) : "?"} → ${current(last.to)} at ${last.at}); review them before trusting this item`)];
 }
