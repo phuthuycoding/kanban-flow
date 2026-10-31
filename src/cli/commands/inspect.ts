@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ARTIFACTS } from "../../workflow/schema.js";
 import { findFeature, listFeatures } from "../../workflow/features.js";
+import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { computeStatus, renderStatusText, statusToJson } from "../../workflow/status.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
@@ -92,18 +93,25 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     return { code: 1, stdout: 'Missing required option --change <feature> (or --all for every feature).\nRun: kf list', stderr: "missing --change" };
   }
 
+  // Before the item lookup: a legacy `.works/dones` or `.works/shipping` item is invisible until it moves.
+  const migration = await migrateLegacyStages(root.root);
+  const code = migration.failed ? 1 : 0;
+  const migrated = migration.lines.length > 0 ? `${migration.lines.join("\n")}\n\n` : "";
+
   const features = change
     ? (() => { const f = findFeature(root.root, change); return f ? [f] : []; })()
     : listFeatures(root.root);
 
   if (change && features.length === 0) {
-    return { code: 1, stdout: `Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
+    return { code: 1, stdout: `${migrated}Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
   }
   const harness = readProjectConfig(root.root).harness;
   const statuses = features.map((f) => computeStatus(f, harness));
   if (json) {
+    // stdout stays parseable JSON; the migration lines go to stderr.
     return {
-      code: 0,
+      code,
+      stderr: migration.lines.length > 0 ? migration.lines.join("\n") : undefined,
       stdout: JSON.stringify(
         change
           ? statusToJson(statuses[0])
@@ -113,10 +121,10 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     };
   }
   if (statuses.length === 0) {
-    return { code: 0, stdout: "No active features. Create one with: kf new <feature> --context <ctx>" };
+    return { code, stdout: `${migrated}No active features. Create one with: kf new <feature> --context <ctx>` };
   }
   const blocks = statuses.map(renderStatusText);
-  return { code: 0, stdout: blocks.join("\n\n") };
+  return { code, stdout: migrated + blocks.join("\n\n") };
 }
 
 export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdResult> {

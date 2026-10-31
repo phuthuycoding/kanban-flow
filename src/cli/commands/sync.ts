@@ -4,6 +4,7 @@ import { findRoot, noRepository } from "./helpers.js";
 import { gh } from "../../integrations/github.js";
 import { renderArchive } from "./archive.js";
 import { archiveItem } from "../../workflow/archive.js";
+import { migrateLegacyStages } from "../../workflow/migrate.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -19,18 +20,25 @@ import type { CmdResult } from "../result.js";
 export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
+  const migration = await migrateLegacyStages(root.root);
   const repo = readProjectConfig(root.root).repository;
-  if (!repo) return noRepository();
+  if (!repo) {
+    const refusal = noRepository();
+    return migration.lines.length > 0 ? { ...refusal, stdout: `${migration.lines.join("\n")}\n\n${refusal.stdout}` } : refusal;
+  }
 
   const candidates = listFeatures(root.root).filter(
     (f) => (f.stage === "review" || (f.stage === "done" && !f.meta?.delivered)) && Boolean(f.meta?.pr),
   );
   if (candidates.length === 0) {
-    return { code: 0, stdout: "No PR-linked items awaiting delivery — nothing to sync." };
+    return {
+      code: migration.failed ? 1 : 0,
+      stdout: [...migration.lines, "No PR-linked items awaiting delivery — nothing to sync."].join("\n"),
+    };
   }
 
-  const lines: string[] = [];
-  let failed = false;
+  const lines: string[] = [...migration.lines];
+  let failed = migration.failed;
   for (const f of candidates) {
     const res = gh(["pr", "view", f.meta!.pr!, "-R", repo, "--json", "state"]);
     if (!res.ok) {
