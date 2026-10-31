@@ -578,6 +578,67 @@ describe("drive config resolution: worktree → origin → primary", () => {
     expect(() => driveBoundary(pr.root, pr.feature(), claim.drive.id)).toThrow(/EISDIR/);
   });
 
+  it("--status, --watch and followDrive show a stop on a copy that no longer parses instead of throwing", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    pr.cli.scenario("claude", { script: `printf '{ nope' > '${copy}'` }, "TASK-001");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+
+    const text = (await status(pr)).stdout;
+    expect(text).toContain("Stop: config_changed — the drive config no longer parses");
+    expect(text).toMatch(/Loops: \d+\/\? {3}Runs: \d+\/\?/);
+    expect(text).toContain(`Limits unavailable: Invalid JSON in project config: ${copy}`);
+    const json = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(json).toMatchObject({ stopCode: "config_changed", maxLoops: null, maxRuns: null, configError: `Invalid JSON in project config: ${copy}` });
+
+    const watched: string[] = [];
+    const followed = await followDrive({ root: pr.root, name: "demo", json: false, tail: false, replay: true, signal: new AbortController().signal, write: (l) => watched.push(l) });
+    expect(followed).toEqual({ code: 1, detached: false });
+    expect(watched.at(-1)).toContain("stopped: config_changed — the drive config no longer parses");
+
+    // --watch resumes a stopped drive; the claim refuses with the parse error instead of throwing.
+    const watch = await cmdDrive(args(["demo"], { watch: true }), pr.root);
+    expect(watch.code).toBe(1);
+    expect(watch.stdout).toContain(`does not parse: Invalid JSON in project config: ${copy}`);
+    expect(pr.readMeta()!.drive).toMatchObject({ status: "stopped", stopCode: "config_changed" });
+  });
+
+  it("stops config_changed when a task merge breaks the worktree copy, after the task still running records its outcome", async () => {
+    const tasks: DriveTask[] = [
+      { id: "TASK-001", files: [".kf/config.json"] },
+      { id: "TASK-002", files: ["src/b.txt"] },
+      { id: "TASK-003", deps: ["TASK-001"], files: ["src/c.txt"] },
+    ];
+    const pr = await project(tasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    // The worker writes its task worktree; the broken file reaches the item worktree only through the task merge.
+    pr.cli.scenario("claude", { write: { ".kf/config.json": "{ nope" } }, "TASK-001");
+    pr.cli.scenario("claude", { write: { "src/b.txt": "b" }, sleep: 3 }, "TASK-002");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+    expect(out.reason).toContain(`no longer parses: Invalid JSON in project config: ${copy}`);
+    const meta = pr.readMeta()!;
+    expect(meta.tasks!["TASK-001"].state).toBe("done");
+    expect(meta.tasks!["TASK-002"].state).toBe("done");
+    expect(Object.entries(meta.tasks!).filter(([, t]) => t.state === "running")).toEqual([]);
+    expect((meta.runs ?? []).filter((r) => r.status === "running")).toEqual([]);
+    expect(taskCalls(pr, "TASK-003")).toHaveLength(0);
+  });
+
+  it("names the worktree copy when it turns worktrees off", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    const cfg = JSON.parse(readFileSync(copy, "utf8"));
+    cfg.worktree = { ...cfg.worktree, enabled: false };
+    writeFileSync(copy, JSON.stringify(cfg, null, 2));
+    const res = await cmdDrive(args(["demo"]), pr.root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("worktree.enabled");
+    expect(res.stdout).toContain(`Read from ${copy} (config source: worktree).`);
+    expect(pr.readMeta()!.drive).toBeUndefined();
+  });
+
   it("shows the limits of the resolved copy in --status", async () => {
     const pr = await project(twoTasks, { commitConfig: true, limits: { maxLoops: 5, budget: { maxRuns: 7 } } });
     editConfig(pr, (c) => { c.harness.maxLoops = 1; c.harness.budget = { maxRuns: 2 }; });

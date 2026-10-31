@@ -60,6 +60,12 @@ class Refused extends Error {}
 /** Where a stop or refusal tells the human to look: the resolved file and which of the three places it is. */
 export const configWhere = (resolved: Pick<DriveConfig, "file" | "source">): string => `${resolved.file} (config source: ${resolved.source})`;
 
+/** A running drive whose resolved config stopped parsing: the edit that broke it is a config change. */
+export const brokenConfigStop = (name: string, err: ProjectConfigError): Stop => ({
+  code: "config_changed",
+  reason: `the drive config no longer parses: ${oneLine(message(err))}; fix it, then resume: kf drive ${name}`,
+});
+
 // Every top-level harness key; the `satisfies` makes a new HarnessConfig key a compile error until it is hashed here.
 const HARNESS_KEYS = Object.keys({
   main: true, roles: true, stages: true, runners: true, verify: true, parallel: true, retries: true, maxLoops: true, budget: true,
@@ -139,7 +145,7 @@ function driveRefusal(root: string, feature: Feature): string | null {
       ? `No harness configured in .kf/config.json; looked in ${looked.join(", ")} — run: kf init (seeds roles and runner presets).`
       : `No harness configured in ${file} (config source: ${source}) — run: kf init (seeds roles and runner presets).`;
   }
-  if (!worktreeConfig(root, cfg.worktree).enabled) return WORKTREE_REQUIRED;
+  if (!worktreeConfig(root, cfg.worktree).enabled) return source === "primary" ? WORKTREE_REQUIRED : `${WORKTREE_REQUIRED} Read from ${configWhere(resolved)}.`;
   if (!cfg.harness.verify?.stage?.length) {
     return `harness.verify.stage is not set in ${configWhere(resolved)}; kf drive needs a human-pinned stage verify, e.g. "verify": { "stage": [["npm", "test"]] }.`;
   }
@@ -173,7 +179,7 @@ export function driveBoundary(root: string, feature: Feature, id: string): Stop 
     // An edit that broke the config is a config change; a git or file-system failure propagates to the supervisor's
     // boundary, which logs its stack and stops with internal_error.
     if (!(err instanceof ProjectConfigError)) throw err;
-    return { code: "config_changed", reason: `the drive config no longer parses: ${oneLine(message(err))}; fix it, then resume: kf drive ${name}` };
+    return brokenConfigStop(name, err);
   }
   if (snapshot.hash !== d.configHash) {
     const changed = Object.keys(snapshot.parts).filter((k) => snapshot.parts[k] !== d.configParts?.[k]);
@@ -219,6 +225,9 @@ export async function claimDrive(root: string, name: string): Promise<ClaimResul
     return { ok: true, drive: updated.meta!.drive!, resumed };
   } catch (err) {
     if (err instanceof Refused) return { ok: false, reason: err.message };
+    // A config that does not parse is the human's to fix, like any other refusal; `kf drive --watch` resumes a stopped
+    // drive through here, so this is where it shows why it cannot.
+    if (err instanceof ProjectConfigError) return { ok: false, reason: `The drive config of '${name}' does not parse: ${oneLine(message(err))}; fix it, then run: kf drive ${name}` };
     throw err;
   }
 }

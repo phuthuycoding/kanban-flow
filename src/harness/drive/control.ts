@@ -5,7 +5,7 @@ import {
   type DriveStopCode, type Feature, type TaskState,
 } from "../../workflow/features.js";
 import { runHook } from "../../integrations/hooks.js";
-import { resolveDriveConfig } from "../../project/config.js";
+import { ProjectConfigError, resolveDriveConfig } from "../../project/config.js";
 import { isPidAlive } from "../../shared/process.js";
 import { harnessLimits } from "../config.js";
 import { applyRunRecord, killGroup, liveRecords } from "../run.js";
@@ -113,9 +113,11 @@ export interface DriveView {
   state: "running" | "crashed" | "stopped" | "ready";
   step: string;
   loops: number;
-  maxLoops: number;
+  /** null when the resolved config does not parse; `configError` says why. */
+  maxLoops: number | null;
   runs: number;
-  maxRuns: number;
+  maxRuns: number | null;
+  configError?: string;
   runningTasks: string[];
   stopCode?: DriveStopCode;
   reason?: string;
@@ -134,7 +136,16 @@ export function driveView(root: string, feature: Feature, nowMs: number = Date.n
   const d = feature.meta?.drive;
   if (!d) return null;
   // The limits the drive enforces, from the same source it resolves; the primary can be a stale checkout.
-  const limits = harnessLimits(resolveDriveConfig(root, feature).cfg.harness);
+  // A copy that no longer parses is what stopped the drive (config_changed), so the view still renders and says so;
+  // the drive record pins only hashes, so there are no claimed limits to fall back to.
+  let limits: { maxLoops: number | null; maxRuns: number | null } = { maxLoops: null, maxRuns: null };
+  let configError: string | undefined;
+  try {
+    limits = harnessLimits(resolveDriveConfig(root, feature).cfg.harness);
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    configError = err.message;
+  }
   const crashed = d.status === "running" && !driveLive(d);
   const runningTasks = Object.entries(feature.meta?.tasks ?? {}).filter(([, t]) => IN_FLIGHT.has(t.state)).map(([id]) => id).sort();
   const liveRuns: DriveLiveRun[] = liveRecords(feature.meta?.runs).map((r) => {
@@ -150,7 +161,7 @@ export function driveView(root: string, feature: Feature, nowMs: number = Date.n
   const lastEvent = last ? { at: typeof last.at === "string" ? last.at : "", summary: describeEvent(last) } : undefined;
   return {
     feature: feature.name, id: d.id, state: crashed ? "crashed" : d.status, step: d.step,
-    loops: d.loops, maxLoops: limits.maxLoops, runs: d.runs, maxRuns: limits.maxRuns, runningTasks,
+    loops: d.loops, maxLoops: limits.maxLoops, runs: d.runs, maxRuns: limits.maxRuns, ...(configError ? { configError } : {}), runningTasks,
     ...(d.stopCode ? { stopCode: d.stopCode } : {}),
     ...(crashed
       ? { reason: `supervisor pid ${d.supervisorPid ?? "?"} is gone (killed or crashed) during step ${d.step}`, nextCommand: `kf drive ${feature.name}` }

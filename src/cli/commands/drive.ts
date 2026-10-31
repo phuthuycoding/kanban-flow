@@ -11,8 +11,9 @@ const USAGE = "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] 
 function renderView(v: DriveView, configSource: string | null): string {
   const lines = [
     `Drive ${v.id} of '${v.feature}': ${v.state} (step ${v.step})`,
-    `  Loops: ${v.loops}/${v.maxLoops}   Runs: ${v.runs}/${v.maxRuns}`,
+    `  Loops: ${v.loops}/${v.maxLoops ?? "?"}   Runs: ${v.runs}/${v.maxRuns ?? "?"}`,
   ];
+  if (v.configError) lines.push(`  Limits unavailable: ${v.configError}`);
   if (configSource) lines.push(`  Config: ${configSource}`);
   if (v.runningTasks.length > 0) lines.push(`  Running tasks: ${v.runningTasks.join(", ")}`);
   for (const run of v.liveRuns) lines.push(`  Live: ${liveRunLabel(run)}  ${run.log}${activitySuffix(run)}`);

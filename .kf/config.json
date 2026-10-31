@@ -89,7 +89,8 @@
           "Bash(kf validate*)",
           "Bash(kf tasks*)",
           "--output-format",
-          "json"
+          "stream-json",
+          "--verbose"
         ],
         "resume": [
           "claude",
@@ -114,7 +115,8 @@
           "Bash(kf validate*)",
           "Bash(kf tasks*)",
           "--output-format",
-          "json"
+          "stream-json",
+          "--verbose"
         ],
         "session": "provided",
         "usage": "json",

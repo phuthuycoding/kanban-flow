@@ -230,11 +230,20 @@ export function readOriginConfig(root: string): OriginConfig {
 // The driver resolves the config at every step boundary; one rev-parse per call instead of a symbolic-ref + show pair.
 // Keyed on the commit origin/HEAD points at, so a fetch mid-drive is seen (and can raise config_changed).
 const originCache = new Map<string, { sha: string; config: OriginConfig }>();
+// A root without origin/HEAD would spawn rev-parse + symbolic-ref on every resolve, so the miss is remembered for the
+// process. A later `git remote set-head` is seen by the next process only (the next kf drive and its supervisor),
+// which also keeps a running drive from switching its config source mid-drive.
+const noOriginHead = new Set<string>();
 
 function cachedOriginConfig(root: string): OriginConfig {
+  if (noOriginHead.has(root)) return { ref: null, text: null };
   const head = runGit(root, ["rev-parse", "-q", "--verify", "refs/remotes/origin/HEAD^{commit}"]);
   // No origin/HEAD, or no repository: readOriginConfig tells "absent" from a real git failure.
-  if (head.code !== 0) return readOriginConfig(root);
+  if (head.code !== 0) {
+    const config = readOriginConfig(root);
+    if (config.ref === null) noOriginHead.add(root);
+    return config;
+  }
   const sha = head.stdout.trim();
   const hit = originCache.get(root);
   if (hit?.sha === sha) return hit.config;

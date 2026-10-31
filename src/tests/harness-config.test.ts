@@ -244,6 +244,26 @@ describe("resolveDriveConfig: worktree → origin → primary", () => {
     expect(r.cfg.harness?.main).toBe("second");
   });
 
+  it("remembers a missing origin/HEAD for the process instead of asking git on every resolve", async () => {
+    gitIn(primary, "init", "-q");
+    const bare = join(dir, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    const branch = gitIn(primary, "symbolic-ref", "--short", "HEAD");
+    gitIn(primary, "remote", "add", "origin", bare);
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("published")));
+    gitIn(primary, "add", ".kf/config.json");
+    gitIn(primary, "commit", "-qm", "config");
+    gitIn(primary, "push", "-q", "origin", branch);
+    const noWorktree = { meta: {} } as never;
+    expect(resolveDriveConfig(primary, noWorktree).looked).toContain("origin/<default>:.kf/config.json (origin/HEAD is not set)");
+    // origin/HEAD set later in the same process is not seen: the miss is cached; a new process sees it.
+    gitIn(primary, "remote", "set-head", "origin", branch);
+    expect(readOriginConfig(primary).ref).toBe(`origin/${branch}`);
+    const again = resolveDriveConfig(primary, noWorktree);
+    expect(again.source).toBe("primary");
+    expect(again.looked).toContain("origin/<default>:.kf/config.json (origin/HEAD is not set)");
+  });
+
   it("reads origin's default branch with git show, and treats a missing origin, ref or file as absent", async () => {
     expect(readOriginConfig(dir)).toEqual({ ref: null, text: null });
     gitIn(primary, "init", "-q");

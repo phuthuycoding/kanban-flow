@@ -7,7 +7,7 @@ import { findFeature, updateFeatureMeta, type DriveState, type Feature } from ".
 import { resolveStageRoles, taskView, writeTasksMd, type PlannedTask } from "../../workflow/tasks.js";
 import { transitionItem, type Transition } from "../../workflow/transition.js";
 import { validateFeature } from "../../workflow/validate.js";
-import { resolveDriveConfig, type DriveConfig } from "../../project/config.js";
+import { ProjectConfigError, resolveDriveConfig, type DriveConfig } from "../../project/config.js";
 import { harnessLimits, type HarnessConfig } from "../config.js";
 import { resolveChain, type Assignment } from "../prompt.js";
 import { executeChain } from "../chain.js";
@@ -16,7 +16,7 @@ import { captureBaseline, executeTaskRun, prepareTaskRun, setTaskState } from ".
 import { recoverItemMerge, resumeTaskMerge, runVerify } from "../task-pipeline.js";
 import { blockedBy, nextToStart, progressState } from "../scheduler.js";
 import { appendDriveEvent } from "../drive-log.js";
-import { READY_REASON, configWhere, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
+import { READY_REASON, brokenConfigStop, configWhere, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
 import { failRuns, finishDrive, orphanRuns, terminate, type DriveEnd } from "./control.js";
 
 interface Verdict {
@@ -235,22 +235,36 @@ class Driver {
       return false;
     }
     const inflight = new Map<string, Promise<void>>();
-    for (;;) {
-      if (!this.stop) {
-        const meta = this.feature().meta!;
-        const picks = nextToStart({ tasks, states: meta.tasks ?? {}, running: [...inflight.keys()], parallel: harnessLimits(this.harness()).parallel });
-        for (const id of picks) {
-          if (this.stop) break;
-          const task = tasks.find((t) => t.id === id)!;
-          const work = this.runTask(task).catch((err: unknown) => {
-            this.log({ event: "warning", task: id, warning: `internal error: ${message(err)}`, stack: err instanceof Error ? err.stack : undefined });
-            this.requestStop({ code: "internal_error", reason: `${id}: ${oneLine(message(err))}` });
-          }).finally(() => inflight.delete(id));
-          inflight.set(id, work);
+    try {
+      for (;;) {
+        // A task merge can change or break the item worktree's config: check it before the limits are read again.
+        if (!this.stop) {
+          const boundary = driveBoundary(this.root, this.feature(), this.id);
+          if (boundary) this.requestStop(boundary);
         }
+        if (!this.stop) {
+          const meta = this.feature().meta!;
+          const picks = nextToStart({ tasks, states: meta.tasks ?? {}, running: [...inflight.keys()], parallel: harnessLimits(this.harness()).parallel });
+          for (const id of picks) {
+            if (this.stop) break;
+            const task = tasks.find((t) => t.id === id)!;
+            const work = this.runTask(task).catch((err: unknown) => {
+              this.log({ event: "warning", task: id, warning: `internal error: ${message(err)}`, stack: err instanceof Error ? err.stack : undefined });
+              this.requestStop(err instanceof ProjectConfigError ? brokenConfigStop(this.name, err) : { code: "internal_error", reason: `${id}: ${oneLine(message(err))}` });
+            }).finally(() => inflight.delete(id));
+            inflight.set(id, work);
+          }
+        }
+        if (inflight.size === 0) break;
+        await Promise.race(inflight.values());
       }
-      if (inflight.size === 0) break;
-      await Promise.race(inflight.values());
+    } catch (err) {
+      // Stop first so the tasks still running start no further attempt, then let them record their outcomes: the
+      // drive must not conclude with a task left `running`. Their promises never reject (see the catch above).
+      this.requestStop(err instanceof ProjectConfigError ? brokenConfigStop(this.name, err) : { code: "internal_error", reason: `unexpected error: ${oneLine(message(err))}` });
+      await Promise.all(inflight.values());
+      if (!(err instanceof ProjectConfigError)) throw err;
+      return false;
     }
     if (this.stop) return false;
     const meta = this.feature().meta!;
@@ -523,7 +537,7 @@ export async function superviseDrive(root: string, name: string, id: string, dep
     } catch (logError) {
       throw new AggregateError([err, logError], `Drive ${id} of '${name}' failed and its log could not be written.`);
     }
-    driver.requestStop({ code: "internal_error", reason: `unexpected error: ${oneLine(message(err))}` });
+    driver.requestStop(err instanceof ProjectConfigError ? brokenConfigStop(name, err) : { code: "internal_error", reason: `unexpected error: ${oneLine(message(err))}` });
   }
   return driver.conclude();
 }
