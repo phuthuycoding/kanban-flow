@@ -12,7 +12,7 @@ import {
 import { approvalState } from "../../workflow/status.js";
 import { checkTaskGraph, parseTaskGraph, type PlannedTask } from "../../workflow/tasks.js";
 import { type Transition } from "../../workflow/transition.js";
-import { ProjectConfigError, resolveDriveConfig, type DriveConfig, type DriveConfigSource } from "../../project/config.js";
+import { ProjectConfigError, readProjectConfig, resolveDriveConfig, type DriveConfig, type DriveConfigSource } from "../../project/config.js";
 import { type HarnessConfig } from "../config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { isPidAlive } from "../../shared/process.js";
@@ -45,7 +45,7 @@ export interface Stop {
 
 export type Step = "implementation" | "repair" | "verify" | "testing" | "review";
 
-export const READY_REASON = "ready — review PASS: merge the PR, kf status --change <feature> closes the item";
+export const readyReason = (feature: string): string => `ready — review PASS: merge the PR, kf status --change ${feature} closes the item`;
 const REASON_MAX = 700;
 
 export const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -63,7 +63,7 @@ export const configWhere = (resolved: Pick<DriveConfig, "file" | "source">): str
 /** A running drive whose resolved config stopped parsing: the edit that broke it is a config change. */
 export const brokenConfigStop = (name: string, err: ProjectConfigError): Stop => ({
   code: "config_changed",
-  reason: `the drive config no longer parses: ${oneLine(message(err))}; fix it, then resume: kf drive ${name}`,
+  reason: `the drive config no longer parses: ${oneLine(message(err))}; fix it, then resume: kf drive ${name} --accept-config`,
 });
 
 // Every top-level harness key; the `satisfies` makes a new HarnessConfig key a compile error until it is hashed here.
@@ -72,16 +72,88 @@ const HARNESS_KEYS = Object.keys({
 } satisfies Record<keyof HarnessConfig, true>) as (keyof HarnessConfig)[];
 
 /**
+ * The parts that hold the commands a drive runs. They are pinned as their JSON value rather than a hash, so a stop and
+ * a resume can show the old and the new argv: the worktree copy they are read from is one workers can write.
+ */
+const ARGV_PARTS: Record<string, number> = { "harness.runners": 2, "harness.verify": 1 };
+const json = (value: unknown): string => JSON.stringify(value ?? null);
+
+interface ConfigSnapshot { hash: string; parts: Record<string, string>; values: Record<string, unknown>; source: DriveConfigSource; file: string }
+
+/**
  * The whole harness block, one part per top-level key so a stop can name what changed, plus whether worktrees are on,
  * read from the source the drive resolves. Task merges can change the item worktree's copy, so nothing in it is
  * exempt. The source itself is part of the hash, so a drive never silently switches files.
  */
-function configSnapshot(root: string, feature: Feature): { hash: string; parts: Record<string, string>; source: DriveConfigSource; file: string } {
+function configSnapshot(root: string, feature: Feature): ConfigSnapshot {
   const { cfg, source, file } = resolveDriveConfig(root, feature);
   const values: Record<string, unknown> = { "config.source": source };
   for (const key of HARNESS_KEYS) values[`harness.${key}`] = cfg.harness?.[key];
   values["worktree.enabled"] = worktreeConfig(root, cfg.worktree).enabled;
-  return { hash: sha(values), parts: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, sha(v)])), source, file };
+  const parts = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, k in ARGV_PARTS ? json(v) : sha(v)]));
+  return { hash: sha(values), parts, values, source, file };
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const shown = (v: unknown): string => (v === undefined ? "(not set)" : JSON.stringify(v));
+
+/** `key: old → new` for every leaf that differs, descending `depth` levels of objects (runner name, then field). */
+function describeChange(key: string, before: unknown, after: unknown, depth: number): string[] {
+  if (json(before) === json(after)) return [];
+  if (depth > 0 && (before === undefined || isRecord(before)) && (after === undefined || isRecord(after))) {
+    const b = (before ?? {}) as Record<string, unknown>;
+    const a = (after ?? {}) as Record<string, unknown>;
+    return [...new Set([...Object.keys(b), ...Object.keys(a)])].sort().flatMap((k) => describeChange(`${key}.${k}`, b[k], a[k], depth - 1));
+  }
+  return [`${key}: ${shown(before)} → ${shown(after)}`];
+}
+
+/** A pinned part still matches; a drive pinned before argv parts were kept as values stored their hash. */
+const partSame = (pinned: string | undefined, snapshot: ConfigSnapshot, key: string): boolean =>
+  pinned === snapshot.parts[key] || pinned === sha(snapshot.values[key]);
+
+/** What differs between the pinned config and `snapshot`: argv parts as `old → new` lines, the rest by name. */
+function configChanges(pinned: Record<string, string> | undefined, snapshot: ConfigSnapshot): { argv: string[]; other: string[] } {
+  const argv: string[] = [];
+  const other: string[] = [];
+  for (const key of Object.keys(snapshot.parts)) {
+    const old = pinned?.[key];
+    if (partSame(old, snapshot, key)) continue;
+    const depth = ARGV_PARTS[key];
+    if (depth === undefined) {
+      other.push(key);
+    } else if (old === undefined || /^[0-9a-f]{64}$/.test(old)) {
+      argv.push(`${key}: (pinned value not recorded) → ${shown(snapshot.values[key])}`);
+    } else {
+      argv.push(...describeChange(key, JSON.parse(old) ?? undefined, snapshot.values[key], depth));
+    }
+  }
+  return { argv, other };
+}
+
+const changeSummary = (c: { argv: string[]; other: string[] }): string =>
+  [...c.argv, ...c.other.map((k) => `${k} changed`)].join("; ") || "the pinned configuration changed";
+
+/**
+ * Runner and verify argv that `kf run` reads from the item worktree copy and that differ from the primary
+ * `.kf/config.json`, as a warning; null when they come from elsewhere or match. Workers can write the worktree copy.
+ */
+export function worktreeArgvWarning(root: string, resolved: DriveConfig): string | null {
+  if (resolved.source !== "worktree") return null;
+  const head = `⚠ Runner and verify commands are read from the item worktree copy ${configWhere(resolved)}, which workers can edit`;
+  let primary: DriveConfig["cfg"]["harness"];
+  try {
+    primary = readProjectConfig(root).harness;
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    return `${head}; they could not be compared with the primary copy, which does not parse: ${oneLine(message(err))}`;
+  }
+  const lines = [
+    ...describeChange("harness.runners", primary?.runners, resolved.cfg.harness?.runners, ARGV_PARTS["harness.runners"]),
+    ...describeChange("harness.verify", primary?.verify, resolved.cfg.harness?.verify, ARGV_PARTS["harness.verify"]),
+  ];
+  if (lines.length === 0) return null;
+  return [`${head}, and differ from the primary .kf/config.json (primary → worktree):`, ...lines.map((l) => `  ${l}`)].join("\n");
 }
 
 export function nextCommandFor(code: DriveStopCode, feature: string): string {
@@ -93,6 +165,8 @@ export function nextCommandFor(code: DriveStopCode, feature: string): string {
     case "tasks_blocked":
     case "git_error":
       return `kf tasks ${feature}`;
+    case "config_changed":
+      return `kf drive ${feature} --accept-config`;
     default:
       return `kf drive ${feature}`;
   }
@@ -123,7 +197,7 @@ function driveRefusal(root: string, feature: Feature): string | null {
       if (!resumable) {
         const ready = prev?.status === "ready";
         return ready
-          ? `Drive ${prev.id} of '${name}' already reached "${READY_REASON}" (kf status --change ${name}).`
+          ? `Drive ${prev.id} of '${name}' already reached "${readyReason(name)}" (kf status --change ${name}).`
           : `'${name}' is in ${feature.stage} with no stopped drive; kf drive starts from implementation or resumes a stopped drive. Start it from implementation: kf stage ${name} implementation`;
       }
       break;
@@ -187,10 +261,10 @@ export function driveBoundary(root: string, feature: Feature, id: string): Stop 
   if (approvalState(feature) !== "approved" || (d.approvalHash !== undefined && feature.meta?.approval?.contractHash !== d.approvalHash)) {
     return {
       code: "approval_changed",
-      reason: `the approved plan or contract of '${name}' changed during the drive; re-approve it: kf stage ${name} planning, kf approve ${name}, kf stage ${name} implementation, then kf drive ${name}`,
+      reason: `the approved plan or contract of '${name}' changed during the drive; re-approve it: kf stage ${name} planning, kf approve ${name}, then kf drive ${name}`,
     };
   }
-  let snapshot: ReturnType<typeof configSnapshot>;
+  let snapshot: ConfigSnapshot;
   try {
     snapshot = configSnapshot(root, feature);
   } catch (err) {
@@ -200,20 +274,42 @@ export function driveBoundary(root: string, feature: Feature, id: string): Stop 
     return brokenConfigStop(name, err);
   }
   if (snapshot.hash !== d.configHash) {
-    const changed = Object.keys(snapshot.parts).filter((k) => snapshot.parts[k] !== d.configParts?.[k]);
-    return { code: "config_changed", reason: `${changed.length > 0 ? changed.join(", ") : "the pinned configuration"} changed since the drive started; check ${configWhere(snapshot)}, then resume: kf drive ${name}` };
+    return {
+      code: "config_changed",
+      reason: `the drive config changed since the drive started (${changeSummary(configChanges(d.configParts, snapshot))}); check ${configWhere(snapshot)}, then resume: kf drive ${name} --accept-config`,
+    };
   }
   return null;
 }
 
-export type ClaimResult = { ok: true; drive: DriveState; resumed: boolean } | { ok: false; reason: string };
+/** `accepted`: the config changes a resume with `acceptConfig` re-pinned, `old → new` for argv; empty when none. */
+export type ClaimResult = { ok: true; drive: DriveState; resumed: boolean; accepted: string[] } | { ok: false; reason: string };
+
+/**
+ * A resume re-pins the config. When the runner or verify argv changed since the pin, or the drive stopped on
+ * config_changed and the config still differs, that takes `acceptConfig`: the human sees the new argv first.
+ */
+function resumeConfigCheck(name: string, prev: DriveState, snapshot: ConfigSnapshot, acceptConfig: boolean): { refusal: string } | { accepted: string[] } {
+  if (snapshot.hash === prev.configHash) return { accepted: [] };
+  const changes = configChanges(prev.configParts, snapshot);
+  const lines = [...changes.argv, ...changes.other.map((k) => `${k} changed`)];
+  if (acceptConfig || (changes.argv.length === 0 && prev.stopCode !== "config_changed")) return { accepted: lines };
+  return {
+    refusal: [
+      `The drive config of '${name}' changed since drive ${prev.id} pinned it; ${configWhere(snapshot)} now differs:`,
+      ...lines.map((l) => `  ${l}`),
+      `Check these commands, then resume with them: kf drive ${name} --accept-config`,
+    ].join("\n"),
+  };
+}
 
 /**
  * Check every precondition and take the drive in one step under the item lock, so two `kf drive` calls start at most one.
  * The claim names the calling process as supervisor until a detached supervisor takes over.
  */
-export async function claimDrive(root: string, name: string): Promise<ClaimResult> {
+export async function claimDrive(root: string, name: string, opts: { acceptConfig?: boolean } = {}): Promise<ClaimResult> {
   let resumed = false;
+  let accepted: string[] = [];
   try {
     const updated = await updateFeatureMeta(root, name, (meta) => {
       const feature = findFeature(root, name);
@@ -223,6 +319,11 @@ export async function claimDrive(root: string, name: string): Promise<ClaimResul
       const prev = meta.drive;
       resumed = prev !== undefined && prev.status !== "ready";
       const snapshot = configSnapshot(root, feature);
+      if (resumed) {
+        const checked = resumeConfigCheck(name, prev!, snapshot, opts.acceptConfig === true);
+        if ("refusal" in checked) throw new Refused(checked.refusal);
+        accepted = checked.accepted;
+      }
       const now = new Date().toISOString();
       const drive: DriveState = {
         id: resumed ? prev!.id : randomUUID().slice(0, 8),
@@ -240,7 +341,7 @@ export async function claimDrive(root: string, name: string): Promise<ClaimResul
       };
       return { ...meta, drive };
     });
-    return { ok: true, drive: updated.meta!.drive!, resumed };
+    return { ok: true, drive: updated.meta!.drive!, resumed, accepted };
   } catch (err) {
     if (err instanceof Refused) return { ok: false, reason: err.message };
     // A config that does not parse is the human's to fix, like any other refusal; `kf drive --watch` resumes a stopped

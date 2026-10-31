@@ -22,6 +22,7 @@ import { findRoot, resolveItem } from "./helpers.js";
 import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
 import { driveConfigReady } from "../../harness/drive/claim.js";
+import { liveRecords } from "../../harness/run.js";
 import type { Finding } from "../../workflow/findings.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -97,15 +98,17 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
 /**
  * A review PASS item closes on the next `kf status` once its PR merged (or it has
  * nothing to land), through the same archiveItem transaction as `kf archive`. An item with a
- * live drive is left to the drive. Returns the printed lines and, per item that stayed in
- * review, why — the renderer turns that into the Next line.
+ * live drive is left to the drive, and one with a live worker run is left to that run: the
+ * worker may be the one calling kf status, from inside the worktree the close would remove.
+ * Returns the printed lines and, per item that stayed in review, why — the renderer turns
+ * that into the Next line.
  */
 async function closeLanded(root: string, items: Feature[]): Promise<{ lines: string[]; states: Map<string, CloseState>; failed: boolean }> {
   const lines: string[] = [];
   const states = new Map<string, CloseState>();
   let failed = false;
   for (const f of items) {
-    if (f.stage !== "review" || currentReportStatus(f, "review-report") !== "PASS" || driveLive(f.meta?.drive)) continue;
+    if (f.stage !== "review" || currentReportStatus(f, "review-report") !== "PASS" || driveLive(f.meta?.drive) || liveRecords(f.meta?.runs).length > 0) continue;
     const outcome = await archiveItem(root, f.name, { trigger: "status" });
     switch (outcome.kind) {
       case "archived":

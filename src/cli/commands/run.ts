@@ -9,6 +9,7 @@ import { executeChain, planFor, type ChainResultSummary } from "../../harness/ch
 import { isPidAlive, DEFAULT_TIMEOUT_MS, type RunOutcome } from "../../harness/run.js";
 import { executeTaskRun, prepareTaskRun, runConflict, taskPrompt, taskRunFresh, taskSessionKey } from "../../harness/task-run.js";
 import { startDetached, superviseRun } from "../../harness/supervise.js";
+import { worktreeArgvWarning } from "../../harness/drive/claim.js";
 import { findRoot, resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -36,6 +37,11 @@ function renderOutcome(root: string, feature: Feature, outcome: RunOutcome): str
   return lines.join("\n");
 }
 
+/** Put the worktree-copy warning above whatever the command prints, refusals included. */
+function withWarning(result: CmdResult, warning: string | null): CmdResult {
+  return warning ? { ...result, stdout: `${warning}\n\n${result.stdout}` } : result;
+}
+
 function renderChain(root: string, feature: Feature, summary: ChainResultSummary): string {
   const lines = summary.outcomes.map((o) => renderOutcome(root, feature, o));
   if (summary.stoppedAt) {
@@ -51,6 +57,7 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
   }
   const prepared = prepareTaskRun(root, feature, rawId);
   if (!prepared.ok) return refuse(prepared.reason, "task run refused");
+  const warning = worktreeArgvWarning(root, resolveDriveConfig(root, feature));
   const { ctx } = prepared;
   const timeoutMs = parseTimeout(args.options.timeout);
   const fresh = Boolean(args.options.fresh);
@@ -58,7 +65,7 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
   if (args.options["dry-run"]) {
     const prompt = taskPrompt(root, feature, ctx, "<run-id>");
     const provisioned = provisionSession(ctx.assignment.runner, feature.meta?.sessions?.[taskSessionKey(ctx.task.id)], prompt, taskRunFresh(feature, ctx, fresh), { itemDir: feature.dir });
-    return {
+    return withWarning({
       code: 0,
       stdout: [
         `Dry run — task ${ctx.task.id} (attempt ${ctx.attempts + 1}), role ${ctx.assignment.role} (${ctx.assignment.runnerName}) — ${provisioned.mode}`,
@@ -71,21 +78,21 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
         "prompt:",
         prompt,
       ].join("\n"),
-    };
+    }, warning);
   }
 
   const result = await executeTaskRun(root, feature.name, ctx, { fresh, timeoutMs });
-  if (!result.started) return refuse(result.reason, "task run refused");
+  if (!result.started) return withWarning(refuse(result.reason, "task run refused"), warning);
   const latest = findFeature(root, feature.name) ?? feature;
   const lines = result.outcome ? [renderOutcome(root, latest, result.outcome)] : [];
   lines.push(`Task ${ctx.task.id}: ${result.state}${result.reason ? ` — ${result.reason}` : ""}`);
   if (result.stop === "usage_limit") {
     // The task is pending again, not done: a script chaining `kf run --task` must not carry on as if it succeeded.
     lines.push(`Paused by the API usage limit; re-run after the reset to resume the same session: kf run ${feature.name} --task ${ctx.task.id}`);
-    return { code: 1, stdout: lines.join("\n"), stderr: "task paused by usage limit" };
+    return withWarning({ code: 1, stdout: lines.join("\n"), stderr: "task paused by usage limit" }, warning);
   }
   const bad = result.state === "failed" || result.state === "blocked";
-  return { code: bad ? 1 : 0, stdout: lines.join("\n"), stderr: bad ? `task ${result.state}` : undefined };
+  return withWarning({ code: bad ? 1 : 0, stdout: lines.join("\n"), stderr: bad ? `task ${result.state}` : undefined }, warning);
 }
 
 export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -109,13 +116,15 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
   if (stageRaw !== undefined && !STAGES.includes(String(stageRaw) as Stage)) {
     return { code: 1, stdout: `Unknown stage '${String(stageRaw)}'. Stages: ${STAGES.join(", ")}`, stderr: "unknown stage" };
   }
-  const { cfg } = resolveDriveConfig(root.root, feature);
+  const driveConfig = resolveDriveConfig(root.root, feature);
+  const { cfg } = driveConfig;
   const resolved = resolveChain(cfg.harness, feature, root.root, {
     stage: stageRaw === undefined ? undefined : (String(stageRaw) as Stage),
     role: typeof args.options.role === "string" ? args.options.role : undefined,
   });
   if (!resolved.ok) return { code: 1, stdout: resolved.reason, stderr: "not assigned" };
   const chain: Assignment[] = resolved.chain;
+  const warning = worktreeArgvWarning(root.root, driveConfig);
   const timeoutMs = parseTimeout(args.options.timeout);
   const fresh = Boolean(args.options.fresh);
 
@@ -126,7 +135,7 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
       const provisioned = provisionSession(plan.runner, feature.meta?.sessions?.[plan.role], plan.prompt, fresh, { itemDir: feature.dir });
       return `[${index + 1}/${chain.length}] ${assignment.role} (${assignment.runnerName}) — ${provisioned.mode}\n\nargv:\n${provisioned.argv.map((a) => `  ${JSON.stringify(a)}`).join("\n")}\n\nprompt:\n${plan.prompt}`;
     });
-    return { code: 0, stdout: `Dry run — stage ${chain[0].stage}, chain: ${chain.map((a) => a.role).join(" → ")}\n\n${blocks.join("\n\n---\n\n")}` };
+    return withWarning({ code: 0, stdout: `Dry run — stage ${chain[0].stage}, chain: ${chain.map((a) => a.role).join(" → ")}\n\n${blocks.join("\n\n---\n\n")}` }, warning);
   }
   const active = runConflict(feature.meta?.runs, name, null, { drive: feature.meta?.drive });
   if (active) return { code: 1, stdout: active, stderr: "run in progress" };
@@ -134,17 +143,17 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
   if (args.options.detach) {
     const record = await startDetached(root.root, name, chain, { fresh, timeoutMs });
     const rest = chain.slice(1).map((a) => a.role);
-    return {
+    return withWarning({
       code: 0,
       stdout: `▶ Chain ${record.id} started detached: ${chain.map((a) => `${a.role} (${a.runnerName})`).join(" → ")}\n  Log: ${relative(root.root, join(feature.dir, record.log))}${rest.length > 0 ? `\n  Remaining roles run after the first one finishes: ${rest.join(", ")}` : ""}\n  Poll with: kf runs ${name}`,
-    };
+    }, warning);
   }
   const summary = await executeChain(root.root, name, chain, { fresh, timeoutMs });
-  return {
+  return withWarning({
     code: summary.ok ? 0 : 1,
     stdout: renderChain(root.root, findFeature(root.root, name) ?? feature, summary),
     stderr: summary.ok ? undefined : "chain not done",
-  };
+  }, warning);
 }
 
 export interface RunView extends RunRecord {

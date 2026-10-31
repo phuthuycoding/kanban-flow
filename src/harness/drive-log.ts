@@ -72,12 +72,15 @@ export function driveConfigSource(itemDir: string, driveId: string): string | nu
   const path = driveLogPath(itemDir, driveId);
   if (!existsSync(path)) return null;
   let source: string | null = null;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
+  const lines = readFileSync(path, "utf8").split("\n").filter((line) => line.length > 0);
+  for (const [i, line] of lines.entries()) {
     if (!line.includes("\"config_source\"")) continue;
     let event: Record<string, unknown>;
     try {
       event = JSON.parse(line) as Record<string, unknown>;
     } catch (err) {
+      // A supervisor killed mid-append leaves its last line cut off; skip only that one, like lastDriveEvent.
+      if (i === lines.length - 1) continue;
       throw new Error(`Malformed line in drive log ${path}: ${line.slice(0, 200)}`, { cause: err });
     }
     if ((event.event === "start" || event.event === "resume") && typeof event.config_source === "string") source = event.config_source;

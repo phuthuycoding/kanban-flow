@@ -6,7 +6,7 @@ import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
-const USAGE = "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--json]";
+const USAGE = "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--accept-config] [--json]";
 
 function renderView(v: DriveView, configSource: string | null): string {
   const lines = [
@@ -24,6 +24,11 @@ function renderView(v: DriveView, configSource: string | null): string {
   return lines.join("\n");
 }
 
+/** The changes a resume with --accept-config re-pinned, printed before the drive goes on with them. */
+function acceptedLines(accepted: string[]): string[] {
+  return accepted.length === 0 ? [] : ["Accepted the changed drive config:", ...accepted.map((l) => `  ${l}`)];
+}
+
 function renderOutcome(name: string, id: string, o: DriveOutcome): string {
   const head = o.status === "ready"
     ? `✓ Drive ${id} of '${name}': ${o.reason}`
@@ -35,6 +40,7 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: USAGE, stderr: "missing feature" };
   const json = Boolean(args.options.json);
+  const acceptConfig = Boolean(args.options["accept-config"]);
   const root = await resolveItem(cwd, name);
   if (!root.ok) return root.refusal;
   const feature = root.item;
@@ -60,8 +66,9 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
     const current = driveView(root.root, feature);
     let replay = false;
     if (current?.state !== "running") {
-      const claimed = await claimDrive(root.root, feature.name);
+      const claimed = await claimDrive(root.root, feature.name, { acceptConfig });
       if (!claimed.ok) return { code: 1, stdout: claimed.reason, stderr: "drive refused" };
+      if (!json) for (const line of acceptedLines(claimed.accepted)) process.stdout.write(`${line}\n`);
       await startDetachedDrive(root.root, feature.name, claimed.drive);
       replay = true;
     }
@@ -96,12 +103,12 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
     }
   }
 
-  const claim = await claimDrive(root.root, feature.name);
+  const claim = await claimDrive(root.root, feature.name, { acceptConfig });
   if (!claim.ok) return { code: 1, stdout: claim.reason, stderr: "drive refused" };
   const pid = await startDetachedDrive(root.root, feature.name, claim.drive);
-  if (json) return { code: 0, stdout: JSON.stringify({ feature: feature.name, id: claim.drive.id, resumed: claim.resumed, supervisorPid: pid }, null, 2) };
+  if (json) return { code: 0, stdout: JSON.stringify({ feature: feature.name, id: claim.drive.id, resumed: claim.resumed, supervisorPid: pid, acceptedConfig: claim.accepted }, null, 2) };
   return {
     code: 0,
-    stdout: `${claim.resumed ? "Resumed" : "Started"} drive ${claim.drive.id} of '${feature.name}' (supervisor pid ${pid}, step ${claim.drive.step}).\n  Status: kf drive ${feature.name} --status\n  Stop:   kf drive ${feature.name} --stop`,
+    stdout: `${acceptedLines(claim.accepted).map((l) => `${l}\n`).join("")}${claim.resumed ? "Resumed" : "Started"} drive ${claim.drive.id} of '${feature.name}' (supervisor pid ${pid}, step ${claim.drive.step}).\n  Status: kf drive ${feature.name} --status\n  Stop:   kf drive ${feature.name} --stop`,
   };
 }

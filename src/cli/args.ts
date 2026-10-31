@@ -231,7 +231,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   drive: {
-    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at review PASS or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) starts the drive when none is running, then streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees",
+    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--accept-config] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at review PASS or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) starts the drive when none is running, then streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees; --accept-config resumes a drive whose runner or verify commands changed since it was pinned (or that stopped config_changed), printing the new argv first",
     allowPositionals: true,
     options: {
       status: { type: "boolean" },
@@ -239,6 +239,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       watch: { type: "boolean" },
       follow: { type: "boolean" },
       tail: { type: "boolean" },
+      "accept-config": { type: "boolean" },
       json: { type: "boolean" },
       supervise: { type: "string" },
     },

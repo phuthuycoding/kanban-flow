@@ -16,7 +16,7 @@ import { captureBaseline, executeTaskRun, prepareTaskRun, setTaskState } from ".
 import { recoverItemMerge, resumeTaskMerge, runVerify } from "../task-pipeline.js";
 import { blockedBy, nextToStart, progressState } from "../scheduler.js";
 import { appendDriveEvent } from "../drive-log.js";
-import { READY_REASON, brokenConfigStop, configWhere, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
+import { brokenConfigStop, configWhere, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, readyReason, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
 import { failRuns, finishDrive, orphanRuns, terminate, type DriveEnd } from "./control.js";
 
 interface Verdict {
@@ -321,7 +321,7 @@ class Driver {
       }
       if (result.stop) {
         this.requestStop({ code: result.stop, reason: result.stop === "plan_change_needed"
-          ? `${task.id}: ${oneLine(result.reason ?? "")}; the plan's Files must change: edit the plan, re-approve it (kf stage ${this.name} planning, kf approve ${this.name}, kf stage ${this.name} implementation), then kf drive ${this.name}`
+          ? `${task.id}: ${oneLine(result.reason ?? "")}; the plan's Files must change: edit the plan, re-approve it (kf stage ${this.name} planning, kf approve ${this.name}), then kf drive ${this.name}`
           : `${task.id}: ${oneLine(result.reason ?? "")}` });
         return;
       }
@@ -509,7 +509,7 @@ class Driver {
     const stop = this.stop;
     const drive = (): DriveState => this.feature().meta!.drive!;
     if (!stop) {
-      const end: DriveEnd = { status: "ready", reason: READY_REASON, nextCommand: `kf status --change ${this.name}` };
+      const end: DriveEnd = { status: "ready", reason: readyReason(this.name), nextCommand: `kf status --change ${this.name}` };
       await finishDrive(this.root, this.name, this.id, end);
       return { ...end, loops: drive().loops, runs: drive().runs };
     }
