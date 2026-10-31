@@ -44,12 +44,12 @@ Summarise the bug, its severity, the reproduction, the impact, the expected fix 
 kf stage {bug_name} planning
 ```
 
-Then load `kanban-plan` on its bug branch. The bug report is the execution contract: do not create an implementation plan, a use-case index, narratives, a diagram, a test plan or a feature report. Planning still needs human approval, and the user still chooses start or backlog.
+Then load `kanban-plan` on its bug branch. The bug report is the execution contract: do not create an implementation plan, a use-case index, narratives, a diagram, a test plan or a feature report. Planning still needs human approval; the reply to it starts the fix (`kf approve`) or defers it (`kf approve --backlog`).
 
 ## 4. Handoff
 
 ```text
-Bug report confirmed. Load kanban-plan on the bug branch to approve the triage contract and ask start or backlog; keep the reproduction and the regression test inside the approved scope.
+Bug report confirmed. Load kanban-plan on the bug branch to approve the triage contract (the approval starts the fix, or --backlog defers it); keep the reproduction and the regression test inside the approved scope.
 ```
 
 A FAIL or a REJECT, in testing or in review, sends the item back to implementation. `REQUIREMENT_BUG` still stops for the user to decide; do not use it in place of a bug report.

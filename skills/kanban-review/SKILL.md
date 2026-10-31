@@ -9,7 +9,7 @@ Argument: `<feature_name>`.
 
 Stand on quality, not survivor. The orchestrator produces **facts** and a **pack**; an independent reviewer that did not write the code produces the **findings**; the report's `status:` is the truth `kf` trusts. The orchestrator never writes a finding of its own except the mechanical ones in step 2 — an orchestrator grading the work it supervised is the failure this split exists to remove.
 
-**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, do not commit, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. The reviewer dispatch below still applies to you: a worker reviews through `code-reviewer`, not by reading the diff itself.
+**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, do not commit, push and open the PR only as step 8 says, never merge, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. The reviewer dispatch below still applies to you: a worker reviews through `code-reviewer`, not by reading the diff itself.
 
 **Every step leaves a named line.** `Agent(code-reviewer)` in the transcript is auditable; "I reviewed the diff" is not. A missing line is a skipped step.
 
@@ -23,7 +23,7 @@ kf stage {feature_name} review
 
 (Already there → skip. If the move is refused, run `kf validate --change {feature_name}` — a missing, stale or non-PASS testing report blocks this direction; loop back through kanban-test.)
 
-Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `Worktree:`/`Domain:` block. **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on archive refuses while it is dirty, so uncommitted review-relevant changes are a finding, not a footnote.
+Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `Worktree:`/`Domain:` block. **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, so uncommitted review-relevant changes are a finding, not a footnote.
 
 Create the run folder: `<item>/reviews/<executionId>/`. Every file this review produces goes there; a re-review after a repair loop gets a new execution id and a new folder, so old evidence is never mistaken for current.
 
@@ -96,20 +96,16 @@ Dedup by `title + file` keeping the highest severity. A finding whose `evidence`
 
 Do not reopen findings an earlier review verified and do not undo user-chosen scope, libraries or thresholds. A security finding without a reachable attack path is LOW; the reviewer should have threat-modelled it — if it did not, record that as the reason for the downgrade.
 
-## 7. Write review-report
+## 7. The reviewer's verdict
 
-```bash
-kf instruct review-report --change {feature_name}
-```
-
-Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly one of:
+From the verified findings, exactly one of:
 
 - `PASS` — no open HIGH finding, no `Deferred` item marked must-fix-before-merge, and every MEDIUM assessed against acceptance criteria and the Definition of Done. Do not declare PASS merely because there are no HIGH findings.
 - `FAIL` — an open HIGH finding, a failed static check, or broken tests.
 - `REJECT` — the change does not meet the DoD or acceptance criteria although it builds and its tests pass.
 - `REQUIREMENT_BUG` — an `intent` finding shows the requirement itself is wrong against the real product need. This is the orchestrator's call on the reviewer's evidence; the reviewer does not set it.
 
-For a bug, also record the verified root cause and whether related feature docs need an update — when none, say why.
+**No PR for a tree the reviewer did not pass.** `FAIL`, `REJECT` and `REQUIREMENT_BUG` skip steps 8–9: write the report (step 10) with `ci: none` and the landing the item will need, then step 11. A PR is opened for reviewed code only.
 
 ## 7b. The landing board — every check stamped with the tree it was earned on
 
@@ -139,10 +135,52 @@ A ❌ means the item does not leave review forward: the report is `FAIL` (or sta
 
 **Gate log.** Append one line per board to `.kf/review-gate.tsv` (`<UTC time>\t<feature>\t<FP>\tLANDABLE|BLOCKED\t<the check that blocked, or ->`), then print `blocked <N> of the last <M>` from it. A gate that has blocked nothing in a long run is not a gate; the number stays visible so the question stays answerable.
 
-## 8. The directional gate decides
+## 8. Push and open the PR — after the reviewer PASS only
 
-- `PASS` → ask the human once: **ship or archive directly?** Ship (code item, PR/release wanted) → load kanban-ship and `kf stage <f> shipping`. Nothing to ship (docs/config/research) → load kanban-archive and `kf archive` straight from review.
-- `FAIL`/`REJECT` → **structural fix needed**: loop back, re-implement through `kanban-implement` with the kept findings as the repair brief, then the feature must be **re-tested before review again** (kanban-test, new execution id). The orchestrator never fixes findings itself.
+Only a `PASS` verdict on a `Landable: YES` board reaches this step.
+
+**Nothing to land** — the item changed no tracked code (docs kept inside `.works`, research, a decision made elsewhere): open no PR, set `landing: none` and `ci: none` with the reason, skip step 9. kf closes it on the next `kf status` only when the item branch has 0 commits ahead of its base.
+
+**Code to land** — in the item worktree:
+
+```bash
+BRANCH=$(git branch --show-current)
+git push -u origin "$BRANCH"
+kf status --change {feature_name} --json          # meta.pr — a PR already recorded by an earlier round?
+gh pr create --head "$BRANCH" --title "<title in the repository's commit convention>" --body "<what changed, the issue, test and review counts>"   # only when no PR is recorded
+kf issues link {feature_name} <PR URL> --pr        # records meta.pr; needs repository in .kf/config.json
+```
+
+A repair loop with a recorded PR pushes to the same branch, which updates that PR — never a second one. Set `landing: pr`. The push, `gh pr create` or `kf issues link` failing (no remote, no auth, no `repository`) → stop and report; never fake a PR and never write `PASS` without one.
+
+## 9. Watch CI on the pushed commit
+
+Follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run the watcher as a background command that wakes the session, say in one line what is watched, then act on its exit:
+
+| CI outcome | `ci:` | What happens |
+|---|---|---|
+| all runs green | `green` | the mergeability wait (same reference, Step 3); append the `CI` and `Mergeable` lines to the board |
+| a run failed | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. A second red round → hand back to the human with both rounds' failed runs |
+| no `.github/workflows` | `none` | nothing to watch; the report says "no CI" |
+
+Never re-run, cancel or approve a workflow, never resolve a review thread and never merge the PR.
+
+## 10. Write review-report
+
+```bash
+kf instruct review-report --change {feature_name}
+```
+
+Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 8–9 (the template's `## Delivery` table); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
+
+For a bug, also record the verified root cause and whether related feature docs need an update — when none, say why.
+
+**Feature with a `PASS`:** write `phase-6-feature-report.md` now (`kanban-archive` section 1). The close on merge validates the item as `done` and refuses without it.
+
+## 11. The directional gate decides
+
+- `PASS` → **Next: merge the PR on GitHub** — print its URL; the human merges, never you. After the merge, `kf status` (or `kf sync`) closes the item to `done`: done hook, worktree and branch removed, canonical docs synced. A `landing: none` item closes on the next `kf status`. Ask nothing about closing.
+- `FAIL`/`REJECT` (reviewer or red CI) → **structural fix needed**: loop back, re-implement through `kanban-implement` with the kept findings as the repair brief, then the feature must be **re-tested before review again** (kanban-test, new execution id). The orchestrator never fixes findings itself.
 
 ```bash
 kf stage {feature_name} implementation
@@ -158,6 +196,7 @@ kf stage {feature_name} implementation
 - `references/finding-schema.md` — the one shape every reviewer returns; how findings become report rows.
 - `references/review-tiers.md` — `ADDED`/`SHARED`/`CRITICAL`, the tier rule, bundling, why tiers.
 - `references/reviewer-brief.md` — the dispatch template and the pack layout.
+- `references/ci-watch.md` — the CI watcher and the mergeability wait after the PR push.
 - `scripts/review-package`, `scripts/select-tier`, `scripts/verify-findings.mjs` — run with `bash`/`node`; installs do not set the exec bit.
 
 ## Done
@@ -165,7 +204,7 @@ kf stage {feature_name} implementation
 A decisive report written from verified findings. Hand off:
 
 ```text
-If PASS: ship gate — kanban-ship when there is something to deliver, kanban-archive when there is not.
-If FAIL/REJECT: load kanban-implement with the kept findings (then kanban-test before returning here).
+If PASS: hand the human the PR URL to merge on GitHub; kf status closes the item after the merge (landing: none closes on the next kf status).
+If FAIL/REJECT (reviewer or red CI): load kanban-implement with the kept findings or the CI failure (then kanban-test before returning here; the next push updates the same PR).
 If REQUIREMENT_BUG: stop and report to the user.
 ```

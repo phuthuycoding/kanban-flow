@@ -1,6 +1,6 @@
 ---
 name: kanban-implement
-description: 'Implement an approved kanban feature or bug: hand the item to kf drive when a task harness is configured, otherwise run the subagent-driven task loop — a fresh implementer per task, an independent task review, a bounded fix loop and a ledger — then verify the build. Use in implementation, or after an explicit start decision from planning/backlog or a FAIL/REJECT repair loop.'
+description: 'Implement an approved kanban feature or bug: hand the item to kf drive when a task harness is configured, otherwise run the subagent-driven task loop — a fresh implementer per task, an independent task review, a bounded fix loop and a ledger — then verify the build. Use in implementation — after `kf approve` started the item, an explicit start from backlog, or a FAIL/REJECT repair loop.'
 ---
 
 # Kanban Phase 3 — Implement (Autonomous)
@@ -19,7 +19,7 @@ Execute the approved implementation plan for a feature, or the approved bug repo
 
 ## 1. Move to implementation
 
-Read `kf status --change {feature_name}`. Move only when coming from planning or backlog with a valid approval, or when a FAIL/REJECT report requires a loop. If already in implementation, skip the move and resume existing tasks. If approval changed, stop and return to planning on the user's direction. Entering implementation from backlog requires the user's explicit start decision.
+Read `kf status --change {feature_name}`. `kf approve` already moved a freshly approved item here. Move only when coming from backlog with a valid approval and the user's explicit start decision, or when a FAIL/REJECT report requires a loop. If already in implementation, skip the move and resume existing tasks. If approval changed, stop and return to planning on the user's direction.
 
 ```bash
 kf stage {feature_name} implementation
@@ -35,15 +35,18 @@ Skip this section when your prompt starts with `kf-run:` — you are already the
 
 After the move, read `kf status --change {feature_name} --json` and `.kf/config.json`.
 
+**Owner rule:** a `driving` or `blocked` line for this item in `.kf/travel/progress.md` means travel owns its drive — never drive it a second time from here (`kf drive` refuses a second drive anyway). A `blocked` item the human opened in this session is yours to fix until they say it is done; travel re-drives it.
+
 **Drive configured** (`harness.verify.stage` set and `worktree.enabled: true`): hand the item to the task harness. kf, not a worker, commits, merges and verifies each task result, and it writes the `## Baseline` section of tasks.md.
 
 ```bash
 kf drive {feature_name}            # detached; runs the approved TASK-### rows
-kf drive {feature_name} --status   # monitor; add --json for machine-readable output
+kf drive {feature_name} --status   # monitor: the step and each live worker's last action with its age; add --json for machine-readable output
+kf drive {feature_name} --watch    # stream events and a heartbeat with each worker's last action until the drive stops
 kf drive {feature_name} --stop     # stop on the human's request
 ```
 
-The drive verifies each task mechanically (`harness.verify.task`) but runs no independent per-task review; the whole-branch review by `code-reviewer` happens at the review stage. The drive stops at the ship gate with "ready for ship decision" — continue at section 4 and the testing hand-off. Every stop prints a reason and the next command. Act on the stop code:
+The drive verifies each task mechanically (`harness.verify.task`) but runs no independent per-task review; the whole-branch review by `code-reviewer` happens at the review stage. The drive ends `ready` once review is PASS and its PR is open — testing and review ran inside the drive; hand the human the PR URL to merge. Every stop prints a reason and the next command. Act on the stop code:
 
 | Stop code | What to do |
 |---|---|
@@ -60,6 +63,7 @@ The drive verifies each task mechanically (`harness.verify.task`) but runs no in
 | `stopped_by_user` | Wait for the human's decision |
 | `crashed` | Read the drive log; ask the human before re-driving |
 | `git_error` | Inspect the worktree git state; fix it or ask the human |
+| `usage_limit` | A worker hit the API usage limit: wait for the reset the reason quotes, then `kf drive {feature_name}` — the same worker session resumes; no run or attempt was spent |
 
 To run a single task: `kf tasks {feature_name}` lists them, `kf run {feature_name} --task TASK-### [--dry-run]` makes one attempt with no auto-retry.
 

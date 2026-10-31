@@ -48,7 +48,7 @@ Do not review as one unit, and do not ask the human — report the split.
 3. Dispatch **one all-dimension reviewer per bundle** on `sonnet` (`opus` when `CRITICAL=1`), each given its bundle package plus the manifest so it knows the other half of a contract may have changed elsewhere, and **one `contracts` reviewer** on `opus` given the manifest and every bundle's stat section.
 4. Merge, dedup by `title + file`, verify, report per bundle and in total.
 
-More than eight bundles means the item should have been more than one work item: record `split recommended: <N> bundles` in the report's `## Reviewer` section and continue — the human reads it at the ship gate, not as a mid-review question.
+More than eight bundles means the item should have been more than one work item: record `split recommended: <N> bundles` in the report's `## Reviewer` section and continue — the human reads it before the merge, not as a mid-review question.
 
 ## Why tiers
 

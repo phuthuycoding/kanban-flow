@@ -1,6 +1,6 @@
 ---
 name: kanban-plan
-description: 'Plan and obtain human approval for a kanban feature contract or lightweight bug triage contract, then ask whether to start or defer to backlog. Use when a work item is in planning.'
+description: 'Plan and obtain human approval for a kanban feature contract or lightweight bug triage contract; the approval starts the item, or parks it in backlog when the reply defers. Use when a work item is in planning.'
 ---
 
 # Kanban Phase 2 — Planning → Execution Contract (Human + Agent)
@@ -17,9 +17,9 @@ Phase 2 turns the confirmed requirement into a **binding execution contract** th
 kf status --change {feature_name}   # must show stage = planning
 ```
 
-If approval is already valid, keep the contract unchanged and go to the start/backlog decision in section 4. If the approval is changed or pending, finish the applicable contract and obtain fresh human approval.
+If approval is already valid, keep the contract unchanged and go to section 4: `kf approve` re-runs the move. If the approval is changed or pending, finish the applicable contract and obtain fresh human approval.
 
-Read work item kind from `kf status --change {feature_name} --json`. For `kind: bug`, use the confirmed bug report as the contract: reproduction, expected fix, scope, regression strategy and docs impact. Skip section 2; present this concise contract, run approval in section 3 and ask start/backlog in section 4. Do not create feature planning artifacts for a bug. If the request introduces behavior beyond correcting the defect, explain the scope change and follow the user's decision before creating a related feature.
+Read work item kind from `kf status --change {feature_name} --json`. For `kind: bug`, use the confirmed bug report as the contract: reproduction, expected fix, scope, regression strategy and docs impact. Skip section 2; present this concise contract and run approval in sections 3 and 4. Do not create feature planning artifacts for a bug. If the request introduces behavior beyond correcting the defect, explain the scope change and follow the user's decision before creating a related feature.
 
 ## 2. Write the four plan artifacts (in order)
 
@@ -131,34 +131,27 @@ Before approval, `approval_required` is expected; `approval_changed` is expected
 - implementation plan headlines (tasks, approach, risks)
 - test strategy + coverage target *(as agreed in the spec's Test Strategy: unit / unit+integration / full + UI scope)*
 - Definition of Done
+- when `.kf/config.json` sets `harness.verify.stage` but `worktree.enabled` is not `true`: the drive (`kf drive`) cannot start — ask the human to enable worktrees in the same message
 
-Ask once: **"approve?"** On approval:
-
-```bash
-kf approve {feature_name}
-```
+Ask once: **"approve?"** The reply carries the start: "approve" starts implementation; "approve, backlog" (or any reply that defers) parks it. Do not choose on the user's behalf and do not ask a second question.
 
 `kf approve` fingerprints the requirement, four planning artifacts and all individual UC files for a feature; for a bug it fingerprints only the bug report. `kf stage` requires the approved contents to remain unchanged. Progress and test outcomes belong in tasks.md and the testing report; do not rewrite the approved contract during execution.
 
-## 4. Start/backlog decision gate
+## 4. Approve — the reply decides the move
 
-Approval means the contract is valid; it does not mean implementation must start immediately. Ask the user once:
+| Reply | Command | Result |
+|---|---|---|
+| approve | `kf approve {feature_name}` | approval recorded, item → implementation (worktree provisioned when enabled), `Next: kf drive {feature_name}` or the implement skill |
+| approve, backlog | `kf approve {feature_name} --backlog` | approval recorded, item → backlog; it starts later with `kf stage {feature_name} implementation` on the user's word |
 
-**"The plan is ready. Start implementation now, or put it in the backlog?"**
-
-- Start now → `kf stage {feature_name} implementation`
-- Defer → `kf stage {feature_name} backlog`
-
-Before asking, read `.kf/config.json`: if `harness.verify.stage` is set and `worktree.enabled` is not `true`, tell the human the drive (`kf drive`) cannot start and ask them to enable worktrees first.
-
-Do not choose on the user's behalf. A deferred item keeps its approved contract in `backlog` and can resume to implementation later after the user chooses to start.
+A refused move (hook, worktree provisioning, base behind) leaves the item in planning with the approval not kept: fix what the message names and re-run the same command. A deferred item keeps its approved contract in `backlog`.
 
 ---
 
 ## Done
 
-Approval and the start/defer decision are recorded. Hand off:
+Approval recorded and the item moved. Hand off:
 
 ```text
-If the user chose start, load kanban-implement and move the feature to implementation. If the user chose defer, leave it in backlog and resume only after an explicit start decision.
+In implementation: load kanban-implement (or kf drive when a drive is configured). In backlog: leave it there and resume only after an explicit start decision.
 ```

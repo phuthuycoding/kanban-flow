@@ -74,7 +74,7 @@ Still failing after one fix cycle → STOP, show failing tests, ask: fix deeper 
 Report written with a decisive status. Hand off:
 
 ```text
-If PASS: load the kanban-review skill.
+If PASS: kf stage {feature_name} review, then load the kanban-review skill (independent reviewer, then the PR and the CI watch).
 If FAIL/REJECT: kanban-implement first, then testing with a new execution id.
 If BLOCKED: stop and report the blocker.
 ```

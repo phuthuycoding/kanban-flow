@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { copySkillsTo, removeSkillsFrom, MANAGED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
+import { STAGE_SKILL } from "../harness/prompt.js";
 
 let dir: string;
 
@@ -15,6 +16,14 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
+});
+
+describe("managed skills", () => {
+  it("no longer installs a ship stage skill and maps the done stage to the archive skill", () => {
+    expect(MANAGED_SKILLS).not.toContain("kanban-ship");
+    expect(STAGE_SKILL.done).toBe("kanban-archive");
+    for (const skill of Object.values(STAGE_SKILL)) if (skill) expect(MANAGED_SKILLS).toContain(skill);
+  });
 });
 
 describe("copySkillsTo / removeSkillsFrom", () => {

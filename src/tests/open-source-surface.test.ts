@@ -77,6 +77,37 @@ describe("the user-facing surface is English", () => {
   });
 });
 
+describe("the phase skills follow the merge-closes flow", () => {
+  const kanbanSkillDirs = readdirSync(join(ROOT, "skills")).filter((name) => name.startsWith("kanban-"));
+  const kanbanTexts = kanbanSkillDirs.flatMap((name) =>
+    walk(join(ROOT, "skills", name), (p) => p.endsWith(".md")).map((file) => ({ file: relative(ROOT, file), text: readFileSync(file, "utf8") })),
+  );
+
+  it("has no ship stage skill and never points at kf ship or a shipping stage", () => {
+    expect(kanbanSkillDirs).not.toContain("kanban-ship");
+    for (const { file, text } of kanbanTexts) {
+      expect(text, file).not.toContain("kf ship");
+      expect(text, file).not.toMatch(/\bshipping\b|\bdones\b|kanban-ship/);
+    }
+  });
+
+  it("asks no start-or-backlog and no ship-or-archive question", () => {
+    for (const { file, text } of kanbanTexts) {
+      expect(text, file).not.toMatch(/start (implementation )?now/i);
+      expect(text, file).not.toMatch(/ship (now )?or archive/i);
+    }
+  });
+
+  it("opens the PR in review only after the independent reviewer, then watches CI before the report", () => {
+    const review = readFileSync(join(ROOT, "skills", "kanban-review", "SKILL.md"), "utf8");
+    const order = ["## 5. Dispatch the independent reviewer", "## 8. Push and open the PR", "## 9. Watch CI", "## 10. Write review-report"].map((h) => review.indexOf(h));
+    expect(order.every((i) => i >= 0), String(order)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(review).toContain("kf issues link {feature_name} <PR URL> --pr");
+    expect(existsSync(join(ROOT, "skills", "kanban-review", "references", "ci-watch.md"))).toBe(true);
+  });
+});
+
 describe("the dashboard page", () => {
   it("declares English and carries the package name", () => {
     const html = renderDashboardHtml();
