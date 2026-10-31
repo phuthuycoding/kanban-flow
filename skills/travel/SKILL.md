@@ -75,7 +75,7 @@ Each **tick**:
    kf drive <feature>
    ```
 
-   Before each start, `kf drive <f> --status --json`: `state` `running` → no line of today's section started it (travel's own overnight drives were re-adopted in §1), so it is driven elsewhere: the line stays `queued` with note `driven elsewhere` and is checked again every tick; travel never retries or stops that drive. Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
+   Before each start, `kf drive <f> --status --json`: `state` `running` → no line of today's section started it (travel's own overnight drives were re-adopted in §1), so it is driven elsewhere: the line stays `queued` with note `driven elsewhere`, is never dispatched by travel again, and is checked every tick; travel never retries, resumes or stops that drive. When it stops reporting `running`: `ready` → poll it as in §4; any stop code → the line goes to Needs you with kf's `nextCommand`, for the human or the session that started it. Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
 4. **Print the progress block** (below) — every tick, even when every slot is full.
 5. **Wait** 2–5 minutes (a background `sleep`, or the runtime's wait/monitor tool), then tick again. Never `--watch`.
 

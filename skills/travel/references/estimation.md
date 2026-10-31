@@ -38,7 +38,7 @@ date · id · feature · kind · est · actual · work · review · files · rou
 2026-10-31 · t1 · demo · feature · M · M · 14 · 1 · 6 · 1 · implementation→review · T1 · 0 · 10
 ```
 
-A row written before `estmin` existed ends at `gap`; it still counts for budget, hit rate and bias.
+A row without `estmin` (written before it existed, or measured from a `learn=no` line) ends at `gap`; it still counts for budget, hit rate and bias.
 
 | Field | Source |
 |---|---|

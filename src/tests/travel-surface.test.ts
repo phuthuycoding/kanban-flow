@@ -85,8 +85,9 @@ describe("the travel skill", () => {
   });
 
   it("leaves a drive it did not start to whoever runs it", () => {
-    expect(skill).toContain("the line stays `queued` with note `driven elsewhere` and is checked again every tick");
-    expect(skill).toContain("travel never retries or stops that drive");
+    expect(skill).toContain("the line stays `queued` with note `driven elsewhere`, is never dispatched by travel again");
+    expect(skill).toContain("any stop code → the line goes to Needs you with kf's `nextCommand`");
+    expect(skill).toContain("travel never retries, resumes or stops that drive");
     expect(skill).not.toMatch(/adopt the drive|note `adopted`/);
     expect(read("references", "ledger-format.md")).not.toContain("`adopted`");
   });
