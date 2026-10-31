@@ -307,7 +307,7 @@ export interface Buckets {
   /** Items waiting on a human decision. */
   needsYou: Array<{ feature: string; decision: string }>;
   /** Things the human does outside kf: merge a PR, push a docs branch. */
-  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string; reason?: string }>;
+  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string; reason?: string; kind?: "lookup-rerun"; next?: string }>;
   /** Live `kf drive` supervisors. */
   running: number;
 }
@@ -318,7 +318,7 @@ export interface Buckets {
  */
 export function computeBuckets(
   statuses: FeatureStatus[],
-  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; command?: string; remedy?: string; gone?: true }>,
+  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; kind?: "lookup-rerun"; remedy?: string; gone?: true }>,
   running: number,
 ): Buckets {
   const needsYou: Buckets["needsYou"] = [];
@@ -347,17 +347,26 @@ export function computeBuckets(
   }
   for (const d of docsBranchesUnpushed) {
     if (d.gone) {
-      needsYou.push({ feature: d.feature, decision: docsNeverLandedDecision(d.feature, d.reason, d.remedy) });
+      needsYou.push({ feature: d.feature, decision: d.remedy ? docsNotProvenLandedDecision(d.feature, d.remedy, d.reason) : docsNeverLandedDecision(d.feature, d.reason) });
       continue;
     }
-    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
+    if (d.kind === "lookup-rerun") {
+      waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: DOCS_LOOKUP_RERUN, ...(d.reason ? { reason: d.reason } : {}), kind: d.kind, next: docsLookupRerunDecision(d.feature, DOCS_LOOKUP_RERUN) });
+      continue;
+    }
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
   return { needsYou, waitingToMerge, running };
 }
 
 /** A docs branch nothing proves landed and nothing is left to push; doctor gives the same decision. */
-export function docsNeverLandedDecision(feature: string, reason?: string, remedy?: string): string {
-  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: ${remedy ? `run ${remedy} first, then ` : ""}re-land them on a fresh docs branch for a PR with kf archive ${feature}, or leave them`;
+export function docsNeverLandedDecision(feature: string, reason?: string): string {
+  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: re-land them on a fresh docs branch for a PR with kf archive ${feature}, or leave them`;
+}
+
+/** A gone docs branch no lookup could run for until the human applies `remedy`, so it is not called never landed. */
+export function docsNotProvenLandedDecision(feature: string, remedy: string, reason?: string): string {
+  return `run ${remedy} first, then re-run ${DOCS_LOOKUP_RERUN}: canonical docs for ${feature} are not proven landed${reason ? ` (${reason})` : ""}`;
 }
 
 /** The command kf status --all gives a gone docs branch whose merged-PR lookup could not run. */
@@ -376,7 +385,7 @@ export function renderBuckets(b: Buckets): string {
   if (b.waitingToMerge.length === 0) lines.push("  (none)");
   for (const w of b.waitingToMerge) {
     if (!w.docsBranch) lines.push(`  ${w.feature} — ${w.pr}: ${w.command}`);
-    else if (w.command === DOCS_LOOKUP_RERUN) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged${w.reason ? ` (${w.reason})` : ""}: ${docsLookupRerunDecision(w.feature, w.command)}`);
+    else if (w.kind === "lookup-rerun") lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged${w.reason ? ` (${w.reason})` : ""}: ${w.next}`);
     else if (w.reason) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged (${w.reason}): ${w.command}`);
     else lines.push(`  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}`);
   }

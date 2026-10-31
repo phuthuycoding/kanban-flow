@@ -207,7 +207,9 @@ function checkDocsBranches(root: string): DoctorFinding[] {
       return [{
         level: "WARNING" as const,
         area: `${f.stage}/${f.folder}`,
-        message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here, and nothing proves they landed (${proof.reason}).`,
+        message: proof.remedy
+          ? `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here, and are not proven landed (${proof.reason}).`
+          : `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here, and nothing proves they landed (${proof.reason}).`,
         action: proof.remedy ? `${proof.remedy}, then re-run kf doctor` : docsNeverLandedDecision(f.name),
       }];
     }

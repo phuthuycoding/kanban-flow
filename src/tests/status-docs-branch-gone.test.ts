@@ -130,7 +130,8 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     };
     expect(json.waitingToMerge).toEqual([]);
     expect(json.needsYou).toHaveLength(1);
-    expect(json.needsYou[0].decision).toMatch(/^canonical docs for demo never landed \(.*origin\/HEAD is not set.*\): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
+    expect(json.needsYou[0].decision).toMatch(/^run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*origin\/HEAD is not set.*\)$/);
+    expect(json.needsYou[0].decision).not.toContain("never landed");
     expect(ghCalls()).toEqual([]);
   });
 
@@ -143,10 +144,17 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     };
     expect(json.waitingToMerge).toEqual([]);
     expect(json.needsYou).toHaveLength(1);
-    expect(json.needsYou[0].decision).toMatch(/^canonical docs for demo never landed \(.*origin\/HEAD is not set.*\): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
+    expect(json.needsYou[0].decision).toMatch(/^run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*origin\/HEAD is not set.*\)$/);
+    expect(json.needsYou[0].decision).not.toContain("never landed");
+
+    const text = (await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root)).stdout;
+    expect(text).toContain("  demo — run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed (");
+    expect(text).not.toContain("never landed");
 
     const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
     expect(found.map((f) => f.action)).toEqual(["git remote set-head origin -a, then re-run kf doctor"]);
+    expect(found[0].message).toMatch(/^docs_branch_unpushed: canonical docs for demo were committed to docs\/app-demo, which is gone here, and are not proven landed \(.*origin\/HEAD is not set.*\)\.$/);
+    expect(`${found[0].message} ${found[0].action}`).not.toContain("never landed");
     expect(ghCalls()).toEqual([]);
   });
 
@@ -159,7 +167,8 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     };
     expect(json.waitingToMerge).toEqual([]);
     expect(json.needsYou).toHaveLength(1);
-    expect(json.needsYou[0].decision).toMatch(/^canonical docs for demo never landed \(.*there is no origin remote.*\): run git remote add origin <url> first, then re-land them/);
+    expect(json.needsYou[0].decision).toMatch(/^run git remote add origin <url> first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*there is no origin remote.*\)$/);
+    expect(json.needsYou[0].decision).not.toContain("never landed");
 
     const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
     expect(found.map((f) => f.action)).toEqual(["git remote add origin <url>, then re-run kf doctor"]);
@@ -171,14 +180,15 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     process.env.GH_FAIL = "1";
 
     const json = JSON.parse((await cmdStatus({ command: "status", positionals: [], options: { all: true, json: true } }, root)).stdout) as {
-      needsYou: unknown[]; waitingToMerge: Array<{ feature: string; command: string }>;
+      needsYou: unknown[]; waitingToMerge: Array<{ feature: string; command: string; kind?: string; next?: string }>;
     };
     expect(json.needsYou).toEqual([]);
     expect(json.waitingToMerge.map((w) => w.command), "the command stays runnable").toEqual(["kf status --all"]);
+    expect(json.waitingToMerge.map((w) => [w.kind, w.next])).toEqual([["lookup-rerun", rerun("demo")]]);
     const text = (await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root)).stdout;
     const line = text.split("\n").find((l) => l.startsWith("  demo — docs/app-demo not proven merged ("));
     expect(line).toContain("gh pr list failed");
-    expect(line?.endsWith(`): ${rerun("demo")}`), line).toBe(true);
+    expect(line?.endsWith(`): ${json.waitingToMerge[0].next}`), line).toBe(true);
 
     const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
     expect(found.map((f) => f.action)).toEqual([`nothing to push; ${rerun("demo", "kf doctor")}`]);
@@ -217,5 +227,7 @@ describe("kf doctor on a docs branch gone locally and on origin", () => {
     const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
     expect(found.map((f) => f.action)).toEqual(["git remote set-head origin -a, then re-run kf doctor"]);
     expect(found[0].message).toContain("origin/HEAD is not set");
+    expect(found[0].message).toContain("are not proven landed (");
+    expect(found[0].message).not.toContain("never landed");
   });
 });

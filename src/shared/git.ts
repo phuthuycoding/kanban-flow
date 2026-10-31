@@ -206,7 +206,10 @@ export function insideWorkTree(dir: string): boolean {
 
 export function hasRemote(dir: string, remote: string): boolean {
   assertSafeArg("remote", remote);
-  return runGit(dir, ["remote", "get-url", remote]).code === 0;
+  // Listing instead of `get-url`: its exit code for a missing remote differs across git versions.
+  const res = runGit(dir, ["remote"]);
+  if (res.code !== 0) throw new Error(`git remote failed (exit ${res.code}) in ${dir}: ${res.stderr.trim()}`);
+  return res.stdout.split("\n").some((name) => name.trim() === remote);
 }
 
 /** `origin/<default>` from `refs/remotes/origin/HEAD`, or null when origin/HEAD is not set. */
@@ -226,8 +229,9 @@ export type LandedProof =
    * out): unproven is not landed. `pushed: false` means nothing records a push of the branch (no
    * upstream configured, no remote-tracking ref or its reflog) and no merged PR was found for it.
    * `gone: true` means the local branch no longer exists and either the merged-PR lookup ran and
-   * found no PR that carries these docs, or no docs commit was recorded to look for: nothing is
-   * left to push and nothing proves they landed.
+   * found no PR that carries these docs, or no docs commit was recorded to look for, or origin or
+   * origin/HEAD is missing so no check ran at all (then `remedy` is set): nothing is left to push
+   * and nothing proves they landed.
    * `reason` is one line; callers show it only when `pushed` is true.
    * `remedy` is a command the human must run before anything can be proven or re-landed; callers
    * show it as the action when present.

@@ -240,7 +240,7 @@ export const docsBranchName = (feature: Feature): string => `docs/${feature.cont
  */
 export function resolveDocsTarget(root: string, feature: Feature, opts: { branchOnly?: string } = {}): DocsTarget {
   if (!insideWorkTree(root) || !hasRemote(root, "origin")) {
-    return opts.branchOnly ? { kind: "refused", message: `there is no origin to cut a docs branch from, and ${opts.branchOnly}.` } : { kind: "tree" };
+    return opts.branchOnly ? { kind: "refused", message: `there is no origin to cut a docs branch from (add it: git remote add origin <url>), and ${opts.branchOnly}.` } : { kind: "tree" };
   }
   const base = originDefaultRef(root);
   if (!base) {

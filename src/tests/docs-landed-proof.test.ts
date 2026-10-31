@@ -8,7 +8,7 @@ import { basename, join, relative } from "node:path";
 import { cmdNew } from "../cli/commands/new.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta, type Feature } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
-import { docsLandedProof, docsOnDefault, prepareCanonicalCopies, writeCanonicalCopies } from "../workflow/canonical-docs.js";
+import { docsLandedProof, docsOnDefault, prepareCanonicalCopies, resolveDocsTarget, writeCanonicalCopies } from "../workflow/canonical-docs.js";
 
 const GH_STUB = `#!/usr/bin/env bash
 echo "gh $*" >> "$GH_CALLS"
@@ -171,5 +171,17 @@ describe("docsLandedProof on a gone docs branch", () => {
     expect(proof).toMatchObject({ landed: false, pushed: true, gone: true, remedy: "git remote add origin <url>" });
     expect(proof.landed === false && proof.reason).toContain("there is no origin remote");
     expect(calls(process.env.GH_CALLS!)).toEqual([]);
+  });
+});
+
+describe("resolveDocsTarget without an origin remote", () => {
+  it("refuses a branch-only target and names git remote add origin", async () => {
+    const feature = await goneItem("demo");
+    git(root, "remote", "remove", "origin");
+
+    expect(resolveDocsTarget(root, feature, { branchOnly: "the rewrite must show in a PR diff" })).toEqual({
+      kind: "refused",
+      message: "there is no origin to cut a docs branch from (add it: git remote add origin <url>), and the rewrite must show in a PR diff.",
+    });
   });
 });

@@ -8,7 +8,6 @@ import {
   computeBuckets,
   computeStatus,
   currentReportStatus,
-  DOCS_LOOKUP_RERUN,
   renderBuckets,
   renderStatusText,
   statusToJson,
@@ -237,11 +236,11 @@ const DOCS_LANDED_LOCK_MS = 2_000;
  * is a cache: when another kf command holds the item lock, it waits for the next run.
  */
 async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<{
-  entries: Array<{ feature: string; branch: string; reason?: string; command?: string; remedy?: string; gone?: true }>;
+  entries: Array<{ feature: string; branch: string; reason?: string; kind?: "lookup-rerun"; remedy?: string; gone?: true }>;
   warnings: string[];
 }> {
   const run: LandedRun = {};
-  const out: Array<{ feature: string; branch: string; reason?: string; command?: string; remedy?: string; gone?: true }> = [];
+  const out: Array<{ feature: string; branch: string; reason?: string; kind?: "lookup-rerun"; remedy?: string; gone?: true }> = [];
   const warnings: string[] = [];
   for (const f of features) {
     const branch = f.meta?.docsBranch;
@@ -265,7 +264,7 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
     }
     // No local branch to push: only a lookup that can run again can still prove it.
     if (pushed === null) {
-      out.push({ feature: f.name, branch, ...(proof.reason ? { reason: proof.reason } : {}), command: DOCS_LOOKUP_RERUN });
+      out.push({ feature: f.name, branch, ...(proof.reason ? { reason: proof.reason } : {}), kind: "lookup-rerun" });
       continue;
     }
     // No trace of a push (and no merged PR found) shows as awaiting push, not unproven.

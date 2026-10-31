@@ -80,25 +80,36 @@ describe("Waiting to merge bucket", () => {
     }]);
   });
 
-  it("names the remedy first in the decision for a gone docs branch", () => {
+  it("names the remedy first and calls the docs not proven landed when a gone docs branch could not be looked up", () => {
     const buckets = computeBuckets([], [
       { feature: "a", branch: "docs/app-a", reason: "origin/HEAD is not set", remedy: "git remote set-head origin -a", gone: true },
     ], 0);
 
     expect(buckets.needsYou).toEqual([{
       feature: "a",
-      decision: "canonical docs for a never landed (origin/HEAD is not set): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive a, or leave them",
+      decision: "run git remote set-head origin -a first, then re-run kf status --all: canonical docs for a are not proven landed (origin/HEAD is not set)",
     }]);
     expect(buckets.waitingToMerge).toEqual([]);
   });
 
-  it("keeps kf status --all as the command of a gone docs branch whose lookup could not run, and offers the re-land beside it", () => {
+  it("keeps kf status --all as the command of a gone docs branch whose lookup could not run, and renders the next step it carries", () => {
     const buckets = computeBuckets([], [
-      { feature: "a", branch: "docs/app-a", reason: "gh is not installed", command: "kf status --all" },
+      { feature: "a", branch: "docs/app-a", reason: "gh is not installed", kind: "lookup-rerun" },
     ], 0);
+    const next = "re-run kf status --all once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive a";
 
-    expect(buckets.waitingToMerge).toEqual([{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "gh is not installed" }]);
-    expect(renderBuckets(buckets)).toContain("  a — docs/app-a not proven merged (gh is not installed): "
-      + "re-run kf status --all once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive a");
+    expect(buckets.waitingToMerge).toEqual([{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "gh is not installed", kind: "lookup-rerun", next }]);
+    expect(renderBuckets(buckets)).toContain(`  a — docs/app-a not proven merged (gh is not installed): ${next}`);
+  });
+
+  it("renders a docs entry from its kind, not from its command", () => {
+    const text = renderBuckets({
+      needsYou: [],
+      waitingToMerge: [{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "still on origin" }],
+      running: 0,
+    });
+
+    expect(text).toContain("  a — docs/app-a not proven merged (still on origin): kf status --all");
+    expect(text).not.toContain("re-land");
   });
 });

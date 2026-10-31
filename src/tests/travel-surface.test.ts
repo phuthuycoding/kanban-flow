@@ -28,12 +28,20 @@ describe("the travel skill", () => {
     }
   });
 
+  it("lists both gone-docs decisions in the daily plan's Needs you", () => {
+    const plan = read("references", "daily-plan.md");
+    expect(plan).toContain("`canonical docs for <f> never landed`");
+    expect(plan).toContain("`run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed`");
+  });
+
   it("prints the progress block with every field", () => {
     for (const s of ["Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P", "⏸ Needs you (decide)", "▶ Running",
       "✓ Waiting to merge (do this on GitHub)", "! gh pr merge <n>", "docsBranch", "awaiting push", "not proven merged (<reason>) — ! <command>", "review PASS but not closed", "<worktree path>",
       "canonical docs for <f> never landed (<reason>): re-land them on a fresh docs branch for a PR with kf archive <f>, or leave them",
-      "run git remote set-head origin -a first, then ", "run git remote add origin <url> first, then ",
-      "not proven merged (<reason>) — re-run kf status --all once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive <f>"]) {
+      "run git remote set-head origin -a first, then re-run kf status --all: canonical docs for <f> are not proven landed (<reason>)",
+      "run git remote add origin <url> first, then ",
+      "not proven merged (<reason>) — <next>", "`kind: \"lookup-rerun\"`", "the entry's `next` copied verbatim",
+      "re-run kf status --all once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive <f>"]) {
       expect(skill, s).toContain(s);
     }
     for (const text of [skill, read("references", "ledger-format.md"), read("references", "daily-plan.md")]) {

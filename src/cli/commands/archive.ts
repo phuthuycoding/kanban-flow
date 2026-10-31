@@ -72,7 +72,7 @@ function reconciledDocs(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>
     case "relanded":
       return `Canonical docs ${d.unproven ? `not proven landed (${d.unproven})` : "never landed"}; committed again to ${d.branch}, not pushed (${d.why}):` +
         outcome.docs.map((doc) => `\n  ${doc}`).join("") +
-        (d.unproven ? `\nif the earlier PR did merge, this PR reverts later edits to these docs: do not merge it` : "") +
+        (d.unproven ? `\n  ⚠ If the earlier PR did merge, this PR reverts later edits to these docs: do not merge it.` : "") +
         `\nCommit hooks were skipped for this kf-authored docs commit (--no-verify); run them before pushing if the repo relies on them.` +
         `\nPush it: git push -u origin ${d.branch}, then open a PR for it.`;
   }
