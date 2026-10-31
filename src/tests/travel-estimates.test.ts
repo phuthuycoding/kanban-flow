@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const SCRIPT = join(PKG_ROOT, "skills", "travel", "scripts", "estimates");
-const HEADER = "date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap";
+const HEADER = "date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin";
+const OLD_HEADER = "date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap";
 
 function run(...args: string[]): { code: number; out: string[]; err: string } {
   const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
@@ -15,19 +16,27 @@ function run(...args: string[]): { code: number; out: string[]; err: string } {
   return { code: r.status ?? -1, out: r.stdout.trimEnd().split("\n"), err: r.stderr };
 }
 
-function row(date: string, id: string, est: string, actual: string, work: number, files: number, kind = "feature"): string {
-  return [date, id, "demo", kind, est, actual, String(work), "0", String(files), "1", "implementation→review", "T1", "0"].join(" · ");
+/** A ledger row; without `estmin` it is the 13-field shape written before estmin existed. */
+function row(date: string, id: string, est: string, actual: string, work: number, files: number, kind = "feature", estmin?: number): string {
+  const cells = [date, id, "demo", kind, est, actual, String(work), "0", String(files), "1", "implementation→review", "T1", "0"];
+  return [...cells, ...(estmin === undefined ? [] : [String(estmin)])].join(" · ");
 }
 
-const M_WORK = [8, 10, 12, 15, 20, 28, 34, 40];
-
-/** `sRows` small rows first, then the eight M rows whose work 75th percentile is 34. */
-function learnedFixture(sRows: number): string {
-  const lines = ["# Travel estimates", "", HEADER];
-  for (let i = 0; i < sRows; i++) lines.push(row("2026-10-01", `s${i}`, "S", "S", 2, 1));
-  M_WORK.forEach((w, i) => lines.push(row("2026-10-02", `m${i}`, "M", "M", w, 6)));
-  return `${lines.join("\n")}\n`;
+/** `n` measured rows of `kind` whose work ÷ estmin is `work / estmin`. */
+function ratioRows(n: number, estmin: number, work: number, kind = "feature", prefix = "r"): string[] {
+  return Array.from({ length: n }, (_, i) => row("2026-10-02", `${prefix}${i}`, "M", "M", work, 4, kind, estmin));
 }
+
+function ledger(lines: string[]): string {
+  return `# Travel estimates\n\n${HEADER}\n${lines.join("\n")}\n`;
+}
+
+function factorOf(file: string, kind = "feature"): string {
+  const line = run("stats", file).out.find((l) => l.startsWith(`kind ${kind}:`)) ?? "";
+  return /factor (\S+)/.exec(line)?.[1] ?? "";
+}
+
+const POINTS_OF: Record<string, string> = { S: "points: 1", M: "points: 2", L: "points: 4", XL: "points: 8 (should split)" };
 
 let dir: string;
 beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "kf-estimates-")); });
@@ -52,38 +61,65 @@ describe("estimates size", () => {
     expect(r.out).toEqual([size, points, "defaults (0 rows measured)"]);
   });
 
-  it("keeps the defaults below 20 measured rows", async () => {
-    const file = await fixture("e.md", learnedFixture(11));
-    expect(run("size", "34", "5", file).out).toEqual(["L", "points: 4", "defaults (19 rows measured)"]);
+  it("keeps the defaults below 20 rows of the kind with estmin", async () => {
+    const file = await fixture("e.md", ledger([...ratioRows(19, 10, 20), ...ratioRows(5, 10, 20, "bug", "b")]));
+    expect(run("size", "15", "4", file, "feature").out).toEqual(["M", "points: 2", "defaults (19 feature rows with estmin)"]);
   });
 
-  it("switches to learned thresholds at 20 measured rows", async () => {
-    const file = await fixture("e.md", learnedFixture(12));
-    expect(run("size", "34", "5", file).out).toEqual(["M", "points: 2", "learned (20 rows)"]);
+  it("corrects estimates up when work runs slower than estimated", async () => {
+    const file = await fixture("e.md", ledger(ratioRows(20, 10, 20)));
+    expect(run("size", "15", "4", file, "feature").out).toEqual(["L", "points: 4", "learned: 15 min × 2 = 30 min (feature, last 20 rows)"]);
   });
 
-  it("uses the 75th percentile of each size and keeps the default where a size has too few rows", async () => {
-    const file = await fixture("e.md", learnedFixture(17));
-    expect(run("size", "34", "5", file).out).toEqual(["M", "points: 2", "learned (25 rows)"]);
-    expect(run("size", "35", "5", file).out[0]).toBe("L");
-    expect(run("size", "61", "5", file).out[0]).toBe("XL");
+  it("corrects estimates down when work runs faster than estimated", async () => {
+    const file = await fixture("e.md", ledger(ratioRows(20, 40, 20)));
+    expect(run("size", "30", "4", file, "feature").out).toEqual(["M", "points: 2", "learned: 30 min × 0.5 = 15 min (feature, last 20 rows)"]);
   });
 
-  it("learns only from the last 30 measured rows and ignores cancelled ones", async () => {
-    const old = Array.from({ length: 10 }, (_, i) => row("2026-09-01", `old${i}`, "M", "M", 59, 6));
-    const cancelled = row("2026-10-02", "c1", "M", "-", 500, 99);
-    const file = await fixture("e.md", `${HEADER}\n${old.join("\n")}\n${learnedFixture(22)}${cancelled}\n`);
-    expect(run("size", "35", "5", file).out).toEqual(["L", "points: 4", "learned (30 rows)"]);
+  it("does not correct the files size", async () => {
+    const file = await fixture("e.md", ledger(ratioRows(20, 40, 20)));
+    expect(run("size", "30", "12", file, "feature").out[0]).toBe("L");
+  });
+
+  it("learns per kind: another kind's rows neither count toward the floor nor move the factor", async () => {
+    const file = await fixture("e.md", ledger([...ratioRows(20, 10, 30, "bug", "b"), ...ratioRows(20, 10, 10)]));
+    expect(run("size", "15", "4", file, "feature").out[2]).toBe("learned: 15 min × 1 = 15 min (feature, last 20 rows)");
+    expect(run("size", "15", "4", file, "bug").out).toEqual(["L", "points: 4", "learned: 15 min × 3 = 45 min (bug, last 20 rows)"]);
+  });
+
+  it.each([
+    ["10", "50", "10", "L", "learned: 10 min × 3 (clamped from 5) = 30 min (feature, last 20 rows)"],
+    ["50", "10", "50", "L", "learned: 50 min × 0.5 (clamped from 0.2) = 25 min (feature, last 20 rows)"],
+  ])("clamps the factor to 0.5–3 (estmin %s, work %s)", async (estmin, work, minutes, size, line) => {
+    const file = await fixture("e.md", ledger(ratioRows(20, Number(estmin), Number(work))));
+    expect(run("size", minutes, "2", file, "feature").out).toEqual([size, POINTS_OF[size], line]);
+  });
+
+  it("takes the median of the last 30 rows of the kind and ignores cancelled ones", async () => {
+    // All 45 rows would give a median of 3; the last 30 hold 20 rows at 1 and 10 at 3.
+    const cancelled = row("2026-10-02", "c1", "M", "-", 500, 99, "feature", 1);
+    const file = await fixture("e.md", ledger([...ratioRows(25, 10, 30, "feature", "old"), ...ratioRows(20, 10, 10), cancelled]));
+    expect(run("size", "15", "4", file, "feature").out[2]).toBe("learned: 15 min × 1 = 15 min (feature, last 30 rows)");
+  });
+
+  it("skips rows without estmin for learning, old header and old rows included, without failing", async () => {
+    const old = Array.from({ length: 25 }, (_, i) => row("2026-09-01", `old${i}`, "M", "M", 59, 6));
+    const file = await fixture("e.md", `# Travel estimates\n\n${OLD_HEADER}\n${old.join("\n")}\n${ratioRows(19, 10, 20).join("\n")}\n`);
+    const size = run("size", "15", "4", file, "feature");
+    expect(size.code).toBe(0);
+    expect(size.out).toEqual(["M", "points: 2", "defaults (19 feature rows with estmin)"]);
+    expect(run("stats", file).out).toContain("hit rate: 44/44");
   });
 
   it("treats a missing estimates file as no history", () => {
-    expect(run("size", "12", "4", join(dir, "absent.md")).out).toEqual(["M", "points: 2", "defaults (0 rows measured)"]);
+    expect(run("size", "12", "4", join(dir, "absent.md"), "feature").out).toEqual(["M", "points: 2", "defaults (0 feature rows with estmin)"]);
   });
 
   it.each([
     [["size", "x", "4"], "minutes must be a non-negative number"],
     [["size", "4", "2.5"], "files must be a whole number"],
     [["size", "4"], "usage: estimates size"],
+    [["size", "4", "3", "e.md"], "usage: estimates size"],
     [["nope"], "usage: estimates size|measure|stats|overlap"],
   ])("rejects bad input %j with exit 1 and a message", (args, message) => {
     const r = run(...args);
@@ -93,16 +129,16 @@ describe("estimates size", () => {
 
   it("refuses a malformed ledger row instead of skipping it", async () => {
     const file = await fixture("e.md", `${HEADER}\n2026-10-01 · t1 · demo\n`);
-    const r = run("size", "4", "3", file);
+    const r = run("size", "4", "3", file, "feature");
     expect(r.code).toBe(1);
-    expect(r.err).toContain("e.md:2: expected 13 fields");
+    expect(r.err).toContain("e.md:2: expected 14 fields");
   });
 
   it("skips only blank lines, # lines and the header, and refuses any other line", async () => {
     const ok = await fixture("ok.md", `# Travel estimates\n\n${HEADER}\n  \n# note\n${row("2026-10-01", "a", "M", "M", 10, 4)}\n`);
-    expect(run("size", "4", "3", ok).out[2]).toBe("defaults (1 rows measured)");
+    expect(run("size", "4", "3", ok, "feature").out[2]).toBe("defaults (0 feature rows with estmin)");
     const file = await fixture("e.md", `${HEADER}\n${row("2026/10/01", "a", "M", "M", 10, 4)}\n`);
-    const r = run("size", "4", "3", file);
+    const r = run("size", "4", "3", file, "feature");
     expect(r.code).toBe(1);
     expect(r.err).toContain("e.md:2: date must be a real YYYY-MM-DD day: 2026/10/01");
   });
@@ -114,23 +150,26 @@ describe("estimates size", () => {
     expect(r.err).toContain("e.md:3: date must be a real YYYY-MM-DD day: 2026-13-40");
   });
 
-  it("does not drift the learned thresholds down when a stable item is measured again and again", async () => {
-    const lines = [HEADER];
-    for (let i = 0; i < 12; i++) lines.push(row("2026-10-01", `s${i}`, "S", "S", 2, 1));
-    [6, 8, 10, 12, 14, 16, 18, 20].forEach((w, i) => lines.push(row("2026-10-02", `m${i}`, "M", "M", w, 6)));
-    const file = await fixture("e.md", `${lines.join("\n")}\n`);
-    const threshold = () => Number(/M ≤ (\d+(?:\.\d+)?) min/.exec(run("stats", file).out.find((l) => l.startsWith("sizes:")) ?? "")?.[1]);
-    let previous = threshold();
-    expect(previous).toBe(18);
-    const flags = ["--id", "t", "--feature", "demo", "--kind", "feature", "--est", "M", "--work", "20", "--review", "0",
-      "--files", "6", "--rounds", "0", "--path", "implementation→review", "--tier", "T1", "--date", "2026-10-03"];
-    for (let k = 0; k < 10; k++) {
-      expect(run("measure", "--file", file, ...flags).out[0]).toContain(" · M · M · 20 · ");
-      const now = threshold();
-      expect(now).toBeGreaterThanOrEqual(previous);
-      previous = now;
+  it("refuses an estmin of 0, which has no ratio", async () => {
+    const file = await fixture("e.md", ledger([row("2026-10-01", "a", "M", "M", 10, 4, "feature", 0)]));
+    const r = run("size", "4", "3", file, "feature");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("e.md:4: estmin must be above 0: 0");
+  });
+
+  it("keeps the factor fixed while a stable item is sized and measured again and again", async () => {
+    // Work is always 15 for an estimate of 10. Were the corrected 15 recorded as the estimate, the ratio would read 1
+    // and the factor would fall back toward 1 as those rows filled the window.
+    const file = await fixture("e.md", ledger(ratioRows(20, 10, 15)));
+    expect(factorOf(file)).toBe("1.5");
+    for (let k = 0; k < 30; k++) {
+      const sized = run("size", "10", "4", file, "feature").out;
+      expect(sized[2]).toMatch(/^learned: 10 min × 1\.5 = 15 min /);
+      const flags = ["--id", `t${k}`, "--feature", "demo", "--kind", "feature", "--est", sized[0], "--estmin", "10", "--work", "15",
+        "--review", "0", "--files", "4", "--rounds", "0", "--path", "implementation→review", "--tier", "T1", "--date", "2026-10-03"];
+      expect(run("measure", "--file", file, ...flags).out[0]).toMatch(/ · M · M · 15 · .* · 0 · 10$/);
+      expect(factorOf(file)).toBe("1.5");
     }
-    expect(run("size", "20", "6", file).out[0]).toBe("M");
   });
 });
 
@@ -150,6 +189,15 @@ describe("estimates measure", () => {
     expect(text.split("\n")).toContain(HEADER);
     expect(text.trimEnd().split("\n").slice(-2)).toEqual([first.out[0], second.out[0]]);
     expect(run("stats", file).out).toContain("hit rate: 1/1");
+  });
+
+  it("appends estmin as the last field when given and refuses a non-positive one", async () => {
+    const file = join(dir, "e.md");
+    expect(run("measure", "--file", file, ...FLAGS, "--estmin", "12", "--date", "2026-10-31").out)
+      .toEqual(["2026-10-31 · t1 · demo · feature · M · M · 14 · 1 · 6 · 1 · implementation→review · T1 · 0 · 12"]);
+    const r = run("measure", "--file", file, ...FLAGS, "--estmin", "0");
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("--estmin must be above 0");
   });
 
   it("signs the gap in sizes", async () => {
@@ -221,13 +269,22 @@ describe("estimates stats", () => {
     expect(r.out).toContain("warning: hit rate fell — this week 2/8, last week 6/8");
   });
 
-  it("names a kind whose estimates run one size low", async () => {
-    const file = await fixture("e.md", [
-      HEADER,
-      row("2026-10-01", "a", "S", "M", 10, 4, "review"), row("2026-10-01", "b", "S", "M", 10, 4, "review"),
-      row("2026-10-02", "c", "M", "L", 30, 4, "review"),
-    ].join("\n"));
-    expect(run("stats", file).out).toContain("kind review: estimate one size up (mean gap +1.0 over 3 rows)");
+  it("reports hit rate, signed bias and the current factor per kind", async () => {
+    const file = await fixture("e.md", ledger([
+      ...ratioRows(20, 10, 15),
+      row("2026-10-01", "a", "S", "M", 10, 4, "bug"), row("2026-10-01", "b", "S", "M", 10, 4, "bug"),
+      row("2026-10-02", "c", "M", "M", 10, 4, "bug", 5), row("2026-10-02", "d", "L", "M", 10, 4, "pr", 20),
+    ]));
+    expect(run("stats", file).out).toEqual(expect.arrayContaining([
+      "kind bug: hit rate 1/3, bias +0.7 sizes, factor 1 (defaults — 1 rows with estmin, needs 20)",
+      "kind feature: hit rate 20/20, bias 0.0 sizes, factor 1.5 (median of last 20 rows)",
+      "kind pr: hit rate 0/1, bias -1.0 sizes, factor 1 (defaults — 1 rows with estmin, needs 20)",
+    ]));
+  });
+
+  it("names a clamped factor in stats", async () => {
+    const file = await fixture("e.md", ledger(ratioRows(20, 10, 50)));
+    expect(run("stats", file).out).toContain("kind feature: hit rate 20/20, bias 0.0 sizes, factor 3 (clamped from 5) (median of last 20 rows)");
   });
 
   it("reports an empty history", () => {

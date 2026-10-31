@@ -14,43 +14,46 @@ Sizes are agent time and files touched, not human hours. The `estimates` script 
 Size = the **higher** of the time size and the files size. XL is `should split`: not dispatched until the human splits it or overrides it in the plan.
 
 ```bash
-estimates size <minutes> <files> .kf/travel/estimates.md
-# M
-# points: 2
-# defaults (14 rows measured)      or      learned (30 rows)
+estimates size <minutes> <files> .kf/travel/estimates.md <kind>
+# L
+# points: 4
+# defaults (14 feature rows with estmin)      or      learned: 15 min × 2 = 30 min (feature, last 30 rows)
 ```
 
-**Learned thresholds.** Once `estimates.md` has ≥ 20 rows with a numeric `actual`, the script takes the last 30 such rows; for each size with ≥ 3 rows, the minute threshold becomes the 75th percentile of `work` and the file threshold the 75th percentile of `files` among rows whose `actual` is that size. Percentile here means exactly: the value at 0-based index `floor(0.75·n)` of the sorted list (8 values → index 6). A size with fewer than 3 rows keeps its default. Sizing then checks S → M → L, XL above L.
+**Learned minutes.** The thresholds never change: `size` and `measure` both size with the defaults above, so `est` and `actual` compare like with like. What is learned is how far your minute estimates miss, per kind. Once `estimates.md` has ≥ 20 measured rows of that kind with an `estmin`, the script takes the last 30 such rows and computes the factor = the median of `work ÷ estmin`, clamped to 0.5–3. `size` multiplies your minutes by the factor, then sizes the result with the defaults. Work that runs slower than estimated gives a factor above 1 (estimates go up); faster gives one below 1 (estimates go down). The file count is not corrected. The factor is computed only from your raw estimate and the measured work, so it cannot feed on itself — as long as `estmin` is the number you passed to `size`, never the corrected one. Rows without `estmin` (older rows) and cancelled rows are skipped for learning, not refused.
 
 ## Inputs for a line
 
 - **files**: the number of distinct paths in the union of the item's pending task Files (`kf tasks <f> --json`, tasks not `done`). A directory or glob counts as 10. No plan (a red-CI PR): `gh pr view <n> --json changedFiles`.
-- **minutes**: your estimate of agent time to `ready` — implementation tasks still pending plus testing and review. A testing or review line with nothing to implement is usually S or M. Needs a spec → XL.
-- A kind whose `stats` line says `estimate one size up` (or down): apply it before printing the plan.
+- **minutes**: your estimate of agent time to `ready` — implementation tasks still pending plus testing and review. A testing or review line with nothing to implement is usually S or M. Needs a spec → XL. Estimate without looking at the factor and do not adjust for it yourself: the script applies it. Record these raw minutes on the ledger line as `estmin=<n>`; a carried line keeps the `estmin` of the day it was first planned, since `work` covers every day.
+- **kind**: the line's kind (`feature`, `bug`, `pr`); each kind learns its own factor.
 
 ## Measurement row
 
 `.kf/travel/estimates.md`, created by the first `measure` with a header:
 
 ```text
-date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap
-2026-10-31 · t1 · demo · feature · M · M · 14 · 1 · 6 · 1 · implementation→review · T1 · 0
+date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin
+2026-10-31 · t1 · demo · feature · M · M · 14 · 1 · 6 · 1 · implementation→review · T1 · 0 · 10
 ```
+
+A row written before `estmin` existed ends at `gap`; it still counts for budget, hit rate and bias.
 
 | Field | Source |
 |---|---|
 | date | today (`--date` to override) |
 | id, feature, kind, est | the ledger line |
 | actual | computed by the script with the **default** thresholds (never the learned ones, so learning cannot feed on itself): the size of `work` and `files`, higher of the two; `-` with `--cancelled` |
-| work | minutes: sum of `endedAt − at` over the item's `runs[]` (`kf status --change <f> --json`) whose `stage` is implementation, testing or review — every run since approval, on any day, so a carried item is measured whole; drive runs only, not time waiting on the human. Recorded as `work=<n>` on the ledger line at `ready`; measure from that |
+| work | minutes: sum of `endedAt − at` over every run in the item's `runs[]` (`kf status --change <f> --json`) that has an `endedAt` and whose `stage` is implementation, testing or review — on any day, so a carried item is measured whole; worker runs only, not time waiting on the human. `kf status --json` carries no approval time (`approval` is only `pending`, `approved` or `changed`), so the window is that stage filter alone: an item sent back to planning and approved again still counts its runs from before. Recorded as `work=<n>` on the ledger line at `ready`; measure from that |
 | review | minutes of those runs whose `stage` is `review` (a share of `work`), recorded as `review=<n>` beside `work=<n>` |
 | files | `git diff --shortstat <base>...HEAD` in the item worktree, recorded as `files=<n>` on the ledger line at `ready` (the worktree is gone after the merge); else `gh pr view <n> --json changedFiles` |
 | rounds | the drive's repair loops (`loops` of `kf drive <f> --status --json`) |
-| path | the stages the item crossed today, e.g. `implementation→review` |
+| path | the distinct `stage`s of those same runs, in the order they first ran, e.g. `implementation→testing→review` |
 | tier | the review tier in the review report (`T1`, `T1C`, `T2`, `T3`), or `-` |
 | gap | computed: sizes between est and actual, signed (`+1` = estimated one size low) |
+| estmin | the raw minutes on the ledger line (`estmin=<n>`), the ones passed to `size` before the factor; `--estmin`, above 0. Omitted → the row ends at `gap` and teaches nothing |
 
-Cancelled or restarted from scratch → `--cancelled`: `actual -`, `gap -`; `stats` and the learned thresholds skip the row.
+Cancelled or restarted from scratch → `--cancelled`: `actual -`, `gap -`; `stats` and the factor skip the row.
 
 ## Budget and calibration
 
@@ -64,9 +67,8 @@ estimates stats .kf/travel/estimates.md
 | `hit rate:` | rows with est = actual / measured rows |
 | `bias:` | rows estimated too high (over) and too low (under) |
 | `throughput:` | total actual points / measured days |
-| `sizes:` | defaults or learned, with the learned thresholds |
 | `calibration:` | the dates (and their points) the budget rests on, or `none yet` |
-| `kind <k>:` | a kind with ≥ 3 rows whose mean gap is ≥ 1 size: estimate one size up (or down) |
+| `kind <k>:` | per kind: hit rate, bias = the mean signed gap in sizes (`+` = estimates too low), and the current factor with the rows it rests on (`clamped from <x>` when the clamp held), or `factor 1 (defaults …)` below 20 rows with `estmin` |
 | `warning:` | this week's hit rate (the 7 days ending at the latest row) is below the previous 7 days' |
 
 The plan's Calibration line and the end-of-day summary print these lines as the script gives them.

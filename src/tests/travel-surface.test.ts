@@ -83,8 +83,9 @@ describe("the travel skill", () => {
 
   it("documents the estimates row fields in order and the sizes", () => {
     const estimation = read("references", "estimation.md");
-    expect(estimation).toContain("date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap");
-    for (const s of ["| S | 1 |", "| M | 2 |", "| L | 4 |", "| XL | 8 |", "should split", "≥ 20 rows", "last 30", "75th percentile", "10 tasks"]) {
+    expect(estimation).toContain("date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin");
+    for (const s of ["| S | 1 |", "| M | 2 |", "| L | 4 |", "| XL | 8 |", "should split", "≥ 20 measured rows", "last 30", "median of `work ÷ estmin`",
+      "clamped to 0.5–3", "file count is not corrected", "10 tasks"]) {
       expect(estimation, s).toContain(s);
     }
     const ledger = read("references", "ledger-format.md");

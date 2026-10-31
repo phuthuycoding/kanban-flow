@@ -8,14 +8,14 @@ Gitignored. One section per day, newest last. The last section is the source of 
 ## 2026-10-30
 slots: 3 · budget: 10 tasks (default — fewer than 3 days measured)
 t1 · workflow-slim · feature · L · carry-over · blocked: verify_failed — npm test failed in harness.verify — next: kf drive workflow-slim
-t2 · cli-refactor · feature · M · done · merged https://github.com/<owner>/<repo>/pull/104
-t3 · login-timeout · bug · S · carry-over · waiting-to-merge https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 --squash · files=3 · work=18 review=4
+t2 · cli-refactor · feature · M · done · estmin=12 · merged https://github.com/<owner>/<repo>/pull/104
+t3 · login-timeout · bug · S · carry-over · estmin=4 · waiting-to-merge https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 --squash · files=3 · work=18 review=4
 
 ## 2026-10-31
 slots: 3 · budget: 8 points (median of 3 days)
-t1 · workflow-slim · feature · L · driving · retry 1/1 (crashed)
-t2 · login-timeout · bug · S · waiting-to-merge · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 --squash · files=3 · work=18 review=4
-t3 · board-colours · feature · M · queued · sequential with t1
+t1 · workflow-slim · feature · L · driving · estmin=40 · retry 1/1 (crashed)
+t2 · login-timeout · bug · S · waiting-to-merge · estmin=4 · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 --squash · files=3 · work=18 review=4
+t3 · board-colours · feature · M · queued · estmin=15 · sequential with t1
 ```
 
 ## Line
@@ -25,7 +25,7 @@ t3 · board-colours · feature · M · queued · sequential with t1
 - `id`: `t1`, `t2`, … unique within the day.
 - `kind`: `feature` | `bug` | `pr`.
 - `size`: `S` | `M` | `L` | `XL` — the estimate the human approved.
-- `note`: everything after the fifth ` · `; it carries the PR URL and merge command, the blocked reason and next command, `retry 1/1`, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`, `re-adopted`.
+- `note`: everything after the fifth ` · `; it carries `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`), the PR URL and merge command, the blocked reason and next command, `retry 1/1`, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`, `re-adopted`, `adopted`, `driven elsewhere`.
 
 ## States
 

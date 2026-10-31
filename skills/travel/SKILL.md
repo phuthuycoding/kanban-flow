@@ -40,7 +40,7 @@ Read the last `## ` section of `.kf/travel/progress.md`.
 2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item a ledger line marks `driving` or `blocked` with another owner (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry (a canonical-docs branch awaiting push, with its `git push` command).
-5. **Size every line** — [references/estimation.md](references/estimation.md): estimate agent minutes and files, then `estimates size <minutes> <files> .kf/travel/estimates.md`. XL is marked `should split` and is not dispatched until the human splits it or overrides it in the plan.
+5. **Size every line** — [references/estimation.md](references/estimation.md): estimate agent minutes and files, then `estimates size <minutes> <files> .kf/travel/estimates.md <kind>`; it corrects the minutes by the kind's learned factor and sizes with the default thresholds. Keep your raw minutes for the line's `estmin=<n>` note; a carried line keeps its first `estmin`, because `work` is measured across days. XL is marked `should split` and is not dispatched until the human splits it or overrides it in the plan.
 6. **Sequential pairs.** For every pair of candidates, `estimates overlap "<files A>" "<files B>"`; `sequential` → mark the pair. An item's files (`kf tasks <f> --json` → `tasks[]`):
    - pending tasks (not `done`) → the union of their `files`; any pending task with `files` null → `sequential` with everything;
    - no pending task (testing, review) → the `files` of every task in the plan;
@@ -57,7 +57,7 @@ After approval, append to `.kf/travel/progress.md`:
 ```text
 ## YYYY-MM-DD
 slots: N · budget: <budget line>
-t1 · <feature> · <kind> · <size> · queued · <note>
+t1 · <feature> · <kind> · <size> · queued · estmin=<n> · <note>
 …
 ```
 
@@ -75,7 +75,7 @@ Each **tick**:
    kf drive <feature>
    ```
 
-   Before each start, `kf drive <f> --status --json`: `state` `running` → another session drives it (travel's own overnight drives were re-adopted in §1): skip the line, note `driven elsewhere` (§5). Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
+   Before each start, `kf drive <f> --status --json`: `state` `running` → someone already drives it (travel's own overnight drives were re-adopted in §1). If another ledger line marks the item `driving` or `blocked` (a second travel session, §5), this line stays `queued` with note `driven elsewhere` and is checked again every tick. If no other ledger line owns it, adopt the drive: line `driving`, note `adopted`; it holds a slot and is polled like any other. Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
 4. **Print the progress block** (below) — every tick, even when every slot is full.
 5. **Wait** 2–5 minutes (a background `sleep`, or the runtime's wait/monitor tool), then tick again. Never `--watch`.
 
@@ -128,7 +128,7 @@ A ledger line `driving` or `blocked` means travel owns that item's drive: `kanba
 **On `done`:** append the row ([references/estimation.md](references/estimation.md) says where each value comes from):
 
 ```bash
-node <skill dir>/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <size> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
+node <skill dir>/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <size> --estmin <n> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
 ```
 
 A line cancelled or restarted from scratch gets the same call with `--cancelled` (`actual -`, excluded from stats).
@@ -141,7 +141,7 @@ Day YYYY-MM-DD — done: X | blocked: Z | waiting-to-merge: W | carry-over: C | 
 ✗ Blocked       <id> <feature> — <reason> — next: <command>
 ✓ Waiting       <id> <PR URL> — ! gh pr merge <n> --squash
 → Carry-over    <id> <feature> <size>
-<estimates stats lines: hit rate, bias, throughput, sizes, calibration, warning>
+<estimates stats lines: hit rate, bias, throughput, calibration, kind (hit rate, bias, factor), warning>
 ```
 
 Then rewrite every line that is not `done` as `carry-over` with its note kept; `waiting-to-merge` and `blocked` keep their reason in the note so tomorrow's plan shows it. Exception: a `driving` line whose `kf drive <f> --status --json` state is still `running` stays `driving` — the drive keeps going overnight and the morning re-adopts it (§1).

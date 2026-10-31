@@ -18,7 +18,7 @@ Batch 2 (if Batch 1 drains)
 ✓ Waiting to merge (do this on GitHub)
   - t8 https://github.com/<owner>/<repo>/pull/104 — ! gh pr merge 104 --squash
   - t9 docs/cli-d awaiting push — ! git push -u origin docs/cli-d
-Calibration: budget = median daily actual points of 2026-10-28 (6), 2026-10-29 (10), 2026-10-30 (8); sizes: defaults (14 rows measured)
+Calibration: budget = median daily actual points of 2026-10-28 (6), 2026-10-29 (10), 2026-10-30 (8); kind feature: hit rate 9/14, bias +0.3 sizes, factor 1 (defaults — 14 rows with estmin, needs 20)
 Approve, or edit (drop / reorder / resize / override XL / slots=N)?
 ```
 
@@ -30,5 +30,5 @@ Rules:
 - Mark every `sequential` pair on the later line (`sequential with t2 (<overlapping path>)`).
 - An XL line says `should split`; it is listed but not dispatched until the human splits it or overrides it here.
 - Needs you and Waiting to merge come from `kf status --all --json` (`needsYou[]`, `waitingToMerge[]`, including `docsBranch` entries) plus travel's own decisions (XL, red CI with no item).
-- Calibration is the `calibration:` and `sizes:` lines of `estimates stats`, or `none yet` below 3 measured days.
+- Calibration is the `calibration:` and `kind <k>:` lines of `estimates stats` (`calibration: none yet` below 3 measured days).
 - Empty sections print `  (none)`.
