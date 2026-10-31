@@ -14,9 +14,10 @@ import { cmdArchive } from "../cli/commands/archive.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdSync } from "../cli/commands/sync.js";
 import { archiveItem } from "../workflow/archive.js";
-import { deleteRemoteBranch } from "../shared/git.js";
+import { deleteRemoteBranch, landedProof } from "../shared/git.js";
 import { deleteItemBranch } from "../worktree/lifecycle.js";
 import { runDoctor } from "../project/doctor.js";
+import { gh } from "../integrations/github.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let root: string;
@@ -36,11 +37,12 @@ const status = (options: Record<string, unknown> = { change: "demo" }) => cmdSta
  * gh stub: logs argv; `pr view` answers $GH_PR_STATE (default MERGED) with head $GH_PR_HEAD_NAME
  * (default t/demo) at $GH_PR_HEAD_OID (default: that branch's tip on the bare origin, a fixed
  * oid once it is gone there); `pr list` answers $GH_PR_LIST (default []);
- * $GH_FAIL makes every call fail.
+ * $GH_FAIL makes every call fail with $GH_FAIL_TEXT on stderr; $GH_SLEEP delays every call.
  */
 const GH_STUB = `#!/usr/bin/env bash
 echo "gh $*" >> "$GH_CALLS"
-if [ -n "$GH_FAIL" ]; then echo "gh must not be called" >&2; exit 1; fi
+if [ -n "$GH_SLEEP" ]; then sleep "$GH_SLEEP"; fi
+if [ -n "$GH_FAIL" ]; then printf '%b\\n' "\${GH_FAIL_TEXT:-gh must not be called}" >&2; exit 1; fi
 case "$1" in
   pr)
     if [ "$2" = view ]; then
@@ -103,7 +105,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.env.PATH = prevPath;
-  for (const v of ["GH_CALLS", "GH_ORIGIN", "GH_FAIL", "GH_PR_STATE", "GH_PR_HEAD_NAME", "GH_PR_HEAD_OID", "GH_PR_LIST", "DONE_HOOK_EXIT", "REAL_GIT", "RACE_REPO", "RACE_SHA"]) delete process.env[v];
+  for (const v of ["GH_CALLS", "GH_ORIGIN", "GH_FAIL", "GH_PR_STATE", "GH_PR_HEAD_NAME", "GH_PR_HEAD_OID", "GH_PR_LIST", "GH_FAIL_TEXT", "GH_SLEEP", "DONE_HOOK_EXIT", "REAL_GIT", "RACE_REPO", "RACE_SHA"]) delete process.env[v];
   await rm(scratch, { recursive: true, force: true });
 });
 
@@ -528,7 +530,8 @@ describe("canonical docs when the primary checkout is behind origin", () => {
     expect(unpushed[0].action).toContain("git push -u origin docs/app-demo");
 
     const all = await status({ all: true });
-    expect(all.stdout).toMatch(/demo — docs\/app-demo not proven merged \(.+\): git push -u origin docs\/app-demo/);
+    expect(all.stdout).toContain("demo — docs/app-demo awaiting push: git push -u origin docs/app-demo");
+    expect(ghCalls(), "a branch that never had an upstream has no PR to look up").not.toContain("gh pr list");
 
     git(root, "push", "-q", "origin", "docs/app-demo");
     expect(runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"))).toHaveLength(0);
@@ -701,7 +704,7 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
       "  b — approve plan (or --backlog)",
       "Waiting to merge",
       `  c — ${PR}: gh pr merge 7`,
-      "  d — docs/app-d not proven merged (origin is not a GitHub repository, so a merged PR cannot be checked): git push -u origin docs/app-d",
+      "  d — docs/app-d awaiting push: git push -u origin docs/app-d",
       "Running: 1",
     ].join("\n"));
 
@@ -712,4 +715,66 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
     expect(json.waitingToMerge.map((w) => [w.feature, w.command])).toEqual([["c", "gh pr merge 7"], ["d", "git push -u origin docs/app-d"]]);
     expect(json.running).toBe(1);
   }, 15_000);
+});
+
+describe("landedProof on a docs branch gone from origin", () => {
+  /** docs/app-x one commit past the default branch, pushed with an upstream and then deleted on origin. */
+  function prunedDocsBranch(): string {
+    const tip = git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs");
+    git(root, "branch", "docs/app-x", tip);
+    git(root, "push", "-q", "-u", "origin", "docs/app-x");
+    git(root, "push", "-q", "origin", "--delete", "docs/app-x");
+    git(root, "fetch", "-q", "--prune", "origin");
+    return tip;
+  }
+
+  it("asks the configured repository when origin is not a GitHub URL", () => {
+    const tip = prunedDocsBranch();
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: tip }]);
+    expect(landedProof(root, "docs/app-x")).toEqual({ landed: true, by: "merged-pr" });
+    expect(ghCalls()).toContain("gh pr list -R o/r --head docs/app-x --state merged");
+  });
+
+  it("does not call gh for a branch that never had an upstream", () => {
+    git(root, "branch", "docs/app-x", git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs"));
+    expect(landedProof(root, "docs/app-x")).toEqual({ landed: false, pushed: false });
+    expect(ghCalls()).toBe("");
+  });
+
+  it("accepts a merged PR whose head, available locally, builds on the local tip", () => {
+    const tip = prunedDocsBranch();
+    const edited = git(root, "commit-tree", `${tip}^{tree}`, "-p", tip, "-m", "suggestion applied on GitHub");
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: edited }]);
+    expect(landedProof(root, "docs/app-x")).toEqual({ landed: true, by: "merged-pr" });
+  });
+
+  it("names a merged PR at another head that is not available locally", () => {
+    const tip = prunedDocsBranch();
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
+    const proof = landedProof(root, "docs/app-x");
+    expect(proof).toEqual({
+      landed: false,
+      pushed: true,
+      reason: `a merged PR for docs/app-x has head 0123456789ab, not the local tip ${tip.slice(0, 12)} `
+        + "(that head is not available locally to compare; fetch it, or delete the local branch if that PR carried this work)",
+    });
+  });
+
+  it("keeps a failing gh's reason on one line and short", () => {
+    prunedDocsBranch();
+    process.env.GH_FAIL = "1";
+    process.env.GH_FAIL_TEXT = `GraphQL: Could not resolve\n  at line 1\n${"x".repeat(400)}`;
+    const proof = landedProof(root, "docs/app-x");
+    const reason = proof.landed ? "" : proof.reason ?? "";
+    expect(reason.startsWith("gh pr list failed: GraphQL: Could not resolve at line 1 xxx")).toBe(true);
+    expect(reason).not.toContain("\n");
+    expect(reason.length).toBe(200);
+    expect(reason.endsWith("…")).toBe(true);
+  });
+
+  it("reports a gh call that outlives its timeout as a failure", () => {
+    process.env.GH_SLEEP = "5";
+    const res = gh(["pr", "list"], { timeoutMs: 300 });
+    expect(res).toMatchObject({ ok: false, missing: false, stderr: "gh pr list timed out after 300 ms" });
+  });
 });

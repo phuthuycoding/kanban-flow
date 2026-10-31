@@ -7,15 +7,20 @@ export interface GhResult {
   stderr: string;
 }
 
-/** `gh` is an optional dependency — surfaces only when a repository is configured and used. */
-export function gh(args: string[]): GhResult {
-  const res = spawnSync("gh", args, { encoding: "utf8" });
-  const missing = res.error !== undefined && "code" in res.error && res.error.code === "ENOENT";
+/**
+ * `gh` is an optional dependency — surfaces only when a repository is configured and used.
+ * With `timeoutMs`, a call still running then is killed and reported as a failure.
+ */
+export function gh(args: string[], options: { timeoutMs?: number } = {}): GhResult {
+  const res = spawnSync("gh", args, { encoding: "utf8", timeout: options.timeoutMs });
+  const code = res.error !== undefined && "code" in res.error ? res.error.code : undefined;
+  const missing = code === "ENOENT";
+  const timedOut = code === "ETIMEDOUT";
   return {
-    ok: res.status === 0,
+    ok: res.status === 0 && !timedOut,
     missing,
     stdout: res.stdout ?? "",
-    stderr: res.stderr ?? "",
+    stderr: timedOut ? `gh ${args.slice(0, 2).join(" ")} timed out after ${options.timeoutMs} ms` : res.stderr ?? "",
   };
 }
 
