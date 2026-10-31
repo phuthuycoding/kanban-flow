@@ -18,14 +18,21 @@ const loop = documented
   .replaceAll("sleep 20", "sleep 1")
   .replace("settle=$((SECONDS+60))", "settle=$((SECONDS+2))");
 
-type Run = [id: number, conclusion: string, workflow: string];
+/** A conclusion of `in_progress` lists the run as still running. The workflow id defaults to one per workflow name. */
+type Run = [id: number, conclusion: string, workflow: string, workflowId?: number];
 
 /** Runs the documented loop against a stub `gh` whose n-th call lists `calls[n]` (the last entry repeats). */
-async function watch(calls: Run[][]): Promise<{ status: number | null; calls: number; stdout: string }> {
+async function watch(calls: Run[][], script = loop): Promise<{ status: number | null; calls: number; stdout: string }> {
   const dir = await mkdtemp(join(tmpdir(), "kf-ci-watch-settle-"));
+  const ids = new Map<string, number>();
+  const row = ([id, c, w, wid]: Run): string => {
+    if (!ids.has(w)) ids.set(w, 100 + ids.size);
+    const [status, conclusion] = c === "in_progress" ? ["in_progress", "-"] : ["completed", c];
+    return `${id}\t${status}\t${conclusion}\t${wid ?? ids.get(w)}\t${w}\thttps://example.test/${id}\n`;
+  };
   try {
     for (const [i, runs] of calls.entries()) {
-      await writeFile(join(dir, `runs-${i}.tsv`), runs.map(([id, c, w]) => `${id}\tcompleted\t${c}\t${w}\thttps://example.test/${id}\n`).join(""));
+      await writeFile(join(dir, `runs-${i}.tsv`), runs.map(row).join(""));
     }
     const last = calls.length - 1;
     await writeFile(join(dir, "gh"), [
@@ -36,7 +43,7 @@ async function watch(calls: Run[][]): Promise<{ status: number | null; calls: nu
       `cat '${dir}'/runs-$n.tsv`,
       "",
     ].join("\n"), { mode: 0o755 });
-    const res = spawnSync("bash", ["-c", loop], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, encoding: "utf8", timeout: 20_000 });
+    const res = spawnSync("bash", ["-c", script], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, encoding: "utf8", timeout: 20_000 });
     const count = Number(readFileSync(join(dir, "count"), "utf8").trim());
     return { status: res.status, calls: count, stdout: res.stdout };
   } finally {
@@ -76,5 +83,32 @@ describe("the CI watcher's settle window", () => {
 
   it("still calls a failed run red when a later run of the same workflow succeeded", async () => {
     expect((await watch([[[1, "failure", "CI"], [2, "success", "CI"]]])).status).toBe(1);
+  });
+
+  it("keeps a cancelled run open when only another workflow file with the same name succeeded", async () => {
+    expect((await watch([[[1, "cancelled", "CI", 7], [2, "success", "CI", 8]]])).status).toBe(5);
+  });
+
+  it("starts the settle window again when a run goes back to running between two completed sets", async () => {
+    const res = await watch([
+      [[1, "success", "CI"], [2, "cancelled", "Lint"]],
+      [[1, "success", "CI"], [2, "in_progress", "Lint"]],
+      [[1, "success", "CI"], [2, "success", "Lint"]],
+    ]);
+    expect(res.status).toBe(0);
+    // The third call sees the final set for the first time, so it only opens a new window.
+    expect(res.calls).toBeGreaterThan(3);
+  });
+
+  it("never decides on an unsettled run set at the deadline, and says why it stopped", async () => {
+    const short = loop.replace("WATCH=30;", "WATCH=1;").replace("settle=$((SECONDS+2))", "settle=$((SECONDS+10))");
+    const finished = await watch([[[1, "success", "CI"]]], short);
+    expect(finished.status).toBe(4);
+    expect(finished.stdout).toContain("every run finished but the run set had not held still for 60s");
+    expect(finished.stdout).not.toContain("CI still running");
+    expect((await watch([[[1, "success", "CI"], [2, "cancelled", "Lint"]]], short)).status).toBe(4);
+    const pending = await watch([[[1, "in_progress", "CI"]]], short);
+    expect(pending.status).toBe(4);
+    expect(pending.stdout).toContain("CI still running");
   });
 });

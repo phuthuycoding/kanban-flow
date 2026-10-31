@@ -25,22 +25,23 @@ Run the loop as a background command that wakes the session when it exits (`kanb
 BUDGET_MIN=<n>   # from the prompt's "Time budget:" line: its minutes, "none" for no limit, 30 when absent
 if [ "$BUDGET_MIN" = none ]; then WATCH=5400; else
   left=$(awk -v s="$(cat <item>/reviews/<id>/started-at)" -v m="$BUDGET_MIN" -v now="$(date +%s)" 'BEGIN { print int(s + m*60 - 300 - now) }')
-  WATCH=$(( left < 5400 ? left : 5400 ))   # ≤ 0 → no time to watch: exit 4 at once
+  WATCH=$(( left < 5400 ? left : 5400 ))   # ≤ 0 → no time to watch: one poll, then exit 4
 fi
 ```
 
 ```bash
 REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>; appear=$((SECONDS+300)); deadline=$((SECONDS+WATCH)); errs=0; last=; settle=0
 while :; do
-  if runs=$(gh run list -R "$REPO" --commit "$SHA" -L 1000 --json databaseId,workflowName,status,conclusion,url \
-      --jq '.[] | [.databaseId, .status, (.conclusion // "-"), .workflowName, .url] | @tsv'); then errs=0
+  if runs=$(gh run list -R "$REPO" --commit "$SHA" -L 1000 --json databaseId,workflowDatabaseId,workflowName,status,conclusion,url \
+      --jq '.[] | [.databaseId, .status, (.conclusion // "-"), .workflowDatabaseId, .workflowName, .url] | @tsv'); then errs=0
   else errs=$((errs+1)); [ "$errs" -lt 3 ] || { echo "ci-watch: gh run list failed 3 times in a row"; exit 2; }; sleep 20; continue; fi
   n=$(printf '%s' "$runs" | grep -c .)
   if [ "$n" -eq 0 ]; then
     [ "$SECONDS" -lt "$appear" ] || { echo "ci-watch: no workflow run for $SHA after 5 min"; exit 3; }
   elif ! printf '%s\n' "$runs" | cut -f2 | grep -qvx completed; then
     printf '%s\n' "$runs" | cut -f3 | grep -qvxE 'success|skipped|neutral|cancelled' && { printf '%s\n' "$runs"; exit 1; }
-    # A cancelled run is superseded when a later run of the same workflow on this sha succeeded (a new run of it after the cancel).
+    # A cancelled run is superseded when a later run of the same workflow file on this sha succeeded (a new run of it after the cancel).
+    # Keyed on the workflow id: two workflow files may share a display name.
     open=$(printf '%s\n' "$runs" | awk -F'\t' '{ l[NR]=$0; id[NR]=$1+0; c[NR]=$3; w[NR]=$4; if ($3 == "success" && $1+0 > ok[$4]) ok[$4]=$1+0 }
       END { for (i = 1; i <= NR; i++) if (c[i] == "cancelled" && !(ok[w[i]] > id[i])) print l[i] }')
     # Decide only once the run set has held still for 60s: a pull_request run, or a new run after a cancel, can appear after the others finished.
@@ -50,13 +51,15 @@ while :; do
       printf '%s\n' "$runs"; exit 0
     fi
     [ "$n" = "$last" ] || { last=$n; settle=$((SECONDS+60)); }
+    # Never decide on an unsettled set: a run that appears late would turn a false green into a merge.
+    [ "$SECONDS" -lt "$deadline" ] || { echo "ci-watch: every run finished but the run set had not held still for 60s at $(date -u +%H:%MZ)"; printf '%s\n' "$runs"; exit 4; }
   else last=; fi
   [ "$SECONDS" -lt "$deadline" ] || { echo "ci-watch: CI still running at $(date -u +%H:%MZ)"; printf '%s\n' "$runs"; exit 4; }
   sleep 20
 done
 ```
 
-One line per run: `id  status  conclusion  workflow  url`. Exit codes: 0 all green, 1 a run did not succeed (any conclusion other than `success`, `skipped`, `neutral` or `cancelled`), 2 `gh` kept failing, 3 no run appeared, 4 deadline passed with runs pending, 5 every run completed, the run set held still for 60s, and a `cancelled` run has no later successful run of the same workflow on the sha (one that has counts as green; exit 0 and 5 both wait out the 60s).
+One line per run: `id  status  conclusion  workflow-id  workflow  url`. Exit codes: 0 all green, 1 a run did not succeed (any conclusion other than `success`, `skipped`, `neutral` or `cancelled`), 2 `gh` kept failing, 3 no run appeared, 4 deadline passed with runs pending or before the finished run set held still for 60s, 5 every run completed, the run set held still for 60s, and a `cancelled` run has no later successful run of the same workflow file on the sha (one that has counts as green; exit 0 and 5 both wait out the 60s and are never decided on an unsettled set — at the deadline that is exit 4, with its own line).
 
 ## When the watcher wakes the session
 

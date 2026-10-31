@@ -1,7 +1,6 @@
-import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ARTIFACTS, LEGACY_STAGE_NAMES } from "../../workflow/schema.js";
+import { ARTIFACTS } from "../../workflow/schema.js";
 import { driveLive, findFeature, listFeatures, parseFolderName, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { archiveItem } from "../../workflow/archive.js";
@@ -97,6 +96,17 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
 }
 
 /**
+ * A refusal spans lines (the gate's heading, then one line per failed check); the status line keeps
+ * the heading and names the checks by their codes, or keeps every line when there are none.
+ * Hook output is the project's own text, so it is never read for check codes: every line is kept.
+ */
+function oneLine(text: string, checkCodes: boolean): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const codes = checkCodes ? [...new Set([...text.matchAll(/\(([a-z]+(?:_[a-z]+)+)\)/g)].map((m) => m[1]))] : [];
+  return codes.length > 0 ? `${lines[0] ?? ""} ${codes.join(", ")}` : lines.join(" ");
+}
+
+/**
  * A review PASS item closes on the next `kf status` once its PR merged (or it has
  * nothing to land), through the same archiveItem transaction as `kf archive`. An item with a
  * live drive is left to the drive, and one with a live worker run is left to that run: the
@@ -104,16 +114,6 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
  * Returns the printed lines and, per item that stayed in review, why — the renderer turns
  * that into the Next line.
  */
-/**
- * A refusal spans lines (the gate's heading, then one line per failed check); the status line keeps
- * the heading and names the checks by their codes, or keeps every line when there are none.
- */
-function oneLine(text: string): string {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const codes = [...new Set([...text.matchAll(/\(([a-z]+(?:_[a-z]+)+)\)/g)].map((m) => m[1]))];
-  return codes.length > 0 ? `${lines[0] ?? ""} ${codes.join(", ")}` : lines.join(" ");
-}
-
 async function closeLanded(root: string, items: Feature[]): Promise<{ lines: string[]; states: Map<string, CloseState>; failed: boolean }> {
   const lines: string[] = [];
   const states = new Map<string, CloseState>();
@@ -131,11 +131,11 @@ async function closeLanded(root: string, items: Feature[]): Promise<{ lines: str
         if (outcome.merge?.reason === "not-merged") {
           states.set(f.name, outcome.merge.state === "CLOSED" ? { kind: "pr-closed", pr: outcome.merge.pr } : { kind: "awaiting-merge", pr: outcome.merge.pr });
         } else {
-          states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout) });
+          states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout, true) });
         }
         break;
       case "hook-failed":
-        states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout) });
+        states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout, false) });
         break;
       case "error": {
         failed = true;
@@ -147,11 +147,16 @@ async function closeLanded(root: string, items: Feature[]): Promise<{ lines: str
   return { lines, states, failed };
 }
 
-/** True when a folder of `name` is still under a legacy stage dir, i.e. the migration just run left it behind. */
-function legacyLeftover(root: string, name: string): boolean {
-  return LEGACY_STAGE_NAMES.some((legacy) => {
-    const dir = join(root, ".works", legacy);
-    return existsSync(dir) && readdirSync(dir).some((folder) => folder === name || parseFolderName(folder).name === name);
+/**
+ * The items whose legacy move failed, read from the migration's `✗` lines (a dirty worktree's `⚠` line
+ * is not a failure): `✗ <folder> left in …` when the move threw, `✗ migrated <folder>: …` when the close after it did.
+ */
+function migrationFailedItems(lines: string[]): string[] {
+  return lines.flatMap((line) => {
+    const m = /^✗ (?:migrated (\S+):|(\S+) left in )/.exec(line);
+    if (!m) return [];
+    const folder = m[1] ?? m[2];
+    return [folder, parseFolderName(folder).name];
   });
 }
 
@@ -175,7 +180,7 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   const closed = await closeLanded(root.root, lookup());
   // Like a failed close, a failed move counts against the view that includes it: --all, or the
   // item's own --change. Pollers of an unrelated item must not see exit 1 on every tick.
-  const migrationFailedHere = migration.failed && (change ? legacyLeftover(root.root, change) : all);
+  const migrationFailedHere = migration.failed && (change ? migrationFailedItems(migration.lines).includes(change) : all);
   const code = migrationFailedHere || closed.failed ? 1 : 0;
   const notes = [...migration.lines, ...closed.lines];
   const migrated = notes.length > 0 ? `${notes.join("\n")}\n\n` : "";
@@ -198,7 +203,9 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
       features.flatMap((f) => {
         if (!f.meta?.docsBranch || branchPushed(root.root, "origin", f.meta.docsBranch) !== false) return [];
         const proof = landedProof(root.root, f.meta.docsBranch);
-        return proof.landed ? [] : [{ feature: f.name, branch: f.meta.docsBranch, reason: proof.reason }];
+        if (proof.landed) return [];
+        // A branch that never had an upstream has no PR to look up: it shows as awaiting push, not unproven.
+        return [{ feature: f.name, branch: f.meta.docsBranch, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) }];
       }),
       features.filter((f) => driveLive(f.meta?.drive)).length,
     )

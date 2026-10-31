@@ -136,7 +136,7 @@ describe("the CI watcher", () => {
   async function watch(conclusions: string[]): Promise<number | null> {
     const dir = await mkdtemp(join(tmpdir(), "kf-ci-watch-"));
     try {
-      await writeFile(join(dir, "runs.tsv"), conclusions.map((c, i) => `${i + 1}\tcompleted\t${c}\tCI\thttps://example.test/${i + 1}\n`).join(""));
+      await writeFile(join(dir, "runs.tsv"), conclusions.map((c, i) => `${i + 1}\tcompleted\t${c}\t100\tCI\thttps://example.test/${i + 1}\n`).join(""));
       await writeFile(join(dir, "gh"), `#!/bin/sh\ncat '${join(dir, "runs.tsv")}'\n`, { mode: 0o755 });
       const res = spawnSync("bash", ["-c", loop], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, encoding: "utf8", timeout: 20_000 });
       return res.status;
