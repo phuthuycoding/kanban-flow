@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `workflow-slim`:** the close no longer keeps the `kf/<feature>` branch for a later merge — the item closes into `done` (formerly `dones`) only after its PR merged, on the next `kf status --change <feature>`, `kf sync` or `kf archive`, and the close removes the worktree and deletes the merged branch locally and on origin (a branch with commits past the merged head is kept and reported). Kept for history.
+
 ## Overview
 
 | Field | Value |

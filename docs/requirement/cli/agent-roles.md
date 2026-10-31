@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `workflow-slim`:** the stage `dones` is now `done`; `kf runs` skips items in `done` and `cancelled`. Kept for history.
+
 ## Feature
 agent-roles
 

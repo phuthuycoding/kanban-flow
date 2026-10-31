@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Index
 
+> **Superseded by `workflow-slim`.** The `shipping` stage, the `kf ship` pipeline, the `ship` config block and the `kanban-ship` skill with its ship-or-archive gate are gone: review opens the PR after the independent code-reviewer passes and watches CI, the human merges on GitHub, and the next `kf status --change <feature>` or `kf sync` closes the item into `done` (`kf ship` is a deprecated alias that exits 1; a release is a manual `gh release create`). Kept for history.
+
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.
 
 ## Use Case Files

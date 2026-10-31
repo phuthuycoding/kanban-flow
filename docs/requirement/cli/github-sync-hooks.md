@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `workflow-slim`:** the `dones` stage and its `dones.sh` hook are now `done` and `done.sh`, and that hook runs when a merged item closes (`kf status --change <feature>`, `kf sync` or `kf archive`). Kept for history.
+
 ## Feature
 github-sync-hooks
 

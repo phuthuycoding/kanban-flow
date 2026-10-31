@@ -7,6 +7,8 @@ status: archived
 ---
 # UC-002 — Work item mirrors to issue and board across stages
 
+> **Partly superseded by `workflow-slim`:** the `dones` stage and its `dones.sh` hook are now `done` and `done.sh`, and that hook runs when a merged item closes (`kf status --change <feature>`, `kf sync` or `kf archive`). Kept for history.
+
 ## Actor
 The hook pack, invoked by `kf` at each transition, on behalf of the agent.
 

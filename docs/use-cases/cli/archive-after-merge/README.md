@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Index
 
+> **Partly superseded by `workflow-slim`:** the stage `dones` and the human `kf archive` run after the merge no longer hold — the stage is `done` (`done.sh`, `statusMap.done`; `kf stage <feature> dones` is refused, legacy `.works/dones/` items are migrated once), and the next `kf status --change <feature>` or `kf sync` closes a merged review-PASS item (`kf archive` remains a close path), removing the worktree and deleting the merged branch. The merged-PR delivery gate still holds. Kept for history.
+
 > **Partly superseded by `archive-docs-latest`:** UC-006 (sync candidate set) — `kf sync` now sweeps review items and only dones items not yet `delivered`; a delivered dones item is skipped (reconcile it with a manual `kf archive`). Kept for history.
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md` (e.g. `UC-001-create-task.md`). Do not write a combined narrative here.

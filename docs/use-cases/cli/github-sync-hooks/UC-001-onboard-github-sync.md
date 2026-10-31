@@ -7,6 +7,8 @@ status: archived
 ---
 # UC-001 — Maintainer onboards a project to GitHub sync
 
+> **Partly superseded by `workflow-slim`:** the `dones` stage and its `dones.sh` hook are now `done` and `done.sh`, and that hook runs when a merged item closes (`kf status --change <feature>`, `kf sync` or `kf archive`). Kept for history.
+
 ## Actor
 Maintainer running `kf init` on a repo with a GitHub origin and a GitHub Projects board.
 
