@@ -12,9 +12,13 @@ import {
 import { approvalState } from "../../workflow/status.js";
 import { checkTaskGraph, parseTaskGraph, type PlannedTask } from "../../workflow/tasks.js";
 import { type Transition } from "../../workflow/transition.js";
-import { ProjectConfigError, resolveDriveConfig, type DriveConfig, type DriveConfigSource } from "../../project/config.js";
+import {
+  ProjectConfigError, configPath, parseProjectConfig, readOriginConfig, readProjectConfig, resolveDriveConfig,
+  type DriveConfig, type DriveConfigSource, type OriginConfig,
+} from "../../project/config.js";
 import { type HarnessConfig } from "../config.js";
 import { worktreeConfig } from "../../worktree/config.js";
+import { gitWorktreeEntries, type GitWorktreeEntry } from "../../worktree/manager.js";
 import { isPidAlive } from "../../shared/process.js";
 import { PKG_ROOT } from "../../shared/paths.js";
 import { liveRecords } from "../run.js";
@@ -157,29 +161,64 @@ type ResolvedCopy = Pick<DriveConfig, "cfg" | "file" | "source">;
 
 interface ArgvDiff { head: string; lines: string[]; against: "origin" | "primary" }
 
+type BaseCopy =
+  | { ok: true; copy: ResolvedCopy; note: string | null }
+  | { ok: false; against: "origin" | "primary"; why: string };
+
+/**
+ * The copy a drive would read without the item worktree, in resolveDriveConfig's order: origin/<default>, else the
+ * primary checkout. refs/remotes/origin/HEAD lives in the git dir every worktree shares, so a worker can point it at a
+ * branch it pushed; origin is the base only while that branch is not checked out in a linked worktree. Each copy is
+ * read on its own so a failure names the copy it came from.
+ */
+function baseCopy(root: string): BaseCopy {
+  let origin: OriginConfig;
+  let linked: GitWorktreeEntry | undefined;
+  try {
+    origin = readOriginConfig(root);
+    const branch = origin.ref?.slice(origin.ref.indexOf("/") + 1);
+    linked = origin.text !== null && branch ? gitWorktreeEntries(root).slice(1).find((e) => e.branch === branch) : undefined;
+  } catch (err) {
+    // Only git fails here. The comparison is advisory, so the drive goes on and the record says why it is missing.
+    return { ok: false, against: "origin", why: `git could not read the origin copy: ${oneLine(message(err))}` };
+  }
+  if (origin.ref && origin.text !== null && !linked) {
+    const file = `${origin.ref}:.kf/config.json`;
+    try {
+      return { ok: true, copy: { cfg: parseProjectConfig(origin.text, file), source: "origin", file }, note: null };
+    } catch (err) {
+      if (!(err instanceof ProjectConfigError)) throw err;
+      return { ok: false, against: "origin", why: `the origin copy ${file} does not parse: ${oneLine(message(err))}` };
+    }
+  }
+  const note = linked ? `origin/HEAD points at ${origin.ref}, which the worktree ${linked.path} has checked out, so the primary copy is the base` : null;
+  const file = configPath(root);
+  try {
+    return { ok: true, copy: { cfg: readProjectConfig(root), source: "primary", file }, note };
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    return { ok: false, against: "primary", why: `the primary copy ${file} does not parse: ${oneLine(message(err))}` };
+  }
+}
+
 /**
  * Runner and verify argv read from the item worktree copy that differ from the copy a drive would read without it
- * (origin/<default> when it has one, else the primary checkout, as resolveDriveConfig orders them): a heading naming
- * that copy and `<copy> → worktree` lines; null when they come from elsewhere or match. Workers can write the worktree
- * copy; a stale local main must not make a change merged from origin look like a worker's edit.
+ * (baseCopy): a heading naming that copy and `<copy> → worktree` lines; null when they come from elsewhere or match.
+ * Workers can write the worktree copy; a stale local main must not make a change merged from origin look like a
+ * worker's edit.
  */
 function worktreeArgvDiff(root: string, resolved: ResolvedCopy): ArgvDiff | null {
   if (resolved.source !== "worktree") return null;
   const head = `⚠ Runner and verify commands are read from the item worktree copy ${configWhere(resolved)}, which workers can edit`;
-  let base: DriveConfig;
-  try {
-    base = resolveDriveConfig(root, { meta: null });
-  } catch (err) {
-    if (!(err instanceof ProjectConfigError)) throw err;
-    return { head: `${head}; they could not be compared with the origin or primary copy, which does not parse: ${oneLine(message(err))}`, lines: [], against: "primary" };
-  }
-  const against = base.source === "origin" ? "origin" : "primary";
+  const base = baseCopy(root);
+  if (!base.ok) return { head: `${head}; they could not be compared, because ${base.why}`, lines: [], against: base.against };
+  const against = base.copy.source === "origin" ? "origin" : "primary";
   const lines = [
-    ...describeChange("harness.runners", base.cfg.harness?.runners, resolved.cfg.harness?.runners, ARGV_PARTS["harness.runners"]),
-    ...describeChange("harness.verify", base.cfg.harness?.verify, resolved.cfg.harness?.verify, ARGV_PARTS["harness.verify"]),
+    ...describeChange("harness.runners", base.copy.cfg.harness?.runners, resolved.cfg.harness?.runners, ARGV_PARTS["harness.runners"]),
+    ...describeChange("harness.verify", base.copy.cfg.harness?.verify, resolved.cfg.harness?.verify, ARGV_PARTS["harness.verify"]),
   ];
   if (lines.length === 0) return null;
-  return { head: `${head}, and differ from the ${against} copy ${configWhere(base)} (${against} → worktree):`, lines, against };
+  return { head: `${head}, and differ from the ${against} copy ${configWhere(base.copy)}${base.note ? ` (${base.note})` : ""} (${against} → worktree):`, lines, against };
 }
 
 const diffText = (diff: ArgvDiff): string => [diff.head, ...diff.lines.map((l) => `  ${l}`)].join("\n");

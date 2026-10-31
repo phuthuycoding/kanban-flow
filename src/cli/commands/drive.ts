@@ -69,7 +69,8 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
     return stopped.ok ? { code: 0, stdout: stopped.message } : { code: 1, stdout: stopped.message, stderr: "no running drive" };
   }
 
-  const command = `kf drive ${feature.name}${args.options.watch ? " --watch" : ""}${args.options.follow ? " --follow" : ""}${acceptConfig ? " --accept-config" : ""}${json ? " --json" : ""}`;
+  // Every option that reaches a claim, as passed; --status, --stop and --supervise returned above.
+  const command = ["kf drive", feature.name, ...["watch", "follow", "tail", "accept-config", "json"].filter((o) => args.options[o]).map((o) => `--${o}`)].join(" ");
   if (watch) {
     const current = driveView(root.root, feature);
     let replay = false;

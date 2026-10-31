@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 import { claimDrive, startDetachedDrive, superviseDrive } from "../harness/drive.js";
@@ -186,6 +187,71 @@ describe("kf drive records every config it re-pins", () => {
     expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "origin", changes: [VERIFY_LINE] }]);
   });
 
+  /** Commits `write`'s change to the config on origin/<default> from a separate clone, then fetches it into the root. */
+  const pushOriginConfig = (pr: GitDriveProject, write: (file: string) => void) => {
+    const clone = join(pr.scratch, "upstream");
+    gitIn(pr.scratch, "clone", "-q", pr.originDir!, clone);
+    gitIn(clone, "config", "user.email", "t@t");
+    gitIn(clone, "config", "user.name", "t");
+    write(join(clone, ".kf", "config.json"));
+    gitIn(clone, "commit", "-qam", "origin config");
+    gitIn(clone, "push", "-q");
+    gitIn(pr.root, "fetch", "-q", "origin");
+  };
+
+  it("names the origin copy as the one that does not parse when origin's text is broken", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    pushOriginConfig(pr, (file) => writeFileSync(file, "{ not json"));
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toMatch(/; they could not be compared, because the origin copy \S+:\.kf\/config\.json does not parse: /);
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "origin" }]);
+  });
+
+  it("names the primary copy as the one that does not parse when there is no origin", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true });
+    writeFileSync(join(pr.root, ".kf", "config.json"), "{ not json");
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toContain(`; they could not be compared, because the primary copy ${join(pr.root, ".kf", "config.json")} does not parse: `);
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "primary" }]);
+  });
+
+  it("starts the drive and records that the copies could not be compared when git fails reading origin", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    const bin = join(pr.scratch, "failing-git");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$3" = "show" ]; then echo "fatal: unable to read tree 0123abcd" >&2; exit 128; fi\nexec "${realGit}" "$@"\n`);
+    chmodSync(join(bin, "git"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    let claim: Awaited<ReturnType<typeof claimDrive>>;
+    try {
+      claim = await claimDrive(pr.root, "demo");
+    } finally {
+      process.env.PATH = path;
+    }
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toMatch(/; they could not be compared, because git could not read the origin copy: git show \S+ failed \(exit 128\) .*fatal: unable to read tree 0123abcd$/);
+    expect(pr.readMeta()!.drive!.status).toBe("running");
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "origin", changes: [expect.stringContaining("could not be compared")] }]);
+  });
+
+  it("falls back to the primary copy when origin/HEAD is retargeted to the item branch", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    const wt = pr.worktreePath()!;
+    const branch = gitIn(wt, "symbolic-ref", "--short", "HEAD");
+    editConfig(join(wt, ".kf", "config.json"), (c) => { c.harness.verify.stage = [["sh", "-c", "curl evil"]]; });
+    gitIn(wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "worker config");
+    gitIn(wt, "push", "-q", "origin", branch);
+    gitIn(pr.root, "remote", "set-head", "origin", branch);
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toContain(`differ from the primary copy ${join(pr.root, ".kf", "config.json")} (config source: primary) (origin/HEAD points at origin/${branch}, which the worktree ${wt} has checked out, so the primary copy is the base) (primary → worktree):`);
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "primary", changes: [VERIFY_LINE] }]);
+  });
+
   it("records whether stdin was a terminal and the --follow flag as passed", async () => {
     const pr = await stoppedOnVerifyEdit();
     const isTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
@@ -212,6 +278,15 @@ describe("kf drive records every config it re-pins", () => {
     expect(written).toHaveLength(1);
     expect(JSON.parse(written[0])).toMatchObject({ event: "accepted_config", acceptedConfig: [VERIFY_LINE], configWarning: null, configNote: null });
     expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ command: "kf drive demo --watch --accept-config --json", tty: false, changes: [VERIFY_LINE] }]);
+  });
+
+  it("records --tail with the other flags it was passed", async () => {
+    const pr = await stoppedOnVerifyEdit();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const res = await cmdDrive(args("drive", ["demo"], { watch: true, tail: true, "accept-config": true }), pr.root);
+    vi.mocked(process.stdout.write).mockRestore();
+    expect(res.code, res.stdout).toBe(0);
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ command: "kf drive demo --watch --tail --accept-config" }]);
   });
 });
 
