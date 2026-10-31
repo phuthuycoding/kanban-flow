@@ -41,10 +41,11 @@ const works = (...p: string[]) => join(root, ".works", ...p);
 const folders = (stage: string) => (existsSync(works(stage)) ? readdirSync(works(stage)).sort() : []);
 const migrationLines = (out: string) => out.split("\n").filter((l) => l.includes("migrated") || l.includes("left in"));
 
+/** A PASS report as the previous release wrote it: status and execution only, no ci or landing. */
 async function report(name: string, id: "testing-result" | "review-report"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? "ci: green\nlanding: pr\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** A bug driven to a review PASS with a recorded PR, then parked in `.works/shipping` as an earlier release left it. */
@@ -184,6 +185,21 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     expect(res.code).toBe(0);
     expect(() => JSON.parse(res.stdout)).not.toThrow();
     expect(res.stderr).toBe(`migrated a_${TS}: .works/dones → .works/done`);
+  });
+
+  it("a previous-release PASS report already in review closes on kf status only once its PR is merged", async () => {
+    const folder = await shippingBug("legacy", "https://github.com/o/r/pull/5");
+    await rename(works("shipping", folder), works("review", folder));
+    process.env.GH_PR_STATE_5 = "OPEN";
+
+    expect((await cmdStatus(statusAll(), root)).code).toBe(0);
+    expect(feature("legacy").stage).toBe("review");
+
+    delete process.env.GH_PR_STATE_5;
+    const res = await cmdStatus(statusAll(), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("✓ done legacy (PR merged: https://github.com/o/r/pull/5)");
+    expect(feature("legacy").stage).toBe("done");
   });
 
   it("kf sync runs the migration first; an unverifiable PR lands in review", async () => {

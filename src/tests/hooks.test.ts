@@ -39,6 +39,24 @@ describe("resolveHook", () => {
   it("returns null when no hook exists", () => {
     expect(resolveHook(root, "implementation")).toBeNull();
   });
+
+  it("falls back to a project dones.sh for done with a warning, and prefers done.sh once it exists", async () => {
+    await writeFile(join(root, ".kf", "hooks", "dones.sh"), "#!/usr/bin/env bash\n");
+    const legacy = resolveHook(root, "done");
+    expect(legacy?.path).toBe(join(root, ".kf", "hooks", "dones.sh"));
+    expect(legacy?.source).toBe("project");
+    expect(legacy?.warning).toContain("replace it with the pack's done.sh");
+
+    await writeFile(join(root, ".kf", "hooks", "done.sh"), "#!/usr/bin/env bash\n");
+    const current = resolveHook(root, "done");
+    expect(current?.path).toBe(join(root, ".kf", "hooks", "done.sh"));
+    expect(current?.warning).toBeUndefined();
+  });
+
+  it("does not fall back to a legacy file for any other phase", async () => {
+    await writeFile(join(root, ".kf", "hooks", "shipping.sh"), "#!/usr/bin/env bash\n");
+    expect(resolveHook(root, "review")).toBeNull();
+  });
 });
 
 describe("runHook", () => {
@@ -88,6 +106,25 @@ describe("runHook", () => {
     const res = runHook(root, { feature: "f", context: "app", dir, root, from: "review", to: "done", approval: "pending" });
     expect(res.ok).toBe(true);
     await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("KFW_PROJECT_STATUS_DONE=Done\n");
+  });
+
+  it("runs a legacy dones.sh for done with the done status exported under the dones name it reads", async () => {
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+      schema: "kanban-flow",
+      created: "x",
+      repository: "o/r",
+      project: { owner: "me", number: 3, statusMap: { done: "Done" } },
+    }));
+    const dir = join(root, ".works", "done", "f_x");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(root, ".kf", "hooks", "dones.sh"), "#!/usr/bin/env bash\nenv | grep '^KFW_PROJECT_STATUS_' | sort > \"$KFW_FEATURE_DIR/env.out\"\nexit 4\n");
+    const res = runHook(root, { feature: "f", context: "app", dir, root, from: "review", to: "done", approval: "pending" });
+    // A failing legacy gate still refuses: the fallback keeps the AC gate fail-closed.
+    expect(res.ran).toBe(true);
+    expect(res.ok).toBe(false);
+    expect(res.code).toBe(4);
+    await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8"))
+      .resolves.toBe("KFW_PROJECT_STATUS_DONE=Done\nKFW_PROJECT_STATUS_DONES=Done\n");
   });
 
   it("reports failure when hook exits non-zero", async () => {

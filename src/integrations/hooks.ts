@@ -11,7 +11,15 @@ export interface HookSource {
   name: string;
   path: string;
   source: "project" | "user" | "package";
+  /** Set when a legacy file stood in for the hook (dones.sh for done): what to do about it. */
+  warning?: string;
 }
+
+/**
+ * Hooks seeded by releases that had a `dones` stage. Until the project replaces dones.sh, it is
+ * the project's AC gate and board sync for `done`: skipping it would close items unchecked.
+ */
+const LEGACY_HOOK_FILES: Record<string, string> = { done: "dones" };
 
 export interface HookEnv {
   feature: string;
@@ -41,12 +49,23 @@ export function resolveHook(
   phase: string,
 ): HookSource | null {
   const candidates: Array<[HookSource["source"], string]> = [
-    ["project", join(findWorksRoot(cwd) ?? cwd, ".kf", "hooks", `${phase}.sh`)],
-    ["user", join(USER_KABAN_DIR, "hooks", `${phase}.sh`)],
-    ["package", join(PKG_HOOKS_DIR, `${phase}.sh`)],
+    ["project", join(findWorksRoot(cwd) ?? cwd, ".kf", "hooks")],
+    ["user", join(USER_KABAN_DIR, "hooks")],
+    ["package", PKG_HOOKS_DIR],
   ];
-  for (const [source, path] of candidates) {
+  const legacy = LEGACY_HOOK_FILES[phase];
+  for (const [source, dir] of candidates) {
+    const path = join(dir, `${phase}.sh`);
     if (existsSync(path)) return { name: phase, path, source };
+    const legacyPath = legacy ? join(dir, `${legacy}.sh`) : null;
+    if (legacyPath && existsSync(legacyPath)) {
+      return {
+        name: phase,
+        path: legacyPath,
+        source,
+        warning: `⚠ ran legacy hook ${legacyPath} for ${phase}: replace it with the pack's ${phase}.sh (kf doctor --fix restores it), port any local edits, then delete ${legacy}.sh`,
+      };
+    }
   }
   return null;
 }
@@ -85,7 +104,11 @@ export function runHook(
     for (const [stage, option] of Object.entries(cfg.project.statusMap ?? {})) {
       if (option) projectEnv[`KFW_PROJECT_STATUS_${stage.toUpperCase()}`] = option;
     }
+    // A legacy dones.sh moves the board with `sync_project_status … dones`, which reads this name.
+    if (hook.warning && cfg.project.statusMap?.done) projectEnv.KFW_PROJECT_STATUS_DONES = cfg.project.statusMap.done;
   }
+  // Callers print a hook's output only when it fails, so a degraded fallback is reported here.
+  if (hook.warning) process.stderr.write(`${hook.warning}\n`);
   const isSh = hook.path.endsWith(".sh");
   const isJs = hook.path.endsWith(".js") || hook.path.endsWith(".mjs") || hook.path.endsWith(".cjs");
   const cmd = isSh ? "bash" : isJs ? "node" : hook.path;

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,7 +7,7 @@ import { ARTIFACTS, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
-import { branchPushed } from "../shared/git.js";
+import { branchPushed, originDefaultRef, runGit } from "../shared/git.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
@@ -17,7 +17,7 @@ import { detectRepository } from "./repository.js";
 import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, hasManagedEntries, installAgentsTo, installSkills, MANAGED_AGENTS, MANAGED_SKILLS, agentEntryState, skillEntryState, skillsAreHealthy } from "../integrations/install.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, installAgentsTo, installSkills, MANAGED_AGENTS, MANAGED_SKILLS, agentEntryState, ownsSkillEntry, skillEntryState } from "../integrations/install.js";
 
 
 export interface DoctorFinding {
@@ -136,14 +136,29 @@ function checkAwaitingMerge(root: string): DoctorFinding[] {
     }));
 }
 
+/**
+ * A local branch whose work already reached origin even though origin no longer has the branch:
+ * its tip is in origin's default branch, or it still tracks origin/<branch> as `git push -u` set
+ * it, with that ref gone (the PR merged, GitHub deleted the branch and fetch --prune dropped the
+ * ref — the case a squash merge leaves, where the tip is not an ancestor). The docs branch is cut
+ * with --no-track, so that upstream exists only after the push.
+ */
+function landedAndPruned(root: string, branch: string): boolean {
+  const base = originDefaultRef(root);
+  if (base && runGit(root, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, base]).code === 0) return true;
+  const upstream = (key: string) => runGit(root, ["config", "--get", `branch.${branch}.${key}`]).stdout.trim();
+  return upstream("remote") === "origin" && upstream("merge") === `refs/heads/${branch}`;
+}
+
 /** Canonical docs committed to a docs branch at close are not on the default branch until someone pushes and merges it. */
 function checkDocsBranches(root: string): DoctorFinding[] {
   return listFeatures(root)
-    .filter((f) => f.meta?.docsBranch && branchPushed(root, "origin", f.meta.docsBranch) === false)
+    .filter((f) => f.meta?.docsBranch && branchPushed(root, "origin", f.meta.docsBranch) === false
+      && !landedAndPruned(root, f.meta.docsBranch))
     .map((f) => ({
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
-      message: `docs_branch_unpushed: canonical docs for ${f.name} sit on ${f.meta!.docsBranch}, which has no upstream.`,
+      message: `docs_branch_unpushed: canonical docs for ${f.name} sit on ${f.meta!.docsBranch}, which is not on origin.`,
       action: `git push -u origin ${f.meta!.docsBranch}, then open a PR for it`,
     }));
 }
@@ -171,15 +186,62 @@ function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null):
 }
 
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
+/**
+ * The install's skill sidecar (install.ts SKILLS_MANIFEST), read the way the install reads it, so
+ * doctor recognises an older kanban-flow copy of an unprefixed skill as ours, as the install does.
+ */
+function readSkillsManifest(dir: string): Record<string, string> {
+  const path = join(dir, ".kanban-flow-skills.json");
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
+  } catch (err) {
+    // As in the install: a corrupt sidecar only means no copy is recognised by digest.
+    if (err instanceof SyntaxError) return {};
+    throw err;
+  }
+}
+
+/**
+ * Managed skill names in `dir` held by an entry kanban-flow does not own (a user's own `travel`).
+ * The install leaves those alone, so they are neither stale nor something a reinstall repairs.
+ */
+function foreignSkills(dir: string): string[] {
+  const manifest = readSkillsManifest(dir);
+  return MANAGED_SKILLS.filter((s) => !ownsSkillEntry(dir, s, manifest));
+}
+
+/** Managed skills in `dir` that are not a healthy link or copy, leaving out the ones the user owns. */
+function unhealthySkills(dir: string, foreign: string[]): string[] {
+  return MANAGED_SKILLS.filter((s) => !foreign.includes(s) && !["linked", "copied"].includes(skillEntryState(dir, s)));
+}
+
+/** True when at least one managed skill kanban-flow owns exists (or dangles) in the dir. */
+function hasOwnedEntries(dir: string): boolean {
+  const foreign = foreignSkills(dir);
+  return MANAGED_SKILLS.some((s) => !foreign.includes(s) && lstatSync(join(dir, s), { throwIfNoEntry: false }) !== undefined);
+}
+
 function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
   for (const id of agents) {
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) continue;
     const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
-    const state = agentSkillsState(dir);
-    if (skillsAreHealthy(state)) continue;
-    const bad = MANAGED_SKILLS.filter((s) => !["linked", "copied"].includes(skillEntryState(dir, s)));
+    const foreign = foreignSkills(dir);
+    if (foreign.length > 0) {
+      findings.push({
+        level: "WARNING",
+        area: dir,
+        message: `your own skill sits at a managed skill name: ${foreign.join(", ")} — kf install leaves it alone, and it runs instead of kanban-flow's`,
+        action: "keep it and accept the substitution, or move it aside and run kf install",
+      });
+    }
+    const bad = unhealthySkills(dir, foreign);
+    if (bad.length === 0) continue;
+    // The aggregate state counts a user's own entry as stale; name it only when there is none.
+    const state = foreign.length > 0 ? "incomplete" : agentSkillsState(dir);
     findings.push({
       level: "ERROR",
       area: dir,
@@ -222,7 +284,7 @@ function checkSkills(root: string, agents: AgentId[], scope: SkillScope): Doctor
     const dupes = agents
       .map((id) => AGENTS.find((a) => a.id === id))
       .filter((a): a is NonNullable<typeof a> => Boolean(a))
-      .filter((a) => hasManagedEntries(projectSkillsDir(a, root)));
+      .filter((a) => hasOwnedEntries(projectSkillsDir(a, root)));
     if (dupes.length > 0) {
       findings.push({
         level: "WARNING",
@@ -285,10 +347,16 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
 
 /**
  * Hooks named after stages that no longer exist. resolveHook looks a hook up by the target stage,
- * so these files never run again — a project that edited one would silently lose its behaviour.
+ * so shipping.sh never runs again, and dones.sh runs for done only while done.sh is missing.
+ * dones.sh is not simply renamed: its board move names the `dones` status, which is no longer exported
+ * once done.sh resolves.
  */
-const ORPHANED_STAGE_HOOKS: Array<{ file: string; action: string }> = [
-  { file: "dones.sh", action: "rename .kf/hooks/dones.sh to .kf/hooks/done.sh (the stage is now done)" },
+const ORPHANED_STAGE_HOOKS: Array<{ file: string; action: string; fallbackFor?: string }> = [
+  {
+    file: "dones.sh",
+    fallbackFor: "done.sh",
+    action: "replace .kf/hooks/dones.sh with the pack's done.sh (kf doctor --fix restores it when the GitHub hook pack is installed), port any local edits into it, then delete dones.sh — do not rename it: it calls sync_project_status … dones, which no longer moves the board",
+  },
   { file: "shipping.sh", action: "delete .kf/hooks/shipping.sh (the shipping stage is gone; review opens the PR)" },
 ];
 
@@ -296,10 +364,12 @@ function checkOrphanedHooks(root: string): DoctorFinding[] {
   const dir = join(root, ".kf", "hooks");
   return ORPHANED_STAGE_HOOKS
     .filter(({ file }) => existsSync(join(dir, file)))
-    .map(({ file, action }) => ({
+    .map(({ file, action, fallbackFor }) => ({
       level: "WARNING" as const,
       area: ".kf/hooks",
-      message: `.kf/hooks/${file} is an orphaned legacy hook: no stage runs it any more.`,
+      message: fallbackFor && !existsSync(join(dir, fallbackFor))
+        ? `.kf/hooks/${file} is a legacy hook: it runs for done only because ${fallbackFor} is missing.`
+        : `.kf/hooks/${file} is an orphaned legacy hook: no stage runs it any more.`,
       action,
     }));
 }
@@ -585,7 +655,7 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) return false;
     const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
-    return !skillsAreHealthy(agentSkillsState(dir));
+    return unhealthySkills(dir, foreignSkills(dir)).length > 0;
   });
   if (missingFor.length > 0) {
     const res = await installSkills(root, missingFor, scope, { declaredScope });

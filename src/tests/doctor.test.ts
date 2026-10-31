@@ -196,6 +196,53 @@ describe("kf doctor on config that parses but misleads", () => {
   });
 });
 
+describe("kf doctor on a docs branch left at close", () => {
+  const sh = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const unpushed = () => runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+
+  /** A project with an origin, a done item whose meta names docs/app-demo, and that branch one commit past main. */
+  async function docsBranchProject(): Promise<void> {
+    await project();
+    const origin = join(root, "origin.git");
+    sh(root, "init", "-q", "-b", "main");
+    sh(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base");
+    sh(root, "init", "-q", "--bare", origin);
+    sh(root, "remote", "add", "origin", origin);
+    sh(root, "push", "-q", "origin", "main");
+    sh(root, "remote", "set-head", "origin", "main");
+    sh(root, "branch", "--no-track", "docs/app-demo", "origin/main");
+    sh(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "docs");
+    // The docs commit went onto main locally; move it onto the docs branch and reset main.
+    sh(root, "branch", "-f", "docs/app-demo", "HEAD");
+    sh(root, "reset", "-q", "--hard", "origin/main");
+    const dir = join(root, ".works", "done", "demo_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "demo", context: "app", created: "20260101_0000", docsBranch: "docs/app-demo" });
+  }
+
+  it("warns while the branch is not on origin, naming it", async () => {
+    await docsBranchProject();
+    expect(unpushed().map((f) => f.message)).toEqual([
+      "docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin.",
+    ]);
+  });
+
+  it("stays quiet once the pushed branch merged (squash) and was pruned from origin", async () => {
+    await docsBranchProject();
+    sh(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    sh(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    expect(sh(root, "branch", "-r")).not.toContain("docs/app-demo");
+    expect(unpushed()).toEqual([]);
+  });
+
+  it("stays quiet once the branch tip is in origin's default branch", async () => {
+    await docsBranchProject();
+    sh(root, "push", "-q", "origin", "docs/app-demo:main");
+    sh(root, "fetch", "-q", "origin");
+    expect(unpushed()).toEqual([]);
+  });
+});
+
 describe("what kf doctor promises about itself", () => {
   it("changes nothing on disk", async () => {
     await project();
@@ -234,6 +281,28 @@ describe("kf doctor --fix", () => {
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain("installed kanban skills for claude");
     expect(runDoctor(root).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
+  });
+
+  it("treats a user's own travel skill as theirs: a warning, not stale, and --fix does not reinstall over it", async () => {
+    await project();
+    const skills = join(process.env.HOME!, ".claude", "skills");
+    await rm(join(skills, "travel"), { recursive: true, force: true });
+    await mkdir(join(skills, "travel"), { recursive: true });
+    await writeFile(join(skills, "travel", "SKILL.md"), "# My own travel planner\n");
+
+    const findings = runDoctor(root).findings.filter((f) => f.area === skills);
+    expect(findings.map((f) => f.level)).toEqual(["WARNING"]);
+    expect(findings[0].message).toContain("your own skill sits at a managed skill name: travel");
+    expect(runDoctor(root).ok).toBe(true);
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).not.toContain("installed kanban skills");
+    expect(readFileSync(join(skills, "travel", "SKILL.md"), "utf8")).toBe("# My own travel planner\n");
+
+    // A kanban-flow skill missing beside it is still an ERROR, and the user's skill is not listed in it.
+    await rm(join(skills, "kanban-plan"), { recursive: true, force: true });
+    const broken = runDoctor(root).findings.find((f) => f.area === skills && f.level === "ERROR");
+    expect(broken?.message).toBe("skills incomplete (scope: global): kanban-plan");
   });
 
   it("reports agents that went missing while the skills stayed, and --fix reinstalls them", async () => {
@@ -388,12 +457,17 @@ describe("kf doctor --fix", () => {
 
     await writeFile(join(hooks, "dones.sh"), "#!/usr/bin/env bash\n");
     await writeFile(join(hooks, "shipping.sh"), "#!/usr/bin/env bash\n");
+    // Without done.sh, dones.sh still runs as the done hook — the message says so.
+    expect(runDoctor(root).findings.find((f) => f.message.includes(".kf/hooks/dones.sh"))?.message)
+      .toBe(".kf/hooks/dones.sh is a legacy hook: it runs for done only because done.sh is missing.");
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n");
     const orphans = runDoctor(root).findings.filter((f) => f.message.includes("orphaned legacy hook"));
     expect(orphans).toHaveLength(2);
     const dones = orphans.find((f) => f.message.includes(".kf/hooks/dones.sh"));
     const shipping = orphans.find((f) => f.message.includes(".kf/hooks/shipping.sh"));
     expect(dones?.level).toBe("WARNING");
-    expect(dones?.action).toContain("rename .kf/hooks/dones.sh to .kf/hooks/done.sh");
+    expect(dones?.action).toContain("replace .kf/hooks/dones.sh with the pack's done.sh");
+    expect(dones?.action).toContain("do not rename it");
     expect(shipping?.level).toBe("WARNING");
     expect(shipping?.action).toContain("delete .kf/hooks/shipping.sh");
 

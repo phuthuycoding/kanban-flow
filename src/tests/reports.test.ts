@@ -129,6 +129,13 @@ describe("review report delivery: ci and landing", () => {
     expect(delivery()).toEqual([]);
   });
 
+  it("kf validate still names both keys on a PASS report with neither ci nor landing, PR recorded or not", async () => {
+    await reviewBug("status: PASS", { pr: PR });
+    expect(delivery()).toEqual(["ERROR review_ci_missing", "ERROR review_landing_missing"]);
+    await reviewBug("status: PASS");
+    expect(delivery()).toEqual(["ERROR review_ci_missing", "ERROR review_landing_missing"]);
+  });
+
   it("treats a ci value that is not exactly green, red or none as missing", async () => {
     await reviewBug("status: PASS\nci: RED\nlanding: none");
     expect(delivery()).toEqual(["ERROR review_ci_missing"]);

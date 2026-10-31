@@ -126,7 +126,7 @@ function dirDigest(dir: string): string {
 }
 
 /** True when kanban-flow may replace or remove the entry at <skillsDir>/<name> (absent counts). Kanban-prefixed names are always ours. */
-function ownsSkillEntry(skillsDir: string, name: string, manifest: Record<string, string>): boolean {
+export function ownsSkillEntry(skillsDir: string, name: string, manifest: Record<string, string>): boolean {
   if (!UNPREFIXED_SKILLS.has(name)) return true;
   const target = join(skillsDir, name);
   let st;

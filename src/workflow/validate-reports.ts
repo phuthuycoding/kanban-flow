@@ -1,11 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { ARTIFACTS, STAGE_INDEX, REVIEW_CI_VALUES, REVIEW_LANDING_VALUES, type ArtifactId } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
+import { checkMergeGate } from "../integrations/github.js";
+import { readProjectConfig } from "../project/config.js";
 
 const TEST_RESULTS = /^(PASS|FAIL|REJECT|BLOCKED)$/;
 const REVIEW_RESULTS = /^(PASS|FAIL|REJECT|REQUIREMENT_BUG)$/;
@@ -85,12 +87,27 @@ export function checkTestingResult(feature: Feature): Finding[] {
 }
 
 /**
+ * A review report written before `ci:`/`landing:` existed carries neither key. Such a report closes
+ * as `landing: pr` only when its recorded PR is verifiably merged — the merge is the delivery proof
+ * the missing keys would have stated. Asks gh, so only the review → done gate takes this path.
+ */
+function legacyReportLandedByPr(feature: Feature, fm: Record<string, string>): boolean {
+  if (fm.ci !== undefined || fm.landing !== undefined || !feature.meta?.pr) return false;
+  // feature.dir is <root>/.works/<stage>/<folder>.
+  const root = dirname(dirname(dirname(feature.dir)));
+  return checkMergeGate(feature, readProjectConfig(root).repository).kind === "merged";
+}
+
+/**
  * Delivery half of a PASS review report: CI is green or absent (`ci: none`), and the code either lands through a
  * recorded PR (`landing: pr` + `meta.pr`) or there is nothing to land (`landing: none`).
  * Empty for any status other than PASS. Shared by `kf validate` and the review → done gate.
+ * `acceptLegacyMerged` (the gate's default) lets a report with neither key through when its PR is
+ * verifiably merged; `kf validate` passes false, so it stays offline and still names the missing keys.
  */
-export function checkReviewDelivery(feature: Feature, fm: Record<string, string>): Finding[] {
+export function checkReviewDelivery(feature: Feature, fm: Record<string, string>, acceptLegacyMerged = true): Finding[] {
   if (fm.status !== "PASS") return [];
+  if (acceptLegacyMerged && legacyReportLandedByPr(feature, fm)) return [];
   const issues: Finding[] = [];
   const file = ARTIFACTS["review-report"].file;
   const ci = fm.ci ?? "";
@@ -132,7 +149,7 @@ export function checkReviewReport(feature: Feature): Finding[] {
   }
   // Only while in review: items archived before `ci:`/`landing:` existed carry reports without
   // them, and the review → done gate (checkDirectionGate) enforces the same rule at close.
-  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm));
+  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm, false));
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
       `Review ${status.toUpperCase()}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));

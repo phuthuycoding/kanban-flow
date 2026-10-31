@@ -41,7 +41,9 @@ Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>
 Upgrading: the first `kf status` or `kf sync` moves any `.works/dones/*` item to
 `done` and any `.works/shipping/*` item back to `review` (a shipping item whose PR
 already merged is closed). Rename `statusMap.dones` to `done` in `.kf/config.json`
-and `.kf/hooks/dones.sh` to `done.sh`; `kf doctor` flags leftovers.
+and replace `.kf/hooks/dones.sh` with the pack's `done.sh` (`kf doctor --fix` restores
+it; port any local edits, then delete `dones.sh`). Until then `dones.sh` runs as the
+done hook; `kf doctor` flags leftovers.
 
 ```mermaid
 flowchart LR
