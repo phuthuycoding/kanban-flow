@@ -233,7 +233,10 @@ export async function writeCanonicalDocsBranch(
       deleteBranch(root, target.branch);
       return { branch: null, docs };
     }
-    const commit = commitAll(wt, `docs(${feature.context}): sync canonical docs for ${feature.name}`);
+    // --no-verify: kf authored every byte of this commit, and the repo's hooks cannot run in a
+    // temp worktree without node_modules — a hook failure here would land after the irreversible
+    // steps of the close.
+    const commit = commitAll(wt, `docs(${feature.context}): sync canonical docs for ${feature.name}`, { noVerify: true });
     if (!commit.ok) throw new Error(`committing the canonical docs on ${target.branch} failed: ${commit.error}`);
     removeWorktree(root, wt);
     return { branch: target.branch, docs };

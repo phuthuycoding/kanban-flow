@@ -67,8 +67,9 @@ async function moveFolder(root: string, item: LegacyItem, to: Stage): Promise<bo
 /** Where a shipping item belongs: done when its recorded PR is verifiably merged, review otherwise. */
 function shippingTarget(root: string, meta: FeatureMeta | null): { merged: boolean; note: string } {
   if (!meta?.pr) return { merged: false, note: "no PR recorded" };
-  const gate = checkMergeGate({ meta }, readProjectConfig(root).repository);
-  if (!gate) return { merged: true, note: "PR merged" };
+  const result = checkMergeGate({ meta }, readProjectConfig(root).repository);
+  if (result.kind !== "failed") return { merged: true, note: "PR merged" };
+  const gate = result.failure;
   switch (gate.reason) {
     case "not-merged":
       return { merged: false, note: `PR ${gate.state.toLowerCase()}` };

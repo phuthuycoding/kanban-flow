@@ -1,10 +1,11 @@
-import { mkdir, rename } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE, type Stage } from "./schema.js";
-import { findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
-import { withLock } from "../shared/lock.js";
+import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
+import { lockPath, withLock } from "../shared/lock.js";
+import { isPidAlive } from "../shared/process.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
@@ -21,9 +22,9 @@ import {
 import { checkMergeGate, type MergeGateFailure } from "../integrations/github.js";
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
-import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type TeardownResult } from "../worktree/lifecycle.js";
-import { branchExists, unmergedCommitCount } from "../worktree/manager.js";
-import { deleteBranch } from "../shared/git.js";
+import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type LandedProof, type TeardownResult } from "../worktree/lifecycle.js";
+import { branchExists } from "../worktree/manager.js";
+import { countCommits, deleteBranch, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
@@ -50,7 +51,10 @@ export type ArchiveRefusalReason =
   | "worktree-dirty"
   | "landing-commits"
   | "docs-target"
-  | "changed-concurrently";
+  | "changed-concurrently"
+  | "drive-live"
+  | "pr-branch"
+  | "close-in-progress";
 
 export type ArchiveOutcome =
   | {
@@ -68,6 +72,8 @@ export type ArchiveOutcome =
       worktreePath: string | null;
       /** The item branch deleted locally and on origin; null when the item had no worktree branch. */
       branch: BranchDeletion | null;
+      /** How the branch's commits were counted, when that fell back from origin's default branch. */
+      countNote: string | null;
       /** The recorded PR the close was verified against; null when the item had nothing to land. */
       pr: string | null;
       /** Where the canonical docs went: the working tree, or a branch cut from origin's default branch. */
@@ -124,11 +130,37 @@ const hookFailed = (hook: HookResult): ArchiveOutcome => ({
   stderrTag: "hook failed",
 });
 
+/**
+ * Commits on `branch` that its base lacks — the landing rule's "commits ahead". The base is
+ * `origin/<default>` (the primary checkout may sit on any branch, even one holding these
+ * commits); without origin/HEAD the primary's HEAD is the only base left, and the note says so.
+ */
+function commitsAhead(root: string, branch: string): { count: number; tip: string; note: string | null } {
+  const tip = revParse(root, `refs/heads/${branch}`);
+  if (!tip) throw new Error(`branch ${branch} has no commit to count`);
+  const base = originDefaultRef(root);
+  if (base) return { count: countCommits(root, base, tip), tip, note: null };
+  return {
+    count: countCommits(root, "HEAD", tip),
+    tip,
+    note: "commits counted against the checkout's HEAD: origin/HEAD is not set, so the default branch is unknown (set it: git remote set-head origin -a)",
+  };
+}
+
 /** `landing:` of the review report, or null when the report or the key is absent. */
 function reviewLanding(dir: string): string | null {
   const p = join(dir, ARTIFACTS["review-report"].file);
   if (!existsSync(p)) return null;
   return splitFrontmatter(readFileSync(p, "utf8")).fm.landing ?? null;
+}
+
+/** What the irreversible steps of a failed close already removed, for its error message. */
+function alreadyRemoved(teardown: TeardownResult | null, path: string | null, branch: BranchDeletion | null): string {
+  const gone: string[] = [];
+  if (teardown?.removed) gone.push(`worktree ${path ?? ""}`);
+  if (branch?.local.kind === "deleted") gone.push(`branch ${branch.branch} (local)`);
+  if (branch?.remote.kind === "deleted") gone.push(`branch ${branch.branch} on origin`);
+  return gone.length > 0 ? ` Already removed and not restored: ${gone.join(", ")}.` : "";
 }
 
 /**
@@ -138,9 +170,38 @@ function reviewLanding(dir: string): string | null {
  */
 export async function archiveItem(root: string, name: string, opts: ArchiveOptions = {}): Promise<ArchiveOutcome> {
   try {
-    return await runArchive(root, name, opts);
+    const key = findFeature(root, name)?.name;
+    if (!key) return await runArchive(root, name, opts);
+    return await whileClosing(root, key, name, () => runArchive(root, name, opts));
   } catch (error) {
     return { kind: "error", error };
+  }
+}
+
+/**
+ * One close per item at a time. The item lock is not held across the close: the reconcile path
+ * re-takes it through updateFeatureMeta and the final move takes it again (an in-process
+ * re-entry waits on itself forever), the done and worktree-remove hooks are user processes
+ * that may run kf on this item (they would wait on their parent until LOCK_TIMEOUT_MS), and
+ * the close's network steps (fetch, gh, push) can outlast that timeout for every other writer
+ * of the item, a drive included. So a close-in-progress marker is taken under the lock instead,
+ * and a second close refuses before its hook while the first one's process is alive.
+ */
+async function whileClosing(root: string, key: string, name: string, close: () => Promise<ArchiveOutcome>): Promise<ArchiveOutcome> {
+  const marker = lockPath(root, `${key}.closing`);
+  const busy = await withLock(root, key, async (): Promise<number | null> => {
+    const holder = existsSync(marker) ? Number((await readFile(marker, "utf8")).trim()) : NaN;
+    if (Number.isInteger(holder) && isPidAlive(holder)) return holder;
+    await writeFile(marker, String(process.pid));
+    return null;
+  });
+  if (busy !== null) {
+    return refuse("close-in-progress", "close in progress", `Cannot archive '${name}': another close of it is running (pid ${busy}). Wait for it, then check: kf status --change ${key}`);
+  }
+  try {
+    return await close();
+  } finally {
+    await rm(marker, { force: true });
   }
 }
 
@@ -151,11 +212,16 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     return refuse("cancelled", "cancelled", `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${f.meta?.cancellation?.fromStage ?? "its stage"} first if you want to finish it.`);
   }
 
+  // A live drive owns the item: closing under it would tear down the worktree it works in.
+  if (driveLive(f.meta?.drive)) {
+    return refuse("drive-live", "drive running", `Cannot archive '${name}': drive ${f.meta?.drive?.id} is live (supervisor pid ${f.meta?.drive?.supervisorPid}). Check: kf drive ${f.name} --status, or stop it: kf drive ${f.name} --stop`);
+  }
+
   // Delivery gate: a recorded PR must be verifiably merged — archive is the post-delivery
   // step, so an unmerged/unverifiable PR refuses before any side effect, on both the
   // review → done move and the done reconcile path. No --force escape.
   const merge = checkMergeGate(f, readProjectConfig(root).repository);
-  if (merge) return refuseMerge(f.name, merge);
+  if (merge.kind === "failed") return refuseMerge(f.name, merge.failure);
 
   // Only review → done transition is archive-able. If already done, refresh canonical docs idempotently.
   if (f.stage === "done") {
@@ -232,14 +298,32 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
 
   const rerun = opts.trigger === "status" ? `kf status --change ${name}` : opts.trigger === "sync" ? "kf sync" : `kf archive ${name}`;
 
+  // The merged PR must be this item's branch, or its head commit proves nothing about the
+  // commits about to be deleted.
+  const itemBranch = f.meta?.worktree?.branch ?? null;
+  if (merge.kind === "merged" && itemBranch && merge.headRefName !== itemBranch) {
+    return refuse("pr-branch", "pr branch mismatch", `Cannot archive '${name}': PR ${merge.pr} merged ${merge.headRefName}, not the item branch ${itemBranch}. Fix the recorded pr link, then re-run: ${rerun}`);
+  }
+
   // Landing rule: with no PR to verify, `landing: none` may close only when the item branch
   // carries nothing — otherwise unpushed work would be counted as delivered.
-  if (!f.meta?.pr && reviewLanding(f.dir) === "none" && f.meta?.worktree && branchExists(root, f.meta.worktree.branch)) {
-    const ahead = unmergedCommitCount(root, f.meta.worktree.branch);
-    if (ahead > 0) {
-      return refuse("landing-commits", "landing none with commits", `Cannot archive '${name}': landing: none but the branch has ${ahead} commits — open a PR or cancel.`);
-    }
+  const landing = reviewLanding(f.dir);
+  const ahead = !f.meta?.pr && itemBranch && branchExists(root, itemBranch) ? commitsAhead(root, itemBranch) : null;
+  if (ahead && landing === "none" && ahead.count > 0) {
+    return refuse("landing-commits", "landing none with commits", `Cannot archive '${name}': landing: none but the branch has ${ahead.count} commits — open a PR or cancel.${ahead.note ? ` (${ahead.note})` : ""}`);
   }
+  // What lets the branch be deleted. Without a merged PR only `landing: none` on a branch with
+  // 0 commits ahead does; a forced close never makes up for that — it keeps the branch.
+  const proof: LandedProof = merge.kind === "merged"
+    ? { kind: "merged-head", sha: merge.headRefOid }
+    : ahead && landing === "none" && ahead.count === 0
+      ? { kind: "base-tip", sha: ahead.tip }
+      : {
+          kind: "none",
+          detail: ahead && ahead.count > 0
+            ? `${ahead.count} commits and no merged PR to prove they landed — never deleted, even with --force`
+            : "no merged PR and no landing: none on a branch with 0 commits to prove its work landed",
+        };
 
   const force = Boolean(opts.force);
   const forcedCodes: string[] = [];
@@ -318,7 +402,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       return refuse("worktree-dirty", "worktree dirty", `Cannot archive '${name}': ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const branch = f.meta.worktree ? deleteItemBranch(root, f.meta.worktree.branch) : null;
+  const branch = f.meta.worktree ? deleteItemBranch(root, f.meta.worktree.branch, proof) : null;
 
   const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
   let docs: string[] = copies.map((copy) => copy.destination);
@@ -369,8 +453,9 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
           failures.push(rollbackError);
         }
       }
-      if (failures.length > 0) throw new AggregateError([err, ...failures], `Archive failed and rollback was incomplete for '${name}'.`);
-      throw new Error(`Archive failed for '${name}'; feature restored to review.`, { cause: err });
+      const removed = alreadyRemoved(teardown, f.meta?.worktree?.path ?? null, branch);
+      if (failures.length > 0) throw new AggregateError([err, ...failures], `Archive failed and rollback was incomplete for '${name}'.${removed}`);
+      throw new Error(`Archive failed for '${name}' (${err instanceof Error ? err.message : String(err)}); feature restored to review (docs, move and metadata rolled back).${removed} Fix the cause, then finish with: ${rerun}`, { cause: err });
     }
     return null;
   });
@@ -388,6 +473,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     teardown,
     worktreePath: f.meta?.worktree?.path ?? null,
     branch,
+    countNote: ahead?.note ?? null,
     pr: f.meta?.pr ?? null,
     docsOn: docsTarget.kind === "branch" ? "branch" : "tree",
     docsBranch,

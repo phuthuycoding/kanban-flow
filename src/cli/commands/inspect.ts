@@ -94,7 +94,7 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
 }
 
 /**
- * FR-005: a review PASS item closes on the next `kf status` once its PR merged (or it has
+ * A review PASS item closes on the next `kf status` once its PR merged (or it has
  * nothing to land), through the same archiveItem transaction as `kf archive`. An item with a
  * live drive is left to the drive. Returns the printed lines and, per item that stayed in
  * review, why — the renderer turns that into the Next line.

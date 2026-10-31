@@ -33,7 +33,7 @@ function fakeGh(): void {
   const script = `#!/bin/sh
 echo "$@" >> "$GH_LOG"
 case "$*" in
-  "pr view"*) echo "{\\"state\\":\\"\${GH_STATE:-OPEN}\\"}";;
+  "pr view"*) echo "{\\"state\\":\\"\${GH_STATE:-OPEN}\\",\\"headRefName\\":\\"kf/stub\\",\\"headRefOid\\":\\"0123456789abcdef0123456789abcdef01234567\\"}";;
   "pr create"*) echo "https://github.com/o/r/pull/7";;
   "pr merge"*) echo "scheduled";;
   "release create"*) echo "https://github.com/o/r/releases/tag/v9.9.9";;

@@ -116,15 +116,15 @@ export function changedPathsSince(dir: string, baseSha: string): ChangedPath[] {
   return changes;
 }
 
-/** Stages everything and commits with the message passed via file; hooks and signing run as configured. */
-export function commitAll(dir: string, message: string, opts: { timeoutMs?: number } = {}): CommitResult {
+/** Stages everything and commits with the message passed via file; hooks and signing run as configured unless `noVerify` skips the hooks. */
+export function commitAll(dir: string, message: string, opts: { timeoutMs?: number; noVerify?: boolean } = {}): CommitResult {
   const add = runGit(dir, ["add", "-A"], opts);
   if (add.code !== 0) return { ok: false, error: add.stderr.trim() || add.stdout.trim() };
   const tmp = mkdtempSync(join(tmpdir(), "kf-commit-"));
   try {
     const file = join(tmp, "message");
     writeFileSync(file, message);
-    const commit = runGit(dir, ["commit", "-F", file], opts);
+    const commit = runGit(dir, ["commit", ...(opts.noVerify ? ["--no-verify"] : []), "-F", file], opts);
     if (commit.code !== 0) {
       return { ok: false, error: commit.stderr.trim() || commit.stdout.trim() };
     }
@@ -223,17 +223,26 @@ export type RemoteBranchDeletion =
   | { kind: "absent" }
   | { kind: "no-remote" }
   /** The remote refused or could not be reached (protected branch, no access, offline). Never forced. */
-  | { kind: "refused"; detail: string };
+  | { kind: "refused"; detail: string }
+  /** The remote branch is not at the commit the caller proved landed — it carries other work, so it is kept. */
+  | { kind: "moved"; sha: string };
 
-/** `git push <remote> --delete <branch>` when the branch is on the remote; nothing is forced. */
-export function deleteRemoteBranch(dir: string, remote: string, branch: string): RemoteBranchDeletion {
+/**
+ * `git push <remote> --delete <branch>` when the branch is on the remote and still points at
+ * `expectedSha`, the commit the caller proved landed. The lease makes the remote refuse a
+ * branch that moved between the probe and the push; nothing is forced.
+ */
+export function deleteRemoteBranch(dir: string, remote: string, branch: string, expectedSha: string): RemoteBranchDeletion {
   assertSafeArg("branch", branch);
+  assertSafeArg("ref", expectedSha);
   if (!hasRemote(dir, remote)) return { kind: "no-remote" };
   const probe = runGit(dir, ["ls-remote", "--exit-code", "--heads", remote, `refs/heads/${branch}`], { timeoutMs: REMOTE_TIMEOUT_MS });
   // --exit-code: 2 means the ref is not there.
   if (probe.code === 2) return { kind: "absent" };
   if (probe.code !== 0) return { kind: "refused", detail: probe.stderr.trim() || `git ls-remote exited ${probe.code}` };
-  const push = runGit(dir, ["push", "--quiet", remote, "--delete", branch], { timeoutMs: REMOTE_TIMEOUT_MS });
+  const remoteSha = probe.stdout.trim().split(/\s+/)[0] ?? "";
+  if (remoteSha !== expectedSha) return { kind: "moved", sha: remoteSha };
+  const push = runGit(dir, ["push", "--quiet", `--force-with-lease=refs/heads/${branch}:${expectedSha}`, remote, "--delete", branch], { timeoutMs: REMOTE_TIMEOUT_MS });
   if (push.code !== 0) return { kind: "refused", detail: push.stderr.trim() || `git push exited ${push.code}` };
   return { kind: "deleted" };
 }

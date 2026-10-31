@@ -20,7 +20,7 @@ let prevPath: string | undefined;
 
 const GH_STUB = `#!/usr/bin/env bash
 case "$1" in
-  pr) [ "$2" = view ] && printf '{"state":"%s"}\\n' "\${GH_PR_STATE:-MERGED}"; exit 0 ;;
+  pr) [ "$2" = view ] && printf '{"state":"%s","headRefName":"kf/stub","headRefOid":"0123456789abcdef0123456789abcdef01234567"}\\n' "\${GH_PR_STATE:-MERGED}"; exit 0 ;;
 esac
 exit 0
 `;

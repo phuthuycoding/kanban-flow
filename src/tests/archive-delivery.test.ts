@@ -38,7 +38,7 @@ case "$1" in
       if [ -n "$GH_PR_RAW" ]; then printf '%s\\n' "$GH_PR_RAW"; else
         num="\${3##*/}"
         state=$(printenv "GH_PR_STATE_$num"); state="\${state:-\${GH_PR_STATE:-MERGED}}"
-        printf '{"state":"%s"}\\n' "$state"
+        printf '{"state":"%s","headRefName":"kf/stub","headRefOid":"0123456789abcdef0123456789abcdef01234567"}\\n' "$state"
       fi
     fi; exit 0 ;;
   issue) if [ "$2" = close ] && [ -n "$GH_CLOSE_FAIL" ]; then echo "already closed" >&2; exit 1; fi; exit 0 ;;
@@ -356,7 +356,7 @@ describe("reconcile — re-archive on done items (UC-004, TC-014/TC-015)", () =>
 });
 
 describe("visibility — awaiting merge states surface (UC-005, TC-016/TC-017)", () => {
-  it("status names the merge as the next step only when the close attempt found the PR unmerged (TC-016)", async () => {
+  it("status names the merge as the next step only when the close attempt found the PR unmerged", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     const text = renderStatusText({ ...computeStatus(feature()), close: { kind: "awaiting-merge", pr: PR } });

@@ -13,6 +13,7 @@ import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdArchive } from "../cli/commands/archive.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdSync } from "../cli/commands/sync.js";
+import { archiveItem } from "../workflow/archive.js";
 import { runDoctor } from "../project/doctor.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -29,12 +30,23 @@ const ghCalls = () => (existsSync(join(scratch, "gh-calls.log")) ? readFileSync(
 const onOrigin = (branch: string) => git(origin, "branch", "--list", branch);
 const status = (options: Record<string, unknown> = { change: "demo" }) => cmdStatus(args("status", [], options), root);
 
-/** gh stub: logs argv; `pr view` answers $GH_PR_STATE (default MERGED); $GH_FAIL makes every call fail. */
+/**
+ * gh stub: logs argv; `pr view` answers $GH_PR_STATE (default MERGED) with head $GH_PR_HEAD_NAME
+ * (default t/demo) at $GH_PR_HEAD_OID (default: that branch's tip on the bare origin, a fixed
+ * oid once it is gone there);
+ * $GH_FAIL makes every call fail.
+ */
 const GH_STUB = `#!/usr/bin/env bash
 echo "gh $*" >> "$GH_CALLS"
 if [ -n "$GH_FAIL" ]; then echo "gh must not be called" >&2; exit 1; fi
 case "$1" in
-  pr) [ "$2" = view ] && printf '{"state":"%s"}\\n' "\${GH_PR_STATE:-MERGED}"; exit 0 ;;
+  pr)
+    if [ "$2" = view ]; then
+      head="\${GH_PR_HEAD_NAME:-t/demo}"
+      oid="\${GH_PR_HEAD_OID:-$(git -C "$GH_ORIGIN" rev-parse -q --verify "refs/heads/$head")}"
+      oid="\${oid:-0123456789abcdef0123456789abcdef01234567}"
+      printf '{"state":"%s","headRefName":"%s","headRefOid":"%s"}\\n' "\${GH_PR_STATE:-MERGED}" "$head" "$oid"
+    fi; exit 0 ;;
 esac
 exit 0
 `;
@@ -82,11 +94,12 @@ beforeEach(async () => {
   prevPath = process.env.PATH;
   process.env.PATH = `${stubBin}:${prevPath}`;
   process.env.GH_CALLS = join(scratch, "gh-calls.log");
+  process.env.GH_ORIGIN = origin;
 });
 
 afterEach(async () => {
   process.env.PATH = prevPath;
-  for (const v of ["GH_CALLS", "GH_FAIL", "GH_PR_STATE", "DONE_HOOK_EXIT"]) delete process.env[v];
+  for (const v of ["GH_CALLS", "GH_ORIGIN", "GH_FAIL", "GH_PR_STATE", "GH_PR_HEAD_NAME", "GH_PR_HEAD_OID", "DONE_HOOK_EXIT"]) delete process.env[v];
   await rm(scratch, { recursive: true, force: true });
 });
 
@@ -132,8 +145,8 @@ async function reviewItem(name = "demo", opts: { landing?: "pr" | "none"; commit
   await writeFile(join(feature(name).dir, ARTIFACTS["feature-report"].file), "# Feature Report\nShipped.");
 }
 
-describe("auto-close on merge (FR-005, UC-003)", () => {
-  it("kf status closes a merged item: done, worktree and branch gone locally and on origin, hook first (TC-013)", async () => {
+describe("auto-close on merge", () => {
+  it("kf status closes a merged item: done, worktree and branch gone locally and on origin, hook first", async () => {
     await reviewItem();
     const wt = feature().meta!.worktree!;
     expect(onOrigin("t/demo")).toContain("t/demo");
@@ -159,7 +172,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(existsSync(join(root, "docs", "requirement", "app", "demo.md"))).toBe(true);
   });
 
-  it("refuses a dirty worktree from kf status and kf archive before the hook; nothing deleted (TC-014)", async () => {
+  it("refuses a dirty worktree from kf status and kf archive before the hook; nothing deleted", async () => {
     await reviewItem();
     const wt = feature().meta!.worktree!;
     writeFileSync(join(wt.path, "dirty.txt"), "uncommitted");
@@ -176,7 +189,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
   });
 
-  it("an open PR stays in review with the merge as Next and a Waiting to merge row (TC-016)", async () => {
+  it("an open PR stays in review with the merge as Next and a Waiting to merge row", async () => {
     await reviewItem();
     process.env.GH_PR_STATE = "OPEN";
 
@@ -195,7 +208,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(feature().stage).toBe("review");
   });
 
-  it("a PR closed without merging is refused and named; nothing is deleted (TC-016)", async () => {
+  it("a PR closed without merging is refused and named; nothing is deleted", async () => {
     await reviewItem();
     process.env.GH_PR_STATE = "CLOSED";
     const wt = feature().meta!.worktree!;
@@ -213,7 +226,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
   });
 
-  it("landing: none with 0 commits closes without calling gh (TC-017 A)", async () => {
+  it("landing: none with 0 commits closes without calling gh", async () => {
     await reviewItem("demo", { landing: "none" });
     process.env.GH_FAIL = "1";
     const res = await status();
@@ -225,7 +238,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(git(root, "branch", "--list", "t/demo")).toBe("");
   });
 
-  it("landing: none with commits is refused with the count (TC-017 B)", async () => {
+  it("landing: none with commits is refused with the count", async () => {
     await reviewItem("demo", { landing: "none", commits: 2 });
     const res = await status();
     expect(res.stdout).toContain("landing: none but the branch has 2 commits — open a PR or cancel");
@@ -235,7 +248,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
   });
 
-  it("a refusing done hook keeps worktree and branch, locally and on origin (TC-033)", async () => {
+  it("a refusing done hook keeps worktree and branch, locally and on origin", async () => {
     await reviewItem();
     process.env.DONE_HOOK_EXIT = "1";
     const res = await status();
@@ -256,6 +269,117 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
     expect(onOrigin("t/demo")).toContain("t/demo");
   });
 
+  it("a branch with a commit past the merged head closes the item and keeps the branch locally", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    process.env.GH_PR_HEAD_OID = git(origin, "rev-parse", "refs/heads/t/demo");
+    writeFileSync(join(wt.path, "late.txt"), "late");
+    git(wt.path, "add", ".");
+    git(wt.path, "commit", "-qm", "after merge");
+
+    const res = await status();
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain(`✓ done demo (PR merged: ${PR})`);
+    expect(res.stdout).toContain("Branch t/demo: kept locally, deleted on origin");
+    expect(res.stdout).toContain("kept t/demo: 1 commits after the merged head");
+    expect(feature().stage).toBe("done");
+    expect(git(root, "log", "-1", "--format=%s", "t/demo")).toBe("after merge");
+    expect(onOrigin("t/demo")).toBe("");
+  });
+
+  it("a remote branch that moved past the merged head is kept on origin", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    const merged = git(wt.path, "rev-parse", "HEAD");
+    process.env.GH_PR_HEAD_OID = merged;
+    writeFileSync(join(wt.path, "pushed-later.txt"), "later");
+    git(wt.path, "add", ".");
+    git(wt.path, "commit", "-qm", "pushed after merge");
+    git(wt.path, "push", "-q", "origin", "t/demo");
+    git(wt.path, "reset", "-q", "--hard", merged);
+    const moved = git(origin, "rev-parse", "refs/heads/t/demo");
+
+    const res = await status();
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("Branch t/demo: deleted locally, kept on origin");
+    expect(res.stdout).toContain(`origin kept t/demo: it moved to ${moved.slice(0, 12)}, past the commit that landed`);
+    expect(feature().stage).toBe("done");
+    expect(git(root, "branch", "--list", "t/demo")).toBe("");
+    expect(git(origin, "rev-parse", "refs/heads/t/demo")).toBe(moved);
+  });
+
+  it("a merged PR of another branch refuses the close before the hook; nothing is deleted", async () => {
+    await reviewItem();
+    process.env.GH_PR_HEAD_NAME = "t/other";
+    const wt = feature().meta!.worktree!;
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain(`PR ${PR} merged t/other, not the item branch t/demo`);
+    expect(feature().stage).toBe("review");
+    expect(existsSync(wt.path)).toBe(true);
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(onOrigin("t/demo")).toContain("t/demo");
+    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+  });
+
+  it("a forced close with no PR keeps a branch that carries commits", async () => {
+    await reviewItem("demo", { landing: "none", commits: 2 });
+    await writeReport("demo", "review-report", "PASS", "pr");
+    const tip = git(root, "rev-parse", "t/demo");
+
+    // landing: pr with no PR recorded fails the review gate; --force closes past it.
+    const res = await cmdArchive(args("archive", ["demo"], { force: true }), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().stage).toBe("done");
+    expect(res.stdout).toContain("Branch t/demo: kept locally, kept on origin");
+    expect(res.stdout).toContain("kept t/demo: 2 commits and no merged PR to prove they landed — never deleted, even with --force");
+    expect(git(root, "rev-parse", "t/demo")).toBe(tip);
+  });
+
+  it("counts landing: none commits against origin's default branch, not the primary's checkout", async () => {
+    await reviewItem("demo", { landing: "none", commits: 2 });
+    git(root, "checkout", "-q", "-b", "holder", "t/demo");
+
+    const res = await status();
+    expect(res.stdout).toContain("landing: none but the branch has 2 commits — open a PR or cancel");
+    expect(feature().stage).toBe("review");
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+  });
+
+  it("kf sync and kf archive leave an item with a live drive alone", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    const now = new Date().toISOString();
+    await writeFeatureMeta(feature().dir, {
+      ...readFeatureMeta(feature().dir)!,
+      drive: { id: "drv", status: "running", step: "review", loops: 0, runs: 1, configHash: "h", supervisorPid: process.pid, startedAt: now, updatedAt: now },
+    });
+
+    const synced = await cmdSync(args("sync"), root);
+    expect(synced.code, synced.stdout).toBe(0);
+    expect(synced.stdout).toContain("- demo: skipped (a drive is running)");
+    const archived = await cmdArchive(args("archive", ["demo"]), root);
+    expect(archived.code).toBe(1);
+    expect(archived.stdout).toContain("drive drv is live");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(wt.path)).toBe(true);
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(onOrigin("t/demo")).toContain("t/demo");
+    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+  });
+
+  it("a second close while one is running refuses before its hook", async () => {
+    await reviewItem();
+    const outcomes = await Promise.all([archiveItem(root, "demo"), archiveItem(root, "demo")]);
+    expect(outcomes.map((o) => o.kind).sort()).toEqual(["archived", "refused"]);
+    const refused = outcomes.find((o) => o.kind === "refused");
+    expect(refused?.kind === "refused" && refused.reason).toBe("close-in-progress");
+    expect(feature().stage).toBe("done");
+    expect(existsSync(join(root, ".works", ".locks", "demo.closing.lock"))).toBe(false);
+  });
+
   it("kf archive stays the explicit, idempotent form of the same close", async () => {
     await reviewItem();
     const first = await cmdArchive(args("archive", ["demo"]), root);
@@ -267,7 +391,7 @@ describe("auto-close on merge (FR-005, UC-003)", () => {
   });
 });
 
-describe("canonical docs when the primary checkout is behind origin (FR-005, TC-015, TC-032)", () => {
+describe("canonical docs when the primary checkout is behind origin", () => {
   it("commits the docs on docs/<context>-<feature> from origin, leaves the primary untouched, doctor flags it until pushed", async () => {
     await reviewItem();
     const base = git(root, "symbolic-ref", "--short", "HEAD");
@@ -308,7 +432,61 @@ describe("canonical docs when the primary checkout is behind origin (FR-005, TC-
   });
 });
 
-describe("kf status --all ends with Needs you, Waiting to merge and Running (FR-014, TC-029)", () => {
+describe("the canonical docs commit after the irreversible steps", () => {
+  /** Leave the primary 2 commits behind origin, so the docs go to a branch in a temp worktree. */
+  function putPrimaryBehind(): void {
+    const base = git(root, "symbolic-ref", "--short", "HEAD");
+    for (const n of [1, 2]) {
+      writeFileSync(join(root, `upstream-${n}.txt`), "x");
+      git(root, "add", ".");
+      git(root, "commit", "-qm", `upstream ${n}`);
+    }
+    git(root, "push", "-q", "origin", base);
+    git(root, "reset", "-q", "--hard", "HEAD~2");
+  }
+
+  it("does not run the repository's commit hooks", async () => {
+    await reviewItem();
+    putPrimaryBehind();
+    const hooks = join(scratch, "git-hooks");
+    await mkdir(hooks, { recursive: true });
+    await writeFile(join(hooks, "pre-commit"), "#!/bin/sh\necho 'lint needs node_modules' >&2\nexit 1\n", { mode: 0o755 });
+    git(root, "config", "core.hooksPath", hooks);
+
+    const res = await status();
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    expect(feature().stage).toBe("done");
+  });
+
+  it("a failing commit rolls back docs, move and metadata and says what was already removed", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    const originalMeta = readFileSync(join(feature().dir, ".kfw.json"), "utf8");
+    putPrimaryBehind();
+    // Signing with a program that always fails makes `git commit` fail even with --no-verify.
+    git(root, "config", "commit.gpgSign", "true");
+    git(root, "config", "gpg.program", "false");
+
+    const res = await status();
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("✗ demo: close failed: Archive failed for 'demo' (committing the canonical docs on docs/app-demo failed:");
+    expect(res.stdout).toContain(`feature restored to review (docs, move and metadata rolled back). Already removed and not restored: worktree ${wt.path}, branch t/demo (local), branch t/demo on origin. Fix the cause, then finish with: kf status --change demo`);
+    expect(feature().stage).toBe("review");
+    expect(readFileSync(join(feature().dir, ".kfw.json"), "utf8")).toBe(originalMeta);
+    expect(git(root, "branch", "--list", "docs/app-demo")).toBe("");
+    expect(git(root, "worktree", "list")).not.toContain("kf-docs-");
+    expect(git(root, "status", "--porcelain")).toBe("");
+
+    git(root, "config", "--unset", "commit.gpgSign");
+    const finished = await status();
+    expect(finished.code, finished.stdout).toBe(0);
+    expect(finished.stdout).toContain("✓ done demo");
+    expect(feature().stage).toBe("done");
+  });
+});
+
+describe("kf status --all ends with Needs you, Waiting to merge and Running", () => {
   async function seed(stage: string, name: string, meta: Record<string, unknown>): Promise<void> {
     const dir = join(root, ".works", stage, `${name}_20260101_0000`);
     await mkdir(dir, { recursive: true });

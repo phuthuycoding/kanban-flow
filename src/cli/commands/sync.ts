@@ -52,7 +52,9 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
         break;
       case "refused":
         // An unmerged or unverifiable PR is the normal state of a sweep, not a failure.
-        if (outcome.merge?.reason === "not-merged") {
+        if (outcome.reason === "drive-live") {
+          lines.push(`- ${f.name}: skipped (a drive is running)`);
+        } else if (outcome.merge?.reason === "not-merged") {
           lines.push(outcome.merge.state === "CLOSED"
             ? `⚠ ${f.name}: skipped — ${outcome.merge.pr} was closed without merging; reopen and merge it, or move the item back`
             : `- ${f.name}: skipped (PR ${outcome.merge.state.toLowerCase()})`);
@@ -68,7 +70,9 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
         lines.push(`✗ ${f.name}: ${outcome.stdout.split("\n")[0]}`);
         break;
       case "error":
-        throw outcome.error;
+        failed = true;
+        lines.push(`✗ ${f.name}: close failed: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`);
+        break;
     }
   }
   return { code: failed ? 1 : 0, stdout: lines.join("\n") };

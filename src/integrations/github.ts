@@ -26,34 +26,54 @@ export type MergeGateFailure =
   | { reason: "parse"; pr: string; output: string }
   | { reason: "not-merged"; pr: string; state: string };
 
+/** A recorded PR that is verifiably MERGED, with the head it merged — what a branch delete proves against. */
+export interface MergedPr {
+  pr: string;
+  headRefName: string;
+  headRefOid: string;
+}
+
+export type MergeGateResult =
+  | { kind: "no-pr" }
+  | ({ kind: "merged" } & MergedPr)
+  | { kind: "failed"; failure: MergeGateFailure };
+
 /**
  * The merge gate shared by `kf archive` and `kf sync`: a recorded PR must be verifiably
  * MERGED. Anything else — OPEN, CLOSED, a gh failure, a missing repository, unparseable
  * output — is unverifiable, and unverifiable is not merged: refuse before any side effect.
  * There is deliberately no --force escape (unlike the AC gate's force semantics).
- * Returns null when the gate passes or no PR is recorded.
+ * A merged PR comes back with its head branch and head commit: deleting the item branch is
+ * safe only for the commits that PR merged. A MERGED answer without them is a parse failure.
  */
 export function checkMergeGate(
   feature: { meta?: { pr?: string } | null },
   repo: string | undefined,
-): MergeGateFailure | null {
+): MergeGateResult {
   const pr = feature.meta?.pr;
-  if (!pr) return null;
-  if (!repo) return { reason: "no-repository", pr };
-  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state"]);
+  if (!pr) return { kind: "no-pr" };
+  if (!repo) return { kind: "failed", failure: { reason: "no-repository", pr } };
+  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName,headRefOid"]);
   if (!res.ok) {
     return {
-      reason: "unverifiable",
-      pr,
-      detail: res.missing ? "gh CLI not found — install it and run gh auth login." : res.stderr.trim() || res.stdout.trim(),
+      kind: "failed",
+      failure: {
+        reason: "unverifiable",
+        pr,
+        detail: res.missing ? "gh CLI not found — install it and run gh auth login." : res.stderr.trim() || res.stdout.trim(),
+      },
     };
   }
-  let state = "UNKNOWN";
+  let view: { state?: string; headRefName?: unknown; headRefOid?: unknown };
   try {
-    state = ((JSON.parse(res.stdout) as { state?: string }).state ?? "UNKNOWN").toUpperCase();
+    view = JSON.parse(res.stdout) as typeof view;
   } catch {
-    return { reason: "parse", pr, output: res.stdout.trim() };
+    return { kind: "failed", failure: { reason: "parse", pr, output: res.stdout.trim() } };
   }
-  if (state !== "MERGED") return { reason: "not-merged", pr, state };
-  return null;
+  const state = (view.state ?? "UNKNOWN").toUpperCase();
+  if (state !== "MERGED") return { kind: "failed", failure: { reason: "not-merged", pr, state } };
+  if (typeof view.headRefName !== "string" || !view.headRefName || typeof view.headRefOid !== "string" || !view.headRefOid) {
+    return { kind: "failed", failure: { reason: "parse", pr, output: res.stdout.trim() } };
+  }
+  return { kind: "merged", pr, headRefName: view.headRefName, headRefOid: view.headRefOid };
 }

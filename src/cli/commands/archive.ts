@@ -23,13 +23,18 @@ function worktreeNote(teardown: TeardownResult, path: string | null): string {
 }
 
 function branchNote(branch: BranchDeletion): string {
-  const local = branch.local.kind === "deleted" ? "deleted locally" : branch.local.kind === "absent" ? "already gone locally" : "NOT deleted locally";
+  const local = branch.local.kind === "deleted" ? "deleted locally" : branch.local.kind === "absent" ? "already gone locally"
+    : branch.local.kind === "kept" ? "kept locally" : "NOT deleted locally";
   const remote = branch.remote.kind === "deleted" ? ", deleted on origin"
     : branch.remote.kind === "absent" ? ", not on origin"
-    : branch.remote.kind === "no-remote" ? "" : ", NOT deleted on origin";
+    : branch.remote.kind === "no-remote" ? ""
+    : branch.remote.kind === "moved" || branch.remote.kind === "kept" ? ", kept on origin" : ", NOT deleted on origin";
   return `\n  Branch ${branch.branch}: ${local}${remote}` +
+    (branch.local.kind === "kept" ? `\n  ⚠ kept ${branch.branch}: ${branch.local.detail}` : "") +
     (branch.local.kind === "failed" ? `\n  ⚠ git branch -D ${branch.branch}: ${branch.local.detail}` : "") +
-    (branch.remote.kind === "refused" ? `\n  ⚠ origin kept ${branch.branch} (never forced): ${branch.remote.detail}` : "");
+    (branch.remote.kind === "refused" ? `\n  ⚠ origin kept ${branch.branch} (never forced): ${branch.remote.detail}` : "") +
+    (branch.remote.kind === "moved" ? `\n  ⚠ origin kept ${branch.branch}: it moved to ${branch.remote.sha.slice(0, 12)}, past the commit that landed` : "") +
+    (branch.remote.kind === "kept" && branch.local.kind !== "kept" ? `\n  ⚠ origin kept ${branch.branch}: ${branch.remote.detail}` : "");
 }
 
 /** Where the docs went, when that is not the plain working-tree sync `canonicalBlock` already prints. */
@@ -45,7 +50,8 @@ function docsBranchNote(outcome: Extract<ArchiveOutcome, { kind: "archived" }>):
 /** Worktree, branch and docs lines of a close, shared by kf archive, kf status and kf sync. */
 export function closeDetails(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
   const removed = outcome.teardown ? worktreeNote(outcome.teardown, outcome.worktreePath) : "";
-  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${docsBranchNote(outcome)}`;
+  const counted = outcome.countNote ? `\n  ⚠ ${outcome.countNote}` : "";
+  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${docsBranchNote(outcome)}`;
 }
 
 function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {

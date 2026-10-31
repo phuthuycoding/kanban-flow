@@ -229,22 +229,59 @@ export function assertWorktreeClean(root: string, feature: Feature, cfg: Worktre
 
 export interface BranchDeletion {
   branch: string;
-  local: { kind: "deleted" } | { kind: "absent" } | { kind: "failed"; detail: string };
-  remote: RemoteBranchDeletion;
+  local: { kind: "deleted" } | { kind: "absent" } | { kind: "kept"; detail: string } | { kind: "failed"; detail: string };
+  remote: RemoteBranchDeletion | { kind: "kept"; detail: string };
 }
 
 /**
- * Delete a closed item's branch locally, then on origin. Only for a branch whose work has
- * landed (merged PR, or nothing to land) and whose worktree is already gone. A failure on
- * either side is reported, never forced, and does not stop the other side.
+ * What proves the branch's commits landed: the head commit of the merged PR, or the tip the
+ * landing rule counted 0 commits ahead of its base. `none` (e.g. a forced close with nothing
+ * proven) keeps the branch on both sides.
  */
-export function deleteItemBranch(root: string, branch: string): BranchDeletion {
+export type LandedProof =
+  | { kind: "merged-head"; sha: string }
+  | { kind: "base-tip"; sha: string }
+  | { kind: "none"; detail: string };
+
+function localTip(root: string, branch: string): string | null {
+  const res = runGit(root, ["rev-parse", "-q", "--verify", `refs/heads/${branch}^{commit}`]);
+  return res.code === 0 ? res.stdout.trim() || null : null;
+}
+
+/** "N commits after the merged head", or why the tip cannot be placed relative to it. */
+function keptDetail(root: string, branch: string, proof: Exclude<LandedProof, { kind: "none" }>): string {
+  if (proof.kind === "base-tip") return `it moved since its commits were counted (tip was ${proof.sha.slice(0, 12)})`;
+  const ahead = runGit(root, ["rev-list", "--count", `${proof.sha}..refs/heads/${branch}`]);
+  return ahead.code === 0
+    ? `${Number(ahead.stdout.trim()) || 0} commits after the merged head`
+    : `its tip is not the merged head ${proof.sha.slice(0, 12)}`;
+}
+
+/**
+ * Delete a closed item's branch locally, then on origin — each side only while it still points
+ * at the commit `proof` names, so no commit that did not land is deleted. A branch that moved
+ * is kept and reported; a failure on either side is reported, never forced, and does not stop
+ * the other side. The worktree must already be gone.
+ */
+export function deleteItemBranch(root: string, branch: string, proof: LandedProof): BranchDeletion {
+  if (proof.kind === "none") {
+    return {
+      branch,
+      local: branchExists(root, branch) ? { kind: "kept", detail: proof.detail } : { kind: "absent" },
+      remote: { kind: "kept", detail: proof.detail },
+    };
+  }
   let local: BranchDeletion["local"] = { kind: "absent" };
-  if (branchExists(root, branch)) {
+  const tip = localTip(root, branch);
+  if (tip !== null && tip !== proof.sha) {
+    local = { kind: "kept", detail: keptDetail(root, branch, proof) };
+  } else if (tip !== null) {
+    // -D, not -d: a squash or rebase merge leaves the tip unreachable from the default branch,
+    // so -d would refuse a branch that did land. The tip check above is the proof -d lacks.
     const res = runGit(root, ["branch", "-D", branch]);
     local = res.code === 0 ? { kind: "deleted" } : { kind: "failed", detail: res.stderr.trim() || `git branch -D exited ${res.code}` };
   }
-  return { branch, local, remote: deleteRemoteBranch(root, "origin", branch) };
+  return { branch, local, remote: deleteRemoteBranch(root, "origin", branch, proof.sha) };
 }
 
 /**

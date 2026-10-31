@@ -29,7 +29,7 @@ case "$1" in
     if [ "$2" = view ]; then
       num="\${3##*/}"
       state=$(printenv "GH_PR_STATE_$num"); state="\${state:-\${GH_PR_STATE:-MERGED}}"
-      printf '{"state":"%s"}\\n' "$state"
+      printf '{"state":"%s","headRefName":"kf/stub","headRefOid":"0123456789abcdef0123456789abcdef01234567"}\\n' "$state"
     fi; exit 0 ;;
 esac
 exit 0
