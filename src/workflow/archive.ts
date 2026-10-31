@@ -135,14 +135,15 @@ const hookFailed = (hook: HookResult): ArchiveOutcome => ({
  * `origin/<default>` (the primary checkout may sit on any branch, even one holding these
  * commits); without origin/HEAD the primary's HEAD is the only base left, and the note says so.
  */
-function commitsAhead(root: string, branch: string): { count: number; tip: string; note: string | null } {
+function commitsAhead(root: string, branch: string): { count: number; tip: string; note: string | null; againstHead: boolean } {
   const tip = revParse(root, `refs/heads/${branch}`);
   if (!tip) throw new Error(`branch ${branch} has no commit to count`);
   const base = originDefaultRef(root);
-  if (base) return { count: countCommits(root, base, tip), tip, note: null };
+  if (base) return { count: countCommits(root, base, tip), tip, note: null, againstHead: false };
   return {
     count: countCommits(root, "HEAD", tip),
     tip,
+    againstHead: true,
     note: "commits counted against the checkout's HEAD: origin/HEAD is not set, so the default branch is unknown (set it: git remote set-head origin -a)",
   };
 }
@@ -316,13 +317,15 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   // 0 commits ahead does; a forced close never makes up for that — it keeps the branch.
   const proof: LandedProof = merge.kind === "merged"
     ? { kind: "merged-head", sha: merge.headRefOid }
-    : ahead && landing === "none" && ahead.count === 0
+    : ahead && landing === "none" && ahead.count === 0 && !ahead.againstHead
       ? { kind: "base-tip", sha: ahead.tip }
       : {
           kind: "none",
           detail: ahead && ahead.count > 0
             ? `${ahead.count} commits and no merged PR to prove they landed — never deleted, even with --force`
-            : "no merged PR and no landing: none on a branch with 0 commits to prove its work landed",
+            : ahead?.againstHead
+              ? `0 commits ahead of the checkout's HEAD is no proof they landed: origin/HEAD is not set, so the default branch is unknown`
+              : "no merged PR and no landing: none on a branch with 0 commits to prove its work landed",
         };
 
   const force = Boolean(opts.force);

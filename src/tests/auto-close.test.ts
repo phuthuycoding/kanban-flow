@@ -14,6 +14,8 @@ import { cmdArchive } from "../cli/commands/archive.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdSync } from "../cli/commands/sync.js";
 import { archiveItem } from "../workflow/archive.js";
+import { deleteRemoteBranch } from "../shared/git.js";
+import { deleteItemBranch } from "../worktree/lifecycle.js";
 import { runDoctor } from "../project/doctor.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -332,7 +334,7 @@ describe("auto-close on merge", () => {
     const res = await cmdArchive(args("archive", ["demo"], { force: true }), root);
     expect(res.code, res.stdout).toBe(0);
     expect(feature().stage).toBe("done");
-    expect(res.stdout).toContain("Branch t/demo: kept locally, kept on origin");
+    expect(res.stdout).toContain("Branch t/demo: kept locally, not on origin");
     expect(res.stdout).toContain("kept t/demo: 2 commits and no merged PR to prove they landed — never deleted, even with --force");
     expect(git(root, "rev-parse", "t/demo")).toBe(tip);
   });
@@ -346,6 +348,44 @@ describe("auto-close on merge", () => {
     expect(feature().stage).toBe("review");
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+  });
+
+  it("keeps the branch locally and on origin when origin/HEAD is unset, even at 0 commits ahead of the checkout's HEAD", async () => {
+    await reviewItem("demo", { landing: "none", commits: 2 });
+    git(root, "push", "-q", "origin", "t/demo");
+    git(root, "checkout", "-q", "-b", "holder", "t/demo");
+    git(root, "remote", "set-head", "origin", "-d");
+
+    const res = await status();
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().stage).toBe("done");
+    expect(res.stdout).toContain("Branch t/demo: kept locally, kept on origin");
+    expect(res.stdout).toContain("origin/HEAD is not set");
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(onOrigin("t/demo")).toContain("t/demo");
+  });
+
+  it("a stale lease makes the remote refuse the branch delete and leaves the branch on origin", () => {
+    git(root, "push", "-q", "origin", "HEAD:refs/heads/t/lease");
+    const stale = git(origin, "rev-parse", "refs/heads/t/lease");
+    git(root, "commit", "-q", "--allow-empty", "-m", "moved after the check");
+    git(root, "push", "-q", "origin", "HEAD:refs/heads/t/lease");
+
+    expect(() => git(root, "push", "--quiet", `--force-with-lease=refs/heads/t/lease:${stale}`, "origin", "--delete", "t/lease")).toThrow();
+    expect(onOrigin("t/lease")).toContain("t/lease");
+    expect(deleteRemoteBranch(root, "origin", "t/lease", stale)).toEqual({ kind: "moved", sha: git(origin, "rev-parse", "refs/heads/t/lease") });
+    expect(onOrigin("t/lease")).toContain("t/lease");
+  });
+
+  it("a branch behind the merged head is reported as safe to delete by hand", async () => {
+    await reviewItem("demo");
+    const behind = git(root, "rev-parse", "t/demo~1");
+    process.env.GH_PR_HEAD_OID = git(root, "rev-parse", "t/demo");
+    git(root, "branch", "t/behind", behind);
+    expect(deleteItemBranch(root, "t/behind", { kind: "merged-head", sha: process.env.GH_PR_HEAD_OID }).local).toEqual({
+      kind: "kept",
+      detail: "it is behind the merged head, so deleting it by hand is safe",
+    });
   });
 
   it("kf sync and kf archive leave an item with a live drive alone", async () => {

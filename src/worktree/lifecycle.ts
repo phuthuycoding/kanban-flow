@@ -15,7 +15,7 @@ import {
   worktreeDirty,
 } from "./manager.js";
 import { addRoute, removeRoute, readRoutes } from "./routes.js";
-import { deleteRemoteBranch, runGit, type RemoteBranchDeletion } from "../shared/git.js";
+import { deleteRemoteBranch, hasRemote, runGit, type RemoteBranchDeletion } from "../shared/git.js";
 import { assertTaskWorktreesClean, removeTaskWorktrees } from "./tasks.js";
 import { worktreeDir, worktreeDomain, worktreeBranch, type WorktreeConfig } from "./config.js";
 
@@ -248,13 +248,26 @@ function localTip(root: string, branch: string): string | null {
   return res.code === 0 ? res.stdout.trim() || null : null;
 }
 
+function commitsPastHead(count: number): string {
+  return count === 0 ? "it is behind the merged head, so deleting it by hand is safe" : `${count} commits after the merged head`;
+}
+
 /** "N commits after the merged head", or why the tip cannot be placed relative to it. */
 function keptDetail(root: string, branch: string, proof: Exclude<LandedProof, { kind: "none" }>): string {
   if (proof.kind === "base-tip") return `it moved since its commits were counted (tip was ${proof.sha.slice(0, 12)})`;
   const ahead = runGit(root, ["rev-list", "--count", `${proof.sha}..refs/heads/${branch}`]);
   return ahead.code === 0
-    ? `${Number(ahead.stdout.trim()) || 0} commits after the merged head`
+    ? commitsPastHead(Number(ahead.stdout.trim()) || 0)
     : `its tip is not the merged head ${proof.sha.slice(0, 12)}`;
+}
+
+/** A branch kept without proof is "kept" on origin only when it is there; a read-only probe says so. */
+function keptRemote(root: string, branch: string, detail: string): BranchDeletion["remote"] {
+  if (!hasRemote(root, "origin")) return { kind: "no-remote" };
+  const probe = runGit(root, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
+  // --exit-code: 2 means the ref is not there.
+  if (probe.code === 2) return { kind: "absent" };
+  return { kind: "kept", detail: probe.code === 0 ? detail : `${detail} (origin could not be probed: ${probe.stderr.trim() || `git ls-remote exited ${probe.code}`})` };
 }
 
 /**
@@ -268,7 +281,7 @@ export function deleteItemBranch(root: string, branch: string, proof: LandedProo
     return {
       branch,
       local: branchExists(root, branch) ? { kind: "kept", detail: proof.detail } : { kind: "absent" },
-      remote: { kind: "kept", detail: proof.detail },
+      remote: keptRemote(root, branch, proof.detail),
     };
   }
   let local: BranchDeletion["local"] = { kind: "absent" };
