@@ -44,7 +44,7 @@ async function reviewReady(): Promise<void> {
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 1 passed |\n";
   const report = (id: "testing-result" | "review-report") =>
     writeFile(join(p.itemDir(), ARTIFACTS[id].file),
-      `---\nstatus: PASS\nexecution: ${p.feature().meta?.executionId}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+      `---\nstatus: PASS\nexecution: ${p.feature().meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
   expect((await cmdStage(args("stage", ["demo", "review"]), p.root)).code).toBe(0);
   await report("review-report");

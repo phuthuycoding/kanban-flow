@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { ARTIFACTS, STAGE_INDEX, type ArtifactId } from "./schema.js";
+import { ARTIFACTS, STAGE_INDEX, REVIEW_LANDING_VALUES, type ArtifactId } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
@@ -84,6 +84,30 @@ export function checkTestingResult(feature: Feature): Finding[] {
   return issues;
 }
 
+/**
+ * Delivery half of a PASS review report: CI is not red, and the code either lands through a
+ * recorded PR (`landing: pr` + `meta.pr`) or there is nothing to land (`landing: none`).
+ * Empty for any status other than PASS. Shared by `kf validate` and the review → done gate.
+ */
+export function checkReviewDelivery(feature: Feature, fm: Record<string, string>): Finding[] {
+  if (fm.status !== "PASS") return [];
+  const issues: Finding[] = [];
+  const file = ARTIFACTS["review-report"].file;
+  if (fm.ci === "red") {
+    issues.push(finding(feature, "ERROR", file, "review_ci_red",
+      "PASS with ci: red — a red CI run cannot pass review; write FAIL and return to implementation."));
+  }
+  const landing = fm.landing ?? "";
+  if (!(REVIEW_LANDING_VALUES as readonly string[]).includes(landing)) {
+    issues.push(finding(feature, "ERROR", file, "review_landing_missing",
+      `PASS needs landing: pr or landing: none in the frontmatter (found "${landing}").`));
+  } else if (landing === "pr" && !feature.meta?.pr) {
+    issues.push(finding(feature, "ERROR", file, "review_pr_missing",
+      `PASS with landing: pr but no PR is recorded — record it with kf issues link ${feature.name} <url> --pr.`));
+  }
+  return issues;
+}
+
 /** review-report semantics: PASS allows archive; FAIL/REJECT loops back; REQUIREMENT_BUG stops the feature. */
 export function checkReviewReport(feature: Feature): Finding[] {
   const issues: Finding[] = [];
@@ -102,6 +126,9 @@ export function checkReviewReport(feature: Feature): Finding[] {
   if (feature.stage === "done" && status !== "PASS") {
     issues.push(finding(feature, "ERROR", file, "review_not_pass", "Only a current PASS review report may enter done."));
   }
+  // Only while in review: items archived before `ci:`/`landing:` existed carry reports without
+  // them, and the review → done gate (checkDirectionGate) enforces the same rule at close.
+  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm));
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
       `Review ${status.toUpperCase()}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));

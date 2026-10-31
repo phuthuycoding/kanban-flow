@@ -66,7 +66,7 @@ const feature = (name = "shipit") => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report", status = "PASS"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: ${status}\nexecution: ${execution}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** Drive a feature work item to a review-stage PASS state, ready to archive. */

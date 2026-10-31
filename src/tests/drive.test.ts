@@ -44,7 +44,7 @@ function reportScript(root: string, stage: "testing" | "review", statuses: strin
     "arr=(" + statuses.join(" ") + "); i=$((n-1)); [ $i -ge ${#arr[@]} ] && i=$((${#arr[@]}-1)); s=${arr[$i]}",
     "d=$(ls -d '" + root + "/.works/" + stage + "'/demo_*)",
     "id=$(sed -n 's/.*\"executionId\": *\"\\([^\"]*\\)\".*/\\1/p' \"$d/.kfw.json\")",
-    "printf -- '---\\nstatus: %s\\nexecution: %s\\n---\\n# Evidence\\nVerified.\\n" + (stage === "testing" ? EVIDENCE : "") + "' \"$s\" \"$id\" > \"$d/" + file + "\"",
+    "printf -- '---\\nstatus: %s\\nexecution: %s\\n" + (stage === "review" ? "ci: none\\nlanding: none\\n" : "") + "---\\n# Evidence\\nVerified.\\n" + (stage === "testing" ? EVIDENCE : "") + "' \"$s\" \"$id\" > \"$d/" + file + "\"",
   ].join("\n");
 }
 

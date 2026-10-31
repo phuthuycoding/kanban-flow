@@ -71,7 +71,7 @@ async function archivedItem(name: string): Promise<void> {
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
   const report = async (id: "testing-result" | "review-report") =>
     writeFile(join(dir(), ARTIFACTS[id].file),
-      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report("review-report");

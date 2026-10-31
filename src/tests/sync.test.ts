@@ -42,7 +42,7 @@ const feature = (name: string) => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** A bug work item driven to a review-stage PASS state — archive-ready when merged. */

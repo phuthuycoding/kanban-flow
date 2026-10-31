@@ -5,6 +5,7 @@ import { ARTIFACTS, type Stage } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
+import { checkReviewDelivery } from "./validate-reports.js";
 import type { Feature } from "./features.js";
 
 /**
@@ -49,13 +50,17 @@ export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
     }
   }
 
-  // review → done requires PASS; REQUIREMENT_BUG stops the feature entirely.
+  // review → done requires PASS with CI not red and a landing (recorded PR, or nothing to land);
+  // REQUIREMENT_BUG stops the feature entirely.
   if (feature.stage === "review") {
     const file = ARTIFACTS["review-report"].file;
     const status = read(file);
     if (to === "done" && status !== "PASS") {
       issues.push(finding(feature, "ERROR", file, "review_not_pass",
         `review-report status is ${status ?? "missing"}; only PASS may enter ${to} (FAIL/REJECT loop to implementation)`));
+    }
+    if (to === "done" && status === "PASS") {
+      issues.push(...checkReviewDelivery(feature, splitFrontmatter(readFileSync(join(feature.dir, file), "utf8")).fm));
     }
     if (status === "REQUIREMENT_BUG") {
       issues.push(finding(feature, "ERROR", file, "requirement_bug_stop",

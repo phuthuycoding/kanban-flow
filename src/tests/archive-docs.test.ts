@@ -47,7 +47,7 @@ const docs = {
 };
 
 async function report(id: "testing-result" | "review-report"): Promise<void> {
-  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function archived(uc = ucFile, beforeArchive?: () => void): Promise<void> {
