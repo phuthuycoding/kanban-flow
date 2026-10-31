@@ -157,10 +157,10 @@ describe("cmdStage output is byte-identical to the pre-refactor CLI", () => {
     await fixture(confirmed);
     const shipping = await cmdStage(stageArgs(["demo", "shipping"]), root);
     expect(shipping.code).toBe(1);
-    expect(shipping.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status closes the item");
+    expect(shipping.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status --change demo closes the item");
     const dones = await cmdStage(stageArgs(["demo", "dones"]), root);
     expect(dones.code).toBe(1);
-    expect(dones.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status, kf sync or kf archive");
+    expect(dones.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status --change demo, kf sync or kf archive");
   });
 
   it("rename failure is re-thrown with the original error", async () => {

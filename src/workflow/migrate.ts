@@ -138,7 +138,7 @@ export async function migrateLegacyStages(root: string): Promise<MigrationResult
         if (!item) continue;
         const dirty = dirtyWorktree(item.meta);
         if (dirty) {
-          lines.push(`⚠ ${item.folder} left in ${rel(legacy)}: worktree has uncommitted changes (${dirty}) — commit or discard them, then re-run kf status`);
+          lines.push(`⚠ ${item.folder} left in ${rel(legacy)}: worktree has uncommitted changes (${dirty}) — commit or discard them, then re-run kf status --change ${item.name}`);
           continue;
         }
         const res = await migrate(item);

@@ -7,9 +7,9 @@ import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
 /** The stages of earlier releases, each answered with where that work went instead of "unknown stage". */
-const LEGACY_STAGE_HINTS: Record<LegacyStageName, string> = {
-  shipping: "shipping is gone: open the PR at review, merge on GitHub, kf status closes the item",
-  dones: "the stage is now done: a review PASS item closes on merge via kf status, kf sync or kf archive",
+const LEGACY_STAGE_HINTS: Record<LegacyStageName, (feature: string) => string> = {
+  shipping: (feature) => `shipping is gone: open the PR at review, merge on GitHub, kf status --change ${feature} closes the item`,
+  dones: (feature) => `the stage is now done: a review PASS item closes on merge via kf status --change ${feature}, kf sync or kf archive`,
 };
 
 export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -22,7 +22,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     };
   }
   if (Object.hasOwn(LEGACY_STAGE_HINTS, toRaw)) {
-    return { code: 1, stdout: LEGACY_STAGE_HINTS[toRaw as LegacyStageName], stderr: "legacy stage" };
+    return { code: 1, stdout: LEGACY_STAGE_HINTS[toRaw as LegacyStageName](name), stderr: "legacy stage" };
   }
   const to = toRaw as Stage;
   if (!STAGES.includes(to)) {

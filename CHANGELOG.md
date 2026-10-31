@@ -23,7 +23,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - Releases to npm are manual: `gh release create v<version>` triggers `release.yml`. kf no longer creates releases or changelog entries.
 
 ### Removed
-- **Breaking: `kf ship` and the shipping pipeline.** `kf ship` is a deprecated alias that exits 1 (`kf ship is deprecated: review opens the PR; merge on GitHub; kf status closes the item`), `src/ship` is deleted, and a leftover `ship` block in `.kf/config.json` is ignored with a `kf doctor` warning. `kf feature ship` / `kf bug ship` stay as the same deprecated verb.
+- **Breaking: `kf ship` and the shipping pipeline.** `kf ship` is a deprecated alias that exits 1 (`kf ship is deprecated: review opens the PR; merge on GitHub; kf status --change <feature> closes the item`), `src/ship` is deleted, and a leftover `ship` block in `.kf/config.json` is ignored with a `kf doctor` warning. `kf feature ship` / `kf bug ship` stay as the same deprecated verb.
 
 ## [0.13.0] - 2026-10-28
 

@@ -159,7 +159,7 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     const res = await cmdStatus(statusAll(), root);
     expect(res.code).toBe(0);
     expect(migrationLines(res.stdout)).toEqual([
-      `⚠ dirty_${TS} left in .works/shipping: worktree has uncommitted changes (${wt}) — commit or discard them, then re-run kf status`,
+      `⚠ dirty_${TS} left in .works/shipping: worktree has uncommitted changes (${wt}) — commit or discard them, then re-run kf status --change dirty`,
     ]);
     expect(folders("shipping")).toEqual([`dirty_${TS}`]);
     expect(folders("review")).toEqual([]);

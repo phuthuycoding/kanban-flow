@@ -196,7 +196,7 @@ A `PASS` with `landing: pr`, after the report: `references/ci-watch.md` Step 3 r
 
 ## 11. The directional gate decides
 
-- `PASS` → **Next: merge the PR on GitHub** — print its URL and the step 10b line; the human merges, never you. After the merge, `kf status` (or `kf sync`) closes the item to `done`: done hook, worktree and branch removed, canonical docs synced. A `landing: none` item closes on the next `kf status`. Ask nothing about closing.
+- `PASS` → **Next: merge the PR on GitHub** — print its URL and the step 10b line; the human merges, never you. After the merge, `kf status --change {feature_name}` (or `kf sync`) closes the item to `done`: done hook, worktree and branch removed, canonical docs synced. A `landing: none` item closes on the next `kf status --change {feature_name}`. Ask nothing about closing.
 - `FAIL`/`REJECT` (reviewer or red CI) → **structural fix needed**: loop back, re-implement through `kanban-implement` with the kept findings as the repair brief, then the feature must be **re-tested before review again** (kanban-test, new execution id). The orchestrator never fixes findings itself.
 
 ```bash
@@ -221,7 +221,7 @@ kf stage {feature_name} implementation
 A decisive report written from verified findings. Hand off:
 
 ```text
-If PASS: hand the human the PR URL and its mergeability line to merge on GitHub; kf status closes the item after the merge (landing: none closes on the next kf status).
+If PASS: hand the human the PR URL and its mergeability line to merge on GitHub; kf status --change {feature_name} closes the item after the merge (landing: none closes on the next kf status --change {feature_name}).
 If FAIL/REJECT (reviewer or red CI): load kanban-implement with the kept findings or the CI failure (then kanban-test before returning here; the next push updates the same PR).
 If REQUIREMENT_BUG: stop and report to the user.
 ```

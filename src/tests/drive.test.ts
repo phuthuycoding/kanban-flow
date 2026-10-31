@@ -73,8 +73,8 @@ const editConfig = (pr: GitDriveProject, fn: (cfg: Record<string, any>) => void)
   writeFileSync(file, JSON.stringify(cfg, null, 2));
 };
 
-describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
-  it("refuses a backlog item, naming the start command, and a changed approval naming kf approve (TC-013)", async () => {
+describe("kf drive preconditions", () => {
+  it("refuses a backlog item, naming the start command, and a changed approval naming kf approve", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }], { implementation: false });
     const backlog = await cmdDrive(args(["demo"]), pr.root);
     expect(backlog.code).toBe(1);
@@ -99,7 +99,7 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
     expect(pr.readMeta()!.drive).toBeUndefined();
   });
 
-  it("refuses after the approved plan is edited (TC-004)", async () => {
+  it("refuses after the approved plan is edited", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }]);
     await pr.writePlan([{ id: "TASK-001", role: "tester", files: ["a.txt"] }]);
     const res = await cmdDrive(args(["demo"]), pr.root);
@@ -107,7 +107,7 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
     expect(res.stdout).toContain("kf approve demo");
   });
 
-  it("refuses without worktrees or without verify.stage, writing nothing (TC-010, TC-029 A)", async () => {
+  it("refuses without worktrees or without verify.stage, writing nothing", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }]);
     editConfig(pr, (c) => { c.worktree.enabled = false; });
     const off = await cmdDrive(args(["demo"]), pr.root);
@@ -122,8 +122,8 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
   });
 });
 
-describe("kf drive to review PASS (TC-014, TC-015, TC-012)", () => {
-  it("runs the DAG, testing and review, and stops ready without shipping (TC-014)", async () => {
+describe("kf drive to review PASS", () => {
+  it("runs the DAG, testing and review, and stops ready without shipping", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -154,7 +154,7 @@ describe("kf drive to review PASS (TC-014, TC-015, TC-012)", () => {
     expect(tasksMd).toMatch(/- \[x\] TASK-002/);
   });
 
-  it("drives a bug with one implementation run and no task records (TC-015)", async () => {
+  it("drives a bug with one implementation run and no task records", async () => {
     const pr = await project([], { kind: "bug" });
     reports(pr);
     const out = await drive(pr);
@@ -164,7 +164,7 @@ describe("kf drive to review PASS (TC-014, TC-015, TC-012)", () => {
     expect(runs.some((r) => r.task)).toBe(false);
   });
 
-  it("never runs more than `parallel` workers and never overlaps tasks sharing files (TC-012)", async () => {
+  it("never runs more than `parallel` workers and never overlaps tasks sharing files", async () => {
     // TASK-005 shares src/f1.txt with TASK-001; each task also writes its own marker, declared so the allowlist passes.
     const tasks: DriveTask[] = ["1", "2", "3", "4"].map((n) => ({ id: `TASK-00${n}`, files: [`src/f${n}.txt`, `src/TASK-00${n}.done`] }));
     tasks.push({ id: "TASK-005", files: ["src/f1.txt", "src/TASK-005.done"] });
@@ -194,8 +194,8 @@ describe("kf drive to review PASS (TC-014, TC-015, TC-012)", () => {
   });
 });
 
-describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () => {
-  it("stops plan_change_needed on an allowlist violation; the running task still merges (TC-017)", async () => {
+describe("kf drive stops", () => {
+  it("stops plan_change_needed on an allowlist violation; the running task still merges", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", files: ["src/b.txt"] },
@@ -217,7 +217,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(pr.feature().stage).toBe("implementation");
   });
 
-  it("retries a failed verify once in the same session, then blocks and stops tasks_blocked (TC-018)", async () => {
+  it("retries a failed verify once in the same session, then blocks and stops tasks_blocked", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -236,7 +236,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(existsSync(join(pr.worktreePath()!, "src/a.txt"))).toBe(false);
   });
 
-  it("runs a repair loop after FAIL and passes; loops REJECT back through testing (TC-021)", async () => {
+  it("runs a repair loop after FAIL and passes; loops REJECT back through testing", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }]);
     pr.cli.scenario("claude", { write: { "src/a.txt": "a" } }, "TASK-001");
     reports(pr, ["FAIL", "PASS", "PASS"], ["REJECT", "PASS"]);
@@ -250,7 +250,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(repairPrompts.some((a) => a.includes("phase-5-review-report.md"))).toBe(true);
   });
 
-  it("stops loop_limit when testing keeps failing (TC-021)", async () => {
+  it("stops loop_limit when testing keeps failing", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { maxLoops: 1 } });
     pr.cli.scenario("claude", { write: { "src/a.txt": "a" } }, "TASK-001");
     reports(pr, ["FAIL"]);
@@ -259,7 +259,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(out.loops).toBe(1);
   });
 
-  it("stops on the run budget (TC-022)", async () => {
+  it("stops on the run budget", async () => {
     const tasks: DriveTask[] = ["1", "2", "3"].map((n) => ({ id: `TASK-00${n}`, files: [`src/f${n}.txt`] }));
     const pr = await project(tasks, { limits: { parallel: 1, budget: { maxRuns: 2 } } });
     const out = await drive(pr);
@@ -268,7 +268,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(pr.calls("claude").filter((c) => c.task)).toHaveLength(2);
   });
 
-  it("stops config_changed when a worker edits harness.verify, and worker_blocked on BLOCKED (TC-023)", async () => {
+  it("stops config_changed when a worker edits harness.verify, and worker_blocked on BLOCKED", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -284,7 +284,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("primary");
   });
 
-  it("stops worker_blocked without retrying a BLOCKED task (TC-023)", async () => {
+  it("stops worker_blocked without retrying a BLOCKED task", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { retries: 2 } });
     pr.cli.scenario("claude", { stdout: "STATUS: BLOCKED\nSummary: needs a decision on the schema" }, "TASK-001");
     const out = await drive(pr);
@@ -293,7 +293,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(taskCalls(pr, "TASK-001")).toHaveLength(1);
   });
 
-  it("names every stop, never bypasses a gate (TC-034)", async () => {
+  it("names every stop, never bypasses a gate", async () => {
     const seen: { force?: boolean; skipHooks?: boolean }[] = [];
     const spy: Transition = (root, name, to, opts) => {
       seen.push({ force: opts.force, skipHooks: opts.skipHooks });
@@ -336,7 +336,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
   });
 });
 
-describe("drive-stop hook (TC-030)", () => {
+describe("drive-stop hook", () => {
   const hook = (pr: GitDriveProject, exit = 0) => {
     mkdirSync(join(pr.root, ".kf", "hooks"), { recursive: true });
     const out = join(pr.scratch, "hook-env.txt");
@@ -373,7 +373,7 @@ describe("drive-stop hook (TC-030)", () => {
   });
 });
 
-describe("detached drive (TC-024, TC-025)", () => {
+describe("detached drive", () => {
   const status = async (pr: GitDriveProject) => JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
   const until = async (pr: GitDriveProject, ok: (s: any) => boolean, ms = 60_000) => {
     const end = Date.now() + ms;
@@ -385,7 +385,7 @@ describe("detached drive (TC-024, TC-025)", () => {
     }
   };
 
-  it("one of two concurrent drives starts; --stop ends it and keeps worktrees (TC-025)", async () => {
+  it("one of two concurrent drives starts; --stop ends it and keeps worktrees", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }]);
     pr.cli.scenario("claude", { sleep: 20 }, "TASK-001");
     const [a, b] = await Promise.all([cmdDrive(args(["demo"]), pr.root), cmdDrive(args(["demo"]), pr.root)]);
@@ -401,7 +401,7 @@ describe("detached drive (TC-024, TC-025)", () => {
     expect(pr.git(pr.root, "worktree", "list")).toContain("demo.tasks/task-001");
   });
 
-  it("reports a killed supervisor as crashed and resumes without re-running done tasks (TC-024)", async () => {
+  it("reports a killed supervisor as crashed and resumes without re-running done tasks", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -425,7 +425,7 @@ describe("detached drive (TC-024, TC-025)", () => {
     expect(taskCalls(pr, "TASK-001")).toHaveLength(1);
   });
 
-  it("resumes after a crash mid-merge: aborts the half merge, merges again, does not re-run the task (TC-025)", async () => {
+  it("resumes after a crash mid-merge: aborts the half merge, merges again, does not re-run the task", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },

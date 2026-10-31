@@ -260,7 +260,7 @@ function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfi
     findings.push({
       level: "WARNING",
       area: ".kf/config.json",
-      message: "The ship block is ignored: kf ship is deprecated (review opens the PR; merge on GitHub; kf status closes the item).",
+      message: "The ship block is ignored: kf ship is deprecated (review opens the PR; merge on GitHub; kf status --change <feature> closes the item).",
       action: 'remove the "ship" block from .kf/config.json',
     });
   }

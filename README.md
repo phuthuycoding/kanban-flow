@@ -141,7 +141,7 @@ kf stage user-login review          # refused unless that report says PASS
 # an independent code-reviewer writes the review report (ci: green|none, landing: pr|none)
 # PASS → push the branch, open the PR, watch CI
 # decision three: merge the PR on GitHub
-kf status                           # sees the merged PR; closes the item, removes branch + worktree
+kf status --change user-login       # sees the merged PR; closes the item, removes branch + worktree
 ```
 
 ## What is actually different

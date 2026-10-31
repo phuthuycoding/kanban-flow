@@ -122,7 +122,7 @@ describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
     const meta = readFileSync(join(feature().dir, ".kfw.json"));
     const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
     expect(res.code).toBe(1);
-    expect(res.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status closes the item");
+    expect(res.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status --change demo closes the item");
     expect(feature().stage).toBe("review");
     expect(existsSync(join(root, ".works", "shipping"))).toBe(false);
     expect(readFileSync(join(feature().dir, ".kfw.json")).equals(meta)).toBe(true);
@@ -134,7 +134,7 @@ describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
     const meta = readFileSync(join(feature().dir, ".kfw.json"));
     const res = await cmdStage(args("stage", ["demo", "dones"]), root);
     expect(res.code).toBe(1);
-    expect(res.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status, kf sync or kf archive");
+    expect(res.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status --change demo, kf sync or kf archive");
     expect(feature().stage).toBe("review");
     expect(existsSync(join(root, ".works", "dones"))).toBe(false);
     expect(readFileSync(join(feature().dir, ".kfw.json")).equals(meta)).toBe(true);
@@ -182,7 +182,8 @@ describe("a leftover ship config block is tolerated (TC-004)", () => {
 });
 
 describe("kf ship is a deprecated alias (TC-018)", () => {
-  const DEPRECATED = "kf ship is deprecated: review opens the PR; merge on GitHub; kf status closes the item";
+  const DEPRECATED = (feature: string) =>
+    `kf ship is deprecated: review opens the PR; merge on GitHub; kf status --change ${feature} closes the item`;
 
   it("exits 1 with the pointer for both spellings and old flags, and writes nothing", async () => {
     await writeCfg({ enabled: true, merge: "auto", release: true, changelog: true });
@@ -197,17 +198,17 @@ describe("kf ship is a deprecated alias (TC-018)", () => {
     const metaBefore = readFileSync(metaFile, "utf8");
     const configBefore = readFileSync(join(root, ".kf", "config.json"), "utf8");
 
-    const invocations = [
-      parseArgsCli(["ship", "demo"]),
-      parseArgsCli(["feature", "ship", "demo"]),
-      parseArgsCli(["ship", "demo", "--draft", "--skip-release", "--skip-changelog"]),
-      parseArgsCli(["ship"]),
+    const invocations: [ReturnType<typeof parseArgsCli>, string][] = [
+      [parseArgsCli(["ship", "demo"]), "demo"],
+      [parseArgsCli(["feature", "ship", "demo"]), "demo"],
+      [parseArgsCli(["ship", "demo", "--draft", "--skip-release", "--skip-changelog"]), "demo"],
+      [parseArgsCli(["ship"]), "<feature>"],
     ];
-    for (const parsed of invocations) {
+    for (const [parsed, name] of invocations) {
       expect(parsed.command).toBe("ship");
       const res = await cmdShip(parsed, root);
       expect(res.code).toBe(1);
-      expect(res.stdout).toBe(DEPRECATED);
+      expect(res.stdout).toBe(DEPRECATED(name));
     }
 
     expect(ghLog()).toBe("");
