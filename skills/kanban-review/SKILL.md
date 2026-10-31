@@ -9,7 +9,7 @@ Argument: `<feature_name>`.
 
 Stand on quality, not survivor. The orchestrator produces **facts** and a **pack**; an independent reviewer that did not write the code produces the **findings**; the report's `status:` is the truth `kf` trusts. The orchestrator never writes a finding of its own except the mechanical ones in step 2 — an orchestrator grading the work it supervised is the failure this split exists to remove.
 
-**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, commit only the docs reconcile of step 7a, push and open the PR only as step 8 says, never merge, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. The reviewer dispatch below still applies to you: a worker reviews through `code-reviewer`, not by reading the diff itself.
+**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, commit only the docs reconcile of step 2b, push and open the PR only as step 8 says, never merge, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. The reviewer dispatch below still applies to you: a worker reviews through `code-reviewer`, not by reading the diff itself.
 
 **Every step leaves a named line.** `Agent(code-reviewer)` in the transcript is auditable; "I reviewed the diff" is not. A missing line is a skipped step.
 
@@ -27,7 +27,7 @@ Read `kf status --change {feature_name} --json`: the current `executionId`, `kin
 
 Create the run folder: `<item>/reviews/<executionId>/`. Every file this review produces goes there; a re-review after a repair loop gets a new execution id and a new folder, so old evidence is never mistaken for current. **A `kf run` worker** writes its start time there first (`date +%s > <item>/reviews/<id>/started-at`, overwritten by every new run — each run has its own timeout): the CI watch budgets against it (`references/ci-watch.md`, Step 2).
 
-**Re-run on the same execution after a CI watch stopped without a result** (no current report, the folder holds a board whose fingerprint equals `fp` now and that HEAD is pushed): resume at step 9 on that sha — the review and the board are still current.
+**Re-run on the same execution after a CI watch stopped without a result** (no current report, the folder holds a board whose fingerprint equals `fp` now and that HEAD is pushed): resume at step 9 on that sha — the review, the board and `docs-reconciled.md` (step 2b) are still current; step 10 reads the docs result from that file.
 
 ## 2. Establish the facts — mechanical, before any reviewer
 
@@ -48,9 +48,17 @@ printf '%s\n' "$ADDED_LINES" | grep -nE '\.only\(|fdescribe\(|fit\('         # f
 printf '%s\n' "$ADDED_LINES" | grep -nE '(^|[^A-Za-z_])debugger([^A-Za-z_]|$)'
 ```
 
-A failing build, lint or suite, or a conflict marker, **short-circuits**: write the report with those findings, `status: FAIL`, and skip the reviewer dispatch — no model budget on a tree that does not build.
+A failing build, lint or suite, or a conflict marker, **short-circuits**: write the report with those findings, `status: FAIL`, and skip steps 2b–9 — no model budget on a tree that does not build.
 
 **Rules.** Resolve rule files per filename in project → user → package order: `{project_root}/.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, `kanban-flow/review/rules/*.md` beside the installed CLI's package.json. Include general, security and performance plus the project's stack rule when installed (`kf rules` installs the stack packs; they are not auto-loaded from `kanban-flow/review/stacks/`). If no rule source is available, the report says so instead of silently skipping. The rules go into the pack as paths; the reviewer reads them.
+
+## 2b. Reconcile docs — after the mechanical checks pass, before any reviewer
+
+The docs commit goes into the reviewed diff, so the reviewers see it and the board's fingerprint covers what was reviewed. Read `<skills dir>/kanban-archive/reconcile.md` and follow it in the item worktree — it branches on `kind`. Its edits are one commit on the item branch, `docs({context}): reconcile docs superseded by {feature_name}`; nothing to change → no commit. Write its rows to `<item>/reviews/<id>/docs-reconciled.md` (reconcile.md, section 4); step 10 and a resume read that file, never memory. An open question on a doc stops the review there: no report (reconcile.md, section 3).
+
+**A later execution** (re-review after a repair loop) carries forward what an earlier round committed: `git log --format='%h %s' --grep 'reconcile docs superseded by' "$BASE"..HEAD` lists those commits; copy their rows from the earlier `<item>/reviews/*/docs-reconciled.md` into this one, then reconcile only what is new. A review that ends `FAIL` keeps its docs commit on the branch.
+
+The commit changes the tree after step 2's checks: the board (step 7a) runs lint, build and the suite again at the final fingerprint.
 
 ## 3. Size the diff and pick the tier
 
@@ -107,13 +115,9 @@ From the verified findings, exactly one of:
 - `REJECT` — the change does not meet the DoD or acceptance criteria although it builds and its tests pass.
 - `REQUIREMENT_BUG` — an `intent` finding shows the requirement itself is wrong against the real product need. This is the orchestrator's call on the reviewer's evidence; the reviewer does not set it.
 
-**No PR for a tree the reviewer did not pass.** `FAIL`, `REJECT` and `REQUIREMENT_BUG` skip steps 7a–9: write the report (step 10) with `ci: none` and the landing the item will need, then step 11. A PR is opened for reviewed code only.
+**No PR for a tree the reviewer did not pass.** `FAIL`, `REJECT` and `REQUIREMENT_BUG` skip steps 7a–9 (the docs commit of step 2b stays on the branch): write the report (step 10) with `ci: none` and the landing the item will need, then step 11. A PR is opened for reviewed code only.
 
-## 7a. Reconcile superseded docs — feature with a reviewer PASS
-
-Before the board, so the docs edits are part of the fingerprinted, pushed tree: read `<skills dir>/kanban-archive/reconcile.md` and follow it in the item worktree. Commit the edits on the item branch as one commit, `docs({context}): reconcile docs superseded by {feature_name}` — they go into the PR, where the human reviews them with the code. The commit changes the fingerprint, so the board's lint, build and test lines are run on the new tree. Keep the result (rows, or `None — <reason>`) for the feature report's `## Docs Reconciled` (step 10). Nothing to reconcile → no commit. A bug skips this step.
-
-## 7b. The landing board — every check stamped with the tree it was earned on
+## 7a. The landing board — every check stamped with the tree it was earned on
 
 A `PASS` is a verdict about a tree. Before anything leaves review toward a PR, fingerprint the worktree and print a board whose every line names that fingerprint; any later change to the tree voids the stamps and the checks run again.
 
@@ -182,9 +186,9 @@ kf instruct review-report --change {feature_name}
 
 Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 8–9 (the template's `## Delivery` table); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
 
-For a bug, also record the verified root cause and whether related feature docs need an update — when none, say why.
+For a bug, also record the verified root cause and its docs impact from `<item>/reviews/<id>/docs-reconciled.md` (the docs updated, or `No documentation update required — <reason>`; after a step 2 short-circuit there is none — say so).
 
-**Feature with a `PASS`:** write `phase-6-feature-report.md` now (`kanban-archive` section 1), its `## Docs Reconciled` from step 7a. The close on merge validates the item as `done` and refuses without it.
+**Feature with a `PASS`:** write `phase-6-feature-report.md` now (`kanban-archive` section 1), its `## Docs Reconciled` copied from `<item>/reviews/<id>/docs-reconciled.md` (step 2b). The close on merge validates the item as `done` and refuses without it.
 
 ## 10b. Note the PR's mergeability — information for the human
 

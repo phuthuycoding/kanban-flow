@@ -129,7 +129,7 @@ export function createRunPlan(
 ): RunPlan {
   const id = randomUUID().slice(0, 8);
   const failReport = opts.failReport !== undefined ? opts.failReport : assignment.stage === "implementation" ? currentFailReport(feature) : null;
-  const prompt = buildWorkerPrompt({ runId: id, feature, root, assignment, failReport, previous: opts.previous, absolutePaths: opts.cwd !== undefined });
+  const prompt = buildWorkerPrompt({ runId: id, feature, root, assignment, failReport, previous: opts.previous, absolutePaths: opts.cwd !== undefined, timeoutMs: opts.timeoutMs });
   return {
     id, root, feature: feature.name, role: assignment.role, runnerName: assignment.runnerName,
     stage: assignment.stage, runner: assignment.runner, prompt, output: assignment.output,

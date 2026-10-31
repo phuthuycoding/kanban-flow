@@ -1,6 +1,8 @@
 # Reconcile superseded docs
 
-Canonical docs are per-feature snapshots. When a new feature changes behavior an older feature documented, the older snapshot keeps describing the old behavior unless it is marked. This step keeps `docs/` true to the system as it is after this feature. It runs at review PASS (`kanban-review` step 7a), in the item worktree, before the feature report is written; the edits are one commit on the item branch, so they land with the PR.
+Canonical docs are per-feature snapshots. When a new feature changes behavior an older feature documented, the older snapshot keeps describing the old behavior unless it is marked. This step keeps `docs/` true to the system as it is after this feature. It runs in review (`kanban-review` step 2b) once the mechanical checks pass and before the code-reviewer dispatch, in the item worktree; the edits are one commit on the item branch, so the reviewers see them and they land with the PR.
+
+**A bug** skips sections 1–3: update existing related feature docs only when the fix changes documented behavior or reveals inaccurate documentation, using the feature/context named in the bug report — never overwrite feature docs with bug-report content — and record the bug ID, fix summary and regression reference in the project's changelog or change-history section (e.g. `CHANGELOG.md`) when one exists. That is the one docs commit (section 4). Behavior already documented correctly → no edit, and the result is `No documentation update required — <reason>`. A bug never creates canonical feature docs.
 
 ## 1. List the behavior this feature changes
 
@@ -40,12 +42,12 @@ Banner format:
 
 For a partial contradiction, name only the replaced part: `> **Partly superseded by <feature>:** <rule/flow/TC> no longer holds — <current behavior>.`
 
-When it is unclear whether the old behavior still exists, ask the human; do not guess.
+When it is unclear whether the old behavior still exists, do not guess: an in-session agent asks the human; a `kf run` / `kf drive` worker writes no review report and ends `STATUS: NEEDS_CONTEXT`, naming the doc and the open question in `Summary:`.
 
 A banner changes that feature's canonical docs, so a later `kf archive` of the older feature reports them as changed — re-archive it with `--skip-specs` to keep the banner.
 
 ## 4. Record
 
-Commit the edits on the item branch: `docs({context}): reconcile docs superseded by {feature_name}`. Nothing touched → no commit.
+Commit the edits on the item branch: `docs({context}): reconcile docs superseded by {feature_name}` (a bug uses the same subject). Nothing touched → no commit.
 
-Fill `## Docs Reconciled` in `phase-6-feature-report.md` — written at review PASS (`kanban-review` step 10), right after this step — with one row per doc touched (document, superseded/updated behavior, action). When no doc describes the changed behavior, write `None — <reason>` (e.g. "None — new command, no earlier doc covers it"). The human reads this section with the PR; an empty or missing one means the step was skipped.
+Write `<item>/reviews/<execution-id>/docs-reconciled.md`: one row per doc touched (document, superseded/updated behavior, action, commit sha), plus the rows carried forward from an earlier round's reconcile commit (`kanban-review` step 2b). Nothing touched and nothing carried → `None — <reason>` (e.g. "None — new command, no earlier doc covers it"); for a bug, `No documentation update required — <reason>`. The review report (bug) and the feature report's `## Docs Reconciled` (feature, written at review PASS, `kanban-review` step 10) are filled from this file. The human reads that section with the PR; an empty or missing one means the step was skipped.

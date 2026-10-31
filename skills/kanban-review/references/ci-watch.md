@@ -19,11 +19,14 @@ The PR number comes from `kf status --change <feature> --json` (the `pr` field) 
 
 Run the loop as a background command that wakes the session when it exits (`kanban-flow/references/harness-tools.md`, "Wait on a background process"), then tell the human in one line what is being watched and end the turn; do not poll it yourself. `WATCH` is 5400 (90 min).
 
-**A `kf run` worker** runs the same loop in the foreground instead — a headless session that ends its turn ends the run — and the harness kills it at its timeout: 30 min from the worker's start under `kf drive` and under `kf run` without `--timeout`; `kf run --timeout <min>` sets another (0 = none). No harness config key sets it and the prompt does not state it, so a worker assumes 30 min unless the human said otherwise. Its `WATCH` is the smaller of 5400 and the time left minus 5 min for the report, from the start time step 1 saved:
+**A `kf run` worker** runs the same loop in the foreground instead — a headless session that ends its turn ends the run — and the harness kills it at its timeout. The prompt states it as `Time budget: <n> min (0 = no limit)`; only when that line is absent, assume 30 min. Its `WATCH` is the smaller of 5400 and the time left minus 5 min for the report, from the start time `kanban-review` step 1 saved:
 
 ```bash
-left=$(( $(cat <item>/reviews/<id>/started-at) + 1800 - 300 - $(date +%s) ))
-WATCH=$(( left < 5400 ? left : 5400 ))   # ≤ 0 → no time to watch: exit 4 at once
+BUDGET_MIN=<n>   # from the prompt's "Time budget:" line; 30 when absent
+if [ "$BUDGET_MIN" = 0 ]; then WATCH=5400; else
+  left=$(awk -v s="$(cat <item>/reviews/<id>/started-at)" -v m="$BUDGET_MIN" -v now="$(date +%s)" 'BEGIN { print int(s + m*60 - 300 - now) }')
+  WATCH=$(( left < 5400 ? left : 5400 ))   # ≤ 0 → no time to watch: exit 4 at once
+fi
 ```
 
 ```bash
