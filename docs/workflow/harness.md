@@ -109,7 +109,7 @@ With `--detach`, kf writes the chain plan, spawns a detached `kf run --supervise
 
 ## Task harness: `kf drive`
 
-The stage-level flow above still needs a main agent to call `kf run`, read STATUS and move stages. `kf drive` takes that over after the human's start decision: it runs the item from implementation to the ship decision on its own and stops only at a human gate or a named stop.
+The stage-level flow above still needs a main agent to call `kf run`, read STATUS and move stages. `kf drive` takes that over after the human's `kf approve`: it runs the item from implementation to a review PASS on its own and stops only at a human gate or a named stop. The start decision is `kf approve`, which moves the item into implementation.
 
 ### What it needs
 
@@ -155,10 +155,10 @@ A worker that reports `BLOCKED` or `NEEDS_CONTEXT` blocks its task at once. Othe
 1. runs the task graph (a bug, which has no task table, gets one run of the implementation role instead);
 2. runs `harness.verify.stage` in the item worktree;
 3. moves to testing through the normal gates and hooks, runs the testing role(s), reads the report;
-4. on PASS moves to review, runs the review role(s) and on PASS stops with **ready for ship decision** — it never ships or archives;
+4. on PASS moves to review, runs the review role(s) and on PASS stops with **ready — review PASS: merge the PR, kf status closes the item** — it never merges or archives;
 5. on FAIL or REJECT moves back to implementation, runs one repair run pointed at the report, verifies and tests again, at most `maxLoops` times.
 
-Before every run it checks the budget, the approval fingerprint and a hash of `harness.roles`, `harness.runners`, `harness.verify` and `worktree.enabled`. A stop takes effect at the next step boundary: runs already in progress finish, no new one starts.
+Before every run it checks the budget, the approval fingerprint and a hash of the whole `harness` block — `main`, `roles`, `stages`, `runners`, `verify`, `parallel`, `retries`, `maxLoops` and `budget`, each key hashed on its own — plus `worktree.enabled` and which file the config came from. A stop takes effect at the next step boundary: runs already in progress finish, no new one starts.
 
 | Stop code | Meaning | Next |
 |---|---|---|
@@ -170,13 +170,20 @@ Before every run it checks the budget, the approval fingerprint and a hash of `h
 | `requirement_bug` | review says REQUIREMENT_BUG | back to planning with the human |
 | `transition_refused` | a gate or stage hook refused a move | fix the cause, `kf drive` |
 | `approval_changed` | the approved contract changed mid-drive | re-approve, `kf drive` |
-| `config_changed` | roles, runners, verify or worktrees changed mid-drive | check `.kf/config.json`, `kf drive` |
+| `config_changed` | a `harness` key, `worktree.enabled` or the config source changed mid-drive, or the config no longer parses; the reason names the keys and the resolved file | check that file, `kf drive` |
 | `budget` | `budget.maxRuns` worker runs used | raise it, `kf drive` |
+| `usage_limit` | a worker hit the API usage limit (HTTP 429); no run or attempt is spent, the task is pending again and the worker session is kept | after the reset quoted in the reason, `kf drive <f>` resumes the same session |
 | `git_error` | a merge abort or reset failed; the item branch needs a human | `kf tasks <f>` |
 | `stopped_by_user` | `kf drive --stop` | `kf drive` |
 | `internal_error` | the supervisor itself failed; the stack is in the drive log | `kf drive` |
 
-`kf drive <f> --status [--json]` shows the step, loops, runs, running tasks, each live run (role, runner, task, elapsed time, log path), the last event and its time, and — once stopped — the code, reason and next command; a running drive whose supervisor died shows as `crashed`. `kf drive <f> --watch` (alias `--follow`) attaches to that stream: every new `runs/drive-<id>.jsonl` line, a heartbeat at least every 15 seconds naming the live runs (`TASK-006 coder claude-dev 2m14s`, or `tester @ testing 1m03s`), and on exit the stop code, reason and next command (exit 0 when the drive is `ready`, exit 1 when it stopped). Passing `--watch` with no live drive starts one and attaches. Ctrl+C detaches the watcher only. `--json` prints one JSON object per line, and `--tail` adds the last lines of each live log under the heartbeat. `kf drive <f> --stop` ends the supervisor and its workers and keeps every worktree and branch. Running `kf drive` again resumes: done tasks are skipped, failed and blocked ones go back to pending, a half-finished merge is aborted and retried. Every event is appended to `runs/drive-<id>.jsonl`, including a `run_start` (run id, role, runner, task, log path) when a worker starts, and `.kf/hooks/drive-stop.sh`, when present, runs on every stop with `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` — see [phase hooks](autoconfig.md#phase-hooks).
+**Config resolution.** A drive and `kf run --task` read `.kf/config.json` from the item worktree when it has one, else from `origin/<default branch>`, else from the primary checkout — a stale local `main` never decides what a drive does. The chosen place is `config_source` (`worktree`, `origin` or `primary`): it is logged on the drive's start and resume events and shown by `kf drive <f> --status` as `Config: <source>`. `worktree.baseDir` is still read from the primary, where the worktrees were created. Every step boundary re-resolves the file, so a change to it (including a fetch that moves `origin/<default>`) raises `config_changed`, and the refusal and stop messages name the resolved file and its source. Moves the drive makes validate against the resolved harness.
+
+`kf drive <f> --status [--json]` shows the step, loops, runs, running tasks, the config source, each live run (`Live:` — role, runner, task, elapsed time, log path, then the worker's last action and its age, such as `— Edit src/a.ts (12s ago)`), the last event and its time, and — once stopped — the code, reason and next command; a running drive whose supervisor died shows as `crashed`. `kf drive <f> --watch` (alias `--follow`) attaches to that stream: every new `runs/drive-<id>.jsonl` line, a heartbeat at least every 15 seconds naming the live runs and each worker's last action (`TASK-006 coder claude-dev 2m14s — Edit src/a.ts (12s ago)`, or `tester @ testing 1m03s`), and on exit the stop code, reason and next command (exit 0 when the drive is `ready`, exit 1 when it stopped). Passing `--watch` with no live drive starts one and attaches. Ctrl+C detaches the watcher only. `--json` prints one JSON object per line, and `--tail` adds the last readable lines of each live log under the heartbeat (tool calls and assistant text, not raw JSON). `kf drive <f> --stop` ends the supervisor and its workers and keeps every worktree and branch. Running `kf drive` again resumes: done tasks are skipped, failed and blocked ones go back to pending, a half-finished merge is aborted and retried. Every event is appended to `runs/drive-<id>.jsonl`, including a `run_start` (run id, role, runner, task, log path) when a worker starts, and `.kf/hooks/drive-stop.sh`, when present, runs on every stop with `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` — see [phase hooks](autoconfig.md#phase-hooks).
+
+**What a worker is doing.** The default `claude` runner is started with `--output-format stream-json --verbose`, so `runs/<id>.log` fills while the worker runs; a runner that prints one JSON object at exit is still accepted. The last action shown in `--status` and the heartbeat is read from the tail of that log: the latest tool call (its name and the file or the start of the command) or the latest assistant text, with its age. When a worker exits non-zero, the task reason and the stop reason carry the worker's own error text instead of only `worker exited 1`.
+
+**Usage limit.** A worker that fails on the API usage limit (HTTP 429, `usage_limit_reached`) cannot succeed on a retry, so the drive does not retry it: the run and the attempt are not counted, the task goes back to `pending`, the worker session is kept with its uncommitted work, and the drive stops with `usage_limit` and a reason quoting the reset text. After the reset, `kf drive <f>` resumes the same session. `kf run <f> --task TASK-###` ends the same way and exits 1.
 
 ## In-session agents
 
