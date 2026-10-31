@@ -151,7 +151,7 @@ describe("migrating a stage that points straight at a runner", () => {
   });
 });
 
-describe("resolveDriveConfig: worktree → origin → primary (TC-020)", () => {
+describe("resolveDriveConfig: worktree → origin → primary", () => {
   let dir: string;
   let primary: string;
   let worktree: string;
@@ -219,6 +219,29 @@ describe("resolveDriveConfig: worktree → origin → primary (TC-020)", () => {
     expect(() => resolveDriveConfig(primary, item(), noOrigin)).toThrow("Invalid JSON in project config");
     await rm(join(worktree, ".kf"), { recursive: true });
     expect(() => resolveDriveConfig(primary, item(), () => ({ ref: "origin/main", text: "{ nope" }))).toThrow("origin/main:.kf/config.json");
+  });
+
+  it("sees a fetch that moves origin's default branch within the same process", async () => {
+    gitIn(primary, "init", "-q");
+    const bare = join(dir, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    const branch = gitIn(primary, "symbolic-ref", "--short", "HEAD");
+    gitIn(primary, "remote", "add", "origin", bare);
+    const publish = async (main: string) => {
+      await writeFile(join(primary, ".kf", "config.json"), config(harness(main)));
+      gitIn(primary, "add", ".kf/config.json");
+      gitIn(primary, "commit", "-qm", main);
+      gitIn(primary, "push", "-q", "origin", branch);
+      gitIn(primary, "fetch", "-q", "origin");
+    };
+    await publish("first");
+    gitIn(primary, "remote", "set-head", "origin", branch);
+    const noWorktree = { meta: {} } as never;
+    expect(resolveDriveConfig(primary, noWorktree).cfg.harness?.main).toBe("first");
+    await publish("second");
+    const r = resolveDriveConfig(primary, noWorktree);
+    expect(r.source).toBe("origin");
+    expect(r.cfg.harness?.main).toBe("second");
   });
 
   it("reads origin's default branch with git show, and treats a missing origin, ref or file as absent", async () => {

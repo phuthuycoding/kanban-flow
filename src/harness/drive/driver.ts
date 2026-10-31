@@ -7,7 +7,7 @@ import { findFeature, updateFeatureMeta, type DriveState, type Feature } from ".
 import { resolveStageRoles, taskView, writeTasksMd, type PlannedTask } from "../../workflow/tasks.js";
 import { transitionItem, type Transition } from "../../workflow/transition.js";
 import { validateFeature } from "../../workflow/validate.js";
-import { resolveDriveConfig } from "../../project/config.js";
+import { resolveDriveConfig, type DriveConfig } from "../../project/config.js";
 import { harnessLimits, type HarnessConfig } from "../config.js";
 import { resolveChain, type Assignment } from "../prompt.js";
 import { executeChain } from "../chain.js";
@@ -16,7 +16,7 @@ import { captureBaseline, executeTaskRun, prepareTaskRun, setTaskState } from ".
 import { recoverItemMerge, resumeTaskMerge, runVerify } from "../task-pipeline.js";
 import { blockedBy, nextToStart, progressState } from "../scheduler.js";
 import { appendDriveEvent } from "../drive-log.js";
-import { READY_REASON, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
+import { READY_REASON, configWhere, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
 import { failRuns, finishDrive, orphanRuns, terminate, type DriveEnd } from "./control.js";
 
 interface Verdict {
@@ -46,10 +46,14 @@ class Driver {
     return f;
   }
 
+  private config(): DriveConfig & { harness: HarnessConfig } {
+    const resolved = resolveDriveConfig(this.root, this.feature());
+    if (!resolved.cfg.harness) throw new Error(`No harness configured in ${resolved.file}.`);
+    return { ...resolved, harness: resolved.cfg.harness };
+  }
+
   private harness(): HarnessConfig {
-    const { cfg, file } = resolveDriveConfig(this.root, this.feature());
-    if (!cfg.harness) throw new Error(`No harness configured in ${file}.`);
-    return cfg.harness;
+    return this.config().harness;
   }
 
   private log(event: Parameters<typeof appendDriveEvent>[3]): void {
@@ -72,7 +76,8 @@ class Driver {
       this.requestStop(boundary);
       return boundary.reason;
     }
-    const { maxRuns } = harnessLimits(this.harness());
+    const config = this.config();
+    const { maxRuns } = harnessLimits(config.harness);
     let used = 0;
     let granted = false;
     await updateFeatureMeta(this.root, this.name, (meta) => {
@@ -84,7 +89,7 @@ class Driver {
       return { ...meta, drive: { ...d, runs: d.runs + 1, updatedAt: new Date().toISOString() } };
     });
     if (granted) return null;
-    const stop: Stop = { code: "budget", reason: `run budget exhausted: ${used}/${maxRuns} worker runs used (harness.budget.maxRuns); raise it in .kf/config.json to continue` };
+    const stop: Stop = { code: "budget", reason: `run budget exhausted: ${used}/${maxRuns} worker runs used (harness.budget.maxRuns); raise it in ${configWhere(config)} to continue` };
     this.requestStop(stop);
     return stop.reason;
   }
@@ -354,7 +359,7 @@ class Driver {
 
   private async move(to: Stage): Promise<boolean> {
     const from = this.feature().stage;
-    const out = await this.transition(this.root, this.name, to, { cwd: this.root });
+    const out = await this.transition(this.root, this.name, to, { cwd: this.root, harness: this.harness() });
     if (out.kind === "moved") {
       this.log({ event: "stage", from, to });
       return true;
@@ -436,14 +441,15 @@ class Driver {
 
   /** FAIL/REJECT: move back to implementation (bounded by maxLoops) so the repair run can fix the report. */
   private async toRepair(v: Verdict): Promise<Step | null> {
-    const limits = harnessLimits(this.harness());
+    const config = this.config();
+    const limits = harnessLimits(config.harness);
     const d = this.feature().meta!.drive!;
     if (d.loops >= limits.maxLoops) {
-      this.requestStop({ code: "loop_limit", reason: `maxLoops reached (${d.loops}/${limits.maxLoops}); ${v.file} still says ${v.status}; fix it by hand or raise harness.maxLoops in .kf/config.json, then resume` });
+      this.requestStop({ code: "loop_limit", reason: `maxLoops reached (${d.loops}/${limits.maxLoops}); ${v.file} still says ${v.status}; fix it by hand or raise harness.maxLoops in ${configWhere(config)}, then resume` });
       return null;
     }
     if (d.runs >= limits.maxRuns) {
-      this.requestStop({ code: "budget", reason: `run budget exhausted: ${d.runs}/${limits.maxRuns} worker runs used (harness.budget.maxRuns); no repair run can start` });
+      this.requestStop({ code: "budget", reason: `run budget exhausted: ${d.runs}/${limits.maxRuns} worker runs used (harness.budget.maxRuns in ${configWhere(config)}); no repair run can start` });
       return null;
     }
     await this.setStep("repair", { repairReport: v.file });

@@ -5,7 +5,7 @@ import {
   type DriveStopCode, type Feature, type TaskState,
 } from "../../workflow/features.js";
 import { runHook } from "../../integrations/hooks.js";
-import { readProjectConfig } from "../../project/config.js";
+import { resolveDriveConfig } from "../../project/config.js";
 import { isPidAlive } from "../../shared/process.js";
 import { harnessLimits } from "../config.js";
 import { applyRunRecord, killGroup, liveRecords } from "../run.js";
@@ -133,7 +133,8 @@ const IN_FLIGHT = new Set<TaskState["state"]>(["running", "verifying", "merging"
 export function driveView(root: string, feature: Feature, nowMs: number = Date.now()): DriveView | null {
   const d = feature.meta?.drive;
   if (!d) return null;
-  const limits = harnessLimits(readProjectConfig(root).harness);
+  // The limits the drive enforces, from the same source it resolves; the primary can be a stale checkout.
+  const limits = harnessLimits(resolveDriveConfig(root, feature).cfg.harness);
   const crashed = d.status === "running" && !driveLive(d);
   const runningTasks = Object.entries(feature.meta?.tasks ?? {}).filter(([, t]) => IN_FLIGHT.has(t.state)).map(([id]) => id).sort();
   const liveRuns: DriveLiveRun[] = liveRecords(feature.meta?.runs).map((r) => ({

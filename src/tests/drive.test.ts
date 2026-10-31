@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { claimDrive, superviseDrive, type DriveOutcome } from "../harness/drive.js";
@@ -9,6 +9,7 @@ import { findFeature, updateFeatureMeta } from "../workflow/features.js";
 import { createTaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
+import { driveBoundary } from "../harness/drive/claim.js";
 import { gitDriveProject, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -471,7 +472,7 @@ describe("transition errors keep their stack (review FINDING-002)", () => {
   });
 });
 
-describe("drive config resolution: worktree → origin → primary (TC-021, FR-006, UC-004)", () => {
+describe("drive config resolution: worktree → origin → primary", () => {
   const twoTasks: DriveTask[] = [
     { id: "TASK-001", files: ["src/a.txt"] },
     { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -503,6 +504,88 @@ describe("drive config resolution: worktree → origin → primary (TC-021, FR-0
     expect(out.stopCode, out.reason).toBe("config_changed");
     expect(out.reason).toContain("harness.verify");
     expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+  });
+
+  it("stops config_changed naming harness.budget when a task merge raises budget.maxRuns in the worktree copy", async () => {
+    const tasks: DriveTask[] = [
+      { id: "TASK-001", files: [".kf/config.json"] },
+      { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
+    ];
+    const pr = await project(tasks, { commitConfig: true, limits: { budget: { maxRuns: 30 } } });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    // The worker runs in its task worktree; the edit reaches the item worktree only through the task merge.
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"maxRuns": 30/"maxRuns": 99/' .kf/config.json` }, "TASK-001");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+    expect(readProjectConfig(pr.worktreePath()!).harness?.budget?.maxRuns).toBe(99);
+    expect(out.reason).toContain("harness.budget");
+    expect(out.reason).not.toContain("harness.verify");
+    expect(out.reason).toContain(`${copy} (config source: worktree)`);
+    expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+  });
+
+  it("moves implementation → testing on the worktree harness when the primary lacks the task's role", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    editConfig(pr, (c) => {
+      delete c.harness.roles.coder;
+      c.harness.stages.implementation = ["architect"];
+    });
+    expect(readProjectConfig(pr.root).harness?.roles.coder).toBeUndefined();
+    reports(pr);
+    const seen: (string | undefined)[] = [];
+    const spy: Transition = (root, name, to, opts) => {
+      seen.push(opts.harness?.roles.coder?.runner);
+      return transitionItem(root, name, to, opts);
+    };
+    const out = await drive(pr, spy);
+    expect(out.status, out.reason).toBe("ready");
+    expect(events(pr).some((e) => e.event === "stage" && e.from === "implementation" && e.to === "testing" && !e.refused)).toBe(true);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((runner) => runner === "claude")).toBe(true);
+  });
+
+  it("names the resolved file and its source in a loop_limit stop", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, limits: { maxLoops: 0 } });
+    reports(pr, ["FAIL"]);
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("loop_limit");
+    expect(out.reason).toContain(`raise harness.maxLoops in ${join(pr.worktreePath()!, ".kf", "config.json")} (config source: worktree)`);
+  });
+
+  it("names the resolved file and its source in a budget stop", async () => {
+    const pr = await project(twoTasks, { commitConfig: true, limits: { parallel: 1, budget: { maxRuns: 1 } } });
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("budget");
+    expect(out.reason).toContain(`raise it in ${join(pr.worktreePath()!, ".kf", "config.json")} (config source: worktree)`);
+  });
+
+  it("maps a copy that no longer parses to config_changed at the boundary, and lets a read failure propagate", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(driveBoundary(pr.root, pr.feature(), claim.drive.id)).toBeNull();
+
+    writeFileSync(copy, "{ nope");
+    const stop = driveBoundary(pr.root, pr.feature(), claim.drive.id);
+    expect(stop?.code).toBe("config_changed");
+    expect(stop?.reason).toContain("no longer parses");
+    expect(stop?.reason).toContain(`Invalid JSON in project config: ${copy}`);
+
+    // Not a config the human changed: the file cannot be read at all (it is a directory now).
+    rmSync(copy);
+    mkdirSync(copy);
+    expect(() => driveBoundary(pr.root, pr.feature(), claim.drive.id)).toThrow(/EISDIR/);
+  });
+
+  it("shows the limits of the resolved copy in --status", async () => {
+    const pr = await project(twoTasks, { commitConfig: true, limits: { maxLoops: 5, budget: { maxRuns: 7 } } });
+    editConfig(pr, (c) => { c.harness.maxLoops = 1; c.harness.budget = { maxRuns: 2 }; });
+    reports(pr);
+    await drive(pr);
+    const json = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(json.maxLoops).toBe(5);
+    expect(json.maxRuns).toBe(7);
   });
 
   it("does not stop when only the primary copy is edited while the worktree copy exists", async () => {

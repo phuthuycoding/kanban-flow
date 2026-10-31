@@ -12,7 +12,8 @@ import {
 import { approvalState } from "../../workflow/status.js";
 import { checkTaskGraph, parseTaskGraph, type PlannedTask } from "../../workflow/tasks.js";
 import { type Transition } from "../../workflow/transition.js";
-import { resolveDriveConfig, type DriveConfigSource } from "../../project/config.js";
+import { ProjectConfigError, resolveDriveConfig, type DriveConfig, type DriveConfigSource } from "../../project/config.js";
+import { type HarnessConfig } from "../config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { isPidAlive } from "../../shared/process.js";
 import { PKG_ROOT } from "../../shared/paths.js";
@@ -56,20 +57,25 @@ const sha = (value: unknown): string => createHash("sha256").update(JSON.stringi
 
 class Refused extends Error {}
 
+/** Where a stop or refusal tells the human to look: the resolved file and which of the three places it is. */
+export const configWhere = (resolved: Pick<DriveConfig, "file" | "source">): string => `${resolved.file} (config source: ${resolved.source})`;
+
+// Every top-level harness key; the `satisfies` makes a new HarnessConfig key a compile error until it is hashed here.
+const HARNESS_KEYS = Object.keys({
+  main: true, roles: true, stages: true, runners: true, verify: true, parallel: true, retries: true, maxLoops: true, budget: true,
+} satisfies Record<keyof HarnessConfig, true>) as (keyof HarnessConfig)[];
+
 /**
- * The four things a human pins: roles, runners, verify commands and whether worktrees are on, read from the source the
- * drive resolves; the source itself is part of the hash, so a drive never silently switches files.
+ * The whole harness block, one part per top-level key so a stop can name what changed, plus whether worktrees are on,
+ * read from the source the drive resolves. Task merges can change the item worktree's copy, so nothing in it is
+ * exempt. The source itself is part of the hash, so a drive never silently switches files.
  */
-function configSnapshot(root: string, feature: Feature): { hash: string; parts: Record<string, string>; source: DriveConfigSource } {
-  const { cfg, source } = resolveDriveConfig(root, feature);
-  const values = {
-    "config.source": source,
-    "harness.roles": cfg.harness?.roles,
-    "harness.runners": cfg.harness?.runners,
-    "harness.verify": cfg.harness?.verify,
-    "worktree.enabled": worktreeConfig(root, cfg.worktree).enabled,
-  };
-  return { hash: sha(values), parts: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, sha(v)])), source };
+function configSnapshot(root: string, feature: Feature): { hash: string; parts: Record<string, string>; source: DriveConfigSource; file: string } {
+  const { cfg, source, file } = resolveDriveConfig(root, feature);
+  const values: Record<string, unknown> = { "config.source": source };
+  for (const key of HARNESS_KEYS) values[`harness.${key}`] = cfg.harness?.[key];
+  values["worktree.enabled"] = worktreeConfig(root, cfg.worktree).enabled;
+  return { hash: sha(values), parts: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, sha(v)])), source, file };
 }
 
 export function nextCommandFor(code: DriveStopCode, feature: string): string {
@@ -126,7 +132,8 @@ function driveRefusal(root: string, feature: Feature): string | null {
       return `'${name}' is in ${feature.stage}; there is nothing to drive.`;
   }
   if (approval !== "approved") return approvalMessage;
-  const { cfg, source, file, looked } = resolveDriveConfig(root, feature);
+  const resolved = resolveDriveConfig(root, feature);
+  const { cfg, source, file, looked } = resolved;
   if (!cfg.harness) {
     return source === "primary"
       ? `No harness configured in .kf/config.json; looked in ${looked.join(", ")} — run: kf init (seeds roles and runner presets).`
@@ -134,7 +141,7 @@ function driveRefusal(root: string, feature: Feature): string | null {
   }
   if (!worktreeConfig(root, cfg.worktree).enabled) return WORKTREE_REQUIRED;
   if (!cfg.harness.verify?.stage?.length) {
-    return `harness.verify.stage is not set in .kf/config.json; kf drive needs a human-pinned stage verify, e.g. "verify": { "stage": [["npm", "test"]] }.`;
+    return `harness.verify.stage is not set in ${configWhere(resolved)}; kf drive needs a human-pinned stage verify, e.g. "verify": { "stage": [["npm", "test"]] }.`;
   }
   if (!meta.worktree) return `'${name}' has no item worktree; enter implementation with worktrees enabled: kf stage ${name} implementation`;
   if (meta.kind !== "bug") {
@@ -163,11 +170,14 @@ export function driveBoundary(root: string, feature: Feature, id: string): Stop 
   try {
     snapshot = configSnapshot(root, feature);
   } catch (err) {
-    return { code: "config_changed", reason: `.kf/config.json can no longer be read: ${oneLine(message(err))}` };
+    // An edit that broke the config is a config change; a git or file-system failure propagates to the supervisor's
+    // boundary, which logs its stack and stops with internal_error.
+    if (!(err instanceof ProjectConfigError)) throw err;
+    return { code: "config_changed", reason: `the drive config no longer parses: ${oneLine(message(err))}; fix it, then resume: kf drive ${name}` };
   }
   if (snapshot.hash !== d.configHash) {
     const changed = Object.keys(snapshot.parts).filter((k) => snapshot.parts[k] !== d.configParts?.[k]);
-    return { code: "config_changed", reason: `${changed.length > 0 ? changed.join(", ") : "the pinned configuration"} changed since the drive started; check .kf/config.json, then resume: kf drive ${name}` };
+    return { code: "config_changed", reason: `${changed.length > 0 ? changed.join(", ") : "the pinned configuration"} changed since the drive started; check ${configWhere(snapshot)}, then resume: kf drive ${name}` };
   }
   return null;
 }

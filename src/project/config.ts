@@ -125,8 +125,20 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   return parseProjectConfig(readFileSync(f, "utf8"), f);
 }
 
+/** The config text is not valid JSON or fails validation; a git or file-system failure is never one of these. */
+export class ProjectConfigError extends Error {}
+
 /** Validate and normalise config text read from anywhere (a file or a git ref); `f` names the source in errors. */
 export function parseProjectConfig(text: string, f: string): Partial<ProjectConfig> {
+  try {
+    return parseConfigText(text, f);
+  } catch (err) {
+    if (err instanceof Error) throw new ProjectConfigError(err.message, { cause: err });
+    throw err;
+  }
+}
+
+function parseConfigText(text: string, f: string): Partial<ProjectConfig> {
   let cfg: Partial<ProjectConfig> | null;
   try {
     cfg = JSON.parse(text) as Partial<ProjectConfig> | null;
@@ -215,16 +227,20 @@ export function readOriginConfig(root: string): OriginConfig {
   throw new Error(`git show ${ref}:${ORIGIN_CONFIG_PATH} failed (exit ${show.code}) in ${root}: ${show.stderr.trim()}`);
 }
 
-// One subprocess pair per process and root: the driver resolves the config at every step boundary.
-const originCache = new Map<string, OriginConfig>();
+// The driver resolves the config at every step boundary; one rev-parse per call instead of a symbolic-ref + show pair.
+// Keyed on the commit origin/HEAD points at, so a fetch mid-drive is seen (and can raise config_changed).
+const originCache = new Map<string, { sha: string; config: OriginConfig }>();
 
 function cachedOriginConfig(root: string): OriginConfig {
-  let hit = originCache.get(root);
-  if (!hit) {
-    hit = readOriginConfig(root);
-    originCache.set(root, hit);
-  }
-  return hit;
+  const head = runGit(root, ["rev-parse", "-q", "--verify", "refs/remotes/origin/HEAD^{commit}"]);
+  // No origin/HEAD, or no repository: readOriginConfig tells "absent" from a real git failure.
+  if (head.code !== 0) return readOriginConfig(root);
+  const sha = head.stdout.trim();
+  const hit = originCache.get(root);
+  if (hit?.sha === sha) return hit.config;
+  const config = readOriginConfig(root);
+  originCache.set(root, { sha, config });
+  return config;
 }
 
 /**
