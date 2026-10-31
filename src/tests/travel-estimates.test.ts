@@ -97,6 +97,41 @@ describe("estimates size", () => {
     expect(r.code).toBe(1);
     expect(r.err).toContain("e.md:2: expected 13 fields");
   });
+
+  it("skips only blank lines, # lines and the header, and refuses any other line", async () => {
+    const ok = await fixture("ok.md", `# Travel estimates\n\n${HEADER}\n  \n# note\n${row("2026-10-01", "a", "M", "M", 10, 4)}\n`);
+    expect(run("size", "4", "3", ok).out[2]).toBe("defaults (1 rows measured)");
+    const file = await fixture("e.md", `${HEADER}\n${row("2026/10/01", "a", "M", "M", 10, 4)}\n`);
+    const r = run("size", "4", "3", file);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("e.md:2: date must be a real YYYY-MM-DD day: 2026/10/01");
+  });
+
+  it("refuses a row whose date is not a real day", async () => {
+    const file = await fixture("e.md", `${HEADER}\n${row("2026-10-01", "a", "M", "M", 10, 4)}\n${row("2026-13-40", "b", "M", "M", 10, 4)}\n`);
+    const r = run("stats", file);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("e.md:3: date must be a real YYYY-MM-DD day: 2026-13-40");
+  });
+
+  it("does not drift the learned thresholds down when a stable item is measured again and again", async () => {
+    const lines = [HEADER];
+    for (let i = 0; i < 12; i++) lines.push(row("2026-10-01", `s${i}`, "S", "S", 2, 1));
+    [6, 8, 10, 12, 14, 16, 18, 20].forEach((w, i) => lines.push(row("2026-10-02", `m${i}`, "M", "M", w, 6)));
+    const file = await fixture("e.md", `${lines.join("\n")}\n`);
+    const threshold = () => Number(/M ≤ (\d+(?:\.\d+)?) min/.exec(run("stats", file).out.find((l) => l.startsWith("sizes:")) ?? "")?.[1]);
+    let previous = threshold();
+    expect(previous).toBe(18);
+    const flags = ["--id", "t", "--feature", "demo", "--kind", "feature", "--est", "M", "--work", "20", "--review", "0",
+      "--files", "6", "--rounds", "0", "--path", "implementation→review", "--tier", "T1", "--date", "2026-10-03"];
+    for (let k = 0; k < 10; k++) {
+      expect(run("measure", "--file", file, ...flags).out[0]).toContain(" · M · M · 20 · ");
+      const now = threshold();
+      expect(now).toBeGreaterThanOrEqual(previous);
+      previous = now;
+    }
+    expect(run("size", "20", "6", file).out[0]).toBe("M");
+  });
 });
 
 describe("estimates measure", () => {
@@ -128,6 +163,7 @@ describe("estimates measure", () => {
     [["--work", "-3"], "--work must be a non-negative number"],
     [["--path", "a · b"], "--path must not contain"],
     [["--date", "31/10/2026"], "--date must be YYYY-MM-DD"],
+    [["--date", "2026-02-30"], "--date must be YYYY-MM-DD"],
     [["--bogus", "1"], "unknown flag --bogus"],
   ])("rejects %j", (override, message) => {
     const flags = [...FLAGS, ...override];

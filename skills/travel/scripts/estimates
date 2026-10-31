@@ -33,6 +33,13 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 class InputError extends Error {}
 
+// DATE_RE alone lets 2026-13-40 through, and Date.parse turns it into NaN downstream.
+function realDate(s) {
+  if (!DATE_RE.test(s)) return false;
+  const t = Date.parse(`${s}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
+}
+
 function fail(message) {
   throw new InputError(message);
 }
@@ -64,7 +71,7 @@ function sizeOf(minutes, files, rule) {
   return higher(sizeBy("minutes", minutes, rule), sizeBy("files", files, rule));
 }
 
-// Index floor(0.75 * n) of the sorted values: for 8 values that is the 7th.
+// The value at 0-based index floor(0.75 * n) of the sorted list: for 8 values, index 6 (the 7th).
 function p75(values) {
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.floor(0.75 * sorted.length))];
@@ -73,11 +80,12 @@ function p75(values) {
 function parseRows(text, file) {
   const rows = [];
   text.split(/\r?\n/).forEach((line, i) => {
-    const first = line.split(SEP)[0].trim();
-    if (!DATE_RE.test(first)) return;
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#") || trimmed === HEADER) return;
     const cells = line.split(SEP).map((c) => c.trim());
     if (cells.length !== FIELDS.length) fail(`${file}:${i + 1}: expected ${FIELDS.length} fields (${HEADER}), got ${cells.length}`);
     const row = Object.fromEntries(FIELDS.map((f, k) => [f, cells[k]]));
+    if (!realDate(row.date)) fail(`${file}:${i + 1}: date must be a real YYYY-MM-DD day: ${row.date}`);
     if (!SIZES.includes(row.est)) fail(`${file}:${i + 1}: est must be S|M|L|XL: ${row.est}`);
     if (row.actual !== "-" && !SIZES.includes(row.actual)) fail(`${file}:${i + 1}: actual must be S|M|L|XL or -: ${row.actual}`);
     row.measured = row.actual !== "-";
@@ -161,12 +169,15 @@ async function cmdMeasure(args) {
   const files = number("--files", f.files, true);
   const rounds = number("--rounds", f.rounds, true);
   const date = f.date === undefined ? today() : f.date;
-  if (!DATE_RE.test(date)) fail(`--date must be YYYY-MM-DD: ${date}`);
-  const rows = await loadRows(file);
+  if (!realDate(date)) fail(`--date must be YYYY-MM-DD: ${date}`);
+  // Parsed only to refuse appending to a malformed file.
+  await loadRows(file);
   let actual = "-";
   let gap = "-";
   if (!f.cancelled) {
-    actual = sizeOf(work, files, ruleFor(rows).rule);
+    // Always the defaults: sizing actual with the learned rule feeds each threshold back into
+    // the rows it is learned from, so thresholds could only shrink.
+    actual = sizeOf(work, files, DEFAULT_RULE);
     const d = SIZES.indexOf(actual) - SIZES.indexOf(est);
     gap = d > 0 ? `+${d}` : String(d);
   }
@@ -267,6 +278,7 @@ function isPathPrefix(prefix, path) {
   return prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
 }
 
+// Mirrors patternsOverlap/filesOverlap in src/harness/scheduler.ts (skill scripts cannot import the TS); keep them in sync.
 function patternsOverlap(a, b) {
   const x = normalise(a);
   const y = normalise(b);

@@ -36,12 +36,15 @@ Read the last `## ` section of `.kf/travel/progress.md`.
 
 ## 1. Morning plan
 
-1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why).
+1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why). A line still `driving` (its drive outlived the day): `kf drive <f> --status --json` first — `state` `running` → re-adopt it: today's line is `driving` (note `re-adopted`), it holds a slot and is never dispatched again; any other state → handle it by §4 before planning.
 2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item a ledger line marks `driving` or `blocked` with another owner (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry (a canonical-docs branch awaiting push, with its `git push` command).
 5. **Size every line** — [references/estimation.md](references/estimation.md): estimate agent minutes and files, then `estimates size <minutes> <files> .kf/travel/estimates.md`. XL is marked `should split` and is not dispatched until the human splits it or overrides it in the plan.
-6. **Sequential pairs.** For every pair of candidates, `estimates overlap "<files A>" "<files B>"` over the union of each item's pending task Files (`kf tasks <f> --json`). `sequential` → mark the pair; unknown Files (empty) is `sequential` with everything.
+6. **Sequential pairs.** For every pair of candidates, `estimates overlap "<files A>" "<files B>"`; `sequential` → mark the pair. An item's files (`kf tasks <f> --json` → `tasks[]`):
+   - pending tasks (not `done`) → the union of their `files`; any pending task with `files` null → `sequential` with everything;
+   - no pending task (testing, review) → the `files` of every task in the plan;
+   - a `pr` line → the PR's changed paths (`gh pr view <n> --json files`).
 7. **Budget.** `estimates stats .kf/travel/estimates.md` → the `budget:` line (median daily actual points when ≥ 3 days are measured, else `10 tasks`) and the `calibration:` line. Fill Batch 1 in priority order (carry-over, then review, testing, implementation) until the next line would exceed the budget; the rest is Batch 2.
 8. **Print the plan** in the shape of [references/daily-plan.md](references/daily-plan.md): Batch 1, Batch 2, Needs you, Waiting to merge, Calibration.
 
@@ -58,22 +61,23 @@ t1 · <feature> · <kind> · <size> · queued · <note>
 …
 ```
 
-Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already). Then start the loop.
+Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already); a re-adopted `driving` line becomes `carry-over` there with note `re-adopted as <today's id>`. Then start the loop.
 
 ## 3. The loop
 
 Each **tick**:
 
 1. **Poll** every `driving` line: `kf drive <f> --status --json`. Act on `state` and `stopCode` (§4).
-2. **Refill**: while live drives < N, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and that has no `sequential` partner already `driving`. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once.
+2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done`, then measure (§6).
+3. **Refill**: while live drives < N, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and that has no `sequential` partner already `driving`. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once.
 
    ```bash
    kf drive <feature>
    ```
 
-   Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
-3. **Print the progress block** (below) — every tick, even when every slot is full.
-4. **Wait** 2–5 minutes (a background `sleep`, or the runtime's wait/monitor tool), then tick again. Never `--watch`.
+   Before each start, `kf drive <f> --status --json`: `state` `running` → another session drives it (travel's own overnight drives were re-adopted in §1): skip the line, note `driven elsewhere` (§5). Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
+4. **Print the progress block** (below) — every tick, even when every slot is full.
+5. **Wait** 2–5 minutes (a background `sleep`, or the runtime's wait/monitor tool), then tick again. Never `--watch`.
 
 **End of day** when the human says stop, or nothing is `driving` and nothing `queued` is dispatchable: §6.
 
@@ -105,14 +109,15 @@ Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P
 | State / code | Ledger line | Action |
 |---|---|---|
 | `running` | `driving` | leave it |
-| `ready` | `waiting-to-merge` | review PASS, PR open, CI watched: `kf status --change <f> --json` → `pr`; note the PR URL, `! gh pr merge <n> --squash` and `files=<n>` (§6 needs it after the worktree is gone) |
+| `ready`, `pr` set | `waiting-to-merge` | review PASS, PR open, CI watched: `kf status --change <f> --json` → `pr`; note the PR URL, `! gh pr merge <n> --squash`, `files=<n>` and `work=<n> review=<n>` (§6 needs them after the worktree is gone) |
+| `ready`, `pr` null | `done` | nothing to land (`landing: none`): no merge command; measure at once (§6) |
 | `usage_limit` | stays `driving`, note `usage limit — reset <text from reason>` | the account is out of quota: dispatch nothing new, wait until the reset the reason quotes, then `kf drive <f>` (resumes the same worker session; it is not a retry) |
-| `crashed`, `internal_error`, `verify_failed`, `worker_blocked` | `driving`, note `retry 1/1` → then `blocked` | one retry: `kf drive <f>`. Stopped again → `blocked` with kf's `reason` and `nextCommand` |
-| `loop_limit`, `tasks_blocked`, `transition_refused`, `git_error`, `config_changed`, `budget` | `blocked` | reason + next command → Needs you |
+| `crashed`, `internal_error`, `verify_failed` | `driving`, note `retry 1/1` → then `blocked` | one retry: `kf drive <f>`. Stopped again → `blocked` with kf's `reason` and `nextCommand` |
+| `worker_blocked`, `loop_limit`, `tasks_blocked`, `transition_refused`, `git_error`, `config_changed`, `budget` | `blocked` | reason + next command → Needs you |
 | `requirement_bug`, `plan_change_needed`, `approval_changed` | `blocked` | the contract needs the human: Needs you with kf's `nextCommand` (a `kf stage … planning` travel prints, never runs) |
 | `stopped_by_user` | `blocked`, note `stopped by the human` | the human owns it; never restart it |
 
-When `kf status --all --json` shows a `waiting-to-merge` item at stage `done` (the human merged; `kf status` closed it): line → `done`, then measure (§6). A `blocked` line returns to `queued` only when the human says the fix is done.
+Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `done` (the human merged; `kf status` closed it): line → `done`, then measure (§6). A `blocked` line returns to `queued` only when the human says the fix is done.
 
 ## 5. Ownership
 
@@ -139,7 +144,7 @@ Day YYYY-MM-DD — done: X | blocked: Z | waiting-to-merge: W | carry-over: C | 
 <estimates stats lines: hit rate, bias, throughput, sizes, calibration, warning>
 ```
 
-Then rewrite every line that is not `done` as `carry-over` with its note kept; `waiting-to-merge` and `blocked` keep their reason in the note so tomorrow's plan shows it.
+Then rewrite every line that is not `done` as `carry-over` with its note kept; `waiting-to-merge` and `blocked` keep their reason in the note so tomorrow's plan shows it. Exception: a `driving` line whose `kf drive <f> --status --json` state is still `running` stays `driving` — the drive keeps going overnight and the morning re-adopts it (§1).
 
 ---
 

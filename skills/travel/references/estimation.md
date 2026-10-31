@@ -20,7 +20,7 @@ estimates size <minutes> <files> .kf/travel/estimates.md
 # defaults (14 rows measured)      or      learned (30 rows)
 ```
 
-**Learned thresholds.** Once `estimates.md` has ≥ 20 rows with a numeric `actual`, the script takes the last 30 such rows; for each size with ≥ 3 rows, the minute threshold becomes the 75th percentile of `work` and the file threshold the 75th percentile of `files` among rows whose `actual` is that size (index `floor(0.75 × n)` of the sorted values). A size with fewer than 3 rows keeps its default. Sizing then checks S → M → L, XL above L.
+**Learned thresholds.** Once `estimates.md` has ≥ 20 rows with a numeric `actual`, the script takes the last 30 such rows; for each size with ≥ 3 rows, the minute threshold becomes the 75th percentile of `work` and the file threshold the 75th percentile of `files` among rows whose `actual` is that size. Percentile here means exactly: the value at 0-based index `floor(0.75·n)` of the sorted list (8 values → index 6). A size with fewer than 3 rows keeps its default. Sizing then checks S → M → L, XL above L.
 
 ## Inputs for a line
 
@@ -41,10 +41,10 @@ date · id · feature · kind · est · actual · work · review · files · rou
 |---|---|
 | date | today (`--date` to override) |
 | id, feature, kind, est | the ledger line |
-| actual | computed by the script: the size of `work` and `files`, higher of the two; `-` with `--cancelled` |
-| work | minutes: sum of `endedAt − at` over the item's `runs[]` started today (`kf status --change <f> --json`) — drive runs only, not time waiting on the human |
-| review | minutes of the runs among those whose `stage` is `review` (a share of `work`) |
-| files | `git diff --shortstat <base>...HEAD` in the item worktree, recorded as `files=<n>` on the ledger line at `waiting-to-merge` (the worktree is gone after the merge); else `gh pr view <n> --json changedFiles` |
+| actual | computed by the script with the **default** thresholds (never the learned ones, so learning cannot feed on itself): the size of `work` and `files`, higher of the two; `-` with `--cancelled` |
+| work | minutes: sum of `endedAt − at` over the item's `runs[]` (`kf status --change <f> --json`) whose `stage` is implementation, testing or review — every run since approval, on any day, so a carried item is measured whole; drive runs only, not time waiting on the human. Recorded as `work=<n>` on the ledger line at `ready`; measure from that |
+| review | minutes of those runs whose `stage` is `review` (a share of `work`), recorded as `review=<n>` beside `work=<n>` |
+| files | `git diff --shortstat <base>...HEAD` in the item worktree, recorded as `files=<n>` on the ledger line at `ready` (the worktree is gone after the merge); else `gh pr view <n> --json changedFiles` |
 | rounds | the drive's repair loops (`loops` of `kf drive <f> --status --json`) |
 | path | the stages the item crossed today, e.g. `implementation→review` |
 | tier | the review tier in the review report (`T1`, `T1C`, `T2`, `T3`), or `-` |
