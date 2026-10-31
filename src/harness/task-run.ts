@@ -147,6 +147,16 @@ export type TaskRunResult =
     stop?: TaskCompletion["stop"] | "usage_limit";
   });
 
+/**
+ * Whether a task run starts a new worker session. Shared by the real run and `--dry-run` so both agree: the first
+ * attempt never inherits a stale session, while later attempts and a run after a usage-limit pause resume the task's own.
+ */
+export function taskRunFresh(feature: Feature, ctx: TaskRunContext, fresh: boolean): boolean {
+  const prior = feature.meta?.tasks?.[ctx.task.id];
+  const pausedByLimit = prior?.state === "pending" && prior.reason?.startsWith(USAGE_LIMIT_REASON) === true;
+  return fresh || (ctx.attempts === 0 && !pausedByLimit);
+}
+
 /** Prompt and session plan shared by a real run and `--dry-run`; the run id is a placeholder in a dry run. */
 export function taskPrompt(root: string, feature: Feature, ctx: TaskRunContext, runId: string, previousFailure?: string): string {
   return buildTaskPrompt({ runId, feature, root, assignment: ctx.assignment, task: ctx.task, previousFailure });
@@ -175,7 +185,7 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
   // A manual re-run of a failed task tells the worker why the last attempt failed.
   const prior = feature.meta.tasks?.[task.id];
   const previousFailure = opts.previousFailure ?? (prior?.state === "failed" ? prior.reason : undefined);
-  const pausedByLimit = prior?.state === "pending" && prior.reason?.startsWith(USAGE_LIMIT_REASON) === true;
+  const startFresh = taskRunFresh(feature, ctx, opts.fresh);
   let attemptsBefore = 0;
 
   // The claim carries this process as supervisor, so the run counts as live before the worker has a pid.
@@ -218,8 +228,7 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
     id: runId, root, feature: featureName, role: ctx.assignment.role, runnerName: ctx.assignment.runnerName, stage: "implementation",
     runner: ctx.assignment.runner, prompt: taskPrompt(root, current, ctx, runId, previousFailure), output: ctx.assignment.output,
     task: task.id, cwd: worktree.path, sessionKey: key,
-    // The first attempt of a task never inherits a stale session; later attempts, and a run after the usage limit, resume the task's own.
-    fresh: opts.fresh || (ctx.attempts === 0 && !pausedByLimit), timeoutMs: opts.timeoutMs,
+    fresh: startFresh, timeoutMs: opts.timeoutMs,
   };
   writeRunPlan(current, plan);
 

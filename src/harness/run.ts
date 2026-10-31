@@ -340,9 +340,11 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
   const usageLimit = worker?.usageLimit === true && !(exitCode === 0 && statusLine?.startsWith("DONE"));
   // Checked before the resume-failure test: a limit result names its session_id, which the default resume-failure
   // pattern matches, and a reset would throw away the worker's context although the session is fine.
-  // A worker that produced a result object did run in its session; only its reply can say the session is gone.
-  // The whole streamed log names session_id on every line, which the default pattern would read as a dead session.
-  const resumeProbe = worker ? (worker.text ?? "") : output;
+  // With a result object, probe its reply plus the plain (non-JSON) lines: the streamed JSON names session_id on every
+  // line, which the default pattern would read as a dead session, while stderr — where a CLI reports the missing
+  // conversation — shares the log as plain lines.
+  const plainLines = output.split("\n").filter((line) => line.trim() && !line.trimStart().startsWith("{"));
+  const resumeProbe = worker ? [worker.text ?? "", ...plainLines].join("\n") : output;
   if (!usageLimit && provisioned.mode === "resume" && isResumeFailure(plan.runner, exitCode, resumeProbe)) {
     record = { ...record, status: "reset", error: "Resume failed: session no longer usable; stored session dropped." };
     await upsertRun(plan.root, plan.feature, record);

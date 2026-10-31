@@ -7,7 +7,7 @@ import { resolveChain, type Assignment } from "../../harness/prompt.js";
 import { provisionSession } from "../../harness/session.js";
 import { executeChain, planFor, type ChainResultSummary } from "../../harness/chain.js";
 import { isPidAlive, DEFAULT_TIMEOUT_MS, type RunOutcome } from "../../harness/run.js";
-import { executeTaskRun, prepareTaskRun, runConflict, taskPrompt, taskSessionKey } from "../../harness/task-run.js";
+import { executeTaskRun, prepareTaskRun, runConflict, taskPrompt, taskRunFresh, taskSessionKey } from "../../harness/task-run.js";
 import { startDetached, superviseRun } from "../../harness/supervise.js";
 import { findRoot, resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -57,7 +57,7 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
 
   if (args.options["dry-run"]) {
     const prompt = taskPrompt(root, feature, ctx, "<run-id>");
-    const provisioned = provisionSession(ctx.assignment.runner, feature.meta?.sessions?.[taskSessionKey(ctx.task.id)], prompt, fresh || ctx.attempts === 0, { itemDir: feature.dir });
+    const provisioned = provisionSession(ctx.assignment.runner, feature.meta?.sessions?.[taskSessionKey(ctx.task.id)], prompt, taskRunFresh(feature, ctx, fresh), { itemDir: feature.dir });
     return {
       code: 0,
       stdout: [
@@ -79,6 +79,11 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
   const latest = findFeature(root, feature.name) ?? feature;
   const lines = result.outcome ? [renderOutcome(root, latest, result.outcome)] : [];
   lines.push(`Task ${ctx.task.id}: ${result.state}${result.reason ? ` — ${result.reason}` : ""}`);
+  if (result.stop === "usage_limit") {
+    // The task is pending again, not done: a script chaining `kf run --task` must not carry on as if it succeeded.
+    lines.push(`Paused by the API usage limit; re-run after the reset to resume the same session: kf run ${feature.name} --task ${ctx.task.id}`);
+    return { code: 1, stdout: lines.join("\n"), stderr: "task paused by usage limit" };
+  }
   const bad = result.state === "failed" || result.state === "blocked";
   return { code: bad ? 1 : 0, stdout: lines.join("\n"), stderr: bad ? `task ${result.state}` : undefined };
 }

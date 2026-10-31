@@ -46,7 +46,7 @@ describe("drive progress labels", () => {
   });
 });
 
-describe("worker activity from a streamed log (FR-016)", () => {
+describe("worker activity from a streamed log", () => {
   let dir: string;
   afterEach(async () => {
     if (dir) await rm(dir, { recursive: true, force: true });
@@ -71,6 +71,39 @@ describe("worker activity from a streamed log (FR-016)", () => {
     expect(activityLines(log, 3)).toEqual(["Edit src/a.ts", "plain stderr line", "error: boom"]);
     expect(activitySuffix({ activity: "Edit src/a.ts", activityAgo: "4s" })).toBe(" — Edit src/a.ts (4s ago)");
     expect(activitySuffix({})).toBe("");
+  });
+
+  it("tails a codex --json log as one compact line per event", async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-activity-"));
+    const log = join(dir, "run.log");
+    const message = `Looked at the plan. ${"x".repeat(300)}`;
+    await writeFile(log, [
+      JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
+      JSON.stringify({ type: "turn.started" }),
+      JSON.stringify({ type: "item.completed", item: { id: "item_0", type: "agent_message", text: message } }),
+      JSON.stringify({ id: "0", msg: { type: "task_started" } }),
+      "",
+    ].join("\n"));
+    const tail = activityLines(log, 10);
+    expect(tail[0]).toBe('thread.started {"thread_id":"t-1"}');
+    expect(tail[1]).toBe("turn.started");
+    expect(tail[2].startsWith('item.completed {"item":{"id":"item_0","type":"agent_message","text":"Looked at the plan. x')).toBe(true);
+    expect(tail[2].endsWith("…")).toBe(true);
+    expect(tail[2].length).toBeLessThanOrEqual("item.completed ".length + 120);
+    expect(tail[3]).toBe('id {"id":"0","msg":{"type":"task_started"}}');
+    expect(tail).toHaveLength(4);
+  });
+
+  it("finds the last tool call behind a tool_result line larger than the tail window, within a bound", async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-activity-"));
+    const log = join(dir, "run.log");
+    const toolUse = JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "big.json" } }] } });
+    const toolResult = (bytes: number) => JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: "y".repeat(bytes) }] } });
+    await writeFile(log, `${toolUse}\n${toolResult(100 * 1024)}\n`);
+    expect(workerActivity(log)?.activity).toBe("Read big.json");
+    // Bounded: four tail windows (256 KiB) at most, so a line larger than that hides the tool call.
+    await writeFile(log, `${toolUse}\n${toolResult(300 * 1024)}\n`);
+    expect(workerActivity(log)).toBeNull();
   });
 });
 

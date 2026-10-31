@@ -17,26 +17,34 @@ export interface DriveLiveRun {
 }
 
 const LOG_TAIL_BYTES = 64 * 1024;
+/** How far back `workerActivity` reads at most, in tail windows: one huge tool_result line can fill a whole window. */
+const ACTIVITY_WINDOWS = [1, 2, 4];
 const HEAD_MAX = 80;
+const COMPACT_MAX = 120;
+/** Event types of claude's `stream-json`: `eventActivity` describes or deliberately drops these; others are compacted. */
+const CLAUDE_EVENT_TYPES = new Set(["system", "user", "assistant", "result"]);
 
 const head = (text: string): string => {
   const line = text.trim().split("\n")[0].replace(/\s+/g, " ").trim();
   return line.length > HEAD_MAX ? `${line.slice(0, HEAD_MAX - 1)}…` : line;
 };
 
-/** Complete lines of the last 64 KiB of a log: a line cut by the tail window or still being written is left out. */
-function completeTailLines(path: string): { lines: string[]; mtimeMs: number } | null {
+/**
+ * Complete lines of the last `bytes` (64 KiB by default) of a log: a line cut by the tail window or still being
+ * written is left out. `whole` says the window reached the start of the log.
+ */
+function completeTailLines(path: string, bytes = LOG_TAIL_BYTES): { lines: string[]; mtimeMs: number; whole: boolean } | null {
   if (!existsSync(path)) return null;
   const fd = openSync(path, "r");
   try {
     const { size, mtimeMs } = fstatSync(fd);
-    const length = Math.min(size, LOG_TAIL_BYTES);
+    const length = Math.min(size, bytes);
     const buffer = Buffer.alloc(length);
     readSync(fd, buffer, 0, length, size - length);
     const lines = buffer.toString("utf8").split("\n");
     lines.pop();
     if (length < size) lines.shift();
-    return { lines: lines.filter((line) => line.trim().length > 0), mtimeMs };
+    return { lines: lines.filter((line) => line.trim().length > 0), mtimeMs, whole: length === size };
   } finally {
     closeSync(fd);
   }
@@ -61,6 +69,16 @@ function describeTool(block: Record<string, unknown>): string {
   return name;
 }
 
+/** A JSON line no claude event shape covers (`codex exec --json`, other runners): its type, or first key, and a bounded head. */
+function compactEvent(event: Record<string, unknown>): string {
+  const typed = typeof event.type === "string";
+  const label = typed ? event.type as string : (Object.keys(event)[0] ?? "{}");
+  const rest = typed ? Object.fromEntries(Object.entries(event).filter(([key]) => key !== "type")) : event;
+  if (Object.keys(rest).length === 0) return label;
+  const body = JSON.stringify(rest).replace(/\s+/g, " ");
+  return `${label} ${body.length > COMPACT_MAX ? `${body.slice(0, COMPACT_MAX - 1)}…` : body}`;
+}
+
 /** The readable activity of one streamed claude event: its last tool call, else its last text; null for anything else. */
 function eventActivity(event: Record<string, unknown>): string | null {
   if (event.type === "result") {
@@ -80,21 +98,28 @@ function eventActivity(event: Record<string, unknown>): string | null {
 /**
  * What a worker is doing, from the tail of its streamed log (`--output-format stream-json`): the last tool call
  * (name plus file or command head) or, when the latest assistant event is text, that text. Its time is the log's
- * mtime, as the stream carries no timestamps. Null when the log is missing or holds no such event yet.
+ * mtime, as the stream carries no timestamps. Null when the log is missing or holds no such event yet. A window
+ * without one is widened, up to four tail windows, so a single huge line after the last tool call does not hide it.
  */
 export function workerActivity(logPath: string): { activity: string; at: string } | null {
-  const tail = completeTailLines(logPath);
-  if (!tail) return null;
-  for (const line of [...tail.lines].reverse()) {
-    const event = parseObject(line);
-    if (!event || event.type !== "assistant") continue;
-    const activity = eventActivity(event);
-    if (activity) return { activity, at: new Date(tail.mtimeMs).toISOString() };
+  for (const windows of ACTIVITY_WINDOWS) {
+    const tail = completeTailLines(logPath, windows * LOG_TAIL_BYTES);
+    if (!tail) return null;
+    for (const line of [...tail.lines].reverse()) {
+      const event = parseObject(line);
+      if (!event || event.type !== "assistant") continue;
+      const activity = eventActivity(event);
+      if (activity) return { activity, at: new Date(tail.mtimeMs).toISOString() };
+    }
+    if (tail.whole) return null;
   }
   return null;
 }
 
-/** The last `count` lines of a worker log, readable: streamed events as activity lines, other output verbatim. */
+/**
+ * The last `count` lines of a worker log, readable: claude stream events as activity lines (those with nothing to
+ * show are dropped), other JSON lines compacted to one short line, other output verbatim.
+ */
 export function activityLines(logPath: string, count: number): string[] {
   const tail = completeTailLines(logPath);
   if (!tail) return [];
@@ -107,6 +132,7 @@ export function activityLines(logPath: string, count: number): string[] {
     }
     const activity = eventActivity(event);
     if (activity) out.push(activity);
+    else if (typeof event.type !== "string" || !CLAUDE_EVENT_TYPES.has(event.type)) out.push(compactEvent(event));
   }
   return out.slice(-count);
 }

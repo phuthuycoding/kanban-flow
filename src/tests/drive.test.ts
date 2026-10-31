@@ -694,7 +694,7 @@ describe("drive config resolution: worktree → origin → primary", () => {
   });
 });
 
-describe("kf drive shows its workers (FR-016: TC-034, TC-035, TC-036)", () => {
+describe("kf drive shows its workers", () => {
   const until = async <T>(what: string, probe: () => Promise<T | null> | T | null, ms = 30_000): Promise<T> => {
     const end = Date.now() + ms;
     for (;;) {
@@ -709,7 +709,7 @@ describe("kf drive shows its workers (FR-016: TC-034, TC-035, TC-036)", () => {
   const editLine = line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: "src/a.ts", old_string: "a", new_string: "b" } }] }, session_id: SESSION });
   const result = (o: Record<string, unknown>) => JSON.stringify({ type: "result", session_id: SESSION, ...o });
 
-  it("streams the worker log; --status, the heartbeat and --tail show readable activity (TC-034)", async () => {
+  it("streams the worker log; --status, the heartbeat and --tail show readable activity", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }]);
     // The fake's script output goes to the run log as it is written; the result line comes last, at exit.
     pr.cli.scenario("claude", {
@@ -746,7 +746,7 @@ describe("kf drive shows its workers (FR-016: TC-034, TC-035, TC-036)", () => {
     expect(events(pr).some((e) => e.event === "task" && e.task === "TASK-001" && e.state === "done")).toBe(true);
   });
 
-  it("puts the worker's own error text in the task and stop reasons (TC-035)", async () => {
+  it("puts the worker's own error text in the task and stop reasons", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }], { limits: { retries: 1 } });
     pr.cli.scenario("claude", { stdout: result({ is_error: true, result: "boom: tool denied" }), exit: 1 }, "TASK-001");
 
@@ -763,7 +763,7 @@ describe("kf drive shows its workers (FR-016: TC-034, TC-035, TC-036)", () => {
     expect((await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout).toMatch(/Stop: tasks_blocked — .*worker exited 1: boom: tool denied/);
   });
 
-  it("stops on the usage limit without spending a run, then resumes the same session (TC-036)", async () => {
+  it("stops on the usage limit without spending a run, then resumes the same session", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }]);
     const limit = "You've hit your 5-hour limit · resets 1:30pm";
     pr.cli.scenario("claude", {

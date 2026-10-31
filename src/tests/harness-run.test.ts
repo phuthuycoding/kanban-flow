@@ -149,7 +149,7 @@ describe("kf run hands a stage to the assigned worker", () => {
     expect(extractStatus(`${JSON.stringify({ result: "STATUS: BLOCKED" })}\nSTATUS: DONE`)).toMatchObject({ statusLine: "BLOCKED" });
   });
 
-  it("reads STATUS, usage and the error from the final result line of a stream-json log (FR-016)", async () => {
+  it("reads STATUS, usage and the error from the final result line of a stream-json log", async () => {
     const stream = [
       JSON.stringify({ type: "system", subtype: "init", session_id: "s-1" }),
       JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "SKILL.md" } }], usage: { input_tokens: 99, output_tokens: 99 } }, session_id: "s-1" }),
@@ -181,7 +181,7 @@ describe("kf run hands a stage to the assigned worker", () => {
     expect(p.feature().meta!.sessions!.coder).toBe(session);
   });
 
-  it("keeps the session of a resume that hit the usage limit (FR-016)", async () => {
+  it("keeps the session of a resume that hit the usage limit", async () => {
     await p.writeHarness(harnessWith({ testing: ["coder"] }));
     await writeFeatureMeta(p.feature().dir, { ...p.feature().meta!, sessions: { coder: "live-session" } });
     p.cli.scenario("claude", { resumeStdout: JSON.stringify({ type: "result", is_error: true, api_error_status: 429, result: "You've hit your 5-hour limit · resets 1:30pm", session_id: "live-session" }), resumeExit: 1 });
@@ -190,6 +190,21 @@ describe("kf run hands a stage to the assigned worker", () => {
     expect(runs).toHaveLength(1);
     expect(runs[0]).toMatchObject({ mode: "resume", status: "failed", error: "worker exited 1: You've hit your 5-hour limit · resets 1:30pm" });
     expect(p.feature().meta!.sessions!.coder).toBe("live-session");
+  });
+
+  it("resets a resume whose stderr says the conversation is gone, although its result text is empty", async () => {
+    await p.writeHarness(harnessWith({ testing: ["coder"] }));
+    await writeFeatureMeta(p.feature().dir, { ...p.feature().meta!, sessions: { coder: "dead-session" } });
+    p.cli.scenario("claude", {
+      script: "echo 'No conversation found with session ID: dead-session'",
+      resumeStdout: JSON.stringify({ type: "result", is_error: true, result: "", session_id: "dead-session" }),
+      resumeExit: 1,
+    });
+    const res = await cmdRun(args("run", ["demo"]), p.root);
+    const runs = p.feature().meta!.runs!;
+    expect(runs.map((r) => [r.mode, r.status])).toEqual([["resume", "reset"], ["start", "done"]]);
+    expect(res.stdout).toContain("was reset");
+    expect(p.feature().meta!.sessions!.coder).not.toBe("dead-session");
   });
 
   it("kills the worker when its pid cannot be recorded", async () => {

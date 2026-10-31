@@ -104,8 +104,9 @@ class Driver {
   }
 
   private async stopOnUsageLimit(who: string, text: string): Promise<void> {
-    await this.releaseRun();
+    // Stop before the await: a parallel task finishing meanwhile must not get a new run admitted in that window.
     this.requestStop({ code: "usage_limit", reason: `${who} hit the API usage limit: ${oneLine(text)}; after the reset, resume the same worker session: kf drive ${this.name}` });
+    await this.releaseRun();
   }
 
   private logRun(outcome: RunOutcome | null | undefined, task?: string): void {
