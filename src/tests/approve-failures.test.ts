@@ -19,6 +19,7 @@ const ctl = vi.hoisted(() => ({
   failRestore: false,
   afterEnsure: null as null | ((root: string) => void),
   failRemove: false,
+  calls: 0,
 }));
 
 vi.mock("../workflow/transition.js", async (importOriginal) => {
@@ -31,13 +32,12 @@ vi.mock("../workflow/transition.js", async (importOriginal) => {
 
 vi.mock("../workflow/features.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../workflow/features.js")>();
-  let calls = 0;
   return {
     ...real,
     updateFeatureMeta: (...a: Parameters<typeof real.updateFeatureMeta>) => {
-      calls += 1;
+      ctl.calls += 1;
       // The first call writes the approval; the second is the restore after a failed move.
-      if (ctl.failRestore && calls % 2 === 0) return Promise.reject(new Error("disk full"));
+      if (ctl.failRestore && ctl.calls % 2 === 0) return Promise.reject(new Error("disk full"));
       return real.updateFeatureMeta(...a);
     },
   };
@@ -79,6 +79,7 @@ async function plannedItem(): Promise<void> {
 const refused = (reason: string, stdout: string): TransitionOutcome => ({ kind: "refused", reason: reason as never, stdout, stderrTag: reason });
 
 beforeEach(async () => {
+  ctl.calls = 0;
   ctl.transition = null;
   ctl.failRestore = false;
   ctl.afterEnsure = null;

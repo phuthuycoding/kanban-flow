@@ -202,7 +202,7 @@ describe("auto-close on merge", () => {
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
 
     const all = await status({ all: true });
-    expect(all.stdout).toMatch(/Waiting to merge\n {2}demo — https:\/\/github\.com\/o\/r\/pull\/7: gh pr merge 7 --squash\nRunning: 0$/);
+    expect(all.stdout).toMatch(/Waiting to merge\n {2}demo — https:\/\/github\.com\/o\/r\/pull\/7: gh pr merge 7\nRunning: 0$/);
 
     const synced = await cmdSync(args("sync"), root);
     expect(synced.code).toBe(0);
@@ -591,7 +591,7 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
       "  a — confirm spec",
       "  b — approve plan (or --backlog)",
       "Waiting to merge",
-      `  c — ${PR}: gh pr merge 7 --squash`,
+      `  c — ${PR}: gh pr merge 7`,
       "  d — docs/app-d awaiting push: git push -u origin docs/app-d",
       "Running: 1",
     ].join("\n"));
@@ -600,7 +600,7 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
       needsYou: Array<{ feature: string }>; waitingToMerge: Array<{ feature: string; command: string }>; running: number;
     };
     expect(json.needsYou.map((n) => n.feature)).toEqual(["a", "b"]);
-    expect(json.waitingToMerge.map((w) => [w.feature, w.command])).toEqual([["c", "gh pr merge 7 --squash"], ["d", "git push -u origin docs/app-d"]]);
+    expect(json.waitingToMerge.map((w) => [w.feature, w.command])).toEqual([["c", "gh pr merge 7"], ["d", "git push -u origin docs/app-d"]]);
     expect(json.running).toBe(1);
   }, 15_000);
 });

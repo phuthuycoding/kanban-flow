@@ -338,7 +338,7 @@ export function computeBuckets(
         needsYou.push({ feature: f.name, decision: `${s.close.pr} was closed without merging — reopen and merge it, or move the item back` });
       } else if (s.close?.kind === "awaiting-merge") {
         const number = /\/pull\/(\d+)$/.exec(s.close.pr)?.[1];
-        waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number} --squash` : `gh pr merge ${s.close.pr} --squash` });
+        waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number}` : `gh pr merge ${s.close.pr}` });
       }
     }
   }

@@ -105,7 +105,7 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-describe("schema: no shipping stage (TC-001)", () => {
+describe("schema: no shipping stage", () => {
   it("review hands straight to done with correct maps", () => {
     expect(STAGES).toEqual(["brainstorm", "planning", "backlog", "implementation", "testing", "review", "done", "cancelled"]);
     expect(TRANSITIONS.review).toEqual(["done", "implementation", "planning"]);
@@ -115,7 +115,7 @@ describe("schema: no shipping stage (TC-001)", () => {
   });
 });
 
-describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
+describe("legacy stage names refuse with a hint", () => {
   it("kf stage <x> shipping exits 1 with the shipping hint and moves nothing", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
@@ -170,7 +170,7 @@ describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
   });
 });
 
-describe("a leftover ship config block is tolerated (TC-004)", () => {
+describe("a leftover ship config block is tolerated", () => {
   it("reads past any ship block shape without throwing and exposes nothing", async () => {
     for (const ship of [{ enabled: true, merge: "auto", release: true, changelog: true }, { merge: "now" }, { enabled: "yes" }]) {
       await writeCfg(ship);
@@ -181,7 +181,7 @@ describe("a leftover ship config block is tolerated (TC-004)", () => {
   });
 });
 
-describe("kf ship is a deprecated alias (TC-018)", () => {
+describe("kf ship is a deprecated alias", () => {
   const DEPRECATED = (feature: string) =>
     `kf ship is deprecated: review opens the PR; merge on GitHub; kf status --change ${feature} closes the item`;
 
@@ -233,7 +233,7 @@ describe("kf ship is a deprecated alias (TC-018)", () => {
   });
 });
 
-describe("archive + sync from review (TC-008, TC-009)", () => {
+describe("archive + sync from review", () => {
   it("unmerged recorded PR refuses at review; merged archives; review→done direct works", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem("a");
