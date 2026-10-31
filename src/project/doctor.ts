@@ -1,23 +1,24 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { ARTIFACTS, STAGES } from "../workflow/schema.js";
+import { ARTIFACTS, LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
-import { branchPushed, landedAndPruned } from "../shared/git.js";
+import { branchPushed, landedProof } from "../shared/git.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
+import { legacyHarnessStageKeys } from "../harness/config.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
-import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
+import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, installAgentsTo, installSkills, MANAGED_AGENTS, MANAGED_SKILLS, agentEntryState, ownsSkillEntry, skillEntryState } from "../integrations/install.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, unhealthySkills } from "../integrations/install.js";
 
 
 export interface DoctorFinding {
@@ -54,6 +55,32 @@ function checkStageDirs(root: string): DoctorFinding[] {
     area: ".works/",
     message: `Missing stage ${missing.length === 1 ? "directory" : "directories"}: ${missing.join(", ")}`,
     action: "kf init --minimal (recreates the stage directories; existing work items are left alone), or kf doctor --fix",
+  }];
+}
+
+/** Items left in a stage dir of an older release; listFeatures does not see them until kf status migrates them. */
+function checkLegacyStageDirs(root: string): DoctorFinding[] {
+  return LEGACY_STAGE_NAMES.flatMap((legacy) => {
+    const dir = join(root, ".works", legacy);
+    if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return [];
+    const folders = readdirSync(dir).filter((f) => statSync(join(dir, f), { throwIfNoEntry: false })?.isDirectory()).sort();
+    return [{
+      level: "WARNING" as const,
+      area: `.works/${legacy}/`,
+      message: `legacy stage folder .works/${legacy}/ ${folders.length > 0 ? `holds ${folders.join(", ")}` : "is still present (empty)"} — kf list, view, drive and archive do not see it.`,
+      action: "run kf status to migrate them",
+    }];
+  });
+}
+
+/** Only a fresh kf init seeds the travel ledger entry; without it `git add -A` commits the ledger. */
+function checkTravelIgnore(root: string): DoctorFinding[] {
+  if (!ignoreEntriesMissing(root).includes(TRAVEL_IGNORE_ENTRY)) return [];
+  return [{
+    level: "WARNING",
+    area: ".gitignore",
+    message: `${TRAVEL_IGNORE_ENTRY} is not ignored; the travel ledger shows up as untracked files.`,
+    action: `kf doctor --fix (adds ${TRAVEL_IGNORE_ENTRY} to .gitignore)`,
   }];
 }
 
@@ -138,15 +165,18 @@ function checkAwaitingMerge(root: string): DoctorFinding[] {
 
 /** Canonical docs committed to a docs branch at close are not on the default branch until someone pushes and merges it. */
 function checkDocsBranches(root: string): DoctorFinding[] {
-  return listFeatures(root)
-    .filter((f) => f.meta?.docsBranch && branchPushed(root, "origin", f.meta.docsBranch) === false
-      && !landedAndPruned(root, f.meta.docsBranch))
-    .map((f) => ({
+  return listFeatures(root).flatMap((f) => {
+    const branch = f.meta?.docsBranch;
+    if (!branch || branchPushed(root, "origin", branch) !== false) return [];
+    const proof = landedProof(root, branch);
+    if (proof.landed) return [];
+    return [{
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
-      message: `docs_branch_unpushed: canonical docs for ${f.name} sit on ${f.meta!.docsBranch}, which is not on origin.`,
-      action: `git push -u origin ${f.meta!.docsBranch}, then open a PR for it`,
-    }));
+      message: `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin and not proven merged (${proof.reason}).`,
+      action: `git push -u origin ${branch}, then open a PR for it`,
+    }];
+  });
 }
 
 /** statusMap.delivered became inert when archive took over delivery — flag the dead key. */
@@ -171,44 +201,20 @@ function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null):
   }];
 }
 
+/** A 0.13 harness.stages still keyed `dones`/`shipping` is read as done / ignored; the file says otherwise until --fix rewrites it. */
+function checkHarnessStagesLegacy(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+  if (!cfg) return [];
+  const legacy = legacyHarnessStageKeys(readRawConfig(root)?.harness);
+  if (legacy.length === 0) return [];
+  return [{
+    level: "WARNING",
+    area: ".kf/config.json",
+    message: `harness_stages_legacy: harness.stages uses the legacy stage keys ${legacy.map((k) => `"${k}"`).join(", ")} ("dones" is read as "done", "shipping" is ignored).`,
+    action: "kf doctor --fix (renames dones to done and drops shipping)",
+  }];
+}
+
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
-/**
- * The install's skill sidecar (install.ts SKILLS_MANIFEST), read the way the install reads it, so
- * doctor recognises an older kanban-flow copy of an unprefixed skill as ours, as the install does.
- */
-function readSkillsManifest(dir: string): Record<string, string> {
-  const path = join(dir, ".kanban-flow-skills.json");
-  if (!existsSync(path)) return {};
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
-  } catch (err) {
-    // As in the install: a corrupt sidecar only means no copy is recognised by digest.
-    if (err instanceof SyntaxError) return {};
-    throw err;
-  }
-}
-
-/**
- * Managed skill names in `dir` held by an entry kanban-flow does not own (a user's own `travel`).
- * The install leaves those alone, so they are neither stale nor something a reinstall repairs.
- */
-function foreignSkills(dir: string): string[] {
-  const manifest = readSkillsManifest(dir);
-  return MANAGED_SKILLS.filter((s) => !ownsSkillEntry(dir, s, manifest));
-}
-
-/** Managed skills in `dir` that are not a healthy link or copy, leaving out the ones the user owns. */
-function unhealthySkills(dir: string, foreign: string[]): string[] {
-  return MANAGED_SKILLS.filter((s) => !foreign.includes(s) && !["linked", "copied"].includes(skillEntryState(dir, s)));
-}
-
-/** True when at least one managed skill kanban-flow owns exists (or dangles) in the dir. */
-function hasOwnedEntries(dir: string): boolean {
-  const foreign = foreignSkills(dir);
-  return MANAGED_SKILLS.some((s) => !foreign.includes(s) && lstatSync(join(dir, s), { throwIfNoEntry: false }) !== undefined);
-}
-
 function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
   for (const id of agents) {
@@ -334,14 +340,15 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
 /**
  * Hooks named after stages that no longer exist. resolveHook looks a hook up by the target stage,
  * so shipping.sh never runs again, and dones.sh runs for done only while done.sh is missing.
- * dones.sh is not simply renamed: its board move names the `dones` status, which is no longer exported
- * once done.sh resolves.
+ * Renaming dones.sh to done.sh keeps it working: done hooks still get the `dones` status name its
+ * board move reads.
  */
-const ORPHANED_STAGE_HOOKS: Array<{ file: string; action: string; fallbackFor?: string }> = [
+const ORPHANED_STAGE_HOOKS: Array<{ file: string; action: string; fallbackFor?: string; fallbackAction?: string }> = [
   {
     file: "dones.sh",
     fallbackFor: "done.sh",
-    action: "replace .kf/hooks/dones.sh with the pack's done.sh (kf doctor --fix restores it when the GitHub hook pack is installed), port any local edits into it, then delete dones.sh — do not rename it: it calls sync_project_status … dones, which no longer moves the board",
+    fallbackAction: "kf doctor --fix (renames dones.sh to done.sh, keeping its content), or rename it by hand",
+    action: "port any local edits from .kf/hooks/dones.sh into done.sh, then delete dones.sh",
   },
   { file: "shipping.sh", action: "delete .kf/hooks/shipping.sh (the shipping stage is gone; review opens the PR)" },
 ];
@@ -350,14 +357,17 @@ function checkOrphanedHooks(root: string): DoctorFinding[] {
   const dir = join(root, ".kf", "hooks");
   return ORPHANED_STAGE_HOOKS
     .filter(({ file }) => existsSync(join(dir, file)))
-    .map(({ file, action, fallbackFor }) => ({
-      level: "WARNING" as const,
-      area: ".kf/hooks",
-      message: fallbackFor && !existsSync(join(dir, fallbackFor))
-        ? `.kf/hooks/${file} is a legacy hook: it runs for done only because ${fallbackFor} is missing.`
-        : `.kf/hooks/${file} is an orphaned legacy hook: no stage runs it any more.`,
-      action,
-    }));
+    .map(({ file, action, fallbackFor, fallbackAction }) => {
+      const fallback = fallbackFor !== undefined && !existsSync(join(dir, fallbackFor));
+      return {
+        level: "WARNING" as const,
+        area: ".kf/hooks",
+        message: fallback
+          ? `.kf/hooks/${file} is a legacy hook: it runs for done only because ${fallbackFor} is missing.`
+          : `.kf/hooks/${file} is an orphaned legacy hook: no stage runs it any more.`,
+        action: fallback ? fallbackAction ?? action : action,
+      };
+    });
 }
 
 /** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
@@ -518,6 +528,8 @@ function readRawConfig(root: string): Record<string, unknown> | null {
 export function runDoctor(root: string): DoctorReport {
   const findings: DoctorFinding[] = [];
   findings.push(...checkStageDirs(root));
+  findings.push(...checkLegacyStageDirs(root));
+  findings.push(...checkTravelIgnore(root));
 
   const config = checkConfig(root);
   findings.push(...config.findings);
@@ -537,6 +549,7 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkDocsBranches(root));
   findings.push(...checkStatusMap(config.cfg));
   findings.push(...checkStatusMapLegacy(config.cfg));
+  findings.push(...checkHarnessStagesLegacy(root, config.cfg));
   findings.push(...checkHarness(root, config.cfg));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
@@ -599,6 +612,15 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
         fixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
         changed = true;
       }
+      const harnessStages = (raw.harness as Record<string, unknown> | undefined)?.stages as Record<string, unknown> | undefined;
+      if (cfg && harnessStages && legacyHarnessStageKeys(raw.harness).length > 0) {
+        // An explicit `done` beside the legacy `dones` wins, the same choice the reader makes.
+        if (harnessStages.dones !== undefined && harnessStages.done === undefined) harnessStages.done = harnessStages.dones;
+        delete harnessStages.dones;
+        delete harnessStages.shipping;
+        fixed.push("rewrote harness.stages legacy keys (dones → done, shipping dropped)");
+        changed = true;
+      }
       if (raw.repository === undefined && cfg) {
         const detected = detectRepository(root);
         if (detected) {
@@ -624,9 +646,20 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
       return { agents: [DEFAULT_AGENT], scope: "global" as SkillScope, declaredScope: undefined };
     }
   })();
+  if (ignoreEntriesMissing(root).includes(TRAVEL_IGNORE_ENTRY)) {
+    appendIgnoreWorks(root, [TRAVEL_IGNORE_ENTRY]);
+    fixed.push(`added ${TRAVEL_IGNORE_ENTRY} to .gitignore`);
+  }
+
+  const hooksDir = join(root, ".kf", "hooks");
+  // A dones.sh standing in for done.sh is the project's own gate: it is renamed, never replaced by the
+  // pack's done.sh, which the restore below would otherwise copy in and so silence it.
+  if (existsSync(join(hooksDir, "dones.sh")) && !existsSync(join(hooksDir, "done.sh"))) {
+    renameSync(join(hooksDir, "dones.sh"), join(hooksDir, "done.sh"));
+    fixed.push("renamed .kf/hooks/dones.sh to done.sh (content kept)");
+  }
   // Restore missing pack files only when the project opted in (some are present); divergent
   // files stay warnings — a hook the project edited is not ours to overwrite.
-  const hooksDir = join(root, ".kf", "hooks");
   const optedIn = GITHUB_HOOK_PACK.some((f) => existsSync(join(hooksDir, f)));
   if (optedIn) {
     const missing = GITHUB_HOOK_PACK.filter((f) => !existsSync(join(hooksDir, f)) && existsSync(join(PKG_GITHUB_HOOKS_DIR, f)));

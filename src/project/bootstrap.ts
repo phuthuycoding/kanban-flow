@@ -49,6 +49,9 @@ export function detectReviewer(root = process.cwd()): string {
 /** Local-only kanban-flow state: work items, item worktrees and the travel ledger. */
 const IGNORED_ENTRIES = [".works/", ".worktrees/", ".kf/travel/"];
 
+/** The travel ledger entry: only a fresh kf init seeds it, so doctor checks it on upgraded projects. */
+export const TRAVEL_IGNORE_ENTRY = ".kf/travel/";
+
 function missingIgnoreEntries(content: string): string[] {
   const lines = content.split("\n").map((l) => l.trim());
   return IGNORED_ENTRIES.filter((entry) => {
@@ -68,11 +71,21 @@ export function shouldSuggestIgnoreWorks(root: string): boolean {
   return missingIgnoreEntries(readFileSync(gi, "utf8")).length > 0;
 }
 
-/** Appends only the entries .gitignore lacks, so a re-run never duplicates a line. Returns what it added. */
-export function appendIgnoreWorks(root: string): string[] {
+/** The kanban-flow entries .gitignore lacks; none outside a git repository. */
+export function ignoreEntriesMissing(root: string): string[] {
+  if (!existsSync(join(root, ".git"))) return [];
+  const gi = join(root, ".gitignore");
+  return missingIgnoreEntries(existsSync(gi) ? readFileSync(gi, "utf8") : "");
+}
+
+/**
+ * Appends only the entries .gitignore lacks, so a re-run never duplicates a line. Returns what it added.
+ * `only` limits it to some of the entries.
+ */
+export function appendIgnoreWorks(root: string, only?: readonly string[]): string[] {
   const gi = join(root, ".gitignore");
   const content = existsSync(gi) ? readFileSync(gi, "utf8") : "";
-  const missing = missingIgnoreEntries(content);
+  const missing = missingIgnoreEntries(content).filter((entry) => !only || only.includes(entry));
   if (missing.length === 0) return [];
   writeFileSync(gi, `${content}\n# kanban-flow\n${missing.join("\n")}\n`, "utf8");
   return missing;

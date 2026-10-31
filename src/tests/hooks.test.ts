@@ -45,7 +45,7 @@ describe("resolveHook", () => {
     const legacy = resolveHook(root, "done");
     expect(legacy?.path).toBe(join(root, ".kf", "hooks", "dones.sh"));
     expect(legacy?.source).toBe("project");
-    expect(legacy?.warning).toContain("replace it with the pack's done.sh");
+    expect(legacy?.warning).toContain("rename it to done.sh (kf doctor --fix renames it and keeps its content)");
 
     await writeFile(join(root, ".kf", "hooks", "done.sh"), "#!/usr/bin/env bash\n");
     const current = resolveHook(root, "done");
@@ -93,7 +93,7 @@ describe("runHook", () => {
     await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("me:3:0:Done:In progress:\n");
   });
 
-  it("exports a legacy dones/shipping statusMap as KFW_PROJECT_STATUS_DONE only", async () => {
+  it("exports a legacy dones/shipping statusMap under the done names a done.sh reads, never shipping", async () => {
     await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
       schema: "kanban-flow",
       created: "x",
@@ -105,7 +105,8 @@ describe("runHook", () => {
     await writeFile(join(root, ".kf", "hooks", "done.sh"), "#!/usr/bin/env bash\nenv | grep '^KFW_PROJECT_STATUS_' | sort > \"$KFW_FEATURE_DIR/env.out\"\n");
     const res = runHook(root, { feature: "f", context: "app", dir, root, from: "review", to: "done", approval: "pending" });
     expect(res.ok).toBe(true);
-    await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("KFW_PROJECT_STATUS_DONE=Done\n");
+    // A dones.sh renamed to done.sh still calls sync_project_status … dones, so the alias stays.
+    await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("KFW_PROJECT_STATUS_DONE=Done\nKFW_PROJECT_STATUS_DONES=Done\n");
   });
 
   it("runs a legacy dones.sh for done with the done status exported under the dones name it reads", async () => {

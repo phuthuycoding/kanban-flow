@@ -53,6 +53,28 @@ describe("cmdAutoconfig", () => {
     expect(res.stdout).toContain("[ ] AGENTS.md");
   });
 
+  it("does not count the user's own travel skill as stale or as a project duplicate", async () => {
+    await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
+    await mkdir(join(dir, ".kf"), { recursive: true });
+    await writeFile(join(dir, ".kf", "config.json"), '{"schema":"kanban-flow","created":"x"}', "utf8");
+    await cmdInstall([], { cwd: dir });
+    const globalTravel = join(process.env.HOME!, ".claude", "skills", "travel");
+    await rm(globalTravel, { recursive: true, force: true });
+    await mkdir(globalTravel, { recursive: true });
+    await writeFile(join(globalTravel, "SKILL.md"), "# My own travel planner\n", "utf8");
+    await mkdir(join(dir, ".claude", "skills", "travel"), { recursive: true });
+    await writeFile(join(dir, ".claude", "skills", "travel", "SKILL.md"), "# My project travel\n", "utf8");
+
+    const out = (await cmdAutoconfig(parsed, dir)).stdout;
+    expect(out).toContain("- Skills installed (scope: global): [claude]");
+    expect(out).toMatch(/\[x\] Skills for Claude Code \(scope: global, [^\n]*\) — installed \(your own travel kept\)/);
+    expect(out).toContain("[x] No duplicate project-scope copies (scope: global)");
+
+    // A kanban-flow skill missing beside it still leaves the item open.
+    await rm(join(process.env.HOME!, ".claude", "skills", "kanban-plan"), { recursive: true, force: true });
+    expect((await cmdAutoconfig(parsed, dir)).stdout).toContain("[ ] Skills for Claude Code");
+  });
+
   it("prints a workflow guide whose commands the CLI parser accepts", async () => {
     await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
     const guide = (await cmdAutoconfig(parsed, dir)).stdout.split("## Workflow guide")[1];

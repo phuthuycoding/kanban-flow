@@ -12,6 +12,7 @@ import { writeFeatureMeta } from "../workflow/features.js";
 import { createTaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { gitDriveProject } from "./helpers/git-fixture.js";
+import { seedHarness } from "../harness/config.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
@@ -220,17 +221,28 @@ describe("kf doctor on a docs branch left at close", () => {
     await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "demo", context: "app", created: "20260101_0000", docsBranch: "docs/app-demo" });
   }
 
-  it("warns while the branch is not on origin, naming it", async () => {
+  const unproven = "docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin and not proven merged "
+    + "(origin is not a GitHub repository, so a merged PR cannot be checked).";
+
+  it("warns while the branch is not on origin, naming it and why it is not proven merged", async () => {
     await docsBranchProject();
-    expect(unpushed().map((f) => f.message)).toEqual([
-      "docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin.",
-    ]);
+    expect(unpushed().map((f) => f.message)).toEqual([unproven]);
   });
 
-  it("stays quiet once the pushed branch merged (squash) and was pruned from origin", async () => {
+  it("keeps warning when the pushed branch was deleted from origin without being merged", async () => {
     await docsBranchProject();
     sh(root, "push", "-q", "-u", "origin", "docs/app-demo");
     sh(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    expect(sh(root, "branch", "-r")).not.toContain("docs/app-demo");
+    expect(unpushed().map((f) => f.message)).toEqual([unproven]);
+  });
+
+  it("stays quiet once the branch merged into the default branch and was pruned from origin", async () => {
+    await docsBranchProject();
+    sh(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    sh(root, "push", "-q", "origin", "docs/app-demo:main");
+    sh(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    sh(root, "fetch", "-q", "--prune", "origin");
     expect(sh(root, "branch", "-r")).not.toContain("docs/app-demo");
     expect(unpushed()).toEqual([]);
   });
@@ -409,6 +421,42 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
   });
 
+  it("reports legacy harness.stages keys and --fix renames dones to done and drops shipping", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const harness = seedHarness(["claude"]);
+    const role = Object.keys(harness.roles)[0];
+    cfg.harness = { ...harness, stages: { dones: [role], shipping: [role], testing: [role] } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("harness_stages_legacy"));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].level).toBe("WARNING");
+    expect(legacy[0].message).toContain('"shipping", "dones"');
+    expect(legacy[0].action).toBe("kf doctor --fix (renames dones to done and drops shipping)");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("rewrote harness.stages legacy keys");
+    const after = JSON.parse(await readFile(path, "utf8")) as { harness: { stages: Record<string, unknown> } };
+    expect(after.harness.stages).toEqual({ testing: [role], done: [role] });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("harness_stages_legacy"))).toBe(false);
+  });
+
+  it("keeps an explicit harness.stages.done over the legacy dones on --fix", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const harness = seedHarness(["claude"]);
+    const [first, second] = Object.keys(harness.roles);
+    cfg.harness = { ...harness, stages: { done: [first], dones: [second] } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    const after = JSON.parse(await readFile(path, "utf8")) as { harness: { stages: Record<string, unknown> } };
+    expect(after.harness.stages).toEqual({ done: [first] });
+  });
+
   it("names both legacy statusMap keys and the --fix action, and --fix leaves only done", async () => {
     await project();
     const path = join(root, ".kf", "config.json");
@@ -460,14 +508,15 @@ describe("kf doctor --fix", () => {
     // Without done.sh, dones.sh still runs as the done hook — the message says so.
     expect(runDoctor(root).findings.find((f) => f.message.includes(".kf/hooks/dones.sh"))?.message)
       .toBe(".kf/hooks/dones.sh is a legacy hook: it runs for done only because done.sh is missing.");
+    expect(runDoctor(root).findings.find((f) => f.message.includes(".kf/hooks/dones.sh"))?.action)
+      .toBe("kf doctor --fix (renames dones.sh to done.sh, keeping its content), or rename it by hand");
     await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n");
     const orphans = runDoctor(root).findings.filter((f) => f.message.includes("orphaned legacy hook"));
     expect(orphans).toHaveLength(2);
     const dones = orphans.find((f) => f.message.includes(".kf/hooks/dones.sh"));
     const shipping = orphans.find((f) => f.message.includes(".kf/hooks/shipping.sh"));
     expect(dones?.level).toBe("WARNING");
-    expect(dones?.action).toContain("replace .kf/hooks/dones.sh with the pack's done.sh");
-    expect(dones?.action).toContain("do not rename it");
+    expect(dones?.action).toBe("port any local edits from .kf/hooks/dones.sh into done.sh, then delete dones.sh");
     expect(shipping?.level).toBe("WARNING");
     expect(shipping?.action).toContain("delete .kf/hooks/shipping.sh");
 

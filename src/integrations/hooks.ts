@@ -63,7 +63,7 @@ export function resolveHook(
         name: phase,
         path: legacyPath,
         source,
-        warning: `⚠ ran legacy hook ${legacyPath} for ${phase}: replace it with the pack's ${phase}.sh (kf doctor --fix restores it), port any local edits, then delete ${legacy}.sh`,
+        warning: `⚠ ran legacy hook ${legacyPath} for ${phase}: rename it to ${phase}.sh${source === "project" ? " (kf doctor --fix renames it and keeps its content)" : ""}`,
       };
     }
   }
@@ -104,8 +104,9 @@ export function runHook(
     for (const [stage, option] of Object.entries(cfg.project.statusMap ?? {})) {
       if (option) projectEnv[`KFW_PROJECT_STATUS_${stage.toUpperCase()}`] = option;
     }
-    // A legacy dones.sh moves the board with `sync_project_status … dones`, which reads this name.
-    if (hook.warning && cfg.project.statusMap?.done) projectEnv.KFW_PROJECT_STATUS_DONES = cfg.project.statusMap.done;
+    // A legacy dones.sh, still under that name or renamed to done.sh, moves the board with
+    // `sync_project_status … dones`, which reads this name.
+    if (hook.name === "done" && cfg.project.statusMap?.done) projectEnv.KFW_PROJECT_STATUS_DONES = cfg.project.statusMap.done;
   }
   // Callers print a hook's output only when it fails, so a degraded fallback is reported here.
   if (hook.warning) process.stderr.write(`${hook.warning}\n`);
