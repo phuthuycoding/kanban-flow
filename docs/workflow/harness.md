@@ -155,7 +155,7 @@ A worker that reports `BLOCKED` or `NEEDS_CONTEXT` blocks its task at once. Othe
 1. runs the task graph (a bug, which has no task table, gets one run of the implementation role instead);
 2. runs `harness.verify.stage` in the item worktree;
 3. moves to testing through the normal gates and hooks, runs the testing role(s), reads the report;
-4. on PASS moves to review, runs the review role(s) and on PASS stops with **ready — review PASS: merge the PR, kf status closes the item** — it never merges or archives;
+4. on PASS moves to review, runs the review role(s) and on PASS stops with **ready — review PASS: merge the PR, kf status --change <feature> closes the item** — it never merges or archives;
 5. on FAIL or REJECT moves back to implementation, runs one repair run pointed at the report, verifies and tests again, at most `maxLoops` times.
 
 Before every run it checks the budget, the approval fingerprint and a hash of the whole `harness` block — `main`, `roles`, `stages`, `runners`, `verify`, `parallel`, `retries`, `maxLoops` and `budget`, each key hashed on its own — plus `worktree.enabled` and which file the config came from. A stop takes effect at the next step boundary: runs already in progress finish, no new one starts.

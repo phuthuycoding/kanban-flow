@@ -47,7 +47,7 @@ flowchart TD
     PR -- CI red --> O
     PR -- "CI green or none" --> MG{PR merged on GitHub, or landing none with nothing ahead of the default branch?}
     MG -- Not yet --> MG
-    MG -- "Yes: next kf status / kf sync / kf archive" --> AD{Work item kind?}
+    MG -- "Yes: next kf status --change / kf sync / kf archive" --> AD{Work item kind?}
     AD -- Feature --> FC[Write feature-report]
     FC --> AE[kf archive: copy requirement, use-case and testplan docs]
     AD -- Bug --> BC[Update the related feature docs if needed]
@@ -72,7 +72,7 @@ Review runs in a fixed order. An independent `code-reviewer` reads the branch di
 
 The report is gated at review → done: a PASS needs `ci` green or none (`review_ci_missing`, `review_ci_red`), a `landing` value (`review_landing_missing`), and with `landing: pr` a recorded PR (`review_pr_missing`).
 
-Nobody is asked "archive?". An item with a PASS review closes on the next `kf status`, `kf sync` or `kf archive` once its PR is merged on GitHub, or, for `landing: none`, once it has 0 commits ahead of origin's default branch. Until then `kf status` says to merge the PR (its URL) and run `kf status` again. A PR that was closed unmerged is refused.
+Nobody is asked "archive?". An item with a PASS review closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged on GitHub, or, for `landing: none`, once it has 0 commits ahead of origin's default branch. Until then `kf status` says to merge the PR (its URL) and run `kf status --change <feature>` again. A PR that was closed unmerged is refused.
 
 The close runs in a binding order: gates, refusal while a drive or close is in progress, refusal while the worktree is dirty, the `done` hook, worktree teardown, branch deletion (local, then origin), canonical docs, the move into `.works/done/`, and the metadata stamp.
 
