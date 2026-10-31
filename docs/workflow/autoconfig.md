@@ -41,21 +41,27 @@ Four sections, in order:
 | Check | Done means | Fix when missing |
 | --- | --- | --- |
 | Project config | `.kf/config.json` exists | `kf init --defaults` (or `kf init` on a terminal, to answer the onboarding questions) |
-| Skills per configured agent | All 9 `SKILL.md` files in the agent's skills dir, for each id in `config.agents` (or `claude` when unset) | `kf install --agent <id>` |
-| Base review rules | `general.md`, `security.md`, `performance.md` in `.kf/review/rules/` | `kf init --defaults` (seeds templates, hooks dir and rules) |
+| Skills, one row per configured agent | The kanban skills are linked or copied in that agent's skills dir at the effective scope (`skills.scope`, default global); the label shows the state (`missing`, `partial`, `stale`, `broken-link`, `linked`, `copied`, `mixed`) | `kf install --agent <id> --scope <scope>` |
+| Agents, one row per configured agent that has an agents dir | The three kanban agents (`code-reviewer`, `scout`, `spec-reviewer`) are installed in that dir (Claude Code: `.claude/agents/`); a file of yours at a managed name shows as `foreign` | `kf install --agent <id> --scope <scope>`; for `foreign`, rename your file or keep the substitution |
+| No duplicate project-scope copies | Only checked at global scope: no project copy of the skills shadows the global ones | `kf install` (cleans project copies), or `kf uninstall --scope project` |
+| Base review rules | `general.md`, `security.md`, `performance.md` in `.kf/review/rules/` | `kf init --defaults` (seeds templates + rules) |
 | Stack rule packs | A `<stack>.md` in `.kf/review/rules/` for every stack — `config.stacks` when set, else detected | `kf rules --stack <id>` (`kf rules --list` shows packs) |
 | `.works/` ignored | `.gitignore` lists `.works/` — only checked when `.git` exists | `echo '.works/' >> .gitignore` |
-| Agent file | `AGENTS.md` or `CLAUDE.md` at the root | write one: commands plus conventions |
+| Agent file | `AGENTS.md` or `CLAUDE.md` at the root | create `AGENTS.md` documenting the commands and conventions |
 | Declared contexts | `contexts` in `.kf/config.json` | optional — `kf contexts` prints a survey brief for an agent to propose a list, a human confirms it. Without a list, `kf new` accepts any context |
 | Harness | a `harness` block in `.kf/config.json` | optional — `kf init --defaults` seeds the runner presets; with no stages assigned the harness stays out of the way |
-| Worktree domain infra | `*.<domainZone>` (default `.test`) resolves to the kf proxy listen address and `kf proxy serve` is running there | one-time, needs sudo — `sudo kf worktree setup` (`--print` shows the plan first). When missing, worktrees still work through the direct `127.0.0.1:<port>` URL and `kf validate`/`kf doctor` surface a `worktree_infra_missing` warning. Set `worktree.enabled: false` to opt a project out |
-| Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — see below |
-| Board status for done | when a project board is linked, `statusMap.done` names the closing Status (usually "Done") | set `statusMap.done` in `.kf/config.json`; a legacy `dones` or `shipping` key still maps, and `kf doctor` flags it as `statusmap_legacy` |
-| Closing hook | the hook pack's `done.sh` is in `.kf/hooks/` (it closes the issue and moves the card when the item reaches `done`) | `kf doctor --fix` restores pack files; delete an orphaned `dones.sh` or `shipping.sh`, which `kf doctor` warns about |
-| No `ship` block | `.kf/config.json` has no `ship` key — `kf ship` is gone and a leftover block is ignored with a `kf doctor` warning | delete the `ship` block |
-| Day files ignored | `.gitignore` lists `.kf/travel/` — only checked when `.git` exists | `echo '.kf/travel/' >> .gitignore` (`kf init` seeds it) |
+| Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — add shell hooks named after stages (see below) |
+| GitHub link | `repository` in `.kf/config.json` | optional — `kf doctor --fix` fills it from the GitHub origin remote, or set `repository` by hand |
 
-The checklist reports the current state; it changes nothing itself. Read it as a diff between the project as it is and the project the pipeline expects.
+The checklist reports the current state; it changes nothing itself. Read it as a diff between the project as it is and the project the pipeline expects. `kf init` also seeds `.kf/travel/` into `.gitignore` (the day files of the `travel` skill); the checklist does not check it.
+
+Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
+
+- `statusmap_legacy` — `project.statusMap` still uses the `dones` or `shipping` keys; `kf doctor --fix` renames `dones` to `done` and drops `shipping`.
+- A warning that the `ship` block in `.kf/config.json` is ignored (`kf ship` is deprecated); delete the block.
+- An orphaned `.kf/hooks/dones.sh` or `shipping.sh`; rename `dones.sh` to `done.sh`, delete `shipping.sh`. The hook pack's `done.sh` is restored by `kf doctor --fix` when pack files are missing.
+- `docs_branch_unpushed` — canonical docs for a closed item sit on an unpushed `docs/<context>-<feature>` branch.
+- `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out.
 
 ## Phase hooks
 

@@ -234,10 +234,13 @@ suite's real counts, the rules — writes a review pack, picks the reviewer set 
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
 surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
 area), and refutes any finding whose evidence quote is missing or not where the
-reviewer said it is before it reaches the report. After a PASS, `kanban-review` pushes the branch, opens the PR and watches the pushed commit's
-GitHub Actions runs and the PR's mergeability in the background; a red run is handed
-to the human with the failed run and its log — never a re-run button, and never a
-transition the state machine does not have.
+reviewer said it is before it reaches the report. After the review PASS, `kanban-review` pushes the branch, opens the PR and watches the
+pushed commit's GitHub Actions runs and the PR's mergeability in the background. A red
+run is not handed to the human at first: it writes a `ci: red` / `FAIL` report with the
+failed run and its log tail and sends the item back through implementation, testing and
+review; the fix is pushed to the same PR and watched again. A second red round goes to
+the human with both rounds' failed runs, as does anything the watcher cannot settle (a
+conflict, a blocked or timed-out PR). It never re-runs, cancels or approves a workflow.
 
 ### From approval to the merge gate: `kf drive`
 
