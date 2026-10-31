@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { ARTIFACTS } from "../../workflow/schema.js";
+import { join, relative } from "node:path";
+import { ARTIFACTS, METADATA_FILE } from "../../workflow/schema.js";
 import { driveLive, findFeature, listFeatures, parseFolderName, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { archiveItem } from "../../workflow/archive.js";
@@ -13,7 +13,7 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed, landedProof } from "../../shared/git.js";
+import { branchPushed, landedProof, revParse } from "../../shared/git.js";
 import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
@@ -96,13 +96,12 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
 }
 
 /**
- * A refusal spans lines (the gate's heading, then one line per failed check); the status line keeps
- * the heading and names the checks by their codes, or keeps every line when there are none.
- * Hook output is the project's own text, so it is never read for check codes: every line is kept.
+ * A gate or direction refusal spans lines (the heading, then one line per check); the status line
+ * keeps the heading and names the failed checks by the ERROR codes the refusal carries. Every other
+ * refusal, and hook output, keeps every line: its text may quote gh, git or the project's hook.
  */
-function oneLine(text: string, checkCodes: boolean): string {
+function oneLine(text: string, codes: string[] = []): string {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const codes = checkCodes ? [...new Set([...text.matchAll(/\(([a-z]+(?:_[a-z]+)+)\)/g)].map((m) => m[1]))] : [];
   return codes.length > 0 ? `${lines[0] ?? ""} ${codes.join(", ")}` : lines.join(" ");
 }
 
@@ -131,11 +130,11 @@ async function closeLanded(root: string, items: Feature[]): Promise<{ lines: str
         if (outcome.merge?.reason === "not-merged") {
           states.set(f.name, outcome.merge.state === "CLOSED" ? { kind: "pr-closed", pr: outcome.merge.pr } : { kind: "awaiting-merge", pr: outcome.merge.pr });
         } else {
-          states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout, true) });
+          states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout, outcome.codes) });
         }
         break;
       case "hook-failed":
-        states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout, false) });
+        states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout) });
         break;
       case "error": {
         failed = true;
@@ -201,10 +200,16 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     ? computeBuckets(
       statuses,
       features.flatMap((f) => {
-        if (!f.meta?.docsBranch || branchPushed(root.root, "origin", f.meta.docsBranch) !== false) return [];
+        if (!f.meta?.docsBranch) return [];
+        // null: no local branch. It is still pushed work when origin has it; otherwise landedProof says it is gone.
+        const pushed = branchPushed(root.root, "origin", f.meta.docsBranch);
+        if (pushed === true || (pushed === null && revParse(root.root, `refs/remotes/origin/${f.meta.docsBranch}`))) return [];
         const proof = landedProof(root.root, f.meta.docsBranch);
         if (proof.landed) return [];
-        // A branch that never had an upstream has no PR to look up: it shows as awaiting push, not unproven.
+        if (proof.gone) {
+          return [{ feature: f.name, branch: f.meta.docsBranch, reason: proof.reason, command: `remove docsBranch from ${relative(root.root, join(f.dir, METADATA_FILE))}` }];
+        }
+        // No trace of a push (and no merged PR found) shows as awaiting push, not unproven.
         return [{ feature: f.name, branch: f.meta.docsBranch, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) }];
       }),
       features.filter((f) => driveLive(f.meta?.drive)).length,

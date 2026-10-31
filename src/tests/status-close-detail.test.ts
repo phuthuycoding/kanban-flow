@@ -49,12 +49,27 @@ afterEach(async () => {
 });
 
 describe("kf status naming why a review PASS item did not close", () => {
-  it("names a gate refusal's failed checks by their codes", async () => {
+  it("names a gate refusal's failed checks by the ERROR codes it carries, not every code in its text", async () => {
     await inReview("demo");
-    fake.outcome = { kind: "refused", reason: "gate", stderrTag: "gate refused", stdout: "Cannot archive 'demo': gates failed.\n  - testing result missing (missing_testing_result)" } as ArchiveOutcome;
+    fake.outcome = {
+      kind: "refused", reason: "gate", stderrTag: "gate refused", codes: ["missing_testing_result"],
+      stdout: "Cannot archive 'demo': gates failed.\n  [ERROR] x: testing result missing (missing_testing_result)\n  [WARNING] y: surface not in plan (affected_surface_uncovered)",
+    } as ArchiveOutcome;
 
     const res = await cmdStatus(status({ change: "demo" }), root);
     expect(res.stdout).toContain("Not closed: Cannot archive 'demo': gates failed. missing_testing_result");
+    expect(res.stdout).not.toContain("affected_surface_uncovered");
+  });
+
+  it("keeps every line of a refusal that is not a gate, even when its detail holds a code-like token", async () => {
+    await inReview("demo");
+    fake.outcome = {
+      kind: "refused", reason: "merge-gate", stderrTag: "pr unverifiable",
+      stdout: "Cannot archive 'demo': could not verify merge state of https://github.com/o/r/pull/9 — unverifiable is not merged.\ngh: API limit exceeded (rate_limit)",
+    } as ArchiveOutcome;
+
+    const res = await cmdStatus(status({ change: "demo" }), root);
+    expect(res.stdout).toContain("Not closed: Cannot archive 'demo': could not verify merge state of https://github.com/o/r/pull/9 — unverifiable is not merged. gh: API limit exceeded (rate_limit)");
   });
 
   it("keeps a failed done hook's output whole instead of reading codes out of it", async () => {

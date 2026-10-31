@@ -47,6 +47,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
           force: Boolean(args.options.force),
           skipHooks: Boolean(args.options["skip-hooks"]),
           skipSpecs: Boolean(args.options["skip-specs"]),
+          trigger: "stage",
         }));
       }
       return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };

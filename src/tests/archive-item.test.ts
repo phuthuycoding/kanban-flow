@@ -146,6 +146,21 @@ describe("archiveItem — typed outcome", () => {
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });
 
+  it("carries only the ERROR codes of a gate refusal whose report also lists a WARNING", async () => {
+    await reviewStage();
+    await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec.replace("## Affected surfaces\nN/A\n", "## Affected surfaces\n- billing page\n"));
+    await rm(join(feature().dir, ARTIFACTS["feature-report"].file));
+    const outcome = await archiveItem(root, "shipit");
+    expect(outcome).toMatchObject({ kind: "refused", reason: "gate" });
+    if (outcome.kind !== "refused") return;
+    expect(outcome.stdout).toContain("[WARNING]");
+    expect(outcome.stdout).toContain("(affected_surface_uncovered)");
+    const errors = [...outcome.stdout.matchAll(/\[ERROR\] .*\(([a-z_]+)\)$/gm)].map((m) => m[1]);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(outcome.codes).toEqual([...new Set(errors)]);
+    expect(outcome.codes).not.toContain("affected_surface_uncovered");
+  });
+
   it("refuses an item outside review", async () => {
     await implementationStage();
     const outcome = await archiveItem(root, "shipit");

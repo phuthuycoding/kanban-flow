@@ -95,7 +95,7 @@ describe("kf sync and kf archive under a live worker run", () => {
     for (const options of [{}, { force: true }]) {
       const res = await cmdArchive({ command: "archive", positionals: ["demo"], options }, root);
       expect(res.code).toBe(1);
-      expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+      expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid} (alive)) is still running`);
       expect(res.stderr).toBe("run in progress");
       expect(findFeature(root, "demo")!.stage).toBe("review");
     }
@@ -106,14 +106,32 @@ describe("kf sync and kf archive under a live worker run", () => {
     expect(findFeature(root, "demo")!.stage).toBe("done");
   });
 
-  it("the refusal names the run record and how to end a dead run whose pid was reused", async () => {
+  it("the refusal names the run record on its first line and how to end a dead run whose pid was reused", async () => {
     const dir = await passedReviewItem();
     await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [liveRun()] });
 
     const res = await cmdArchive({ command: "archive", positionals: ["demo"], options: {} }, root);
-    expect(res.stdout).toContain("Wait for it to end, then re-run: kf archive demo");
-    expect(res.stdout).toContain(`The run record is in ${join(".works", "review", "demo_20260916_1800", ".kfw.json")}`);
-    expect(res.stdout).toContain('set the record\'s status to "failed" there');
+    const [first] = res.stdout.split("\n");
+    expect(first).toContain(`the run record is in ${join(".works", "review", "demo_20260916_1800", ".kfw.json")}`);
+    expect(first).toContain("Wait for it to end, then re-run: kf archive demo");
+    expect(res.stdout).toContain('If the alive pid is not the run (it died and the pid was reused), set the record\'s status to "failed" there');
+  });
+
+  it("names which of the worker and supervisor pids is alive", async () => {
+    const dir = await passedReviewItem();
+    const dead = 2 ** 22 + 12345;
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [{ ...liveRun(), pid: dead, supervisorPid: process.pid }] });
+
+    const res = await cmdArchive({ command: "archive", positionals: ["demo"], options: {} }, root);
+    expect(res.stdout).toContain(`worker run run-a (reviewer, pid ${dead} (dead), supervisor ${process.pid} (alive)) is still running`);
+  });
+
+  it("the re-run hint repeats kf archive with the flags it was given", async () => {
+    const dir = await passedReviewItem();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [liveRun()] });
+
+    const res = await cmdArchive({ command: "archive", positionals: ["demo"], options: { force: true, "skip-specs": true } }, root);
+    expect(res.stdout).toContain("then re-run: kf archive demo --force --skip-specs\n");
   });
 
   it("kf stage <item> done refuses while the run lives, even with --force", async () => {
@@ -124,9 +142,17 @@ describe("kf sync and kf archive under a live worker run", () => {
       const res = await cmdStage({ command: "stage", positionals: ["demo", "done"], options }, root);
       expect(res.code).toBe(1);
       expect(res.stderr).toBe("run in progress");
-      expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+      expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid} (alive)) is still running`);
       expect(findFeature(root, "demo")!.stage).toBe("review");
     }
+  });
+
+  it("kf stage <item> done names itself, with the flags it was given, as the re-run command", async () => {
+    const dir = await passedReviewItem();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [liveRun()] });
+
+    const res = await cmdStage({ command: "stage", positionals: ["demo", "done"], options: { force: true, "skip-hooks": true, "skip-specs": true } }, root);
+    expect(res.stdout).toContain("then re-run: kf stage demo done --force --skip-hooks --skip-specs\n");
   });
 
   it("kf issues done refuses while the run lives", async () => {
@@ -138,7 +164,8 @@ describe("kf sync and kf archive under a live worker run", () => {
     const res = await cmdIssues({ command: "issues", positionals: ["done", "demo"], options: {} }, root);
     expect(res.code).toBe(1);
     expect(res.stderr).toBe("run in progress");
-    expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+    expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid} (alive)) is still running`);
+    expect(res.stdout).toContain("then re-run: kf issues done demo\n");
     expect(findFeature(root, "demo")!.stage).toBe("review");
   });
 });

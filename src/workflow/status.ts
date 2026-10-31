@@ -318,7 +318,7 @@ export interface Buckets {
  */
 export function computeBuckets(
   statuses: FeatureStatus[],
-  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string }>,
+  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; command?: string }>,
   running: number,
 ): Buckets {
   const needsYou: Buckets["needsYou"] = [];
@@ -346,7 +346,7 @@ export function computeBuckets(
     }
   }
   for (const d of docsBranchesUnpushed) {
-    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
   return { needsYou, waitingToMerge, running };
 }

@@ -29,7 +29,7 @@ import { countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } fro
 import { splitFrontmatter } from "../shared/frontmatter.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
-export type ArchiveTrigger = "status" | "sync" | "archive";
+export type ArchiveTrigger = "status" | "sync" | "archive" | "stage" | "issues";
 
 export interface ArchiveOptions {
   force?: boolean;
@@ -98,11 +98,37 @@ export type ArchiveOutcome =
       hasIssue: boolean;
       bypasses: Bypass[];
     }
-  | { kind: "refused"; reason: ArchiveRefusalReason; stdout: string; stderrTag: string; merge?: MergeGateFailure }
+  | {
+      kind: "refused";
+      reason: ArchiveRefusalReason;
+      stdout: string;
+      stderrTag: string;
+      merge?: MergeGateFailure;
+      /** The ERROR codes of a gate or direction refusal; absent for every other reason. */
+      codes?: string[];
+    }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
 
 const refuse = (reason: ArchiveRefusalReason, stderrTag: string, stdout: string): ArchiveOutcome => ({ kind: "refused", reason, stdout, stderrTag });
+
+const errorCodes = (issues: Array<{ severity: string; code: string }>): string[] => [...new Set(issues.filter((i) => i.severity === "ERROR").map((i) => i.code))];
+
+/** A gate or direction refusal, with the codes of the checks that block it. */
+const refuseChecks = (reason: "gate" | "direction", stderrTag: string, stdout: string, issues: Array<{ severity: string; code: string }>): ArchiveOutcome => ({
+  kind: "refused", reason, stdout, stderrTag, codes: errorCodes(issues),
+});
+
+/** The command that repeats this close as the human typed it, with the flags that change what it does. */
+function rerunCommand(name: string, opts: ArchiveOptions): string {
+  if (opts.trigger === "status") return `kf status --change ${name}`;
+  if (opts.trigger === "sync") return "kf sync";
+  if (opts.trigger === "issues") return `kf issues done ${name}`;
+  const flags = `${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}${opts.skipSpecs ? " --skip-specs" : ""}`;
+  return opts.trigger === "stage" ? `kf stage ${name} done${flags}` : `kf archive ${name}${flags}`;
+}
+
+const pidState = (pid: number): string => `${pid} (${isPidAlive(pid) ? "alive" : "dead"})`;
 
 /** The same sentences `kf archive` has always printed for a merge-gate refusal; the failure rides along for callers that act on it. */
 function refuseMerge(name: string, failure: MergeGateFailure): ArchiveOutcome {
@@ -223,16 +249,22 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     return refuse("cancelled", "cancelled", `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${reopen ?? "its stage"} first if you want to finish it.`);
   }
 
-  const rerun = opts.trigger === "status" ? `kf status --change ${name}` : opts.trigger === "sync" ? "kf sync" : `kf archive ${name}`;
+  const rerun = rerunCommand(name, opts);
 
   // A live worker run may be the caller, from inside the worktree the close would remove; no
   // --force escape, as for a live drive. Liveness is the pid alone, so a dead run whose pid was
   // reused looks live: the refusal says where its record is, since no command ends it.
   const live = liveRecords(f.meta?.runs);
   if (live.length > 0) {
-    const runs = live.map((r) => `${r.id} (${r.role}, pid ${r.pid ?? r.supervisorPid})`).join(", ");
+    const runs = live.map((r) => {
+      const pids = [
+        ...(r.pid !== undefined ? [`pid ${pidState(r.pid)}`] : []),
+        ...(r.supervisorPid !== undefined && r.supervisorPid !== r.pid ? [`supervisor ${pidState(r.supervisorPid)}`] : []),
+      ];
+      return `${r.id} (${r.role}, ${pids.join(", ")})`;
+    }).join(", ");
     const record = relative(root, join(f.dir, METADATA_FILE));
-    return refuse("run-in-progress", "run in progress", `Cannot archive '${name}': worker run ${runs} is still running. Wait for it to end, then re-run: ${rerun}\nThe run record is in ${record} (runs, by id). If that pid is not the run (it died and the pid was reused), set the record's status to "failed" there, then re-run.`);
+    return refuse("run-in-progress", "run in progress", `Cannot archive '${name}': worker run ${runs} is still running; the run record is in ${record} (runs, by id). Wait for it to end, then re-run: ${rerun}\nIf the alive pid is not the run (it died and the pid was reused), set the record's status to "failed" there, then re-run.`);
   }
 
   // A live drive owns the item: closing under it would tear down the worktree it works in.
@@ -249,7 +281,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   // Only review → done transition is archive-able. If already done, refresh canonical docs idempotently.
   if (f.stage === "done") {
     const check = validateFeature(f, false, true, readProjectConfig(root).harness);
-    if (!check.valid && !opts.force) return refuse("gate", "gate failed", renderValidateText(check));
+    if (!check.valid && !opts.force) return refuseChecks("gate", "gate failed", renderValidateText(check), check.issues);
     const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);
     const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
     if (changedDocs.length > 0 && !opts.force) {
@@ -353,7 +385,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const check = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
   if (!check.valid) {
     if (!force) {
-      return refuse("gate", "gate failed", `Gate failed for '${name}'. Fix validation before archiving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`);
+      return refuseChecks("gate", "gate failed", `Gate failed for '${name}'. Fix validation before archiving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`, check.issues);
     }
     forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
   }
@@ -363,7 +395,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   if (direction.length > 0) {
     if (!force) {
       const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-      return refuse("direction", "direction gate failed", `Cannot archive '${name}' — review result does not allow done:\n\n${lines}\n\nOr re-run with --force.`);
+      return refuseChecks("direction", "direction gate failed", `Cannot archive '${name}' — review result does not allow done:\n\n${lines}\n\nOr re-run with --force.`, direction);
     }
     forcedCodes.push(...direction.map((i) => i.code));
   }
@@ -413,7 +445,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   }
 
   const afterHook = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
-  if (!afterHook.valid && !force) return refuse("gate", "gate failed", renderValidateText(afterHook));
+  if (!afterHook.valid && !force) return refuseChecks("gate", "gate failed", renderValidateText(afterHook), afterHook.issues);
   if (!f.meta) return refuse("metadata-missing", "metadata missing", "Feature metadata is missing.");
 
   // Every gate held and the hook ran: from here on the close is irreversible. Removing a CLEAN
