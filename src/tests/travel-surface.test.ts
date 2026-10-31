@@ -31,7 +31,7 @@ describe("the travel skill", () => {
   it("prints the progress block with every field", () => {
     for (const s of ["Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P", "⏸ Needs you (decide)", "▶ Running",
       "✓ Waiting to merge (do this on GitHub)", "! gh pr merge <n>", "docsBranch", "awaiting push", "not proven merged (<reason>) — ! <command>", "review PASS but not closed", "<worktree path>",
-      "canonical docs for <f> never landed (<reason>): kf archive <f> rewrites them into the working tree; commit them"]) {
+      "canonical docs for <f> never landed (<reason>): re-land them with kf archive <f> (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them"]) {
       expect(skill, s).toContain(s);
     }
     for (const text of [skill, read("references", "ledger-format.md"), read("references", "daily-plan.md")]) {

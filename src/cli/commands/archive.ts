@@ -60,14 +60,32 @@ function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>):
   return `✓ Archived '${outcome.name}'  review → done\n  ${outcome.dir}${docs}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${closeDetails(outcome)}${bypassNote(outcome.bypasses)}`;
 }
 
+/** The docs lines of a reconcile: the plain resync, or what happened to the recorded docs branch. */
+function reconciledDocs(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>): string {
+  const d = outcome.docsBranch;
+  if (!d) return canonicalBlock(outcome.docs, outcome.skipSpecs, "");
+  switch (d.kind) {
+    case "waiting":
+      return `Canonical docs wait on ${d.branch}${d.push ? `: git push -u origin ${d.branch}, then open a PR for it` : ""} — nothing rewritten.`;
+    case "landed":
+      return `Canonical docs from ${d.branch} are on origin's default branch — recorded as landed, nothing rewritten.`;
+    case "relanded":
+      return `Canonical docs never landed; committed again to ${d.branch}, not pushed (${d.why}):` +
+        outcome.docs.map((doc) => `\n  ${doc}`).join("") +
+        `\nCommit hooks were skipped for this kf-authored docs commit (--no-verify); run them before pushing if the repo relies on them.` +
+        `\nPush it: git push -u origin ${d.branch}, then open a PR for it.`;
+    case "tree":
+      return canonicalBlock(outcome.docs, outcome.skipSpecs, "") +
+        (d.note ? `\n⚠ ${d.note}` : "") +
+        (outcome.docsChanged ? `\n  They replace the docs of ${d.branch}, which never landed: they are in the working tree, not committed — commit them; ${d.branch} stays recorded until they reach origin's default branch.` : "");
+  }
+}
+
 function renderReconciled(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>): string {
   const delivered = outcome.alreadyDelivered
     ? "\n  Delivery finalized — item was already marked delivered; side effects re-checked."
     : "\n  Delivery finalized — `delivered` stamped in .kfw.json.";
-  const relanded = outcome.docsRelanded
-    ? `\n  These docs replace ${outcome.docsRelanded}: they are in the working tree, not committed — commit them.`
-    : "";
-  return `Feature '${outcome.name}' is already in done.\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "")}${relanded}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
+  return `Feature '${outcome.name}' is already in done.\n${reconciledDocs(outcome)}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
 }
 
 /** Render an archive outcome the way `kf archive` prints it. An `error` outcome is rethrown. */

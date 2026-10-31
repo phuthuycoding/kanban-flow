@@ -355,9 +355,9 @@ export function computeBuckets(
   return { needsYou, waitingToMerge, running };
 }
 
-/** A docs branch nothing proves landed and nothing is left to push; doctor gives the same remedy. */
+/** A docs branch nothing proves landed and nothing is left to push; doctor gives the same decision. */
 export function docsNeverLandedDecision(feature: string, reason?: string): string {
-  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: kf archive ${feature} rewrites them into the working tree; commit them`;
+  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: re-land them with kf archive ${feature} (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them`;
 }
 
 export function renderBuckets(b: Buckets): string {

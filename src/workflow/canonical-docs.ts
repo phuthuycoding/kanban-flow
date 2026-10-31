@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 import { ARTIFACTS, UC_FILE_NAME, UC_FILE_PATTERN } from "./schema.js";
 import { assertPathName, type Feature } from "./features.js";
@@ -13,14 +13,19 @@ import {
   currentBranch,
   deleteBranch,
   fetchBranch,
+  fileAt,
   git,
+  goneBranchText,
   hasRemote,
   insideWorkTree,
+  landedProof,
   originDefaultRef,
   removeWorktree,
   repoPrefix,
   revParse,
   trackedChanges,
+  type LandedProof,
+  type LandedRun,
 } from "../shared/git.js";
 
 export interface CanonicalCopy {
@@ -92,16 +97,7 @@ export function prepareCanonicalCopies(root: string, feature: Feature, docsRoot:
 
   const context = feature.context;
   const base = join(docsRoot, "docs");
-  const mappings: [string, string, CanonicalKind][] = [
-    [ARTIFACTS["spec-requirement"].file, join(base, "requirement", context, `${feature.name}.md`), "requirement"],
-    [ARTIFACTS["use-case-specification"].file, join(base, "use-cases", context, feature.name, "README.md"), "use-case-index"],
-    [ARTIFACTS["use-case-diagram"].file, join(base, "use-cases", context, feature.name, "diagram.md"), "diagram"],
-    [ARTIFACTS["test-cases"].file, join(base, "testplan", context, `${feature.name}.md`), "testplan"],
-    [ARTIFACTS["testing-result"].file, join(base, "testplan", context, `${feature.name}-result.md`), "result"],
-  ];
-
-  const copies: CanonicalCopy[] = mappings.map(([sourceFile, destination, kind]) => {
-    const source = join(feature.dir, sourceFile);
+  const copies: CanonicalCopy[] = snapshotSources(feature, context, base).map(([source, destination, kind]) => {
     if (!existsSync(source)) throw new Error(`Cannot sync canonical docs: missing source artifact ${source}`);
     return {
       destination,
@@ -111,20 +107,6 @@ export function prepareCanonicalCopies(root: string, feature: Feature, docsRoot:
     };
   });
 
-  const useCaseSourceDir = join(feature.dir, "use-cases");
-  if (existsSync(useCaseSourceDir)) {
-    for (const file of readdirSync(useCaseSourceDir).filter((entry) => UC_FILE_PATTERN.test(entry))) {
-      const source = join(useCaseSourceDir, file);
-      const destination = join(base, "use-cases", context, feature.name, file);
-      copies.push({
-        destination,
-        content: canonicalContent("use-case", readFileSync(source, "utf8")),
-        original: existsSync(destination) ? readFileSync(destination, "utf8") : null,
-        kind: "use-case",
-      });
-    }
-  }
-
   const legacy = join(base, "use-cases", context, `${feature.name}.md`);
   // Older versions stored requirement mirrors under docs/use-cases.
   if (existsSync(legacy) && !copies.some((copy) => copy.destination === legacy)) {
@@ -132,6 +114,61 @@ export function prepareCanonicalCopies(root: string, feature: Feature, docsRoot:
     copies.push({ destination: legacy, content: archivedDocument(raw), original: raw, kind: "requirement" });
   }
   return copies;
+}
+
+/** Source artifact, canonical destination under `base` and kind of every doc in a feature's archived snapshot. */
+function snapshotSources(feature: Feature, context: string, base: string): [string, string, CanonicalKind][] {
+  const sources: [string, string, CanonicalKind][] = ([
+    [ARTIFACTS["spec-requirement"].file, join(base, "requirement", context, `${feature.name}.md`), "requirement"],
+    [ARTIFACTS["use-case-specification"].file, join(base, "use-cases", context, feature.name, "README.md"), "use-case-index"],
+    [ARTIFACTS["use-case-diagram"].file, join(base, "use-cases", context, feature.name, "diagram.md"), "diagram"],
+    [ARTIFACTS["test-cases"].file, join(base, "testplan", context, `${feature.name}.md`), "testplan"],
+    [ARTIFACTS["testing-result"].file, join(base, "testplan", context, `${feature.name}-result.md`), "result"],
+  ] as [string, string, CanonicalKind][]).map(([file, destination, kind]) => [join(feature.dir, file), destination, kind]);
+  const useCaseSourceDir = join(feature.dir, "use-cases");
+  if (existsSync(useCaseSourceDir)) {
+    for (const file of readdirSync(useCaseSourceDir).filter((entry) => UC_FILE_PATTERN.test(entry))) {
+      sources.push([join(useCaseSourceDir, file), join(base, "use-cases", context, feature.name, file), "use-case"]);
+    }
+  }
+  return sources;
+}
+
+/**
+ * Whether origin/<default> already holds this feature's archived snapshot: every canonical doc
+ * byte-identical there. False when origin/HEAD is not set or a source artifact is missing (the
+ * snapshot cannot be built, so nothing is proven). Reads only local refs; nothing is fetched.
+ */
+export function docsOnDefault(root: string, feature: Feature): boolean {
+  if (!feature.context || feature.meta?.kind === "bug") return false;
+  assertPathName(feature.context, "context");
+  assertPathName(feature.name, "feature");
+  const base = originDefaultRef(root);
+  if (!base) return false;
+  const prefix = repoPrefix(root);
+  const sources = snapshotSources(feature, feature.context, join(root, "docs"));
+  if (!sources.every(([source]) => existsSync(source))) return false;
+  return sources.every(([source, destination, kind]) =>
+    fileAt(root, base, `${prefix}${relative(root, destination).split(sep).join("/")}`) === canonicalContent(kind, readFileSync(source, "utf8")));
+}
+
+/**
+ * landedProof for a feature's recorded docs branch. A branch gone locally whose docs are already
+ * on origin/<default> is landed by content, whatever route they took. A gone branch with no
+ * recorded docs commit is never asked about on GitHub: no merged PR could be tied to it.
+ */
+export function docsLandedProof(root: string, feature: Feature, run: LandedRun = {}): LandedProof {
+  const branch = feature.meta?.docsBranch;
+  if (!branch) throw new Error(`'${feature.name}' has no docs branch to prove`);
+  const commit = feature.meta?.docsCommit;
+  if (revParse(root, `refs/heads/${branch}`)) return landedProof(root, branch, commit, run);
+  if (docsOnDefault(root, feature)) return { landed: true, by: "content" };
+  if (commit) return landedProof(root, branch, commit, run);
+  const base = originDefaultRef(root);
+  if (!base) {
+    return { landed: false, pushed: true, reason: `${goneBranchText(branch)}; no docs commit was recorded and origin/HEAD is not set, so the docs on the default branch cannot be compared (set it: git remote set-head origin -a)` };
+  }
+  return { landed: false, pushed: true, gone: true, reason: `${goneBranchText(branch)}; no docs commit was recorded and ${base} does not hold these docs` };
 }
 
 /**
@@ -169,11 +206,19 @@ export type DocsTarget =
 
 export const docsBranchName = (feature: Feature): string => `docs/${feature.context}-${feature.name}`;
 
-/** Decide the docs target before anything irreversible runs; fetches origin's default branch to know "behind". */
-export function resolveDocsTarget(root: string, feature: Feature): DocsTarget {
-  if (!insideWorkTree(root) || !hasRemote(root, "origin")) return { kind: "tree" };
+/**
+ * Decide the docs target before anything irreversible runs; fetches origin's default branch to
+ * know "behind". `opts.branchOnly` is why these docs must go to a branch even from a safe
+ * checkout (the overwrite has to show in a PR diff): where the decision would be the working
+ * tree, that becomes the branch, or a refusal when there is no origin/<default> to cut it from.
+ */
+export function resolveDocsTarget(root: string, feature: Feature, opts: { branchOnly?: string } = {}): DocsTarget {
+  if (!insideWorkTree(root) || !hasRemote(root, "origin")) {
+    return opts.branchOnly ? { kind: "refused", message: `there is no origin to cut a docs branch from, and ${opts.branchOnly}.` } : { kind: "tree" };
+  }
   const base = originDefaultRef(root);
   if (!base) {
+    if (opts.branchOnly) return { kind: "refused", message: `origin/HEAD is not set, so there is no default branch to cut a docs branch from (set it: git remote set-head origin -a), and ${opts.branchOnly}.` };
     return { kind: "tree", note: "origin/HEAD is not set, so the default branch is unknown — docs written to the working tree (set it: git remote set-head origin -a)" };
   }
   const defaultBranch = base.slice(base.indexOf("/") + 1);
@@ -192,12 +237,12 @@ export function resolveDocsTarget(root: string, feature: Feature): DocsTarget {
     const behind = countCommits(root, "HEAD", base);
     if (behind > 0) why = `the checkout is ${behind} commit(s) behind ${base}`;
   }
-  if (!why) return { kind: "tree" };
+  if (!why && !opts.branchOnly) return { kind: "tree" };
   const branch = docsBranchName(feature);
   if (revParse(root, `refs/heads/${branch}`)) {
     return { kind: "refused", message: `the canonical docs branch ${branch} already exists — push or delete it, then re-run.` };
   }
-  return { kind: "branch", branch, base, why };
+  return { kind: "branch", branch, base, why: why ?? opts.branchOnly! };
 }
 
 export interface DocsBranchResult {

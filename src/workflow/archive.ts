@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type Stage } from "./schema.js";
-import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass, type FeatureMeta } from "./features.js";
+import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
 import { lockPath, withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
 import { liveRecords } from "../harness/run.js";
@@ -18,6 +18,8 @@ import {
   rollbackCanonicalCopies,
   resolveDocsTarget,
   writeCanonicalDocsBranch,
+  docsLandedProof,
+  type DocsBranchResult,
   type DocsTarget,
 } from "./canonical-docs.js";
 import { checkMergeGate, type MergeGateFailure } from "../integrations/github.js";
@@ -25,7 +27,7 @@ import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type LandedProof, type TeardownResult } from "../worktree/lifecycle.js";
 import { branchExists, WorktreeDirtyError } from "../worktree/manager.js";
-import { countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
+import { branchPushed, countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
@@ -95,8 +97,10 @@ export type ArchiveOutcome =
       skipSpecs: boolean;
       /** True when delivery was already stamped before this reconcile. */
       alreadyDelivered: boolean;
-      /** The docs branch whose record this reconcile replaced: its docs are now in the working tree, uncommitted. */
-      docsRelanded: string | null;
+      /** What this reconcile did about the recorded docs branch; null when there is none or --skip-specs was set. */
+      docsBranch: ReconciledDocsBranch | null;
+      /** True when at least one written doc differs from the file it replaced. */
+      docsChanged: boolean;
       hasIssue: boolean;
       bypasses: Bypass[];
     }
@@ -111,6 +115,44 @@ export type ArchiveOutcome =
     }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
+
+/**
+ * The recorded docs branch on a done-item reconcile. `waiting`: it is still live (local or on
+ * origin) or not proven either way — record kept, nothing written; `push` when it is only local.
+ * `landed`: proven landed, recorded as docsLanded. `relanded`: gone, so the docs were committed
+ * anew on `branch` (now the record). `tree`: gone, and the checkout was a safe place, so the docs
+ * went into the working tree like a close's; the record stays until they reach origin.
+ */
+export type ReconciledDocsBranch =
+  | { kind: "waiting"; branch: string; push: boolean }
+  | { kind: "landed"; branch: string }
+  | { kind: "relanded"; branch: string; why: string }
+  | { kind: "tree"; branch: string; note: string | null };
+
+/** What the reconcile will do about a recorded docs branch, decided before any side effect. */
+type DocsBranchPlan =
+  | { kind: "waiting"; branch: string; push: boolean }
+  | { kind: "landed"; branch: string; by: "ancestor" | "merged-pr" | "content" }
+  | { kind: "branch"; branch: string; target: Extract<DocsTarget, { kind: "branch" }> }
+  | { kind: "tree"; branch: string; note: string | null }
+  | { kind: "refused"; message: string };
+
+/**
+ * Only a docs branch nothing is left to push and nothing proves landed is re-landed, through the
+ * close's own target decision. One with no recorded docs commit always goes to a branch: its
+ * docs on origin may have been edited since, and that overwrite must show in a PR diff.
+ */
+function docsBranchPlan(root: string, f: Feature, branch: string): DocsBranchPlan {
+  const pushed = branchPushed(root, "origin", branch);
+  if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) return { kind: "waiting", branch, push: false };
+  const proof = docsLandedProof(root, f);
+  if (proof.landed) return { kind: "landed", branch, by: proof.by };
+  if (!proof.gone) return { kind: "waiting", branch, push: pushed === false };
+  const target = resolveDocsTarget(root, f, f.meta?.docsCommit ? {} : { branchOnly: "no docs commit was recorded, so the rewrite must show in a PR diff" });
+  if (target.kind === "refused") return target;
+  if (target.kind === "branch") return { kind: "branch", branch, target };
+  return { kind: "tree", branch, note: target.note ?? null };
+}
 
 const refuse = (reason: ArchiveRefusalReason, stderrTag: string, stdout: string): ArchiveOutcome => ({ kind: "refused", reason, stdout, stderrTag });
 
@@ -190,11 +232,22 @@ function reviewLanding(dir: string): string | null {
   return splitFrontmatter(readFileSync(p, "utf8")).fm.landing ?? null;
 }
 
-/** `meta` with its docs-branch record replaced by `docsRelanded`; unchanged when `branch` is null. */
-function withoutDocsBranch(meta: FeatureMeta, branch: string | null): FeatureMeta {
-  if (!branch) return meta;
-  const { docsBranch: _branch, docsCommit: _commit, ...rest } = meta;
-  return { ...rest, docsRelanded: { branch, at: new Date().toISOString() } };
+/** The docs-branch record after a reconcile: kept, landed, or the branch the docs were re-landed on. */
+function docsRecord(meta: FeatureMeta, plan: DocsBranchPlan | null, written: DocsBranchResult | null): FeatureMeta {
+  if (plan?.kind === "landed") return withDocsLanded(meta, plan.branch, plan.by);
+  if (plan?.kind !== "branch" || !written) return meta;
+  // Nothing committed: the fetched origin/<default> already holds these exact docs.
+  if (!written.branch || !written.commit) return withDocsLanded(meta, plan.branch, "content");
+  return { ...meta, docsBranch: written.branch, docsCommit: written.commit };
+}
+
+function reconciledDocsBranch(plan: DocsBranchPlan | null, written: DocsBranchResult | null): ReconciledDocsBranch | null {
+  if (!plan || plan.kind === "refused") return null;
+  if (plan.kind === "landed") return { kind: "landed", branch: plan.branch };
+  if (plan.kind === "branch") {
+    return written?.branch ? { kind: "relanded", branch: written.branch, why: plan.target.why } : { kind: "landed", branch: plan.branch };
+  }
+  return plan;
 }
 
 /** What the irreversible steps of a failed close already removed, for its error message. */
@@ -291,8 +344,12 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   if (f.stage === "done") {
     const check = validateFeature(f, false, true, readProjectConfig(root).harness);
     if (!check.valid && !opts.force) return refuseChecks("gate", "gate failed", renderValidateText(check), check.issues);
-    const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);
-    const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
+    const recordedBranch = opts.skipSpecs ? undefined : f.meta?.docsBranch;
+    const plan = recordedBranch ? docsBranchPlan(root, f, recordedBranch) : null;
+    if (plan?.kind === "refused") return refuse("docs-target", "docs target", `Cannot archive '${name}': ${plan.message}`);
+    const copies = opts.skipSpecs || (plan && plan.kind !== "tree") ? [] : prepareCanonicalCopies(root, f);
+    // A re-land follows the close, which overwrites without asking; only the plain resync refuses edited docs.
+    const changedDocs = plan ? [] : copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
     if (changedDocs.length > 0 && !opts.force) {
       return refuse(
         "docs-changed",
@@ -326,12 +383,12 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
     const metaPath = join(f.dir, METADATA_FILE);
     const originalMeta = f.meta && existsSync(metaPath) ? readFileSync(metaPath, "utf8") : null;
-    // The docs this rewrite puts in the working tree supersede the docs branch left at close, so its record goes.
-    const docsRelanded = copies.length > 0 ? f.meta?.docsBranch ?? null : null;
+    let written: DocsBranchResult | null = null;
     try {
-      await writeCanonicalCopies(copies);
+      if (plan?.kind === "branch") written = await writeCanonicalDocsBranch(root, f, plan.target);
+      else await writeCanonicalCopies(copies);
       if (f.meta) await updateFeatureMeta(root, f.name, (meta) => ({
-        ...withoutDocsBranch(meta, docsRelanded),
+        ...docsRecord(meta, plan, written),
         bypasses: recorded.length > 0 ? [...(meta.bypasses ?? []), ...recorded] : meta.bypasses,
         status: "archived",
         // Reconciling an item already stamped keeps its first delivery timestamp.
@@ -339,8 +396,10 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
         deliveredAt: meta.deliveredAt ?? new Date().toISOString(),
       }));
     } catch (err) {
+      const committed = written?.branch ?? null;
       const rollback = await Promise.allSettled([
         rollbackCanonicalCopies(copies),
+        ...(committed ? [Promise.resolve().then(() => deleteBranch(root, committed))] : []),
         ...(originalMeta === null ? [] : [writeFileAtomic(metaPath, originalMeta)]),
       ]);
       const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
@@ -351,10 +410,11 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       kind: "reconciled",
       name,
       dir: f.dir,
-      docs: copies.map((copy) => copy.destination),
+      docs: written ? written.docs : copies.map((copy) => copy.destination),
       skipSpecs: Boolean(opts.skipSpecs),
       alreadyDelivered: Boolean(f.meta?.delivered),
-      docsRelanded,
+      docsBranch: reconciledDocsBranch(plan, written),
+      docsChanged: copies.some((copy) => copy.original !== copy.content),
       hasIssue: Boolean(f.meta?.issue),
       bypasses: recorded,
     };

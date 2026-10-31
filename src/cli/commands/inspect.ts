@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ARTIFACTS } from "../../workflow/schema.js";
-import { driveLive, findFeature, listFeatures, parseFolderName, updateFeatureMeta, type Feature } from "../../workflow/features.js";
+import { driveLive, findFeature, listFeatures, parseFolderName, updateFeatureMeta, withDocsLanded, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { archiveItem } from "../../workflow/archive.js";
 import {
@@ -13,7 +13,9 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed, landedProof, revParse, type LandedRun } from "../../shared/git.js";
+import { branchPushed, revParse, type LandedRun } from "../../shared/git.js";
+import { docsLandedProof } from "../../workflow/canonical-docs.js";
+import { LockTimeoutError } from "../../shared/lock.js";
 import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
@@ -181,7 +183,9 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   // item's own --change. Pollers of an unrelated item must not see exit 1 on every tick.
   const migrationFailedHere = migration.failed && (change ? migrationFailedItems(migration.lines).includes(change) : all);
   const code = migrationFailedHere || closed.failed ? 1 : 0;
-  const notes = [...migration.lines, ...closed.lines];
+  // Before the statuses are read: a docs branch this run proves landed must not still show in its item block.
+  const docsBranches = all ? await docsBranchesUnpushed(root.root, lookup()) : null;
+  const notes = [...migration.lines, ...closed.lines, ...(docsBranches?.warnings ?? [])];
   const migrated = notes.length > 0 ? `${notes.join("\n")}\n\n` : "";
 
   // Read again: an item that just closed now lives in done.
@@ -196,10 +200,10 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     const close = closed.states.get(f.name);
     return close ? { ...s, close } : s;
   });
-  const buckets = all
+  const buckets = docsBranches
     ? computeBuckets(
       statuses,
-      await docsBranchesUnpushed(root.root, features),
+      docsBranches.entries,
       features.filter((f) => driveLive(f.meta?.drive)).length,
     )
     : null;
@@ -223,25 +227,35 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   return { code, stdout: migrated + blocks.join("\n\n") + (buckets ? `\n\n${renderBuckets(buckets)}` : "") };
 }
 
+/** How long the advisory docsLanded write waits for the item lock before leaving it to the next run. */
+const DOCS_LANDED_LOCK_MS = 2_000;
+
 /**
  * The docs branches `kf status --all` lists. A branch proven landed is recorded as
- * `docsLanded` in place of `docsBranch`, so later polls never ask gh about it again.
+ * `docsLanded` in place of `docsBranch`, so later polls never ask gh about it again. That record
+ * is a cache: when another kf command holds the item lock, it waits for the next run.
  */
-async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }>> {
+async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<{
+  entries: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }>;
+  warnings: string[];
+}> {
   const run: LandedRun = {};
   const out: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }> = [];
+  const warnings: string[] = [];
   for (const f of features) {
     const branch = f.meta?.docsBranch;
     if (!branch) continue;
     // null: no local branch. It is still pushed work when origin has it; otherwise landedProof says it is gone.
     const pushed = branchPushed(root, "origin", branch);
     if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) continue;
-    const proof = landedProof(root, branch, f.meta?.docsCommit, run);
+    const proof = docsLandedProof(root, f, run);
     if (proof.landed) {
-      await updateFeatureMeta(root, f.name, ({ docsBranch: _branch, docsCommit: _commit, ...meta }) => ({
-        ...meta,
-        docsLanded: { branch, by: proof.by, at: new Date().toISOString() },
-      }));
+      try {
+        await updateFeatureMeta(root, f.name, (meta) => withDocsLanded(meta, branch, proof.by), { timeoutMs: DOCS_LANDED_LOCK_MS });
+      } catch (err) {
+        if (!(err instanceof LockTimeoutError)) throw err;
+        warnings.push(`⚠ ${f.name}: docs branch ${branch} landed; the item is locked by another kf command, so the landing is recorded on a later run`);
+      }
       continue;
     }
     if (proof.gone) {
@@ -256,7 +270,7 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
     // No trace of a push (and no merged PR found) shows as awaiting push, not unproven.
     out.push({ feature: f.name, branch, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) });
   }
-  return out;
+  return { entries: out, warnings };
 }
 
 /** The `task_harness_needs_worktree` text; `kf approve` prints it too, before it starts or parks the item. */

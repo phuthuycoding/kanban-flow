@@ -218,13 +218,15 @@ export function originDefaultRef(dir: string): string | null {
 }
 
 export type LandedProof =
-  | { landed: true; by: "ancestor" | "merged-pr" }
+  /** `content`: every canonical doc is byte-identical on origin/<default> (docsLandedProof). */
+  | { landed: true; by: "ancestor" | "merged-pr" | "content" }
   /**
    * Not landed, or a check could not run (no GitHub repository, gh missing, failing or timing
    * out): unproven is not landed. `pushed: false` means nothing records a push of the branch (no
    * upstream configured, no remote-tracking ref or its reflog) and no merged PR was found for it.
-   * `gone: true` means the local branch no longer exists and the merged-PR lookup ran and found
-   * no PR that carries these docs: nothing is left to push and nothing proves they landed.
+   * `gone: true` means the local branch no longer exists and either the merged-PR lookup ran and
+   * found no PR that carries these docs, or no docs commit was recorded to look for: nothing is
+   * left to push and nothing proves they landed.
    * `reason` is one line; callers show it only when `pushed` is true.
    */
   | { landed: false; pushed: boolean; gone?: true; reason?: string };
@@ -304,8 +306,8 @@ function pushTrace(root: string, branch: string): boolean {
  * local commit the tip is an ancestor of (the squash merge case, where the tip is never an
  * ancestor). A deleted or pruned upstream proves nothing — a PR closed unmerged leaves the same
  * trace. When the local branch is gone, `commit` (the docs commit recorded at close) stands in
- * for the tip. Without either, a merged PR with this head name proves nothing: the name
- * `docs/<context>-<feature>` is reused when an item of that name closes again.
+ * for the tip. Without either, a merged PR with this head name proves nothing (the name
+ * `docs/<context>-<feature>` is reused when an item of that name closes again), so gh is not asked.
  */
 export function landedProof(root: string, branch: string, commit?: string, run: LandedRun = {}): LandedProof {
   assertSafeArg("branch", branch);
@@ -318,13 +320,17 @@ export function landedProof(root: string, branch: string, commit?: string, run: 
   return { ...proof, pushed: false };
 }
 
+/** The first half of every gone reason. */
+export const goneBranchText = (branch: string): string =>
+  `local branch ${branch} is gone and there is no remote-tracking ref for it here, so there is nothing to push`;
+
 function goneProof(root: string, branch: string, commit: string | undefined, run: LandedRun): LandedProof {
-  const gone = `local branch ${branch} is gone and there is no remote-tracking ref for it here, so there is nothing to push`;
-  if (commit) {
-    assertSafeArg("commit", commit);
-    const base = originDefaultRef(root);
-    if (base && runGit(root, ["merge-base", "--is-ancestor", commit, base]).code === 0) return { landed: true, by: "ancestor" };
-  }
+  const gone = goneBranchText(branch);
+  // Without a commit no merged PR can prove anything (the name is reused), so gh is not asked.
+  if (!commit) return { ...unproven(`${gone}; no docs commit was recorded to tie a merged PR to these docs`), gone: true };
+  assertSafeArg("commit", commit);
+  const base = originDefaultRef(root);
+  if (base && runGit(root, ["merge-base", "--is-ancestor", commit, base]).code === 0) return { landed: true, by: "ancestor" };
   const lookup = mergedPrs(root, branch, run);
   if ("failure" in lookup) return unproven(`${gone}; ${lookup.failure}`);
   const numbers = lookup.prs
@@ -332,9 +338,6 @@ function goneProof(root: string, branch: string, commit: string | undefined, run
     .filter((n): n is number => typeof n === "number")
     .map((n) => `#${n}`);
   if (lookup.prs.length === 0) return { ...unproven(`${gone}; no merged PR has ${branch} as its head`), gone: true };
-  if (!commit) {
-    return { ...unproven(`${gone}; merged PR ${numbers.join(", ") || "(unnumbered)"} has ${branch} as its head, but the close recorded no docs commit to tie it to these docs`), gone: true };
-  }
   if (carries(root, commit, prHeads(lookup.prs))) return { landed: true, by: "merged-pr" };
   return { ...unproven(`${gone}; merged PR ${numbers.join(", ") || "(unnumbered)"} for ${branch} does not carry the docs commit ${commit.slice(0, 12)}`), gone: true };
 }
@@ -367,6 +370,15 @@ function mergedPrProof(root: string, branch: string, tip: string, run: LandedRun
       + (localHeads(root, heads).length < heads.length ? " (that head is not available locally to compare; fetch it, or delete the local branch if that PR carried this work)" : ""));
   }
   return unproven(`no merged PR has ${branch} at ${tip.slice(0, 12)} as its head`);
+}
+
+/** The bytes of `path` (repository-relative) at `ref`, or null when `ref` has no such file. */
+export function fileAt(dir: string, ref: string, path: string): string | null {
+  assertSafeArg("ref", ref);
+  const spec = `${ref}:${path}`;
+  // Everything after the colon is the path, so no ^{blob} peel: a directory there fails cat-file below.
+  if (runGit(dir, ["rev-parse", "-q", "--verify", spec]).code !== 0) return null;
+  return gitRaw(dir, ["cat-file", "blob", spec]);
 }
 
 /** Fetch one branch of a remote so its remote-tracking ref is current; returns git's result. */

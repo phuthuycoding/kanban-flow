@@ -70,13 +70,13 @@ describe("Waiting to merge bucket", () => {
     expect(text).toContain("  b — docs/app-b awaiting push: git push -u origin docs/app-b");
   });
 
-  it("puts a gone docs branch under Needs you with the kf archive remedy and no command", () => {
+  it("puts a gone docs branch under Needs you as a re-land-or-leave decision with no command", () => {
     const buckets = computeBuckets([], [{ feature: "a", branch: "docs/app-a", reason: "no merged PR has docs/app-a as its head", gone: true }], 0);
 
     expect(buckets.waitingToMerge).toEqual([]);
     expect(buckets.needsYou).toEqual([{
       feature: "a",
-      decision: "canonical docs for a never landed (no merged PR has docs/app-a as its head): kf archive a rewrites them into the working tree; commit them",
+      decision: "canonical docs for a never landed (no merged PR has docs/app-a as its head): re-land them with kf archive a (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them",
     }]);
   });
 });

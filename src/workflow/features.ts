@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type LegacyStageName, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
-import { withLock } from "../shared/lock.js";
+import { withLock, type LockOptions } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
 
 export interface Approval {
@@ -99,10 +99,8 @@ export interface FeatureMeta {
   docsBranch?: string;
   /** The commit the close made on `docsBranch`; items closed by earlier versions have none. */
   docsCommit?: string;
-  /** `docsBranch` once `kf status --all` proved it landed; replaces it so later polls skip it. */
-  docsLanded?: { branch: string; by: "ancestor" | "merged-pr"; at: string };
-  /** `docsBranch` once `kf archive` on the done item rewrote its docs into the working tree. */
-  docsRelanded?: { branch: string; at: string };
+  /** `docsBranch` once `kf status --all` (or a done-item `kf archive`) proved it landed; replaces it so later polls skip it. */
+  docsLanded?: { branch: string; by: "ancestor" | "merged-pr" | "content"; at: string };
   approval?: Approval;
   executionId?: string;
   status?: "archived" | "cancelled";
@@ -337,11 +335,12 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.pr !== undefined && (typeof meta.pr !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(meta.pr)))
     || (meta.delivered !== undefined && typeof meta.delivered !== "boolean")
     || (meta.deliveredAt !== undefined && typeof meta.deliveredAt !== "string")
-    || (meta.docsBranch !== undefined && (typeof meta.docsBranch !== "string" || !meta.docsBranch.startsWith("docs/")))
+    // The close only ever names it docs/<context>-<feature>; it is printed in commands to copy, so nothing else passes.
+    || (meta.docsBranch !== undefined && (typeof meta.docsBranch !== "string"
+      || meta.docsBranch !== `docs/${meta.context}-${meta.feature}` || !/^docs\/[a-z0-9][a-z0-9_-]*$/i.test(meta.docsBranch)))
     || (meta.docsCommit !== undefined && (typeof meta.docsCommit !== "string" || !/^[0-9a-f]{40,64}$/.test(meta.docsCommit)))
     || (meta.docsLanded !== undefined && (!meta.docsLanded || typeof meta.docsLanded.branch !== "string"
-      || !["ancestor", "merged-pr"].includes(meta.docsLanded.by) || typeof meta.docsLanded.at !== "string"))
-    || (meta.docsRelanded !== undefined && (!meta.docsRelanded || typeof meta.docsRelanded.branch !== "string" || typeof meta.docsRelanded.at !== "string"))
+      || !["ancestor", "merged-pr", "content"].includes(meta.docsLanded.by) || typeof meta.docsLanded.at !== "string"))
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
@@ -411,6 +410,7 @@ export async function updateFeatureMeta(
   root: string,
   name: string,
   fn: (meta: FeatureMeta) => FeatureMeta | Promise<FeatureMeta>,
+  lock: LockOptions = {},
 ): Promise<Feature> {
   return withLock(root, name, async () => {
     const feature = findFeature(root, name);
@@ -418,7 +418,17 @@ export async function updateFeatureMeta(
     const meta = await fn(feature.meta);
     await writeFeatureMeta(feature.dir, meta);
     return { ...feature, meta };
-  });
+  }, lock);
+}
+
+/**
+ * `meta` with a proven landing of `branch` in place of its docs-branch record. The proof was
+ * made outside the lock, so a record that moved on since (a re-land, another close) is kept.
+ */
+export function withDocsLanded(meta: FeatureMeta, branch: string, by: "ancestor" | "merged-pr" | "content"): FeatureMeta {
+  if (meta.docsBranch !== branch) return meta;
+  const { docsBranch: _branch, docsCommit: _commit, ...rest } = meta;
+  return { ...rest, docsLanded: { branch, by, at: new Date().toISOString() } };
 }
 
 export function assertPathName(value: string, label: string): void {

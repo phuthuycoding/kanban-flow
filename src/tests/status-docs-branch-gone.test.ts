@@ -67,24 +67,33 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-/** A done item whose meta names a docs branch that exists neither here nor on origin. */
-async function goneItem(name: string): Promise<void> {
+/**
+ * A done item whose meta names a docs branch that exists neither here nor on origin. With
+ * `commit`, the close recorded a docs commit (one that never reached origin); without, it is an
+ * item closed before docsCommit existed.
+ */
+async function goneItem(name: string, opts: { commit?: boolean } = {}): Promise<void> {
   expect((await cmdNew({ command: "new", positionals: [name], options: { context: "app" } }, root)).code).toBe(0);
   const dir = findFeature(root, name)!.dir;
   const done = join(root, ".works", "done", basename(dir));
   await rename(dir, done);
-  await writeFeatureMeta(done, { ...readFeatureMeta(done)!, docsBranch: `docs/app-${name}` });
+  const docsCommit = opts.commit ? git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", `docs ${name}`) : undefined;
+  await writeFeatureMeta(done, { ...readFeatureMeta(done)!, docsBranch: `docs/app-${name}`, ...(docsCommit ? { docsCommit } : {}) });
 }
 
+const base = () => `origin/${git(root, "symbolic-ref", "--short", "HEAD")}`;
+const neverLanded = (name: string) => `canonical docs for ${name} never landed (local branch docs/app-${name} is gone and there is no remote-tracking ref for it here, so there is nothing to push; `
+  + `no docs commit was recorded and ${base()} does not hold these docs): re-land them with kf archive ${name} (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them`;
+
 describe("kf status --all on a docs branch gone locally and on origin", () => {
-  it("puts it under Needs you with the kf archive remedy, not under Waiting to merge", async () => {
+  it("puts it under Needs you as a re-land decision, not under Waiting to merge, without asking gh when no docs commit was recorded", async () => {
     await goneItem("demo");
 
     const res = await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root);
     const tail = res.stdout.slice(res.stdout.lastIndexOf("Needs you"));
     expect(tail).toBe([
       "Needs you",
-      "  demo — canonical docs for demo never landed (local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; no merged PR has docs/app-demo as its head): kf archive demo rewrites them into the working tree; commit them",
+      `  demo — ${neverLanded("demo")}`,
       "Waiting to merge",
       "  (none)",
       "Running: 0",
@@ -94,12 +103,22 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
       needsYou: Array<{ feature: string; decision: string }>; waitingToMerge: unknown[];
     };
     expect(json.waitingToMerge).toEqual([]);
-    expect(json.needsYou).toEqual([{ feature: "demo", decision: "canonical docs for demo never landed (local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; no merged PR has docs/app-demo as its head): kf archive demo rewrites them into the working tree; commit them" }]);
+    expect(json.needsYou).toEqual([{ feature: "demo", decision: neverLanded("demo") }]);
+    expect(ghCalls()).toEqual([]);
+  });
+
+  it("names the merged-PR lookup when a docs commit was recorded", async () => {
+    await goneItem("demo", { commit: true });
+
+    const res = await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root);
+    expect(res.stdout).toContain("  demo — canonical docs for demo never landed (local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; "
+      + "no merged PR has docs/app-demo as its head): re-land them with kf archive demo (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them");
+    expect(ghCalls()).toEqual(["gh pr list -R o/r --head docs/app-demo --state merged --json number,headRefOid"]);
   });
 
   it("skips the remaining docs-branch lookups after the first gh timeout", async () => {
-    await goneItem("one");
-    await goneItem("two");
+    await goneItem("one", { commit: true });
+    await goneItem("two", { commit: true });
     process.env.GH_SLEEP = "20";
 
     const res = await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root);
@@ -113,14 +132,14 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
 });
 
 describe("kf doctor on a docs branch gone locally and on origin", () => {
-  it("says no merged PR carries the docs only when the lookup ran", async () => {
-    await goneItem("demo");
+  it("says nothing proves the docs landed and gives the same re-land-or-leave decision as kf status", async () => {
+    await goneItem("demo", { commit: true });
     const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
     expect(found.map((f) => f.message)).toEqual([
-      "docs_branch_unpushed: canonical docs for demo were committed to docs/app-demo, which is gone here and no merged PR carries them "
+      "docs_branch_unpushed: canonical docs for demo were committed to docs/app-demo, which is gone here, and nothing proves they landed "
         + "(local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; no merged PR has docs/app-demo as its head).",
     ]);
-    expect(found[0].action).toBe("nothing to push; kf archive demo rewrites the docs into the working tree; commit them");
+    expect(found[0].action).toBe("canonical docs for demo never landed: re-land them with kf archive demo (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them");
     expect(readFeatureMeta(findFeature(root, "demo")!.dir)!.docsBranch, "doctor writes nothing").toBe("docs/app-demo");
   });
 });
