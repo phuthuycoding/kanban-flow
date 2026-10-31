@@ -51,7 +51,7 @@ async function report(name: string, id: "testing-result" | "review-report"): Pro
 async function shippingBug(name: string, pr: string): Promise<string> {
   expect((await cmdNew({ command: "new", positionals: [name], options: { context: "app", type: "bug" } }, root)).code).toBe(0);
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), bugSpec);
-  for (const to of ["planning", "approve", "implementation", "testing", "review"]) {
+  for (const to of ["planning", "approve", "testing", "review"]) {
     if (to === "approve") expect((await cmdApprove({ command: "approve", positionals: [name], options: {} }, root)).code).toBe(0);
     else expect((await cmdStage({ command: "stage", positionals: [name, to], options: {} }, root)).code).toBe(0);
     if (to === "testing") await report(name, "testing-result");
@@ -100,7 +100,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("migrateLegacyStages — one-time move of dones/shipping folders (UC-003 A2, TC-003)", () => {
+describe("migrateLegacyStages — one-time move of dones/shipping folders", () => {
   it("kf status --all moves dones/a and shipping/{merged,unmerged}, then a second run prints nothing", async () => {
     const aDir = await seedLegacy("dones", "a", { ...legacyHistory, delivered: true, status: "archived" });
     const aMeta = readFileSync(join(aDir, ".kfw.json"), "utf8");
@@ -174,6 +174,7 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders (UC-00
     const res = await cmdStatus(statusAll(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain(`✗ broken_${TS} left in .works/dones: Invalid JSON in feature metadata`);
+    expect(res.stdout).toContain(`— repair or remove .works/dones/broken_${TS}`);
     expect(folders("dones")).toEqual([`broken_${TS}`]);
   });
 

@@ -25,7 +25,8 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const repo = readProjectConfig(root.root).repository;
   if (!repo) {
     const refusal = noRepository();
-    return migration.lines.length > 0 ? { ...refusal, stdout: `${migration.lines.join("\n")}\n\n${refusal.stdout}` } : refusal;
+    const code = migration.failed ? 1 : refusal.code;
+    return migration.lines.length > 0 ? { ...refusal, code, stdout: `${migration.lines.join("\n")}\n\n${refusal.stdout}` } : refusal;
   }
 
   const candidates = listFeatures(root.root).filter(

@@ -146,7 +146,7 @@ export async function migrateLegacyStages(root: string): Promise<MigrationResult
         lines.push(res.line);
         failed ||= res.failed;
       } catch (err) {
-        lines.push(`✗ ${folder} left in ${rel(legacy)}: ${err instanceof Error ? err.message : String(err)}`);
+        lines.push(`✗ ${folder} left in ${rel(legacy)}: ${err instanceof Error ? err.message : String(err)} — repair or remove ${rel(legacy)}/${folder}`);
         failed = true;
       }
     }

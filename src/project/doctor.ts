@@ -12,7 +12,7 @@ import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
-import { readProjectConfig, configPath, effectiveSkillsScope, parseShipConfig, type ProjectConfig } from "./config.js";
+import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
@@ -256,7 +256,7 @@ function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfi
       action: "remove the legacy stack field (kf doctor --fix does it)",
     });
   }
-  if (parseShipConfig(raw?.ship)) {
+  if (hasLegacyShipBlock(raw?.ship)) {
     findings.push({
       level: "WARNING",
       area: ".kf/config.json",

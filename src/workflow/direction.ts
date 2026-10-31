@@ -50,7 +50,8 @@ export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
     }
   }
 
-  // review → done requires PASS with CI not red and a landing (recorded PR, or nothing to land);
+  // review → done requires PASS with CI green or none and a landing: a recorded PR when landing is pr,
+  // nothing to land otherwise;
   // REQUIREMENT_BUG stops the feature entirely.
   if (feature.stage === "review") {
     const file = ARTIFACTS["review-report"].file;

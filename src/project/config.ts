@@ -36,7 +36,7 @@ export interface ProjectConfig {
  * still carry it, so any shape is accepted and dropped rather than refused; `kf doctor` reports it.
  * Returns whether a leftover block was present.
  */
-export function parseShipConfig(raw: unknown): boolean {
+export function hasLegacyShipBlock(raw: unknown): boolean {
   return raw !== undefined;
 }
 
@@ -181,7 +181,8 @@ function parseConfigText(text: string, f: string): Partial<ProjectConfig> {
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
-  if (parseShipConfig((cfg as Record<string, unknown>).ship)) delete (cfg as Record<string, unknown>).ship;
+  const { ship: _legacyShip, ...current } = cfg as Partial<ProjectConfig> & { ship?: unknown };
+  cfg = current;
   cfg.skills = parseSkillsBlock(cfg.skills, f);
   cfg.project = parseProjectBlock(cfg.project, f);
   return cfg;

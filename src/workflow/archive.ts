@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE, type Stage } from "./schema.js";
 import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
@@ -197,7 +197,7 @@ async function whileClosing(root: string, key: string, name: string, close: () =
     return null;
   });
   if (busy !== null) {
-    return refuse("close-in-progress", "close in progress", `Cannot archive '${name}': another close of it is running (pid ${busy}). Wait for it, then check: kf status --change ${key}`);
+    return refuse("close-in-progress", "close in progress", `Cannot archive '${name}': another close of it is running (pid ${busy}). Wait for it, then check: kf status --change ${key}. If that process is gone, remove the stale marker: ${relative(root, marker)}`);
   }
   try {
     return await close();

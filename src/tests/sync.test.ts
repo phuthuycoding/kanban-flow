@@ -51,7 +51,6 @@ async function reviewBug(name: string): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), bugSpec);
   expect((await cmdStage({ command: "stage", positionals: [name, "planning"], options: {} }, root)).code).toBe(0);
   expect((await cmdApprove({ command: "approve", positionals: [name], options: {} }, root)).code).toBe(0);
-  expect((await cmdStage({ command: "stage", positionals: [name, "implementation"], options: {} }, root)).code).toBe(0);
   expect((await cmdStage({ command: "stage", positionals: [name, "testing"], options: {} }, root)).code).toBe(0);
   await report(name, "testing-result");
   expect((await cmdStage({ command: "stage", positionals: [name, "review"], options: {} }, root)).code).toBe(0);
@@ -141,6 +140,17 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("repository");
+  });
+
+  it("exits 1 without a repository when a legacy folder could not be migrated", async () => {
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: false } }));
+    const dir = join(root, ".works", "dones", "broken_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, ".kfw.json"), "{ not json");
+    const res = await cmdSync(args(), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("repair or remove .works/dones/broken_20260101_0000");
+    expect(res.stdout).toContain("No repository configured");
   });
 
   it("skips unverifiable items with a warning and keeps sweeping (TC-020b)", async () => {
