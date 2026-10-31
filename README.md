@@ -16,14 +16,32 @@ the agent's summary, they read `.works/`.
 Every work item walks one pipeline, and only the CLI moves it between stages:
 
 ```text
-brainstorm → planning → implementation → testing → review ─┬→ shipping → dones
-                 ↘ backlog ↗     ↺ FAIL loops back          └→ dones (non-code items)
+brainstorm → planning → implementation → testing → review → done
+                 ↘ backlog ↗     ↺ FAIL loops back
 any stage → cancelled, with a reason on the record
 ```
 
-`shipping` is the optional last leg for items that deliver code: `kf ship` pushes the branch, opens the PR, waits for the merge (or schedules `gh pr merge --auto`), tags a release and writes the changelog — each step is switchable in `.kf/config.json` and re-runs resume where they stopped. Items with nothing to ship archive straight from review.
+There is no shipping stage. A review PASS opens the pull request, watches CI and
+stops; you merge it on GitHub. The next `kf status` (or `kf sync`, or `kf archive`)
+sees the merged PR and closes the item: the branch and the item worktree are removed
+safely, the canonical docs are synced, and the folder moves to `.works/done/`. Items
+that deliver no code (`landing: none`) close the same way once nothing is ahead of
+the default branch. `kf ship` is deprecated and exits 1 with that explanation. `kf
+status --all` ends with **Needs you**, **Waiting to merge** (PR URL and the
+`gh pr merge` command) and **Running: N**.
 
-Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop | run`); the flat commands remain permanent aliases.
+Two layers run a day. The human lives on the **day**: the `travel` skill plans the
+morning from yesterday's ledger and `kf status --all`, keeps a few worker slots busy
+with `kf drive`, and sorts what comes back into decisions (approve a spec) and
+actions (merge this PR). Each ticket still walks the **item** ladder above, one
+worktree per started item. Travel never approves, merges or archives.
+
+Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | finish | drop | run`); the flat commands remain permanent aliases.
+
+Upgrading: the first `kf status` or `kf sync` moves any `.works/dones/*` item to
+`done` and any `.works/shipping/*` item back to `review` (a shipping item whose PR
+already merged is closed). Rename `statusMap.dones` to `done` in `.kf/config.json`
+and `.kf/hooks/dones.sh` to `done.sh`; `kf doctor` flags leftovers.
 
 ```mermaid
 flowchart LR
@@ -33,7 +51,7 @@ flowchart LR
     BL -.->|start| I
     I -->|tasks done| T([testing])
     T -->|report PASS + current execution id| R([review])
-    R -->|report PASS + feature report| D([dones])
+    R -->|report PASS + PR merged| D([done])
     T -.->|FAIL| I
     R -.->|FAIL| I
     I -.->|kf cancel --reason| X([cancelled])
@@ -51,8 +69,8 @@ that does not say `PASS` does not archive. `--force` overrides a gate and is
 recorded in `.kfw.json` where a reviewer will find it.
 
 Three decisions belong to a human: marking the requirement `status: confirmed`,
-approving the execution contract, and choosing whether to start now or hold it
-in backlog. The approval is bound to a SHA-256 fingerprint of the contract, so
+approving the execution contract (the approval also starts the item; `kf approve
+--backlog` defers it), and merging the pull request after a review PASS. The approval is bound to a SHA-256 fingerprint of the contract, so
 editing the plan invalidates it, and no stage further forward accepts the item
 until it returns to planning and is approved again.
 
@@ -109,22 +127,21 @@ kf instruct spec-requirement --change user-login
 # write the requirement, set its frontmatter to status: confirmed — decision one
 kf stage user-login planning
 # write the plan, the use-case index, one file per UC, the diagram, the test plan
-kf approve user-login               # decision two; fingerprints all of it
-kf stage user-login implementation  # or backlog — decision three; when the project opted in
+kf approve user-login               # decision two; fingerprints all of it and starts the item
+                                    # (`--backlog` defers it); when the project opted in
                                     # (`worktree.enabled: true`) this also provisions a git
                                     # worktree on <git-user>/user-login with its own
                                     # <feature>.<repo>.test domain — see docs/workflow
 kf drive user-login                 # optional, with a task harness configured: runs the plan's
                                     # tasks in parallel worktrees, then testing and review, and
-                                    # stops at the ship decision — see docs/workflow/harness.md
+                                    # stops at the merge gate — see docs/workflow/harness.md
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
-# write the review report — decision four: ship or archive directly
-kf stage user-login shipping        # optional leg for code items
-kf ship user-login                  # publish → merge gate → release → changelog, resumable
-# write the feature report
-kf archive user-login               # refused until the review says PASS and a recorded PR is merged
+# an independent code-reviewer writes the review report (ci: green|none, landing: pr|none)
+# PASS → push the branch, open the PR, watch CI
+# decision three: merge the PR on GitHub
+kf status                           # sees the merged PR; closes the item, removes branch + worktree
 ```
 
 ## What is actually different
@@ -217,14 +234,14 @@ suite's real counts, the rules — writes a review pack, picks the reviewer set 
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
 surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
 area), and refutes any finding whose evidence quote is missing or not where the
-reviewer said it is before it reaches the report. `kanban-ship` watches the pushed commit's
+reviewer said it is before it reaches the report. After a PASS, `kanban-review` pushes the branch, opens the PR and watches the pushed commit's
 GitHub Actions runs and the PR's mergeability in the background; a red run is handed
 to the human with the failed run and its log — never a re-run button, and never a
 transition the state machine does not have.
 
-### From approval to the ship gate: `kf drive`
+### From approval to the merge gate: `kf drive`
 
-After the human approves the plan and chooses to start, `kf drive` runs the rest
+After the human approves the plan (which starts the item), `kf drive` runs the rest
 on its own. The plan's task table names a `Role` and a `Files` allowlist for every
 task, and `kf approve` seals it, so the same plan always produces the same dispatch.
 
@@ -243,8 +260,14 @@ task, and `kf approve` seals it, so the same plan always produces the same dispa
   commands you pinned. kf never runs a command taken from an artifact. A failing
   verify resets the merge.
 - Testing and review then run through the normal gates, with bounded repair loops.
-  The drive stops at **ready for ship decision**, or earlier with a named stop
-  code and the next command to run.
+  The drive stops at **ready — review PASS: merge the PR**, or earlier with a named
+  stop code and the next command to run. An API usage limit stops it with
+  `usage_limit` (the reason quotes the reset time) without spending a run; `kf drive`
+  resumes the kept session afterwards.
+- The drive reads its harness config from the item worktree, then `origin/<default>`,
+  then the primary checkout; `config_source` shows which. Workers run with streamed
+  output, so `--status` and the `--watch` heartbeat show each worker's last tool call
+  or text with its age, and `--tail` prints readable lines.
 
 ```bash
 kf tasks user-login            # the task graph: waves, states, roles, files
@@ -253,6 +276,11 @@ kf drive user-login --status   # where it is, each live run, or why it stopped
 kf drive user-login --watch    # stream events and a heartbeat; Ctrl+C detaches only
 kf drive user-login --stop     # end it; worktrees and branches are kept
 ```
+
+## Releasing
+
+Publishing to npm is manual: `gh release create v<version>` triggers
+`release.yml`. kf no longer creates releases or changelog entries.
 
 ## Documentation
 
