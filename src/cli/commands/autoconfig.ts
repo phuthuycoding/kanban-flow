@@ -154,7 +154,7 @@ function effectiveRules(cwd: string): Array<{ name: string; path: string; source
 }
 
 /** Commands an agent drives the pipeline with, in the order they are used. */
-export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "run", "runs", "tasks", "drive", "harness", "ship", "archive", "rules", "install"] as const;
+export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "run", "runs", "tasks", "drive", "harness", "archive", "rules", "install"] as const;
 
 /** The guide is generated from the registered help strings so it can never drift from the parser. */
 export function workflowGuide(): string {
@@ -168,12 +168,12 @@ Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> revi
 
 Human gates (only places the agent must stop for the user):
 1. brainstorm: confirm the requirement before planning
-2. planning: kf approve the contract + choose start-now vs backlog
+2. planning: kf approve the contract; it moves the item to implementation (--backlog parks it)
 3. review PASS: merge the PR on GitHub; kf status, kf sync or kf archive closes the item into done
 
-With a task harness configured (harness.verify.stage set, worktrees on), starting
-means kf drive: it runs the plan's tasks, testing and review on its own and stops
-at the ship decision or with a named stop code and the next command.
+With a task harness configured (harness.verify.stage set, worktrees on), the step
+after approve is kf drive: it runs the plan's tasks, testing and review on its own
+and stops at review PASS or with a named stop code and the next command.
 
 Every transition is also gated on artifacts and report status: files must exist,
 be filled and carry no placeholders or secrets, and testing/review reports must
@@ -184,7 +184,7 @@ Commands the agent will use (run \`kf help <command>\` for every option):
 ${commands}
 
 Skills installed per agent: kanban-flow (orchestrator), kanban-brainstorm, kanban-bug,
-kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-ship, kanban-archive.
+kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-archive.
 Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
 with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
 Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;

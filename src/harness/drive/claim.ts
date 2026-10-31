@@ -45,7 +45,7 @@ export interface Stop {
 
 export type Step = "implementation" | "repair" | "verify" | "testing" | "review";
 
-export const READY_REASON = "ready for ship decision";
+export const READY_REASON = "ready — review PASS: merge the PR, kf status closes the item";
 const REASON_MAX = 700;
 
 export const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -123,7 +123,7 @@ function driveRefusal(root: string, feature: Feature): string | null {
       if (!resumable) {
         const ready = prev?.status === "ready";
         return ready
-          ? `Drive ${prev.id} of '${name}' already reached "${READY_REASON}"; the ship decision is yours (kf status --change ${name}).`
+          ? `Drive ${prev.id} of '${name}' already reached "${READY_REASON}" (kf status --change ${name}).`
           : `'${name}' is in ${feature.stage} with no stopped drive; kf drive starts from implementation or resumes a stopped drive. Start it from implementation: kf stage ${name} implementation`;
       }
       break;
@@ -131,9 +131,10 @@ function driveRefusal(root: string, feature: Feature): string | null {
       return `'${name}' is in brainstorm; finish the requirement and plan first: kf stage ${name} planning`;
     case "planning":
     case "backlog":
-      return approval !== "approved"
-        ? approvalMessage
-        : `'${name}' is in ${feature.stage}; kf drive starts from implementation. Start it first: kf stage ${name} implementation`;
+      if (approval !== "approved") return approvalMessage;
+      return feature.stage === "planning"
+        ? `'${name}' is in planning; kf drive starts from implementation. Start it first: kf approve ${name}`
+        : `'${name}' is in backlog; kf drive starts from implementation. Start it first: kf stage ${name} implementation`;
     default:
       return `'${name}' is in ${feature.stage}; there is nothing to drive.`;
   }

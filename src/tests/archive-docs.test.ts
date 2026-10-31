@@ -61,7 +61,7 @@ async function archived(uc = ucFile, beforeArchive?: () => void): Promise<void> 
   await writeFile(join(feature().dir, "use-cases", "UC-001-create-task.md"), uc);
   await writeFile(join(feature().dir, ARTIFACTS["test-cases"].file), testPlan);
   expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-  for (const stage of ["implementation", "testing"]) expect((await cmdStage(args("stage", ["demo", stage]), root)).code).toBe(0);
+  expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
   await report("testing-result");
   expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
   await report("review-report");

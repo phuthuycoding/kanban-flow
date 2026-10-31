@@ -81,7 +81,6 @@ async function reviewStage(name = "shipit"): Promise<void> {
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it\nUser ships.");
   await writeFile(join(feature(name).dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nShip and verify.\n");
   expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   await report(name, "testing-result");
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
@@ -95,7 +94,6 @@ async function reviewBug(name = "buggy"): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), bugSpec);
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   await report(name, "testing-result");
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);

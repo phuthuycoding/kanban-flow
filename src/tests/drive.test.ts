@@ -74,17 +74,12 @@ const editConfig = (pr: GitDriveProject, fn: (cfg: Record<string, any>) => void)
 };
 
 describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
-  it("refuses planning and backlog items, naming the start decision, and a pending approval naming kf approve (TC-013)", async () => {
+  it("refuses a backlog item, naming the start command, and a changed approval naming kf approve (TC-013)", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }], { implementation: false });
-    const planning = await cmdDrive(args(["demo"]), pr.root);
-    expect(planning.code).toBe(1);
-    expect(planning.stdout).toContain("kf stage demo implementation");
-    expect(pr.readMeta()!.drive).toBeUndefined();
-
-    await pr.stage("backlog");
     const backlog = await cmdDrive(args(["demo"]), pr.root);
     expect(backlog.code).toBe(1);
     expect(backlog.stdout).toContain("kf stage demo implementation");
+    expect(pr.readMeta()!.drive).toBeUndefined();
 
     await pr.writePlan([{ id: "TASK-001", files: ["b.txt"] }]);
     const pending = await cmdDrive(args(["demo"]), pr.root);
@@ -116,7 +111,7 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
   });
 });
 
-describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
+describe("kf drive to review PASS (TC-014, TC-015, TC-012)", () => {
   it("runs the DAG, testing and review, and stops ready without shipping (TC-014)", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
@@ -128,7 +123,7 @@ describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
 
     const out = await drive(pr);
     expect(out.status, out.reason).toBe("ready");
-    expect(out.reason).toBe("ready for ship decision");
+    expect(out.reason).toBe("ready — review PASS: merge the PR, kf status closes the item");
     const meta = pr.readMeta()!;
     expect(pr.feature().stage).toBe("review");
     expect(meta.ship).toBeUndefined();
@@ -344,7 +339,7 @@ describe("drive-stop hook (TC-030)", () => {
     reports(pr);
     const out = hook(pr);
     expect((await drive(pr)).status).toBe("ready");
-    expect(readFileSync(out, "utf8")).toContain("ready|ready for ship decision");
+    expect(readFileSync(out, "utf8")).toContain("ready|ready — review PASS: merge the PR, kf status closes the item");
     await pr.cleanup();
 
     const pb = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { budget: { maxRuns: 1 } } });

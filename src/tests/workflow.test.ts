@@ -41,7 +41,6 @@ async function planning(): Promise<void> {
 async function implementation(): Promise<void> {
   await planning();
   expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
 }
 
 const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
@@ -152,8 +151,7 @@ describe("requirement and approval gates", () => {
       "---\nstatus: confirmed\nkind: bug\n---\n# Bug Report\nReproduce: submit twice. Actual: duplicate task. Expected: one task. Severity: medium. Regression: repeat-submit unit test. Docs: unchanged behavior.");
     expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
     expect(computeStatus(feature()).totalCount).toBe(3);
-    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    expect((await cmdStage(args("stage", ["demo", "backlog"]), root)).code).toBe(0);
+    expect((await cmdApprove(args("approve", ["demo"], { backlog: true }), root)).code).toBe(0);
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
     await report("testing-result");
@@ -174,14 +172,14 @@ describe("requirement and approval gates", () => {
     await cmdNew(args("new", ["demo"], { type: "bug" }), root);
     await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec);
     await cmdStage(args("stage", ["demo", "planning"]), root);
-    await cmdApprove(args("approve", ["demo"]), root);
+    await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
     await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec + "\nChanged fix scope");
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(1);
   });
 
   it.each(["edit", "add", "remove"])("invalidates feature approval after a use-case file %s", async (change) => {
     await planning();
-    await cmdApprove(args("approve", ["demo"]), root);
+    await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
     if (change === "remove") await rm(join(feature().dir, "use-cases", "UC-001.md"));
     else await writeFile(join(feature().dir, "use-cases", change === "add" ? "UC-002.md" : "UC-001.md"), "# UC-001 UC-002\nChanged acceptance behavior");
     expect(JSON.parse((await cmdStatus(args("status", [], { change: "demo", json: true }), root)).stdout).approval).toBe("changed");
@@ -202,12 +200,16 @@ describe("requirement and approval gates", () => {
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(1);
   });
 
-  it("supports the planning start-or-backlog decision", async () => {
+  it("approve --backlog parks the item; kf stage implementation starts it later (TC-007)", async () => {
     await planning();
-    await cmdApprove(args("approve", ["demo"]), root);
-    expect((await cmdStage(args("stage", ["demo", "backlog"]), root)).code).toBe(0);
+    const approved = await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
+    expect(approved.code).toBe(0);
+    expect(approved.stdout).toContain("→ backlog");
+    expect(approved.stdout).toContain("Next: kf stage demo implementation");
     expect(feature().stage).toBe("backlog");
-    expect(renderStatusText(computeStatus(feature()))).toContain("implementation (start) or planning (revise)");
+    expect(feature().meta?.approval?.status).toBe("approved");
+    expect(feature().meta?.worktree).toBeUndefined();
+    expect(renderStatusText(computeStatus(feature()))).toContain(`Next: kf stage "demo" implementation`);
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect(feature().stage).toBe("implementation");
   });
@@ -253,7 +255,6 @@ describe("requirement and approval gates", () => {
     expect(instruction.template).toContain("| ID | UC-002 |");
     expect((await cmdInstruct(args("instruct", ["use-case"], { change: "demo", id: "UC-002-" }), root)).stderr).toBe("invalid use-case id");
     await cmdApprove(args("approve", ["demo"]), root);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result");
     await cmdStage(args("stage", ["demo", "review"]), root);
@@ -273,13 +274,14 @@ describe("requirement and approval gates", () => {
 
   it.each(["spec-requirement", "implementation-plan", "use-case-specification", "use-case-diagram", "test-cases"] as const)("invalidates approval when %s changes", async (id) => {
     await planning();
-    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
+    expect((await cmdApprove(args("approve", ["demo"], { backlog: true }), root)).code).toBe(0);
     const file = join(feature().dir, ARTIFACTS[id].file);
     await writeFile(file, (await readFile(file, "utf8")) + "\nNew scope");
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(1);
     expect(JSON.parse((await cmdStatus(args("status", [], { change: "demo", json: true }), root)).stdout).approval).toBe("changed");
+    expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
+    expect(feature().stage).toBe("implementation");
   });
 
   it("checks approval throughout autonomous execution and supports returning to planning", async () => {
@@ -392,7 +394,6 @@ describe("archive consistency", () => {
     await planning();
     await writeFile(join(feature().dir, ARTIFACTS["use-case-specification"].file), "# Index\n[UC-001](use-cases/UC-001.md)");
     await cmdApprove(args("approve", ["demo"]), root);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result");
     await cmdStage(args("stage", ["demo", "review"]), root);

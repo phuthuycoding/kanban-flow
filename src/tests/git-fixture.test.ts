@@ -82,7 +82,7 @@ describe("git drive fixture", () => {
     }
   });
 
-  it("supports a bug item left in planning-approved state", async () => {
+  it("supports a bug item approved into backlog", async () => {
     const bug = await gitDriveProject({ kind: "bug", implementation: false, tasks: [{ id: "TASK-001" }] });
     try {
       expect(bug.readMeta()).toMatchObject({ kind: "bug", approval: { status: "approved" } });

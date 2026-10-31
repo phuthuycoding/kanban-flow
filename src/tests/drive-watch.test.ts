@@ -12,6 +12,7 @@ import { followDrive } from "../harness/drive.js";
 import { DRIVE_HEARTBEAT_MS } from "../harness/drive/watch.js";
 import { activityLines, activitySuffix, formatElapsed, liveRunLabel, workerActivity } from "../harness/drive/progress.js";
 import { driveLogPath } from "../harness/drive-log.js";
+import { READY_REASON } from "../harness/drive/claim.js";
 import { ensureWorksStructure, findFeature, writeFeatureMeta } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import { gitDriveProject, type GitDriveProject } from "./helpers/git-fixture.js";
@@ -154,11 +155,11 @@ describe("followDrive", () => {
     const feature = findFeature(root, "demo")!;
     await writeFeatureMeta(feature.dir, {
       ...feature.meta!,
-      drive: { ...feature.meta!.drive!, status: "ready", reason: "ready for ship decision", nextCommand: "kf ship demo" },
+      drive: { ...feature.meta!.drive!, status: "ready", reason: READY_REASON, nextCommand: "kf status --change demo" },
     });
     const result = await followed;
     expect(result).toEqual({ code: 0, detached: false });
-    expect(lines.some((l) => l.includes("ready for ship decision") && l.includes("kf ship demo"))).toBe(true);
+    expect(lines.some((l) => l.includes(READY_REASON) && l.includes("kf status --change demo"))).toBe(true);
   });
 
   it("streams JSON lines and detaches on abort without stopping the drive", async () => {

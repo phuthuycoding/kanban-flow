@@ -32,7 +32,7 @@ export interface DriveTask {
 export interface GitDriveOptions {
   kind?: WorkItemKind;
   tasks: DriveTask[];
-  /** Move the approved item to implementation (creates the item worktree). Default true. */
+  /** `kf approve` moves the item to implementation (creates the item worktree); false approves with --backlog. Default true. */
   implementation?: boolean;
   /** Replaces the default `{ stage: [["true"]] }`. Written verbatim, so it works before `harness.verify` is validated. */
   verify?: Record<string, unknown>;
@@ -165,9 +165,8 @@ export async function gitDriveProject(opts: GitDriveOptions): Promise<GitDrivePr
     await writeFile(join(feature().dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
     await writeArtifact("test-cases", "# Cases\n## TC-001\nFR-001 UC-001\nCreate a task and verify it exists.\n");
   }
-  const approved = await cmdApprove(args("approve", [name]), root);
+  const approved = await cmdApprove(args("approve", [name], opts.implementation ?? true ? {} : { backlog: true }), root);
   if (approved.code !== 0) throw new Error(`kf approve failed: ${approved.stdout}${approved.stderr ?? ""}`);
-  if (opts.implementation ?? true) await stage("implementation");
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,

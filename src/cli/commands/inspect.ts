@@ -195,6 +195,11 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   return { code, stdout: migrated + blocks.join("\n\n") + (buckets ? `\n\n${renderBuckets(buckets)}` : "") };
 }
 
+/** The `task_harness_needs_worktree` text; `kf approve` prints it too, before it starts or parks the item. */
+export function taskHarnessNeedsWorktreeMessage(feature: string): string {
+  return `The task harness (kf drive / kf run --task) cannot start while worktrees are off. Set "worktree": { "enabled": true } in .kf/config.json before starting '${feature}'.`;
+}
+
 export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
@@ -239,7 +244,7 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
     }
   }
 
-  // Raised before the start decision, so the human enables worktrees before choosing to drive
+  // Raised before approval starts the item, so the human enables worktrees before the drive
   // rather than learning it from a refused `kf drive`.
   if (!wtCfg.enabled && (harness?.verify?.stage?.length ?? 0) > 0) {
     for (const r of results) {
@@ -250,7 +255,7 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
         stage: r.stage,
         file: ".kf/config.json",
         code: "task_harness_needs_worktree",
-        message: `The task harness (kf drive / kf run --task) cannot start while worktrees are off. Set "worktree": { "enabled": true } in .kf/config.json before starting '${r.feature}'.`,
+        message: taskHarnessNeedsWorktreeMessage(r.feature),
       } satisfies Finding);
       if (strict) r.valid = false;
     }

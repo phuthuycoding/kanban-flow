@@ -66,7 +66,6 @@ async function archivedItem(name: string): Promise<void> {
   await writeFile(join(dir(), ARTIFACTS["test-cases"].file),
     "# Cases\n## TC-001\nFR-001 UC-001\nCreate a task and verify it exists.\n");
   expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
   const report = async (id: "testing-result" | "review-report") =>

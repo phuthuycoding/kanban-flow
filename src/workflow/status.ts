@@ -52,6 +52,16 @@ export interface FeatureStatus {
   assignedRoles: Array<{ role: string; runner: string }>;
   /** Why a review PASS item did not close on this run; set by the command that attempted it. */
   close?: CloseState;
+  /** `kf drive` can take the item: see driveConfigured. */
+  driveConfigured: boolean;
+}
+
+/**
+ * The item has what `kf drive` needs from config: a pinned `harness.verify.stage` and an item worktree, which
+ * implementation provisions only when `worktree.enabled` is on. Read off the item so the renderer stays pure.
+ */
+export function driveConfigured(feature: Feature, harness: HarnessConfig | undefined): boolean {
+  return (harness?.verify?.stage?.length ?? 0) > 0 && Boolean(feature.meta?.worktree);
 }
 
 /**
@@ -169,6 +179,7 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
     blockers,
     taskProgress,
     assignedRoles: assignedFor(feature, harness),
+    driveConfigured: driveConfigured(feature, harness),
   };
 }
 
@@ -243,9 +254,13 @@ export function renderStatusText(s: FeatureStatus): string {
   } else if (s.feature.stage === "planning" && approval !== "approved") {
     lines.push(`Next: human approval, then kf approve "${s.feature.name}"`);
   } else if (s.feature.stage === "planning" && approval === "approved") {
-    lines.push(`Next: human decision — kf stage "${s.feature.name}" implementation (start) or backlog (defer)`);
+    // Approve moves the item, so an approved planning item predates that; re-running approve moves it.
+    lines.push(`Next: kf approve "${s.feature.name}"`);
   } else if (s.feature.stage === "backlog") {
-    lines.push(`Next: human decision — kf stage "${s.feature.name}" implementation (start) or planning (revise)`);
+    lines.push(`Next: kf stage "${s.feature.name}" implementation`);
+  } else if (s.feature.stage === "implementation") {
+    lines.push("");
+    lines.push(s.driveConfigured ? `Next: kf drive "${s.feature.name}"` : `Next: load the kanban-implement skill for "${s.feature.name}"`);
   }
   return lines.join("\n");
 }

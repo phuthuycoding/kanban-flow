@@ -63,7 +63,7 @@ const feature = (name = "demo") => findFeature(root, name)!;
 
 const spec = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A";
 
-/** Drive an item to approved planning, ready for the implementation transition. */
+/** Drive an item to approved backlog (`kf approve --backlog`), ready for the implementation transition. */
 async function approvedItem(name = "demo"): Promise<void> {
   expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), spec);
@@ -74,7 +74,7 @@ async function approvedItem(name = "demo"): Promise<void> {
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
   await writeFile(join(feature(name).dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nCreate a task and verify it exists.\n");
-  expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
+  expect((await cmdApprove(args("approve", [name], { backlog: true }), root)).code).toBe(0);
 }
 
 /** A full lifecycle fixture: item in review with a PASS pair, worktree present. */
@@ -195,11 +195,11 @@ describe("stage → implementation provisions the worktree (FR-001, FR-002)", ()
     await mkdir(join(findFeature(plain, "demo")!.dir, "use-cases"), { recursive: true });
     await writeFile(join(findFeature(plain, "demo")!.dir, "use-cases", "UC-001.md"), "# UC-001 x");
     await writeFile(join(findFeature(plain, "demo")!.dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nx\n");
-    await cmdApprove(args("approve", ["demo"]), plain);
-    const res = await cmdStage(args("stage", ["demo", "implementation"]), plain);
+    const res = await cmdApprove(args("approve", ["demo"]), plain);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("worktree.enabled");
     expect(findFeature(plain, "demo")!.stage).toBe("planning");
+    expect(findFeature(plain, "demo")!.meta!.approval).toEqual({ status: "pending" });
   });
 
   it("opt-out config leaves the transition untouched", async () => {
@@ -254,7 +254,6 @@ describe("reuse on re-entry (FR-001, FR-002, UC-006)", () => {
     // loop back and forward again — same registration survives
     await cmdStage(args("stage", ["demo", "planning"], { force: true }), root);
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(feature().meta!.worktree).toMatchObject({ path: first.path, port: first.port, domain: first.domain });
 
     // delete the worktree by hand → next create rebuilds it from its kept branch
@@ -271,7 +270,7 @@ describe("reuse on re-entry (FR-001, FR-002, UC-006)", () => {
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("not managed");
-    expect(feature().stage).toBe("planning");
+    expect(feature().stage).toBe("backlog");
   });
 });
 
@@ -314,8 +313,8 @@ describe("worktree lifecycle hooks", () => {
     // re-entry reuses the worktree — the hook does not re-fire
     await rm(join(root, "create.out"));
     await cmdStage(args("stage", ["demo", "planning"], { force: true }), root);
-    await cmdApprove(args("approve", ["demo"]), root);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
+    expect(feature().stage).toBe("implementation");
     expect(existsSync(join(root, "create.out"))).toBe(false);
   });
 
@@ -326,7 +325,7 @@ describe("worktree lifecycle hooks", () => {
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("worktree-create");
-    expect(feature().stage).toBe("planning");
+    expect(feature().stage).toBe("backlog");
     expect(existsSync(join(scratch, "wts", "demo"))).toBe(false);
     // branch must be rolled back too — a retry must not trip the unmanaged-branch refusal
     expect(git(root, "branch", "--list", "t/demo")).toBe("");

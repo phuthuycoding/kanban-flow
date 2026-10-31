@@ -520,7 +520,7 @@ class Driver {
 }
 
 /**
- * The supervisor: drive the claimed item to the ship gate or to a stop. Everything happens at step boundaries; runs
+ * The supervisor: drive the claimed item to review PASS or to a stop. Everything happens at step boundaries; runs
  * in progress finish and go through the normal pipeline, and no new run starts once a stop condition is seen.
  */
 export async function superviseDrive(root: string, name: string, id: string, deps: DriveDeps = {}): Promise<DriveOutcome> {

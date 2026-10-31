@@ -131,9 +131,10 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   approve: {
-    help: "Usage: kf approve <feature> [--by <name>]  — approve Phase 2 execution contract (Human gate)",
+    help: "Usage: kf approve <feature> [--backlog] [--by <name>]  — approve Phase 2 execution contract (Human gate) and move the item to implementation; --backlog parks it in backlog instead",
     allowPositionals: true,
     options: {
+      backlog: { type: "boolean" },
       by: { type: "string" },
     },
   },
@@ -230,7 +231,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   drive: {
-    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at the ship decision or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees",
+    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at review PASS or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees",
     allowPositionals: true,
     options: {
       status: { type: "boolean" },
