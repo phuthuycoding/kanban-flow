@@ -64,7 +64,10 @@ function renderReconciled(outcome: Extract<ArchiveOutcome, { kind: "reconciled" 
   const delivered = outcome.alreadyDelivered
     ? "\n  Delivery finalized — item was already marked delivered; side effects re-checked."
     : "\n  Delivery finalized — `delivered` stamped in .kfw.json.";
-  return `Feature '${outcome.name}' is already in done.\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "")}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
+  const relanded = outcome.docsRelanded
+    ? `\n  These docs replace ${outcome.docsRelanded}: they are in the working tree, not committed — commit them.`
+    : "";
+  return `Feature '${outcome.name}' is already in done.\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "")}${relanded}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
 }
 
 /** Render an archive outcome the way `kf archive` prints it. An `error` outcome is rethrown. */

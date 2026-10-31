@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 export interface GhResult {
   ok: boolean;
   missing: boolean;
+  /** The call outlived `timeoutMs` and was killed. */
+  timedOut: boolean;
   stdout: string;
   stderr: string;
 }
@@ -22,6 +24,7 @@ export function gh(args: string[], options: { timeoutMs?: number } = {}): GhResu
   return {
     ok: res.status === 0 && !timedOut,
     missing,
+    timedOut,
     stdout: res.stdout ?? "",
     stderr: timedOut ? `gh ${args.slice(0, 2).join(" ")} timed out after ${options.timeoutMs} ms` : res.stderr ?? "",
   };

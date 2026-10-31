@@ -69,4 +69,14 @@ describe("Waiting to merge bucket", () => {
     expect(text).toContain("  a — docs/app-a not proven merged (no merged PR has docs/app-a at 0123456789ab as its head): git push -u origin docs/app-a");
     expect(text).toContain("  b — docs/app-b awaiting push: git push -u origin docs/app-b");
   });
+
+  it("puts a gone docs branch under Needs you with the kf archive remedy and no command", () => {
+    const buckets = computeBuckets([], [{ feature: "a", branch: "docs/app-a", reason: "no merged PR has docs/app-a as its head", gone: true }], 0);
+
+    expect(buckets.waitingToMerge).toEqual([]);
+    expect(buckets.needsYou).toEqual([{
+      feature: "a",
+      decision: "canonical docs for a never landed (no merged PR has docs/app-a as its head): kf archive a rewrites them into the working tree; commit them",
+    }]);
+  });
 });

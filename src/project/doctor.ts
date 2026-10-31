@@ -7,7 +7,7 @@ import { ARTIFACTS, LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
-import { branchPushed, landedProof, revParse } from "../shared/git.js";
+import { branchPushed, landedProof, revParse, type LandedRun } from "../shared/git.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
@@ -193,20 +193,29 @@ function checkAwaitingMerge(root: string): DoctorFinding[] {
 
 /** Canonical docs committed to a docs branch at close are not on the default branch until someone pushes and merges it. */
 function checkDocsBranches(root: string): DoctorFinding[] {
+  const run: LandedRun = {};
   return listFeatures(root).flatMap((f) => {
     const branch = f.meta?.docsBranch;
     if (!branch) return [];
     // null: no local branch. It is still pushed work when origin has it; otherwise landedProof says it is gone.
     const pushed = branchPushed(root, "origin", branch);
     if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) return [];
-    const proof = landedProof(root, branch);
+    const proof = landedProof(root, branch, f.meta?.docsCommit, run);
     if (proof.landed) return [];
     if (proof.gone) {
       return [{
         level: "WARNING" as const,
         area: `${f.stage}/${f.folder}`,
-        message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone locally and on origin with no merged PR found (${proof.reason}).`,
-        action: `nothing to push; the docs never landed — re-run the close docs step or remove docsBranch from .works/${f.stage}/${f.folder}/.kfw.json`,
+        message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here and no merged PR carries them (${proof.reason}).`,
+        action: `nothing to push; kf archive ${f.name} rewrites the docs into the working tree; commit them`,
+      }];
+    }
+    if (pushed === null) {
+      return [{
+        level: "WARNING" as const,
+        area: `${f.stage}/${f.folder}`,
+        message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here and not proven merged (${proof.reason}).`,
+        action: `nothing to push; re-run kf doctor once the merged-PR lookup can run, or kf archive ${f.name} rewrites the docs into the working tree; commit them`,
       }];
     }
     return [{

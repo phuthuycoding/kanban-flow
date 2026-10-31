@@ -576,12 +576,90 @@ describe("canonical docs when the primary checkout is behind origin", () => {
     process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
     expect(docsUnpushed()).toHaveLength(1);
 
-    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: tip }]);
-    expect(docsUnpushed()).toHaveLength(0);
-    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo not proven merged");
-
     process.env.GH_FAIL = "1";
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: tip }]);
     expect(docsUnpushed()).toHaveLength(1);
+    delete process.env.GH_FAIL;
+    expect(docsUnpushed()).toHaveLength(0);
+    expect(readFeatureMeta(feature().dir)!.docsBranch, "doctor only reports").toBe("docs/app-demo");
+
+    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo not proven merged");
+    const meta = readFeatureMeta(feature().dir)!;
+    expect(meta.docsBranch).toBeUndefined();
+    expect(meta.docsCommit).toBeUndefined();
+    expect(meta.docsLanded).toMatchObject({ branch: "docs/app-demo", by: "merged-pr" });
+
+    const before = ghCalls();
+    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo");
+    expect(ghCalls().slice(before.length), "a landed docs branch is not asked about again").not.toContain("--head docs/app-demo");
+  }, 15_000);
+
+  it("a gone docs branch is a Needs you decision that kf archive on the done item resolves by rewriting the docs into the working tree", async () => {
+    await reviewItem();
+    const base = git(root, "symbolic-ref", "--short", "HEAD");
+    writeFileSync(join(root, "upstream.txt"), "x");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "upstream");
+    git(root, "push", "-q", "origin", base);
+    git(root, "reset", "-q", "--hard", "HEAD~1");
+    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    git(root, "branch", "-D", "docs/app-demo");
+
+    const before = (await status({ all: true })).stdout;
+    expect(before).toContain("  demo — canonical docs for demo never landed (");
+    expect(before).toContain("): kf archive demo rewrites them into the working tree; commit them");
+    expect(before.slice(before.lastIndexOf("Waiting to merge"))).not.toContain("docs/app-demo");
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("Canonical docs synced:");
+    expect(res.stdout).toContain("  These docs replace docs/app-demo: they are in the working tree, not committed — commit them.");
+    expect(git(root, "status", "--porcelain")).toContain("docs/");
+    const meta = readFeatureMeta(feature().dir)!;
+    expect(meta.docsBranch).toBeUndefined();
+    expect(meta.docsCommit).toBeUndefined();
+    expect(meta.docsRelanded).toMatchObject({ branch: "docs/app-demo" });
+    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo");
+    expect(runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"))).toEqual([]);
+  }, 15_000);
+
+  it("kf archive --skip-specs on a done item keeps the docs branch record", async () => {
+    await reviewItem();
+    const base = git(root, "symbolic-ref", "--short", "HEAD");
+    writeFileSync(join(root, "upstream.txt"), "x");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "upstream");
+    git(root, "push", "-q", "origin", base);
+    git(root, "reset", "-q", "--hard", "HEAD~1");
+    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    expect((await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root)).code).toBe(0);
+    expect(readFeatureMeta(feature().dir)!.docsBranch).toBe("docs/app-demo");
+    expect(readFeatureMeta(feature().dir)!.docsRelanded).toBeUndefined();
+  }, 15_000);
+
+  it("records the docs commit at close and proves a deleted docs branch landed only by a merged PR at that commit", async () => {
+    await reviewItem();
+    const base = git(root, "symbolic-ref", "--short", "HEAD");
+    writeFileSync(join(root, "upstream.txt"), "x");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "upstream");
+    git(root, "push", "-q", "origin", base);
+    git(root, "reset", "-q", "--hard", "HEAD~1");
+    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    const sha = git(root, "rev-parse", "docs/app-demo");
+    expect(readFeatureMeta(feature().dir)!.docsCommit).toBe(sha);
+    git(root, "branch", "-D", "docs/app-demo");
+
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 4, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
+    expect(landedProof(root, "docs/app-demo", sha)).toEqual({
+      landed: false,
+      pushed: true,
+      gone: true,
+      reason: "local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; "
+        + `merged PR #4 for docs/app-demo does not carry the docs commit ${sha.slice(0, 12)}`,
+    });
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 4, headRefOid: sha }]);
+    expect(landedProof(root, "docs/app-demo", sha)).toEqual({ landed: true, by: "merged-pr" });
   }, 15_000);
 });
 
@@ -761,12 +839,50 @@ describe("landedProof on a docs branch gone from origin", () => {
     });
   });
 
-  it("proves a branch deleted locally and on origin by a merged PR with its name", () => {
+  const goneText = "local branch docs/app-x is gone and there is no remote-tracking ref for it here, so there is nothing to push";
+
+  it("does not take a merged PR with the same name as proof when no docs commit was recorded", () => {
     prunedDocsBranch();
     git(root, "branch", "-D", "docs/app-x");
     process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
-    expect(landedProof(root, "docs/app-x")).toEqual({ landed: true, by: "merged-pr" });
+    expect(landedProof(root, "docs/app-x")).toEqual({
+      landed: false,
+      pushed: true,
+      gone: true,
+      reason: `${goneText}; merged PR #9 has docs/app-x as its head, but the close recorded no docs commit to tie it to these docs`,
+    });
     expect(ghCalls()).toContain("gh pr list -R o/r --head docs/app-x --state merged");
+  });
+
+  it("does not take a stale merged PR with the same name and another head as proof of the recorded docs commit", () => {
+    const tip = prunedDocsBranch();
+    git(root, "branch", "-D", "docs/app-x");
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
+    expect(landedProof(root, "docs/app-x", tip)).toEqual({
+      landed: false,
+      pushed: true,
+      gone: true,
+      reason: `${goneText}; merged PR #9 for docs/app-x does not carry the docs commit ${tip.slice(0, 12)}`,
+    });
+  });
+
+  it("proves a deleted branch landed by a merged PR at the recorded docs commit, or one that builds on it", () => {
+    const tip = prunedDocsBranch();
+    git(root, "branch", "-D", "docs/app-x");
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: tip }]);
+    expect(landedProof(root, "docs/app-x", tip)).toEqual({ landed: true, by: "merged-pr" });
+    const edited = git(root, "commit-tree", `${tip}^{tree}`, "-p", tip, "-m", "suggestion applied on GitHub");
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: edited }]);
+    expect(landedProof(root, "docs/app-x", tip)).toEqual({ landed: true, by: "merged-pr" });
+  });
+
+  it("proves a deleted branch landed when the recorded docs commit is in origin's default branch", () => {
+    const tip = prunedDocsBranch();
+    git(root, "branch", "-D", "docs/app-x");
+    git(root, "push", "-q", "origin", `${tip}:refs/heads/${git(root, "symbolic-ref", "--short", "HEAD")}`);
+    git(root, "fetch", "-q", "origin");
+    expect(landedProof(root, "docs/app-x", tip)).toEqual({ landed: true, by: "ancestor" });
+    expect(ghCalls()).toBe("");
   });
 
   it("marks a branch deleted locally and on origin with no merged PR as gone, with nothing to push", () => {
@@ -776,8 +892,16 @@ describe("landedProof on a docs branch gone from origin", () => {
       landed: false,
       pushed: true,
       gone: true,
-      reason: "local branch docs/app-x is gone and it is not on origin, so there is nothing to push; no merged PR has docs/app-x as its head",
+      reason: `${goneText}; no merged PR has docs/app-x as its head`,
     });
+  });
+
+  it("does not mark a deleted branch gone when the merged-PR lookup failed", () => {
+    const tip = prunedDocsBranch();
+    git(root, "branch", "-D", "docs/app-x");
+    process.env.GH_FAIL = "1";
+    process.env.GH_FAIL_TEXT = "HTTP 502";
+    expect(landedProof(root, "docs/app-x", tip)).toEqual({ landed: false, pushed: true, reason: `${goneText}; gh pr list failed: HTTP 502` });
   });
 
   it("names an invalid project config in one line instead of throwing", async () => {
@@ -837,7 +961,7 @@ describe("landedProof on a docs branch gone from origin", () => {
   it("reports a gh call that outlives its timeout as a failure", () => {
     process.env.GH_SLEEP = "5";
     const res = gh(["pr", "list"], { timeoutMs: 300 });
-    expect(res).toMatchObject({ ok: false, missing: false, stderr: "gh pr list timed out after 300 ms" });
+    expect(res).toMatchObject({ ok: false, missing: false, timedOut: true, stderr: "gh pr list timed out after 300 ms" });
   });
 
   it("treats a merge gate gh call that outlives its timeout as unverifiable", () => {

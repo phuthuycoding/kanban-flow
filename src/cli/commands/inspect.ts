@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
-import { ARTIFACTS, METADATA_FILE } from "../../workflow/schema.js";
-import { driveLive, findFeature, listFeatures, parseFolderName, type Feature } from "../../workflow/features.js";
+import { join } from "node:path";
+import { ARTIFACTS } from "../../workflow/schema.js";
+import { driveLive, findFeature, listFeatures, parseFolderName, updateFeatureMeta, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { archiveItem } from "../../workflow/archive.js";
 import {
@@ -13,7 +13,7 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed, landedProof, revParse } from "../../shared/git.js";
+import { branchPushed, landedProof, revParse, type LandedRun } from "../../shared/git.js";
 import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
@@ -199,19 +199,7 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   const buckets = all
     ? computeBuckets(
       statuses,
-      features.flatMap((f) => {
-        if (!f.meta?.docsBranch) return [];
-        // null: no local branch. It is still pushed work when origin has it; otherwise landedProof says it is gone.
-        const pushed = branchPushed(root.root, "origin", f.meta.docsBranch);
-        if (pushed === true || (pushed === null && revParse(root.root, `refs/remotes/origin/${f.meta.docsBranch}`))) return [];
-        const proof = landedProof(root.root, f.meta.docsBranch);
-        if (proof.landed) return [];
-        if (proof.gone) {
-          return [{ feature: f.name, branch: f.meta.docsBranch, reason: proof.reason, command: `remove docsBranch from ${relative(root.root, join(f.dir, METADATA_FILE))}` }];
-        }
-        // No trace of a push (and no merged PR found) shows as awaiting push, not unproven.
-        return [{ feature: f.name, branch: f.meta.docsBranch, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) }];
-      }),
+      await docsBranchesUnpushed(root.root, features),
       features.filter((f) => driveLive(f.meta?.drive)).length,
     )
     : null;
@@ -233,6 +221,42 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   }
   const blocks = statuses.map(renderStatusText);
   return { code, stdout: migrated + blocks.join("\n\n") + (buckets ? `\n\n${renderBuckets(buckets)}` : "") };
+}
+
+/**
+ * The docs branches `kf status --all` lists. A branch proven landed is recorded as
+ * `docsLanded` in place of `docsBranch`, so later polls never ask gh about it again.
+ */
+async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }>> {
+  const run: LandedRun = {};
+  const out: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }> = [];
+  for (const f of features) {
+    const branch = f.meta?.docsBranch;
+    if (!branch) continue;
+    // null: no local branch. It is still pushed work when origin has it; otherwise landedProof says it is gone.
+    const pushed = branchPushed(root, "origin", branch);
+    if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) continue;
+    const proof = landedProof(root, branch, f.meta?.docsCommit, run);
+    if (proof.landed) {
+      await updateFeatureMeta(root, f.name, ({ docsBranch: _branch, docsCommit: _commit, ...meta }) => ({
+        ...meta,
+        docsLanded: { branch, by: proof.by, at: new Date().toISOString() },
+      }));
+      continue;
+    }
+    if (proof.gone) {
+      out.push({ feature: f.name, branch, reason: proof.reason, gone: true });
+      continue;
+    }
+    // No local branch to push: only a lookup that can run again can still prove it.
+    if (pushed === null) {
+      out.push({ feature: f.name, branch, ...(proof.reason ? { reason: proof.reason } : {}), command: "kf status --all" });
+      continue;
+    }
+    // No trace of a push (and no merged PR found) shows as awaiting push, not unproven.
+    out.push({ feature: f.name, branch, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) });
+  }
+  return out;
 }
 
 /** The `task_harness_needs_worktree` text; `kf approve` prints it too, before it starts or parks the item. */

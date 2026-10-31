@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type Stage } from "./schema.js";
-import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
+import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass, type FeatureMeta } from "./features.js";
 import { lockPath, withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
 import { liveRecords } from "../harness/run.js";
@@ -95,6 +95,8 @@ export type ArchiveOutcome =
       skipSpecs: boolean;
       /** True when delivery was already stamped before this reconcile. */
       alreadyDelivered: boolean;
+      /** The docs branch whose record this reconcile replaced: its docs are now in the working tree, uncommitted. */
+      docsRelanded: string | null;
       hasIssue: boolean;
       bypasses: Bypass[];
     }
@@ -186,6 +188,13 @@ function reviewLanding(dir: string): string | null {
   const p = join(dir, ARTIFACTS["review-report"].file);
   if (!existsSync(p)) return null;
   return splitFrontmatter(readFileSync(p, "utf8")).fm.landing ?? null;
+}
+
+/** `meta` with its docs-branch record replaced by `docsRelanded`; unchanged when `branch` is null. */
+function withoutDocsBranch(meta: FeatureMeta, branch: string | null): FeatureMeta {
+  if (!branch) return meta;
+  const { docsBranch: _branch, docsCommit: _commit, ...rest } = meta;
+  return { ...rest, docsRelanded: { branch, at: new Date().toISOString() } };
 }
 
 /** What the irreversible steps of a failed close already removed, for its error message. */
@@ -317,10 +326,12 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
     const metaPath = join(f.dir, METADATA_FILE);
     const originalMeta = f.meta && existsSync(metaPath) ? readFileSync(metaPath, "utf8") : null;
+    // The docs this rewrite puts in the working tree supersede the docs branch left at close, so its record goes.
+    const docsRelanded = copies.length > 0 ? f.meta?.docsBranch ?? null : null;
     try {
       await writeCanonicalCopies(copies);
       if (f.meta) await updateFeatureMeta(root, f.name, (meta) => ({
-        ...meta,
+        ...withoutDocsBranch(meta, docsRelanded),
         bypasses: recorded.length > 0 ? [...(meta.bypasses ?? []), ...recorded] : meta.bypasses,
         status: "archived",
         // Reconciling an item already stamped keeps its first delivery timestamp.
@@ -343,6 +354,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       docs: copies.map((copy) => copy.destination),
       skipSpecs: Boolean(opts.skipSpecs),
       alreadyDelivered: Boolean(f.meta?.delivered),
+      docsRelanded,
       hasIssue: Boolean(f.meta?.issue),
       bypasses: recorded,
     };
@@ -475,6 +487,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
   let docs: string[] = copies.map((copy) => copy.destination);
   let docsBranch: string | null = null;
+  let docsCommit: string | null = null;
   const stale = await withLock(root, f.name, async (): Promise<ArchiveOutcome | null> => {
     const cur = findFeature(root, f.name);
     if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
@@ -487,6 +500,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       if (docsTarget.kind === "branch") {
         const written = await writeCanonicalDocsBranch(root, cur, docsTarget);
         docsBranch = written.branch;
+        docsCommit = written.commit;
         docs = written.docs;
       } else {
         await writeCanonicalCopies(copies);
@@ -500,7 +514,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
         bypasses: recorded.length > 0 ? [...(cur.meta.bypasses ?? []), ...recorded] : cur.meta.bypasses,
         status: "archived",
         worktree: undefined,
-        ...(docsBranch ? { docsBranch } : {}),
+        ...(docsBranch ? { docsBranch, ...(docsCommit ? { docsCommit } : {}) } : {}),
         delivered: true,
         deliveredAt: new Date().toISOString(),
       });

@@ -203,6 +203,8 @@ export function resolveDocsTarget(root: string, feature: Feature): DocsTarget {
 export interface DocsBranchResult {
   /** The committed branch; null when the docs on `base` were already current and nothing was committed. */
   branch: string | null;
+  /** The docs commit on `branch`; null when nothing was committed. */
+  commit: string | null;
   /** Destinations relative to the repository top level. */
   docs: string[];
 }
@@ -231,7 +233,7 @@ export async function writeCanonicalDocsBranch(
     if (git(wt, ["status", "--porcelain"]) === "") {
       removeWorktree(root, wt, { force: true });
       deleteBranch(root, target.branch);
-      return { branch: null, docs };
+      return { branch: null, commit: null, docs };
     }
     // --no-verify: kf authored every byte of this commit, and the repo's hooks cannot run in a
     // temp worktree without node_modules — a hook failure here would land after the irreversible
@@ -239,7 +241,7 @@ export async function writeCanonicalDocsBranch(
     const commit = commitAll(wt, `docs(${feature.context}): sync canonical docs for ${feature.name}`, { noVerify: true });
     if (!commit.ok) throw new Error(`committing the canonical docs on ${target.branch} failed: ${commit.error}`);
     removeWorktree(root, wt);
-    return { branch: target.branch, docs };
+    return { branch: target.branch, commit: commit.sha, docs };
   } catch (err) {
     if (!added) throw err;
     const failures: unknown[] = [];

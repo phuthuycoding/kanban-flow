@@ -31,6 +31,6 @@ Rules:
 - Batch 1 fills in priority order — carry-over, review, testing, implementation — until the next line would exceed the budget (points, or the `10 tasks` default counted in lines). The rest is Batch 2.
 - Mark every `sequential` pair on the later line (`sequential with t2 (<overlapping path>)`).
 - An XL line says `should split`; it is listed but not dispatched until the human splits it or overrides it here.
-- Needs you and Waiting to merge come from `kf status --all --json` (`needsYou[]`, `waitingToMerge[]`, including `docsBranch` entries) plus travel's own decisions (XL, red CI with no item).
+- Needs you and Waiting to merge come from `kf status --all --json` (`needsYou[]`, including `canonical docs for <f> never landed` decisions; `waitingToMerge[]`, including `docsBranch` entries with their own `command`) plus travel's own decisions (XL, red CI with no item).
 - Calibration is the `calibration:` and `kind <k>:` lines of `estimates stats` (`calibration: none yet` below 3 measured days).
 - Empty sections print `  (none)`.

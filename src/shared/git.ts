@@ -223,10 +223,19 @@ export type LandedProof =
    * Not landed, or a check could not run (no GitHub repository, gh missing, failing or timing
    * out): unproven is not landed. `pushed: false` means nothing records a push of the branch (no
    * upstream configured, no remote-tracking ref or its reflog) and no merged PR was found for it.
-   * `gone: true` means the local branch no longer exists, so there is nothing left to push.
+   * `gone: true` means the local branch no longer exists and the merged-PR lookup ran and found
+   * no PR that carries these docs: nothing is left to push and nothing proves they landed.
    * `reason` is one line; callers show it only when `pushed` is true.
    */
   | { landed: false; pushed: boolean; gone?: true; reason?: string };
+
+/** State shared by the landedProof calls of one command run. */
+export interface LandedRun {
+  /** The repository merged PRs are looked up in, resolved on first use. */
+  repository?: { repo: string | null } | { error: string };
+  /** Set by the first gh lookup that timed out; the run's later lookups are skipped. */
+  ghTimedOut?: boolean;
+}
 
 const DETAIL_MAX = 200;
 
@@ -255,14 +264,19 @@ function landedRepository(root: string): { repo: string | null } | { error: stri
 }
 
 /** Merged PRs whose head branch is `branch`, or why they could not be looked up. */
-function mergedPrs(root: string, branch: string): { prs: unknown[] } | { failure: string } {
-  const found = landedRepository(root);
+function mergedPrs(root: string, branch: string, run: LandedRun): { prs: unknown[] } | { failure: string } {
+  if (run.ghTimedOut) return { failure: "the merged-PR lookup was skipped after a gh timeout in this run" };
+  const found = run.repository ??= landedRepository(root);
   if ("error" in found) return { failure: `${found.error}, so a merged PR cannot be checked` };
   const repo = found.repo;
   if (!repo) return { failure: "origin is not a GitHub repository, so a merged PR cannot be checked" };
   const res = gh(["pr", "list", "-R", repo, "--head", branch, "--state", "merged", "--json", "number,headRefOid"], { timeoutMs: GH_LOOKUP_TIMEOUT_MS });
   if (res.missing) return { failure: "gh CLI not found, so a merged PR cannot be checked" };
-  if (!res.ok) return { failure: `gh pr list failed: ${detail(res.stderr.trim() || res.stdout.trim())}` };
+  if (!res.ok) {
+    // One hung gh must not cost every later item its timeout too.
+    if (res.timedOut) run.ghTimedOut = true;
+    return { failure: `gh pr list failed: ${detail(res.stderr.trim() || res.stdout.trim())}` };
+  }
   let prs: unknown;
   try {
     prs = JSON.parse(res.stdout);
@@ -289,39 +303,68 @@ function pushTrace(root: string, branch: string): boolean {
  * origin/<default>, or GitHub has a merged PR whose head is this branch at this tip, or at a
  * local commit the tip is an ancestor of (the squash merge case, where the tip is never an
  * ancestor). A deleted or pruned upstream proves nothing — a PR closed unmerged leaves the same
- * trace. When the local branch is gone there is no tip to compare, so any merged PR with this
- * head branch proves it.
+ * trace. When the local branch is gone, `commit` (the docs commit recorded at close) stands in
+ * for the tip. Without either, a merged PR with this head name proves nothing: the name
+ * `docs/<context>-<feature>` is reused when an item of that name closes again.
  */
-export function landedProof(root: string, branch: string): LandedProof {
+export function landedProof(root: string, branch: string, commit?: string, run: LandedRun = {}): LandedProof {
   assertSafeArg("branch", branch);
   const tip = revParse(root, `refs/heads/${branch}`);
-  if (!tip) {
-    const gone = `local branch ${branch} is gone and it is not on origin, so there is nothing to push`;
-    const lookup = mergedPrs(root, branch);
-    if ("failure" in lookup) return { ...unproven(`${gone}; ${lookup.failure}`), gone: true };
-    if (lookup.prs.length > 0) return { landed: true, by: "merged-pr" };
-    return { ...unproven(`${gone}; no merged PR has ${branch} as its head`), gone: true };
-  }
+  if (!tip) return goneProof(root, branch, commit, run);
   const base = originDefaultRef(root);
   if (base && runGit(root, ["merge-base", "--is-ancestor", tip, base]).code === 0) return { landed: true, by: "ancestor" };
-  const proof = mergedPrProof(root, branch, tip);
+  const proof = mergedPrProof(root, branch, tip, run);
   if (proof.landed || pushTrace(root, branch)) return proof;
   return { ...proof, pushed: false };
 }
 
-function mergedPrProof(root: string, branch: string, tip: string): LandedProof {
-  const lookup = mergedPrs(root, branch);
-  if ("failure" in lookup) return unproven(lookup.failure);
-  const heads = lookup.prs
+function goneProof(root: string, branch: string, commit: string | undefined, run: LandedRun): LandedProof {
+  const gone = `local branch ${branch} is gone and there is no remote-tracking ref for it here, so there is nothing to push`;
+  if (commit) {
+    assertSafeArg("commit", commit);
+    const base = originDefaultRef(root);
+    if (base && runGit(root, ["merge-base", "--is-ancestor", commit, base]).code === 0) return { landed: true, by: "ancestor" };
+  }
+  const lookup = mergedPrs(root, branch, run);
+  if ("failure" in lookup) return unproven(`${gone}; ${lookup.failure}`);
+  const numbers = lookup.prs
+    .map((pr) => (pr as { number?: unknown } | null)?.number)
+    .filter((n): n is number => typeof n === "number")
+    .map((n) => `#${n}`);
+  if (lookup.prs.length === 0) return { ...unproven(`${gone}; no merged PR has ${branch} as its head`), gone: true };
+  if (!commit) {
+    return { ...unproven(`${gone}; merged PR ${numbers.join(", ") || "(unnumbered)"} has ${branch} as its head, but the close recorded no docs commit to tie it to these docs`), gone: true };
+  }
+  if (carries(root, commit, prHeads(lookup.prs))) return { landed: true, by: "merged-pr" };
+  return { ...unproven(`${gone}; merged PR ${numbers.join(", ") || "(unnumbered)"} for ${branch} does not carry the docs commit ${commit.slice(0, 12)}`), gone: true };
+}
+
+function prHeads(prs: unknown[]): string[] {
+  return prs
     .map((pr) => (pr as { headRefOid?: unknown } | null)?.headRefOid)
     .filter((oid): oid is string => typeof oid === "string" && /^[0-9a-f]{40,64}$/.test(oid));
-  if (heads.includes(tip)) return { landed: true, by: "merged-pr" };
-  // A commit added to the PR on GitHub before the merge moves its head past the local tip; only a head already here can be compared, nothing is fetched.
-  const local = heads.filter((oid) => runGit(root, ["cat-file", "-e", `${oid}^{commit}`]).code === 0);
-  if (local.some((oid) => runGit(root, ["merge-base", "--is-ancestor", tip, oid]).code === 0)) return { landed: true, by: "merged-pr" };
+}
+
+/** The PR heads whose commit is in this repository. */
+function localHeads(root: string, heads: string[]): string[] {
+  return heads.filter((oid) => runGit(root, ["cat-file", "-e", `${oid}^{commit}`]).code === 0);
+}
+
+/** Whether a merged PR head is `commit` or builds on it. */
+function carries(root: string, commit: string, heads: string[]): boolean {
+  if (heads.includes(commit)) return true;
+  // A commit added to the PR on GitHub before the merge moves its head past the commit; only a head already here can be compared, nothing is fetched.
+  return localHeads(root, heads).some((oid) => runGit(root, ["merge-base", "--is-ancestor", commit, oid]).code === 0);
+}
+
+function mergedPrProof(root: string, branch: string, tip: string, run: LandedRun): LandedProof {
+  const lookup = mergedPrs(root, branch, run);
+  if ("failure" in lookup) return unproven(lookup.failure);
+  const heads = prHeads(lookup.prs);
+  if (carries(root, tip, heads)) return { landed: true, by: "merged-pr" };
   if (heads.length > 0) {
     return unproven(`a merged PR for ${branch} has head ${heads.map((oid) => oid.slice(0, 12)).join(", ")}, not the local tip ${tip.slice(0, 12)}`
-      + (local.length < heads.length ? " (that head is not available locally to compare; fetch it, or delete the local branch if that PR carried this work)" : ""));
+      + (localHeads(root, heads).length < heads.length ? " (that head is not available locally to compare; fetch it, or delete the local branch if that PR carried this work)" : ""));
   }
   return unproven(`no merged PR has ${branch} at ${tip.slice(0, 12)} as its head`);
 }

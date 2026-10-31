@@ -318,7 +318,7 @@ export interface Buckets {
  */
 export function computeBuckets(
   statuses: FeatureStatus[],
-  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; command?: string }>,
+  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }>,
   running: number,
 ): Buckets {
   const needsYou: Buckets["needsYou"] = [];
@@ -346,9 +346,18 @@ export function computeBuckets(
     }
   }
   for (const d of docsBranchesUnpushed) {
+    if (d.gone) {
+      needsYou.push({ feature: d.feature, decision: docsNeverLandedDecision(d.feature, d.reason) });
+      continue;
+    }
     waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
   return { needsYou, waitingToMerge, running };
+}
+
+/** A docs branch nothing proves landed and nothing is left to push; doctor gives the same remedy. */
+export function docsNeverLandedDecision(feature: string, reason?: string): string {
+  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: kf archive ${feature} rewrites them into the working tree; commit them`;
 }
 
 export function renderBuckets(b: Buckets): string {

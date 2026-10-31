@@ -97,6 +97,12 @@ export interface FeatureMeta {
   deliveredAt?: string;
   /** Unpushed branch the close committed canonical docs to, when the primary checkout was not a safe place for them. */
   docsBranch?: string;
+  /** The commit the close made on `docsBranch`; items closed by earlier versions have none. */
+  docsCommit?: string;
+  /** `docsBranch` once `kf status --all` proved it landed; replaces it so later polls skip it. */
+  docsLanded?: { branch: string; by: "ancestor" | "merged-pr"; at: string };
+  /** `docsBranch` once `kf archive` on the done item rewrote its docs into the working tree. */
+  docsRelanded?: { branch: string; at: string };
   approval?: Approval;
   executionId?: string;
   status?: "archived" | "cancelled";
@@ -332,6 +338,10 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.delivered !== undefined && typeof meta.delivered !== "boolean")
     || (meta.deliveredAt !== undefined && typeof meta.deliveredAt !== "string")
     || (meta.docsBranch !== undefined && (typeof meta.docsBranch !== "string" || !meta.docsBranch.startsWith("docs/")))
+    || (meta.docsCommit !== undefined && (typeof meta.docsCommit !== "string" || !/^[0-9a-f]{40,64}$/.test(meta.docsCommit)))
+    || (meta.docsLanded !== undefined && (!meta.docsLanded || typeof meta.docsLanded.branch !== "string"
+      || !["ancestor", "merged-pr"].includes(meta.docsLanded.by) || typeof meta.docsLanded.at !== "string"))
+    || (meta.docsRelanded !== undefined && (!meta.docsRelanded || typeof meta.docsRelanded.branch !== "string" || typeof meta.docsRelanded.at !== "string"))
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
