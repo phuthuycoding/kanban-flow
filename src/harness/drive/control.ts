@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import {
   driveLive, findFeature, updateFeatureMeta,
-  type DriveStopCode, type Feature, type TaskState,
+  type DriveConfigAcceptance, type DriveStopCode, type Feature, type TaskState,
 } from "../../workflow/features.js";
 import { runHook } from "../../integrations/hooks.js";
 import { ProjectConfigError, resolveDriveConfig } from "../../project/config.js";
@@ -123,6 +123,7 @@ export interface DriveView {
   reason?: string;
   nextCommand?: string;
   warnings: string[];
+  configAcceptances: DriveConfigAcceptance[];
   supervisorPid?: number;
   startedAt: string;
   updatedAt: string;
@@ -166,7 +167,7 @@ export function driveView(root: string, feature: Feature, nowMs: number = Date.n
     ...(crashed
       ? { reason: `supervisor pid ${d.supervisorPid ?? "?"} is gone (killed or crashed) during step ${d.step}`, nextCommand: `kf drive ${feature.name}` }
       : { ...(d.reason ? { reason: d.reason } : {}), ...(d.nextCommand ? { nextCommand: d.nextCommand } : {}) }),
-    warnings: d.warnings ?? [], ...(d.supervisorPid ? { supervisorPid: d.supervisorPid } : {}),
+    warnings: d.warnings ?? [], configAcceptances: d.configAcceptances ?? [], ...(d.supervisorPid ? { supervisorPid: d.supervisorPid } : {}),
     startedAt: d.startedAt, updatedAt: d.updatedAt, liveRuns, ...(lastEvent ? { lastEvent } : {}),
   };
 }

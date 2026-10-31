@@ -21,12 +21,17 @@ function renderView(v: DriveView, configSource: string | null): string {
   if (v.reason) lines.push(`  ${v.stopCode ? `Stop: ${v.stopCode} — ` : v.state === "crashed" ? "Crashed: " : "Result: "}${v.reason}`);
   if (v.nextCommand && v.state !== "running") lines.push(`  Next: ${v.nextCommand}`);
   for (const w of v.warnings) lines.push(`  ⚠ ${w}`);
+  const last = v.configAcceptances[v.configAcceptances.length - 1];
+  if (last) lines.push(`  Config accepted: ${v.configAcceptances.length} time(s); last ${last.at} by ${last.command} (${last.changes.length} change(s) against the ${last.against === "pin" ? "previous pin" : "primary copy"})`);
   return lines.join("\n");
 }
 
-/** The changes a resume with --accept-config re-pinned, printed before the drive goes on with them. */
-function acceptedLines(accepted: string[]): string[] {
-  return accepted.length === 0 ? [] : ["Accepted the changed drive config:", ...accepted.map((l) => `  ${l}`)];
+/** What the claim pinned that differs, printed (and recorded by the claim) before the drive goes on with it. */
+function acceptedLines(claimed: { accepted: string[]; warning: string | null }): string[] {
+  return [
+    ...(claimed.warning ? [claimed.warning] : []),
+    ...(claimed.accepted.length === 0 ? [] : ["Accepted the changed drive config:", ...claimed.accepted.map((l) => `  ${l}`)]),
+  ];
 }
 
 function renderOutcome(name: string, id: string, o: DriveOutcome): string {
@@ -41,6 +46,7 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
   if (!name) return { code: 1, stdout: USAGE, stderr: "missing feature" };
   const json = Boolean(args.options.json);
   const acceptConfig = Boolean(args.options["accept-config"]);
+  const watch = Boolean(args.options.watch || args.options.follow);
   const root = await resolveItem(cwd, name);
   if (!root.ok) return root.refusal;
   const feature = root.item;
@@ -62,13 +68,20 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
     return stopped.ok ? { code: 0, stdout: stopped.message } : { code: 1, stdout: stopped.message, stderr: "no running drive" };
   }
 
-  if (args.options.watch || args.options.follow) {
+  const command = `kf drive ${feature.name}${watch ? " --watch" : ""}${acceptConfig ? " --accept-config" : ""}${json ? " --json" : ""}`;
+  if (watch) {
     const current = driveView(root.root, feature);
     let replay = false;
     if (current?.state !== "running") {
-      const claimed = await claimDrive(root.root, feature.name, { acceptConfig });
+      const claimed = await claimDrive(root.root, feature.name, { acceptConfig, command });
       if (!claimed.ok) return { code: 1, stdout: claimed.reason, stderr: "drive refused" };
-      if (!json) for (const line of acceptedLines(claimed.accepted)) process.stdout.write(`${line}\n`);
+      if (json) {
+        if (claimed.accepted.length > 0 || claimed.warning) {
+          process.stdout.write(`${JSON.stringify({ event: "accepted_config", at: new Date().toISOString(), acceptedConfig: claimed.accepted, configWarning: claimed.warning })}\n`);
+        }
+      } else {
+        for (const line of acceptedLines(claimed)) process.stdout.write(`${line}\n`);
+      }
       await startDetachedDrive(root.root, feature.name, claimed.drive);
       replay = true;
     }
@@ -103,12 +116,12 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
     }
   }
 
-  const claim = await claimDrive(root.root, feature.name, { acceptConfig });
+  const claim = await claimDrive(root.root, feature.name, { acceptConfig, command });
   if (!claim.ok) return { code: 1, stdout: claim.reason, stderr: "drive refused" };
   const pid = await startDetachedDrive(root.root, feature.name, claim.drive);
-  if (json) return { code: 0, stdout: JSON.stringify({ feature: feature.name, id: claim.drive.id, resumed: claim.resumed, supervisorPid: pid, acceptedConfig: claim.accepted }, null, 2) };
+  if (json) return { code: 0, stdout: JSON.stringify({ feature: feature.name, id: claim.drive.id, resumed: claim.resumed, supervisorPid: pid, acceptedConfig: claim.accepted, configWarning: claim.warning }, null, 2) };
   return {
     code: 0,
-    stdout: `${acceptedLines(claim.accepted).map((l) => `${l}\n`).join("")}${claim.resumed ? "Resumed" : "Started"} drive ${claim.drive.id} of '${feature.name}' (supervisor pid ${pid}, step ${claim.drive.step}).\n  Status: kf drive ${feature.name} --status\n  Stop:   kf drive ${feature.name} --stop`,
+    stdout: `${acceptedLines(claim).map((l) => `${l}\n`).join("")}${claim.resumed ? "Resumed" : "Started"} drive ${claim.drive.id} of '${feature.name}' (supervisor pid ${pid}, step ${claim.drive.step}).\n  Status: kf drive ${feature.name} --status\n  Stop:   kf drive ${feature.name} --stop`,
   };
 }

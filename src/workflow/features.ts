@@ -125,6 +125,17 @@ export const DRIVE_STOP_CODES = [
 ] as const;
 export type DriveStopCode = (typeof DRIVE_STOP_CODES)[number];
 
+/** A drive config pinned while it differed from what it is compared with; appended by `kf drive`, never removed. */
+export interface DriveConfigAcceptance {
+  at: string;
+  /** The command that pinned it, e.g. `kf drive <item> --accept-config`. */
+  command: string;
+  /** `pin`: a resume re-pinned over the drive's previous pin. `primary`: a new drive pinned a worktree copy whose argv differ from the primary `.kf/config.json`. */
+  against: "pin" | "primary";
+  /** `key: old → new` per changed argv leaf, `key changed` for the other parts. */
+  changes: string[];
+}
+
 export interface DriveState {
   id: string;
   status: DriveStatus;
@@ -147,6 +158,8 @@ export interface DriveState {
   repairReport?: string;
   /** Warnings the driver recorded, e.g. a failed drive-stop hook. */
   warnings?: string[];
+  /** Every config change a claim pinned, carried over by later resumes and drives of the item. */
+  configAcceptances?: DriveConfigAcceptance[];
   supervisorPid?: number;
   startedAt: string;
   updatedAt: string;
@@ -155,6 +168,13 @@ export interface DriveState {
 /** A drive is live while it is running and its supervisor (the detached process, or the claiming CLI until it hands over) answers. */
 export function driveLive(drive: DriveState | undefined): boolean {
   return drive?.status === "running" && isPidAlive(drive.supervisorPid);
+}
+
+function isConfigAcceptance(value: unknown): value is DriveConfigAcceptance {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const a = value as Partial<DriveConfigAcceptance>;
+  return typeof a.at === "string" && typeof a.command === "string" && (a.against === "pin" || a.against === "primary")
+    && Array.isArray(a.changes) && a.changes.every((c) => typeof c === "string");
 }
 
 function isDriveState(value: unknown): value is DriveState {
@@ -172,6 +192,7 @@ function isDriveState(value: unknown): value is DriveState {
     && (d.approvalHash === undefined || typeof d.approvalHash === "string")
     && (d.repairReport === undefined || typeof d.repairReport === "string")
     && (d.warnings === undefined || (Array.isArray(d.warnings) && d.warnings.every((w) => typeof w === "string")))
+    && (d.configAcceptances === undefined || (Array.isArray(d.configAcceptances) && d.configAcceptances.every(isConfigAcceptance)))
     && (d.supervisorPid === undefined || int(d.supervisorPid))
     && typeof d.startedAt === "string" && typeof d.updatedAt === "string";
 }

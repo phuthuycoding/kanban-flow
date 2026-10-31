@@ -37,9 +37,14 @@ function renderOutcome(root: string, feature: Feature, outcome: RunOutcome): str
   return lines.join("\n");
 }
 
-/** Put the worktree-copy warning above whatever the command prints, refusals included. */
+/** Put the worktree-copy warning above what a dry run prints. */
 function withWarning(result: CmdResult, warning: string | null): CmdResult {
   return warning ? { ...result, stdout: `${warning}\n\n${result.stdout}` } : result;
+}
+
+/** Print the worktree-copy warning before any worker or verify command starts, not after the run returns. */
+function warnBeforeRun(warning: string | null): void {
+  if (warning) process.stdout.write(`${warning}\n\n`);
 }
 
 function renderChain(root: string, feature: Feature, summary: ChainResultSummary): string {
@@ -81,18 +86,19 @@ async function cmdRunTask(root: string, feature: Feature, rawId: string, args: P
     }, warning);
   }
 
+  warnBeforeRun(warning);
   const result = await executeTaskRun(root, feature.name, ctx, { fresh, timeoutMs });
-  if (!result.started) return withWarning(refuse(result.reason, "task run refused"), warning);
+  if (!result.started) return refuse(result.reason, "task run refused");
   const latest = findFeature(root, feature.name) ?? feature;
   const lines = result.outcome ? [renderOutcome(root, latest, result.outcome)] : [];
   lines.push(`Task ${ctx.task.id}: ${result.state}${result.reason ? ` — ${result.reason}` : ""}`);
   if (result.stop === "usage_limit") {
     // The task is pending again, not done: a script chaining `kf run --task` must not carry on as if it succeeded.
     lines.push(`Paused by the API usage limit; re-run after the reset to resume the same session: kf run ${feature.name} --task ${ctx.task.id}`);
-    return withWarning({ code: 1, stdout: lines.join("\n"), stderr: "task paused by usage limit" }, warning);
+    return { code: 1, stdout: lines.join("\n"), stderr: "task paused by usage limit" };
   }
   const bad = result.state === "failed" || result.state === "blocked";
-  return withWarning({ code: bad ? 1 : 0, stdout: lines.join("\n"), stderr: bad ? `task ${result.state}` : undefined }, warning);
+  return { code: bad ? 1 : 0, stdout: lines.join("\n"), stderr: bad ? `task ${result.state}` : undefined };
 }
 
 export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -140,20 +146,21 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
   const active = runConflict(feature.meta?.runs, name, null, { drive: feature.meta?.drive });
   if (active) return { code: 1, stdout: active, stderr: "run in progress" };
 
+  warnBeforeRun(warning);
   if (args.options.detach) {
     const record = await startDetached(root.root, name, chain, { fresh, timeoutMs });
     const rest = chain.slice(1).map((a) => a.role);
-    return withWarning({
+    return {
       code: 0,
       stdout: `▶ Chain ${record.id} started detached: ${chain.map((a) => `${a.role} (${a.runnerName})`).join(" → ")}\n  Log: ${relative(root.root, join(feature.dir, record.log))}${rest.length > 0 ? `\n  Remaining roles run after the first one finishes: ${rest.join(", ")}` : ""}\n  Poll with: kf runs ${name}`,
-    }, warning);
+    };
   }
   const summary = await executeChain(root.root, name, chain, { fresh, timeoutMs });
-  return withWarning({
+  return {
     code: summary.ok ? 0 : 1,
     stdout: renderChain(root.root, findFeature(root.root, name) ?? feature, summary),
     stderr: summary.ok ? undefined : "chain not done",
-  }, warning);
+  };
 }
 
 export interface RunView extends RunRecord {
