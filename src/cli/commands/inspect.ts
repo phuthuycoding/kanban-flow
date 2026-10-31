@@ -104,6 +104,16 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
  * Returns the printed lines and, per item that stayed in review, why — the renderer turns
  * that into the Next line.
  */
+/**
+ * A refusal spans lines (the gate's heading, then one line per failed check); the status line keeps
+ * the heading and names the checks by their codes, or keeps every line when there are none.
+ */
+function oneLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const codes = [...new Set([...text.matchAll(/\(([a-z]+(?:_[a-z]+)+)\)/g)].map((m) => m[1]))];
+  return codes.length > 0 ? `${lines[0] ?? ""} ${codes.join(", ")}` : lines.join(" ");
+}
+
 async function closeLanded(root: string, items: Feature[]): Promise<{ lines: string[]; states: Map<string, CloseState>; failed: boolean }> {
   const lines: string[] = [];
   const states = new Map<string, CloseState>();
@@ -121,11 +131,11 @@ async function closeLanded(root: string, items: Feature[]): Promise<{ lines: str
         if (outcome.merge?.reason === "not-merged") {
           states.set(f.name, outcome.merge.state === "CLOSED" ? { kind: "pr-closed", pr: outcome.merge.pr } : { kind: "awaiting-merge", pr: outcome.merge.pr });
         } else {
-          states.set(f.name, { kind: "refused", detail: outcome.stdout.split("\n")[0] });
+          states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout) });
         }
         break;
       case "hook-failed":
-        states.set(f.name, { kind: "refused", detail: outcome.stdout.split("\n")[0] });
+        states.set(f.name, { kind: "refused", detail: oneLine(outcome.stdout) });
         break;
       case "error": {
         failed = true;

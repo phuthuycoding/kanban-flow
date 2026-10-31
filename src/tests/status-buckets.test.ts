@@ -59,6 +59,7 @@ describe("Needs you bucket", () => {
     const json = JSON.parse(res.stdout) as { needsYou: Array<{ feature: string; decision: string }> };
     expect(json.needsYou.map((n) => n.feature)).toEqual(["legacy"]);
     expect(json.needsYou[0].decision).toMatch(/^review PASS but not closed: \S/);
+    expect(json.needsYou[0].decision).toBe("review PASS but not closed: Gate failed for 'legacy'. Fix validation before archiving: artifact_missing, approval_required, use_cases_missing");
   });
 });
 
