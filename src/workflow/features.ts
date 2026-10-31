@@ -130,8 +130,10 @@ export interface DriveConfigAcceptance {
   at: string;
   /** The command that pinned it, e.g. `kf drive <item> --accept-config`. */
   command: string;
-  /** `pin`: a resume re-pinned over the drive's previous pin. `primary`: a new drive pinned a worktree copy whose argv differ from the primary `.kf/config.json`. */
-  against: "pin" | "primary";
+  /** Whether the claiming process had a terminal on stdin: a hint at a person rather than a script or agent. Absent in records written before it was kept. */
+  tty?: boolean;
+  /** `pin`: a resume re-pinned over the drive's previous pin. `origin` / `primary`: a new drive pinned a worktree copy whose argv differ from that copy of `.kf/config.json`. */
+  against: "pin" | "origin" | "primary";
   /** `key: old → new` per changed argv leaf, `key changed` for the other parts. */
   changes: string[];
 }
@@ -173,7 +175,8 @@ export function driveLive(drive: DriveState | undefined): boolean {
 function isConfigAcceptance(value: unknown): value is DriveConfigAcceptance {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const a = value as Partial<DriveConfigAcceptance>;
-  return typeof a.at === "string" && typeof a.command === "string" && (a.against === "pin" || a.against === "primary")
+  return typeof a.at === "string" && typeof a.command === "string" && (a.against === "pin" || a.against === "origin" || a.against === "primary")
+    && (a.tty === undefined || typeof a.tty === "boolean")
     && Array.isArray(a.changes) && a.changes.every((c) => typeof c === "string");
 }
 

@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { claimDrive, superviseDrive } from "../harness/drive.js";
+import { claimDrive, startDetachedDrive, superviseDrive } from "../harness/drive.js";
 import { cmdDrive } from "../cli/commands/drive.js";
 import { cmdRun } from "../cli/commands/run.js";
 import { updateFeatureMeta } from "../workflow/features.js";
 import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
-import { gitDriveProject, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
+import { gitDriveProject, gitIn, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 vi.mock("../harness/drive.js", async (importOriginal) => ({
@@ -27,6 +27,7 @@ const AGENTS = ["claude", "gemini", "devin", "codex", "opencode"];
 let p: GitDriveProject | null = null;
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.mocked(startDetachedDrive).mockClear();
   await p?.cleanup();
   p = null;
 });
@@ -89,9 +90,17 @@ describe("kf drive records every config it re-pins", () => {
     await updateFeatureMeta(pr.root, "demo", (meta) => ({ ...meta, drive: { ...meta.drive!, status: "stopped", stopCode: "budget" } }));
 
     editConfig(file, (c) => { c.harness.maxLoops = 7; });
+    const written: string[] = [];
+    let writtenAtSpawn: number | null = null;
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { written.push(String(chunk)); return true; });
+    vi.mocked(startDetachedDrive).mockImplementationOnce(async () => { writtenAtSpawn = written.length; return 4242; });
     const text = await cmdDrive(args("drive", ["demo"]), pr.root);
+    vi.mocked(process.stdout.write).mockRestore();
     expect(text.code, text.stdout).toBe(0);
-    expect(text.stdout).toContain("Accepted the changed drive config:\n  harness.maxLoops changed");
+    expect(written.join("")).toBe("Accepted the changed drive config:\n  harness.maxLoops changed\n");
+    expect(writtenAtSpawn).toBe(written.length);
+    expect(text.stdout).not.toContain("Accepted the changed drive config");
+    expect(text.stdout).toMatch(/^Resumed drive /);
     const records = pr.readMeta()!.drive!.configAcceptances!;
     expect(records.map((r) => [r.command, r.against, r.changes])).toEqual([
       ["kf drive demo", "pin", ["harness.roles changed", "harness.budget changed"]],
@@ -118,12 +127,18 @@ describe("kf drive records every config it re-pins", () => {
         configParts: { "harness.roles": sha(harness.roles), "harness.runners": sha(harness.runners), "harness.verify": sha(harness.verify), "worktree.enabled": sha(true) },
       },
     }));
-    const resumed = await claimDrive(pr.root, "demo");
-    if (!resumed.ok) throw new Error(resumed.reason);
-    expect(resumed.accepted).toHaveLength(1);
-    expect(resumed.accepted[0]).toMatch(/^not pinned by the release that started the drive, pinned now as they are: config\.source, harness\.main, harness\.stages/);
-    expect(resumed.accepted[0]).not.toContain("harness.roles");
-    expect(resumed.accepted.join("\n")).not.toContain(" changed");
+    const before = pr.readMeta()!.drive!.configAcceptances ?? [];
+    const written: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { written.push(String(chunk)); return true; });
+    const res = await cmdDrive(args("drive", ["demo"]), pr.root);
+    vi.mocked(process.stdout.write).mockRestore();
+    expect(res.code, res.stdout).toBe(0);
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatch(/^Drive config not pinned by the release that started the drive, pinned now as they are: config\.source, harness\.main, harness\.stages/);
+    expect(written[0]).not.toContain("harness.roles");
+    expect(written[0]).not.toContain("Accepted");
+    // Pinning keys an older release never pinned accepts no change, so it is neither recorded nor counted.
+    expect(pr.readMeta()!.drive!.configAcceptances ?? []).toEqual(before);
   });
 
   it("warns and records when a new drive pins a worktree copy whose argv differ from the primary copy", async () => {
@@ -134,10 +149,57 @@ describe("kf drive records every config it re-pins", () => {
     if (!claim.ok) throw new Error(claim.reason);
     expect(claim.resumed).toBe(false);
     expect(claim.warning).toContain(`⚠ Runner and verify commands are read from the item worktree copy ${copy} (config source: worktree)`);
+    expect(claim.warning).toContain(`differ from the primary copy ${join(pr.root, ".kf", "config.json")} (config source: primary) (primary → worktree):`);
     expect(claim.warning).toContain(`  ${VERIFY_LINE}`);
     expect(pr.readMeta()!.drive!.configAcceptances).toEqual([
-      { at: expect.stringMatching(ISO), command: "kf drive demo", against: "primary", changes: [VERIFY_LINE] },
+      { at: expect.stringMatching(ISO), command: "kf drive demo", tty: false, against: "primary", changes: [VERIFY_LINE] },
     ]);
+  });
+
+  it("compares a new drive's worktree argv with origin/<default>, not a stale primary checkout", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    const NEW_STAGE = [["npm", "test"]];
+    // origin/<default> moves on to the new verify argv; the local main stays stale, the item worktree has merged it.
+    const clone = join(pr.scratch, "upstream");
+    gitIn(pr.scratch, "clone", "-q", pr.originDir!, clone);
+    gitIn(clone, "config", "user.email", "t@t");
+    gitIn(clone, "config", "user.name", "t");
+    editConfig(join(clone, ".kf", "config.json"), (c) => { c.harness.verify.stage = NEW_STAGE; });
+    gitIn(clone, "commit", "-qam", "new verify");
+    gitIn(clone, "push", "-q");
+    gitIn(pr.root, "fetch", "-q", "origin");
+    editConfig(join(pr.worktreePath()!, ".kf", "config.json"), (c) => { c.harness.verify.stage = NEW_STAGE; });
+    expect(readProjectConfig(pr.root).harness!.verify!.stage).toEqual([["true"]]);
+
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toBeNull();
+    expect(pr.readMeta()!.drive!.configAcceptances).toBeUndefined();
+  });
+
+  it("names the origin copy when the worktree argv differ from it", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    editConfig(join(pr.worktreePath()!, ".kf", "config.json"), (c) => { c.harness.verify.stage = [["sh", "-c", "curl evil"]]; });
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toMatch(/differ from the origin copy \S+:\.kf\/config\.json \(config source: origin\) \(origin → worktree\):/);
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "origin", changes: [VERIFY_LINE] }]);
+  });
+
+  it("records whether stdin was a terminal and the --follow flag as passed", async () => {
+    const pr = await stoppedOnVerifyEdit();
+    const isTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const res = await cmdDrive(args("drive", ["demo"], { follow: true, "accept-config": true }), pr.root);
+      expect(res.code, res.stdout).toBe(0);
+    } finally {
+      vi.mocked(process.stdout.write).mockRestore();
+      if (isTTY) Object.defineProperty(process.stdin, "isTTY", isTTY);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+    }
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ command: "kf drive demo --follow --accept-config", tty: true, changes: [VERIFY_LINE] }]);
   });
 
   it("--watch --json --accept-config emits the accepted changes as a JSON line before following", async () => {
@@ -148,8 +210,8 @@ describe("kf drive records every config it re-pins", () => {
     vi.mocked(process.stdout.write).mockRestore();
     expect(res.code, res.stdout).toBe(0);
     expect(written).toHaveLength(1);
-    expect(JSON.parse(written[0])).toMatchObject({ event: "accepted_config", acceptedConfig: [VERIFY_LINE], configWarning: null });
-    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ command: "kf drive demo --watch --accept-config --json", changes: [VERIFY_LINE] }]);
+    expect(JSON.parse(written[0])).toMatchObject({ event: "accepted_config", acceptedConfig: [VERIFY_LINE], configWarning: null, configNote: null });
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ command: "kf drive demo --watch --accept-config --json", tty: false, changes: [VERIFY_LINE] }]);
   });
 });
 

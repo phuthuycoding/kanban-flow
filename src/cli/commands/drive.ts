@@ -22,15 +22,16 @@ function renderView(v: DriveView, configSource: string | null): string {
   if (v.nextCommand && v.state !== "running") lines.push(`  Next: ${v.nextCommand}`);
   for (const w of v.warnings) lines.push(`  ⚠ ${w}`);
   const last = v.configAcceptances[v.configAcceptances.length - 1];
-  if (last) lines.push(`  Config accepted: ${v.configAcceptances.length} time(s); last ${last.at} by ${last.command} (${last.changes.length} change(s) against the ${last.against === "pin" ? "previous pin" : "primary copy"})`);
+  if (last) lines.push(`  Config accepted: ${v.configAcceptances.length} time(s); last ${last.at} by ${last.command} (${last.changes.length} change(s) against the ${last.against === "pin" ? "previous pin" : `${last.against} copy`})`);
   return lines.join("\n");
 }
 
 /** What the claim pinned that differs, printed (and recorded by the claim) before the drive goes on with it. */
-function acceptedLines(claimed: { accepted: string[]; warning: string | null }): string[] {
+function acceptedLines(claimed: { accepted: string[]; warning: string | null; note: string | null }): string[] {
   return [
     ...(claimed.warning ? [claimed.warning] : []),
     ...(claimed.accepted.length === 0 ? [] : ["Accepted the changed drive config:", ...claimed.accepted.map((l) => `  ${l}`)]),
+    ...(claimed.note ? [`Drive config ${claimed.note}`] : []),
   ];
 }
 
@@ -68,7 +69,7 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
     return stopped.ok ? { code: 0, stdout: stopped.message } : { code: 1, stdout: stopped.message, stderr: "no running drive" };
   }
 
-  const command = `kf drive ${feature.name}${watch ? " --watch" : ""}${acceptConfig ? " --accept-config" : ""}${json ? " --json" : ""}`;
+  const command = `kf drive ${feature.name}${args.options.watch ? " --watch" : ""}${args.options.follow ? " --follow" : ""}${acceptConfig ? " --accept-config" : ""}${json ? " --json" : ""}`;
   if (watch) {
     const current = driveView(root.root, feature);
     let replay = false;
@@ -76,8 +77,8 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
       const claimed = await claimDrive(root.root, feature.name, { acceptConfig, command });
       if (!claimed.ok) return { code: 1, stdout: claimed.reason, stderr: "drive refused" };
       if (json) {
-        if (claimed.accepted.length > 0 || claimed.warning) {
-          process.stdout.write(`${JSON.stringify({ event: "accepted_config", at: new Date().toISOString(), acceptedConfig: claimed.accepted, configWarning: claimed.warning })}\n`);
+        if (claimed.accepted.length > 0 || claimed.warning || claimed.note) {
+          process.stdout.write(`${JSON.stringify({ event: "accepted_config", at: new Date().toISOString(), acceptedConfig: claimed.accepted, configWarning: claimed.warning, configNote: claimed.note })}\n`);
         }
       } else {
         for (const line of acceptedLines(claimed)) process.stdout.write(`${line}\n`);
@@ -118,10 +119,12 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
 
   const claim = await claimDrive(root.root, feature.name, { acceptConfig, command });
   if (!claim.ok) return { code: 1, stdout: claim.reason, stderr: "drive refused" };
+  // Shown before the supervisor exists, so nothing has run with the config by the time the human reads it.
+  if (!json) for (const line of acceptedLines(claim)) process.stdout.write(`${line}\n`);
   const pid = await startDetachedDrive(root.root, feature.name, claim.drive);
-  if (json) return { code: 0, stdout: JSON.stringify({ feature: feature.name, id: claim.drive.id, resumed: claim.resumed, supervisorPid: pid, acceptedConfig: claim.accepted, configWarning: claim.warning }, null, 2) };
+  if (json) return { code: 0, stdout: JSON.stringify({ feature: feature.name, id: claim.drive.id, resumed: claim.resumed, supervisorPid: pid, acceptedConfig: claim.accepted, configWarning: claim.warning, configNote: claim.note }, null, 2) };
   return {
     code: 0,
-    stdout: `${acceptedLines(claim).map((l) => `${l}\n`).join("")}${claim.resumed ? "Resumed" : "Started"} drive ${claim.drive.id} of '${feature.name}' (supervisor pid ${pid}, step ${claim.drive.step}).\n  Status: kf drive ${feature.name} --status\n  Stop:   kf drive ${feature.name} --stop`,
+    stdout: `${claim.resumed ? "Resumed" : "Started"} drive ${claim.drive.id} of '${feature.name}' (supervisor pid ${pid}, step ${claim.drive.step}).\n  Status: kf drive ${feature.name} --status\n  Stop:   kf drive ${feature.name} --stop`,
   };
 }
