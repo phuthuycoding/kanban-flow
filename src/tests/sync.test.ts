@@ -172,6 +172,8 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("✗ baditem");
+    // The gate's heading alone does not say which checks blocked the close; the codes on the same line do.
+    expect(res.stdout).toContain("✗ baditem: Gate failed for 'baditem'. Fix validation before archiving: artifact_missing, approval_required");
     expect(res.stdout).toContain("goodbug: archived");
     expect(feature("goodbug").stage).toBe("done");
     expect(feature("baditem").stage).toBe("review");

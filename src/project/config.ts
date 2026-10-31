@@ -8,6 +8,7 @@ import { normalizeRepository } from "./repository.js";
 import { STAGES, LEGACY_STAGE_NAMES, type Stage, type LegacyStageName } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { runGit } from "../shared/git.js";
+import { GitCommandError } from "../worktree/manager.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -215,19 +216,28 @@ const ORIGIN_CONFIG_PATH = "./.kf/config.json";
  * `git show <origin default>:.kf/config.json` from the primary repo. A missing origin, origin/HEAD, ref or file is
  * "no config there"; any other git failure throws with git's stderr.
  */
+function originGit(root: string, args: string[]): ReturnType<typeof runGit> {
+  try {
+    return runGit(root, args);
+  } catch (err) {
+    // runGit throws only when git could not be spawned.
+    throw new GitCommandError(err instanceof Error ? err.message : String(err), { cause: err });
+  }
+}
+
 export function readOriginConfig(root: string): OriginConfig {
-  const head = runGit(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]);
+  const head = originGit(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]);
   if (head.code !== 0) {
     // -q makes "not a symbolic ref / no such ref" exit 1 silently; a project outside git has no origin either.
     if (head.code === 1 || /not a git repository/i.test(head.stderr)) return { ref: null, text: null };
-    throw new Error(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${head.code}) in ${root}: ${head.stderr.trim()}`);
+    throw new GitCommandError(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${head.code}) in ${root}: ${head.stderr.trim()}`);
   }
   const ref = head.stdout.trim();
   // `./` resolves the path against `-C root`, so a project in a subdirectory of the repository reads its own config.
-  const show = runGit(root, ["show", `${ref}:${ORIGIN_CONFIG_PATH}`]);
+  const show = originGit(root, ["show", `${ref}:${ORIGIN_CONFIG_PATH}`]);
   if (show.code === 0) return { ref, text: show.stdout };
   if (/does not exist in|exists on disk, but not in|invalid object name|bad revision/i.test(show.stderr)) return { ref, text: null };
-  throw new Error(`git show ${ref}:${ORIGIN_CONFIG_PATH} failed (exit ${show.code}) in ${root}: ${show.stderr.trim()}`);
+  throw new GitCommandError(`git show ${ref}:${ORIGIN_CONFIG_PATH} failed (exit ${show.code}) in ${root}: ${show.stderr.trim()}`);
 }
 
 // The driver resolves the config at every step boundary; one rev-parse per call instead of a symbolic-ref + show pair.

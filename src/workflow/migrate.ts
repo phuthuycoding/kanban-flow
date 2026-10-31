@@ -110,11 +110,14 @@ async function migrateShipping(root: string, item: LegacyItem): Promise<{ line: 
     case "reconciled":
       return { line: `migrated ${item.folder}: ${rel("shipping")} → ${rel("done")} (PR merged)`, failed: false };
     case "refused":
-    case "hook-failed":
+    case "hook-failed": {
+      // A gate or direction refusal lists its checks on the lines below the heading; the codes name them on this one.
+      const codes = outcome.kind === "refused" && outcome.codes?.length ? ` ${outcome.codes.join(", ")}` : "";
       return {
-        line: `⚠ migrated ${item.folder}: ${rel("shipping")} → ${rel("review")} (PR merged, close refused: ${outcome.stdout.split("\n")[0]}) — fix it, then run kf archive ${item.name}`,
+        line: `⚠ migrated ${item.folder}: ${rel("shipping")} → ${rel("review")} (PR merged, close refused: ${outcome.stdout.split("\n")[0]}${codes}) — fix it, then run kf archive ${item.name}`,
         failed: false,
       };
+    }
     case "error": {
       const cause = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
       return { line: `✗ migrated ${item.folder}: ${rel("shipping")} → ${rel("review")} (PR merged, close failed: ${cause})`, failed: true };

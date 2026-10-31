@@ -18,7 +18,7 @@ import {
 } from "../../project/config.js";
 import { type HarnessConfig } from "../config.js";
 import { worktreeConfig } from "../../worktree/config.js";
-import { gitWorktreeEntries, type GitWorktreeEntry } from "../../worktree/manager.js";
+import { GitCommandError, gitWorktreeEntries, type GitWorktreeEntry } from "../../worktree/manager.js";
 import { isPidAlive } from "../../shared/process.js";
 import { PKG_ROOT } from "../../shared/paths.js";
 import { liveRecords } from "../run.js";
@@ -174,13 +174,19 @@ type BaseCopy =
 function baseCopy(root: string): BaseCopy {
   let origin: OriginConfig;
   let linked: GitWorktreeEntry | undefined;
+  // The comparison is advisory: a failed git call lets the drive go on and the record says which call failed.
   try {
     origin = readOriginConfig(root);
-    const branch = origin.ref?.slice(origin.ref.indexOf("/") + 1);
+  } catch (err) {
+    if (!(err instanceof GitCommandError)) throw err;
+    return { ok: false, against: "origin", why: `git could not read the origin copy: ${oneLine(message(err))}` };
+  }
+  const branch = origin.ref?.slice(origin.ref.indexOf("/") + 1);
+  try {
     linked = origin.text !== null && branch ? gitWorktreeEntries(root).slice(1).find((e) => e.branch === branch) : undefined;
   } catch (err) {
-    // Only git fails here. The comparison is advisory, so the drive goes on and the record says why it is missing.
-    return { ok: false, against: "origin", why: `git could not read the origin copy: ${oneLine(message(err))}` };
+    if (!(err instanceof GitCommandError)) throw err;
+    return { ok: false, against: "origin", why: `git worktree list could not tell whether ${origin.ref} is checked out in a linked worktree: ${oneLine(message(err))}` };
   }
   if (origin.ref && origin.text !== null && !linked) {
     const file = `${origin.ref}:.kf/config.json`;

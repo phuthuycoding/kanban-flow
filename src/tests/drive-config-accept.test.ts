@@ -9,6 +9,7 @@ import { cmdDrive } from "../cli/commands/drive.js";
 import { cmdRun } from "../cli/commands/run.js";
 import { updateFeatureMeta } from "../workflow/features.js";
 import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
+import { gitWorktreeEntries } from "../worktree/manager.js";
 import { gitDriveProject, gitIn, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -18,6 +19,11 @@ vi.mock("../harness/drive.js", async (importOriginal) => ({
   startDetachedDrive: vi.fn(async () => 4242),
   followDrive: vi.fn(async () => ({ code: 0, detached: false })),
 }));
+
+vi.mock("../worktree/manager.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../worktree/manager.js")>();
+  return { ...real, gitWorktreeEntries: vi.fn(real.gitWorktreeEntries) };
+});
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 30_000 });
 
@@ -236,6 +242,33 @@ describe("kf drive records every config it re-pins", () => {
     expect(claim.warning).toMatch(/; they could not be compared, because git could not read the origin copy: git show \S+ failed \(exit 128\) .*fatal: unable to read tree 0123abcd$/);
     expect(pr.readMeta()!.drive!.status).toBe("running");
     expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "origin", changes: [expect.stringContaining("could not be compared")] }]);
+  });
+
+  it("names git worktree list as the failing call when listing the linked worktrees fails", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    const bin = join(pr.scratch, "failing-git");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\nif [ "$3" = "worktree" ] && [ "$4" = "list" ]; then echo "fatal: worktree list broke" >&2; exit 128; fi\nexec "${realGit}" "$@"\n`);
+    chmodSync(join(bin, "git"), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    let claim: Awaited<ReturnType<typeof claimDrive>>;
+    try {
+      claim = await claimDrive(pr.root, "demo");
+    } finally {
+      process.env.PATH = path;
+    }
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.warning).toMatch(/; they could not be compared, because git worktree list could not tell whether \S+ is checked out in a linked worktree: git worktree list --porcelain failed: fatal: worktree list broke$/);
+    expect(claim.warning).not.toContain("could not read the origin copy");
+    expect(pr.readMeta()!.drive!.configAcceptances).toMatchObject([{ against: "origin", changes: [expect.stringContaining("git worktree list")] }]);
+  });
+
+  it("lets an error that is not a git failure propagate out of the copy comparison", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, origin: true });
+    vi.mocked(gitWorktreeEntries).mockImplementationOnce(() => { throw new TypeError("entries is not iterable"); });
+    await expect(claimDrive(pr.root, "demo")).rejects.toThrow(TypeError);
   });
 
   it("falls back to the primary copy when origin/HEAD is retargeted to the item branch", async () => {

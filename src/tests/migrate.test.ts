@@ -133,6 +133,16 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     expect({ done: folders("done"), review: folders("review") }).toEqual(before);
   });
 
+  it("a merged shipping item the gate refuses names the failed checks on its migration line", async () => {
+    const dir = await seedLegacy("shipping", "bad", { pr: "https://github.com/o/r/pull/3" });
+    const folder = dir.split("/").pop()!;
+    const res = await cmdSync(syncArgs, root);
+    expect(migrationLines(res.stdout)).toEqual([
+      `⚠ migrated ${folder}: .works/shipping → .works/review (PR merged, close refused: Gate failed for '${folder}'. Fix validation before archiving: artifact_missing, approval_required) — fix it, then run kf archive bad`,
+    ]);
+    expect(folders("review")).toEqual([folder]);
+  });
+
   it("a legacy dones item whose history lists dones and shipping loads, before and after the move", async () => {
     await seedLegacy("dones", "legacy", legacyHistory);
     // Before migration the legacy folder is not a stage listFeatures walks: invisible, not a throw.

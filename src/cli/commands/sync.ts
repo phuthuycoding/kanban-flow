@@ -68,7 +68,8 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
           lines.push(`⚠ ${f.name}: could not verify ${outcome.merge.pr} — skipped`);
         } else {
           failed = true;
-          lines.push(`✗ ${f.name}: ${outcome.stdout.split("\n")[0]}`);
+          // A gate or direction refusal lists its checks on the lines below the heading; the codes name them on this one.
+          lines.push(`✗ ${f.name}: ${outcome.stdout.split("\n")[0]}${outcome.codes?.length ? ` ${outcome.codes.join(", ")}` : ""}`);
         }
         break;
       case "hook-failed":
