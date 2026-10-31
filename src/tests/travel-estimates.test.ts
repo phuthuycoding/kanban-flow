@@ -200,6 +200,17 @@ describe("estimates measure", () => {
     expect(r.err).toContain("--estmin must be above 0");
   });
 
+  it("counts a row measured without estmin in stats but not in the factor", async () => {
+    const file = await fixture("e.md", ledger(ratioRows(20, 10, 10)));
+    for (let k = 0; k < 20; k++) {
+      const flags = FLAGS.map((f) => (f === "t1" ? `n${k}` : f === "14" ? "45" : f));
+      expect(run("measure", "--file", file, ...flags, "--date", "2026-10-03").out[0]).toMatch(/ · M · L · 45 · .* · \+1$/);
+    }
+    const out = run("stats", file).out;
+    expect(out).toContain("hit rate: 20/40");
+    expect(out).toContain("kind feature: hit rate 20/40, bias +0.5 sizes, factor 1 (median of last 20 rows)");
+  });
+
   it("signs the gap in sizes", async () => {
     const file = join(dir, "e.md");
     const flags = FLAGS.map((f) => (f === "14" ? "45" : f));

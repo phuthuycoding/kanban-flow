@@ -71,6 +71,26 @@ describe("the travel skill", () => {
     }
   });
 
+  it("sizes by kind and measures a carried line against its first estimate", () => {
+    expect(skill).toContain("estimates size <minutes> <files> .kf/travel/estimates.md <kind>");
+    const measure = bashBlocks(skill).find((b) => b.includes("estimates measure")) ?? "";
+    expect(measure).toContain("--est <est0>");
+    expect(measure).toContain("--estmin <n>");
+    expect(skill).toContain("A carried line keeps its first `est0`, `estmin` and `learn=no`");
+    expect(skill).toContain("A `learn=no` line omits `--estmin`");
+    for (const ref of ["ledger-format.md", "estimation.md"]) {
+      const text = read("references", ref);
+      for (const s of ["est0=<size>", "learn=no"]) expect(text, `${ref} ${s}`).toContain(s);
+    }
+  });
+
+  it("leaves a drive it did not start to whoever runs it", () => {
+    expect(skill).toContain("the line stays `queued` with note `driven elsewhere` and is checked again every tick");
+    expect(skill).toContain("travel never retries or stops that drive");
+    expect(skill).not.toMatch(/adopt the drive|note `adopted`/);
+    expect(read("references", "ledger-format.md")).not.toContain("`adopted`");
+  });
+
   it("ships its references and an executable estimates script", () => {
     for (const ref of ["daily-plan.md", "ledger-format.md", "estimation.md"]) {
       expect(existsSync(join(DIR, "references", ref)), ref).toBe(true);
