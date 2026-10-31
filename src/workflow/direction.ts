@@ -13,9 +13,10 @@ import type { Feature } from "./features.js";
  * This is the semantic half of the gate: it reads the report STATUS, not just
  * artifact existence. The artifact gate (validateFeature) and the transition
  * graph (TRANSITIONS) both still apply on top.
- * Returns a list of blocking findings (empty = allowed).
+ * Returns a list of blocking findings (empty = allowed). `legacyPrMerged`: the caller already
+ * verified the recorded PR is merged (see checkReviewDelivery).
  */
-export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
+export function checkDirectionGate(feature: Feature, to: Stage, legacyPrMerged = false): Finding[] {
   const issues: Finding[] = [];
   const read = (file: string): string | null => {
     const p = join(feature.dir, file);
@@ -61,7 +62,7 @@ export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
         `review-report status is ${status ?? "missing"}; only PASS may enter ${to} (FAIL/REJECT loop to implementation)`));
     }
     if (to === "done" && status === "PASS") {
-      issues.push(...checkReviewDelivery(feature, splitFrontmatter(readFileSync(join(feature.dir, file), "utf8")).fm));
+      issues.push(...checkReviewDelivery(feature, splitFrontmatter(readFileSync(join(feature.dir, file), "utf8")).fm, legacyPrMerged));
     }
     if (status === "REQUIREMENT_BUG") {
       issues.push(finding(feature, "ERROR", file, "requirement_bug_stop",

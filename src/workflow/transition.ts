@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { TRANSITIONS, type Stage, type LegacyStageName } from "./schema.js";
+import { TRANSITIONS, currentStageName, type Stage, type LegacyStageName } from "./schema.js";
 import { findFeature, stageDir, writeFeatureMeta, type Bypass, type WorktreeRegistration } from "./features.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { withLock } from "../shared/lock.js";
@@ -71,13 +71,6 @@ export type TransitionOutcome =
 
 export type Transition = (root: string, name: string, to: Stage, opts: TransitionOptions) => Promise<TransitionOutcome>;
 
-/**
- * Where an item cancelled from a stage of an earlier release reopens: `dones` became `done`, and
- * `shipping` items were awaiting merge, which is `review` now. Without this the reopen hint names
- * a stage `kf stage` rejects, and the item can only leave `cancelled` with --force.
- */
-export const LEGACY_REOPEN_STAGE: Record<LegacyStageName, Stage> = { dones: "done", shipping: "review" };
-
 /** Retry advice of a gate refusal; exported so a caller that takes no --force (kf approve) can leave it out. */
 export const FORCE_RETRY_HINT = "Or re-run with --force.";
 export const stageRetryHint = (name: string, to: Stage): string => `Re-run: kf stage ${name} ${to}`;
@@ -107,9 +100,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   if (f.stage === "cancelled") {
     // The type says Stage, but features.ts accepts legacy names in old history.
     const recorded: string | undefined = f.meta?.cancellation?.fromStage;
-    const from: Stage | undefined = recorded !== undefined && Object.hasOwn(LEGACY_REOPEN_STAGE, recorded)
-      ? LEGACY_REOPEN_STAGE[recorded as LegacyStageName]
-      : recorded as Stage | undefined;
+    const from: Stage | undefined = recorded !== undefined ? currentStageName(recorded as Stage | LegacyStageName) : undefined;
     if (!from) {
       return refuse("cancellation-missing", "cancellation missing", `'${name}' is cancelled but its metadata has no fromStage, so kf cannot tell where it belongs. Re-run with --force to place it anywhere.`);
     }

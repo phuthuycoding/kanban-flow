@@ -7,12 +7,11 @@ import {
   FEATURE_ONLY_ARTIFACTS,
   STAGE_INDEX,
   PHASE_NAMES,
+  currentStageName,
   type ArtifactId,
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
-import { LEGACY_REOPEN_STAGE } from "./transition.js";
-import type { LegacyStageName, Stage } from "./schema.js";
 import { driveLive, executionContractHash } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
 import { validateFeature } from "./validate.js";
@@ -69,11 +68,6 @@ export type CloseState =
   | { kind: "awaiting-merge"; pr: string }
   | { kind: "pr-closed"; pr: string }
   | { kind: "refused"; detail: string };
-
-/** History written by earlier releases names removed stages; show the stage `kf stage` accepts today. */
-function currentStageName(stage: Stage | LegacyStageName): Stage {
-  return Object.hasOwn(LEGACY_REOPEN_STAGE, stage) ? LEGACY_REOPEN_STAGE[stage as LegacyStageName] : stage as Stage;
-}
 
 function readArtifactContent(dir: string, file: string): string {
   const p = join(dir, file);
@@ -313,7 +307,7 @@ export interface Buckets {
   /** Items waiting on a human decision. */
   needsYou: Array<{ feature: string; decision: string }>;
   /** Things the human does outside kf: merge a PR, push a docs branch. */
-  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string }>;
+  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string; reason?: string }>;
   /** Live `kf drive` supervisors. */
   running: number;
 }
@@ -324,7 +318,7 @@ export interface Buckets {
  */
 export function computeBuckets(
   statuses: FeatureStatus[],
-  docsBranchesUnpushed: Array<{ feature: string; branch: string }>,
+  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string }>,
   running: number,
 ): Buckets {
   const needsYou: Buckets["needsYou"] = [];
@@ -346,11 +340,13 @@ export function computeBuckets(
       } else if (s.close?.kind === "awaiting-merge") {
         const number = /\/pull\/(\d+)$/.exec(s.close.pr)?.[1];
         waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number}` : `gh pr merge ${s.close.pr}` });
+      } else if (s.close?.kind === "refused") {
+        needsYou.push({ feature: f.name, decision: `review PASS but not closed: ${s.close.detail}` });
       }
     }
   }
   for (const d of docsBranchesUnpushed) {
-    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}` });
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
   return { needsYou, waitingToMerge, running };
 }
@@ -362,7 +358,9 @@ export function renderBuckets(b: Buckets): string {
   lines.push("Waiting to merge");
   if (b.waitingToMerge.length === 0) lines.push("  (none)");
   for (const w of b.waitingToMerge) {
-    lines.push(w.docsBranch ? `  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}` : `  ${w.feature} — ${w.pr}: ${w.command}`);
+    if (!w.docsBranch) lines.push(`  ${w.feature} — ${w.pr}: ${w.command}`);
+    else if (w.reason) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged (${w.reason}): ${w.command}`);
+    else lines.push(`  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}`);
   }
   lines.push(`Running: ${b.running}`);
   return lines.join("\n");

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, rmdirSync, statSync } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
-import { type LegacyStageName, type Stage } from "./schema.js";
+import { LEGACY_REOPEN_STAGE, type LegacyStageName, type Stage } from "./schema.js";
 import { parseFolderName, readFeatureMeta, stageDir, type FeatureMeta } from "./features.js";
 import { archiveItem } from "./archive.js";
 import { withLock } from "../shared/lock.js";
@@ -87,7 +87,7 @@ async function migrateShipping(root: string, item: LegacyItem): Promise<{ line: 
   // A merged item closes through the same archive transaction as any review item, so it
   // passes the review → done gates, the done hook and worktree teardown. archiveItem only
   // finds items in current stages, hence the move to review first.
-  if (!(await moveFolder(root, item, "review"))) return null;
+  if (!(await moveFolder(root, item, LEGACY_REOPEN_STAGE.shipping))) return null;
   if (!merged) {
     return { line: `migrated ${item.folder}: ${rel("shipping")} → ${rel("review")} (${note})`, failed: false };
   }
@@ -126,7 +126,7 @@ export async function migrateLegacyStages(root: string): Promise<MigrationResult
   const lines: string[] = [];
   let failed = false;
   const legacyPlan: Array<[LegacyStageName, (item: LegacyItem) => Promise<{ line: string; failed: boolean } | null>]> = [
-    ["dones", async (item) => (await moveFolder(root, item, "done"))
+    ["dones", async (item) => (await moveFolder(root, item, LEGACY_REOPEN_STAGE.dones))
       ? { line: `migrated ${item.folder}: ${rel("dones")} → ${rel("done")}`, failed: false }
       : null],
     ["shipping", (item) => migrateShipping(root, item)],

@@ -65,6 +65,9 @@ export type CancelOutcome =
 
 const refuse = (reason: CancelRefusalReason, stderrTag: string, stdout: string): CancelOutcome => ({ kind: "refused", reason, stdout, stderrTag });
 
+/** Single-quoted for a POSIX shell, so a printed re-run command can be pasted as is. */
+const shellArg = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
+
 /**
  * The reason checks on their own, because `kf cancel` has always reported a missing reason before
  * it looks for a project — the CLI runs this ahead of `findRoot` to keep that order.
@@ -117,6 +120,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
 
   const skipHooks = Boolean(opts.skipHooks);
   const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "cancelled") : null;
+  let ranHook: HookSource | null = null;
   if (!skipHooks) {
     const hook = runHook(root, {
       feature: f.name, context: f.context, dir: f.dir, root,
@@ -130,6 +134,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
         stderrTag: "hook failed",
       };
     }
+    if (hook.ran) ranHook = hook.hook;
   }
 
   const docs = f.stage === "done" ? canonicalDocPaths(root, f) : [];
@@ -160,6 +165,8 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
   let teardown: TeardownResult | null = null;
   if (f.meta.worktree) {
     const wtCfg = worktreeConfig(root, readProjectConfig(root).worktree);
+    const where = f.meta.worktree.path;
+    const wasOnDisk = existsSync(where);
     try {
       teardown = await teardownWorktree(root, f, wtCfg);
     } catch (err) {
@@ -167,9 +174,11 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
         return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err.message}`);
       }
       // Teardown checks dirtiness first; any other failure may come after `git worktree remove`.
-      const where = f.meta.worktree.path;
-      const left = existsSync(where) ? `The worktree ${where} is still on disk.` : `The worktree ${where} was already removed.`;
-      return refuse("teardown-failed", "teardown failed", `Cannot cancel '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}. ${left} The item was not cancelled. Fix the cause, then re-run: kf cancel ${name}`);
+      const left = existsSync(where)
+        ? `The worktree ${where} is still on disk.`
+        : wasOnDisk ? `The worktree ${where} was removed.` : `The worktree ${where} is not on disk.`;
+      const hookRan = ranHook ? ` The cancelled hook already ran (${ranHook.path}).` : "";
+      return refuse("teardown-failed", "teardown failed", `Cannot cancel '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}.${hookRan} ${left} The item was not cancelled. Fix the cause, then re-run: kf cancel ${name} --reason ${shellArg(reason)}`);
     }
   }
 

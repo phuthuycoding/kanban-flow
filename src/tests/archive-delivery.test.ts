@@ -10,6 +10,7 @@ import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdArchive } from "../cli/commands/archive.js";
 import { cmdIssues } from "../cli/commands/issues.js";
+import { archiveItem } from "../workflow/archive.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { runDoctor } from "../project/doctor.js";
 import { computeStatus, renderStatusText } from "../workflow/status.js";
@@ -142,7 +143,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-001…006)", () => {
+describe("merge gate — kf archive refuses unverifiable delivery", () => {
   it.each(["OPEN", "CLOSED"])("refuses a %s PR with zero side effects (TC-001/TC-002)", async (state) => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
@@ -159,7 +160,7 @@ describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-00
     expect(existsSync(join(root, "docs", "requirement", "app", "shipit.md"))).toBe(false);
   });
 
-  it("refuses when the PR state is unverifiable — gh failure, garbage output, missing repository (TC-003)", async () => {
+  it("refuses when the PR state is unverifiable — gh failure, garbage output, missing repository", async () => {
     process.env.GH_FAIL = "1";
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
@@ -182,7 +183,7 @@ describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-00
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });
 
-  it("has no --force escape (TC-004)", async () => {
+  it("has no --force escape", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     process.env.GH_PR_STATE = "OPEN";
@@ -204,7 +205,7 @@ describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-00
     expect(res.stdout).toContain("not merged");
   });
 
-  it("applies to bug items too (TC-006)", async () => {
+  it("applies to bug items too", async () => {
     await reviewBug();
     await link("buggy", { issue: ISSUE, pr: PR });
     process.env.GH_PR_STATE = "OPEN";
@@ -215,7 +216,7 @@ describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-00
   });
 });
 
-describe("finalization — archive is the delivery gate (UC-002, TC-007…010)", () => {
+describe("finalization — archive is the delivery gate", () => {
   it("delivers a merged item: move, docs, done hook close+board, flag last", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
@@ -268,7 +269,7 @@ describe("finalization — archive is the delivery gate (UC-002, TC-007…010)",
     expect(packFiles).not.toContain("shipping.sh");
   });
 
-  it("rolls back a mid-pass failure — folder restored, flag never written (TC-009)", async () => {
+  it("rolls back a mid-pass failure — folder restored, flag never written", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     // Canonical docs can't be written when the destination path is a directory.
@@ -290,8 +291,8 @@ describe("finalization — archive is the delivery gate (UC-002, TC-007…010)",
   });
 });
 
-describe("archive without PR evidence (UC-003, TC-011…013)", () => {
-  it("proceeds on the human's run — the invocation is the confirmation (TC-011)", async () => {
+describe("archive without PR evidence", () => {
+  it("proceeds on the human's run — the invocation is the confirmation", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
     await seedPackHooks("done.sh");
@@ -301,7 +302,7 @@ describe("archive without PR evidence (UC-003, TC-011…013)", () => {
     expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
   });
 
-  it("warns when no issue is linked (TC-012)", async () => {
+  it("warns when no issue is linked", async () => {
     await reviewStage();
     const res = await cmdArchive(args("archive", ["shipit"]), root);
     expect(res.code).toBe(0);
@@ -309,7 +310,7 @@ describe("archive without PR evidence (UC-003, TC-011…013)", () => {
     expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
   });
 
-  it("archives a bug the same way (TC-013)", async () => {
+  it("archives a bug the same way", async () => {
     await reviewBug();
     await link("buggy", { issue: ISSUE });
     const res = await cmdArchive(args("archive", ["buggy"]), root);
@@ -319,8 +320,77 @@ describe("archive without PR evidence (UC-003, TC-011…013)", () => {
   });
 });
 
+describe("a review report written before ci/landing existed", () => {
+  it("closes on its merged PR with a single gh lookup", async () => {
+    await reviewStage();
+    const execution = readFeatureMeta(feature().dir)!.executionId;
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n`);
+    await link("shipit", { pr: PR });
+
+    const res = await cmdArchive(args("archive", ["shipit"]), root);
+
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().stage).toBe("done");
+    expect(ghCalls().split("\n").filter((line) => line.startsWith("gh pr view"))).toHaveLength(1);
+  });
+
+  it("still refuses when its PR is not merged", async () => {
+    await reviewStage();
+    const execution = readFeatureMeta(feature().dir)!.executionId;
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n`);
+    await link("shipit", { pr: PR });
+    process.env.GH_PR_STATE = "OPEN";
+
+    const res = await cmdArchive(args("archive", ["shipit"]), root);
+
+    expect(res.code).toBe(1);
+    expect(feature().stage).toBe("review");
+  });
+});
+
+describe("a teardown failure names only what actually happened", () => {
+  /** A worktree that is registered in metadata but was never on disk, and a routes file teardown cannot parse. */
+  async function brokenTeardown(): Promise<string> {
+    spawnSync("git", ["init", "-q", root]);
+    const routesFile = join(root, "routes.json");
+    await writeFile(routesFile, "{");
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: true, routesFile } }));
+    const path = join(root, "never-created");
+    await link("shipit", { worktree: { path, branch: "t/shipit", domain: "shipit.test", port: 4000, createdAt: "20260919_1200" } });
+    return path;
+  }
+
+  it("does not claim the done hook ran when there is no done hook", async () => {
+    await reviewStage();
+    const path = await brokenTeardown();
+
+    const outcome = await archiveItem(root, "shipit");
+
+    expect(outcome.kind === "refused" && outcome.reason).toBe("teardown-failed");
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).not.toContain("done hook");
+    expect(text).toContain(`The worktree ${path} is not on disk. The branch was not deleted.`);
+    expect(feature().stage).toBe("review");
+  });
+
+  it("names the done hook that ran, by its path", async () => {
+    await reviewStage();
+    const path = await brokenTeardown();
+    const hook = join(root, ".kf", "hooks", "done.sh");
+    await mkdir(join(root, ".kf", "hooks"), { recursive: true });
+    await writeFile(hook, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    const outcome = await archiveItem(root, "shipit");
+
+    expect(outcome.kind === "refused" && outcome.reason).toBe("teardown-failed");
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).toContain(`The done hook already ran (${hook}). The worktree ${path} is not on disk.`);
+    expect(text).not.toContain("issue closed");
+  });
+});
+
 describe("reconcile — re-archive on done items", () => {
-  it("re-runs docs + hook and stamps delivered on a legacy item (TC-014)", async () => {
+  it("re-runs docs + hook and stamps delivered on a legacy item", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
     await seedPackHooks("done.sh");
@@ -339,7 +409,7 @@ describe("reconcile — re-archive on done items", () => {
     expect(ghCalls().split("\n").filter((l) => l.includes("issue close")).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("is idempotent on an already-delivered item (TC-015)", async () => {
+  it("is idempotent on an already-delivered item", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
     await seedPackHooks("done.sh");
@@ -353,7 +423,7 @@ describe("reconcile — re-archive on done items", () => {
   });
 });
 
-describe("visibility — awaiting merge states surface (UC-005, TC-016/TC-017)", () => {
+describe("visibility — awaiting merge states surface", () => {
   it("status names the merge as the next step only when the close attempt found the PR unmerged", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
@@ -404,8 +474,8 @@ describe("visibility — awaiting merge states surface (UC-005, TC-016/TC-017)",
   });
 });
 
-describe("deprecated alias + removed apparatus (FR-006, TC-021/TC-022)", () => {
-  it("kf issues done forwards to archive with a deprecation warning (TC-021)", async () => {
+describe("deprecated alias + removed apparatus", () => {
+  it("kf issues done forwards to archive with a deprecation warning", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
     const res = await cmdIssues(args("issues", ["done", "shipit"]), root);
@@ -423,7 +493,7 @@ describe("deprecated alias + removed apparatus (FR-006, TC-021/TC-022)", () => {
     expect(refused.stdout).toContain("not merged");
   });
 
-  it("emits no KFW_PROJECT_STATUS_DELIVERED default; statusMap.delivered still parses (TC-022)", async () => {
+  it("emits no KFW_PROJECT_STATUS_DELIVERED default; statusMap.delivered still parses", async () => {
     await reviewStage();
     const dir = feature().dir;
     await mkdir(join(root, ".kf", "hooks"), { recursive: true });

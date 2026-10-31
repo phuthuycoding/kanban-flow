@@ -22,6 +22,18 @@ export function isStageOrLegacy(value: string): boolean {
   return (STAGES as readonly string[]).includes(value) || (LEGACY_STAGE_NAMES as readonly string[]).includes(value);
 }
 
+/**
+ * The current stage a legacy name stands for: `dones` became `done`, and `shipping` items were
+ * awaiting merge, which is `review` now. A cancelled legacy item reopens there, so naming the
+ * legacy stage in a hint would name one `kf stage` rejects.
+ */
+export const LEGACY_REOPEN_STAGE: Record<LegacyStageName, Stage> = { dones: "done", shipping: "review" };
+
+/** A stage name from old metadata, mapped to the current stage `kf stage` accepts. */
+export function currentStageName(stage: Stage | LegacyStageName): Stage {
+  return Object.hasOwn(LEGACY_REOPEN_STAGE, stage) ? LEGACY_REOPEN_STAGE[stage as LegacyStageName] : stage as Stage;
+}
+
 export type WorkItemKind = "feature" | "bug";
 
 /** Review report frontmatter `landing:` — `pr` lands through the recorded `meta.pr`; `none` means nothing to land. */

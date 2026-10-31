@@ -102,8 +102,27 @@ describe("cancelItem returns a typed outcome", () => {
     expect(outcome.kind === "refused" && outcome.reason).toBe("teardown-failed");
     const text = outcome.kind === "refused" ? outcome.stdout : "";
     expect(text).toContain("Cannot cancel 'wt': worktree teardown failed:");
-    expect(text).toContain(`The worktree ${path} was already removed. The item was not cancelled.`);
+    expect(text).toContain(`The worktree ${path} is not on disk. The item was not cancelled.`);
+    expect(text).toContain("Fix the cause, then re-run: kf cancel wt --reason 'stop'");
+    expect(text).not.toContain("hook already ran");
     expect(findFeature(root, "wt")!.stage).toBe("implementation");
+  });
+
+  it("a teardown failure after the cancelled hook names the hook and quotes the reason in the re-run", async () => {
+    const routesFile = join(root, "routes.json");
+    await writeFile(routesFile, "{");
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: true, routesFile } }));
+    const hook = join(root, ".kf", "hooks", "cancelled.sh");
+    await mkdir(join(root, ".kf", "hooks"), { recursive: true });
+    await writeFile(hook, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const path = join(root, "gone-worktree");
+    await addItem("wt", "implementation", { worktree: { path, branch: "t/wt", domain: "wt.test", port: 4000, createdAt: "20260919_1200" } });
+
+    const outcome = await cancelItem(root, "wt", { reason: " it's done " });
+
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).toContain(`The cancelled hook already ran (${hook}). The worktree ${path} is not on disk.`);
+    expect(text).toContain(`re-run: kf cancel wt --reason 'it'\\''s done'`);
   });
 
   it("asks the caller before purging, and keeps everything when declined", async () => {
