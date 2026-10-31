@@ -3,12 +3,12 @@
 #   KFW_REPOSITORY          owner/name, required — empty means no sync at all
 #   KFW_PROJECT_OWNER       GitHub Projects board owner (user or org)
 #   KFW_PROJECT_NUMBER      board number
-#   KFW_PROJECT_STATUS_*    per-stage Status option name, e.g. KFW_PROJECT_STATUS_DONES="Done"
-#   KFW_PROJECT_AC_GATE     "1" (default) gates dones on ticked acceptance criteria, "0" skips
+#   KFW_PROJECT_STATUS_*    per-stage Status option name, e.g. KFW_PROJECT_STATUS_DONE="Done"
+#   KFW_PROJECT_AC_GATE     "1" (default) gates done on ticked acceptance criteria, "0" skips
 # Field and item IDs are resolved per run via `gh project field-list`/`view` — the board can be
 # recreated and only the option names matter. Every function is fail-open on GitHub errors:
 # it warns and returns 0, so a stage move is never blocked by GitHub being unreachable —
-# except the dones AC gate, which skips closing rather than guessing (fail-closed on data,
+# except the done AC gate, which skips closing rather than guessing (fail-closed on data,
 # fail-open on network, never silent).
 
 [ -n "${KFW_REPOSITORY:-}" ] || return 0 2>/dev/null || exit 0
@@ -29,7 +29,7 @@ project_ready() {
 
 # Print the issue URL recorded in the work item's .kfw.json ("" when the item has none yet).
 # Returns 2 with the parse error when .kfw.json is missing or unreadable: callers must not take
-# that for "no issue", which would skip the dones gate or create a duplicate issue.
+# that for "no issue", which would skip the done gate or create a duplicate issue.
 issue_url_of() {  # $1 = work item dir
   local out
   if out=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("issue",""))' "$1/.kfw.json" 2>&1); then
@@ -169,7 +169,7 @@ reopen_issue() {  # $1 = dir
   err=$(gh issue reopen "$url" -R "$REPO" </dev/null 2>&1 >/dev/null) || { warn "reopen failed for $url: ${err:0:300}"; return 1; }
 }
 
-# --- Acceptance criteria (the dones gate) ----------------------------------------------------
+# --- Acceptance criteria (the done gate) ----------------------------------------------------
 
 # Print an issue body; return 2 when GitHub cannot be read — an empty body must never pass the gate.
 issue_body() {  # $1 = issue url; DRY_BODY_FILE overrides for dry runs
@@ -221,7 +221,7 @@ review=""
 try:
     rv=open(rpath).read(); rs=(re.search(r"^status: *(\S+)",rv,re.M) or [None,"?"])[1]; review=f"**Review:** {rs}. "+section(rv,"Final Decision").replace("\n"," ")
 except FileNotFoundError: pass
-block=f"\n\n## Kết quả thực hiện {today}\n**Testing:** PASS, execution `{exe}`, {tested}.\n\n{summary}\n\n{results}\n\n{concl}\n\n{review}\n\n_Synced automatically from `{d}` by the dones hook._\n"
+block=f"\n\n## Kết quả thực hiện {today}\n**Testing:** PASS, execution `{exe}`, {tested}.\n\n{summary}\n\n{results}\n\n{concl}\n\n{review}\n\n_Synced automatically from `{d}` by the done hook._\n"
 if "## Kết quả thực hiện" in body:
     # stop before the next heading or the kf footer so a re-run replaces the section, never the footer
     # lambda: block holds report text; as a plain repl string, a "\d" in it would crash re.sub

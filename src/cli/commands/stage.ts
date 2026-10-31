@@ -21,7 +21,7 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
       stderr: "missing args",
     };
   }
-  if (toRaw in LEGACY_STAGE_HINTS) {
+  if (Object.hasOwn(LEGACY_STAGE_HINTS, toRaw)) {
     return { code: 1, stdout: LEGACY_STAGE_HINTS[toRaw as LegacyStageName], stderr: "legacy stage" };
   }
   const to = toRaw as Stage;

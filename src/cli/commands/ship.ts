@@ -2,6 +2,7 @@ import { updateFeatureMeta } from "../../workflow/features.js";
 import { readProjectConfig } from "../../project/config.js";
 import { resolveItem } from "./helpers.js";
 import { gh } from "../../integrations/github.js";
+import { checkDirectionGate } from "../../workflow/direction.js";
 import { shipPublish, shipMerge, shipRelease, shipChangelog, type StepResult } from "../../ship/steps.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -26,6 +27,14 @@ export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult>
       stdout: `'${name}' is in ${f.stage} — ship runs in the review stage after a PASS review. Nothing to ship? kf archive ${name} works straight from review.`,
       stderr: "wrong stage",
     };
+  }
+
+  // Publishing is the first step toward done, so the review → done gate must hold before anything
+  // is pushed. `review_pr_missing` is the one finding ship itself resolves: publishing records the PR.
+  const gate = checkDirectionGate(f, "done").filter((i) => i.code !== "review_pr_missing");
+  if (gate.length > 0) {
+    const lines = gate.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
+    return { code: 1, stdout: `Cannot ship '${name}' — the review report does not allow review → done:\n\n${lines}`, stderr: "direction gate failed" };
   }
 
   const project = readProjectConfig(root.root);

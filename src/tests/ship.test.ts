@@ -136,6 +136,18 @@ describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
     expect(existsSync(join(root, ".works", "dones"))).toBe(false);
   });
 
+  it("kf stage <x> constructor is an unknown stage, not a legacy hint", async () => {
+    await writeCfg({ enabled: false });
+    await shipReadyItem();
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      const res = await cmdStage(args("stage", ["demo", name]), root);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toBe("unknown stage");
+      expect(res.stdout).toBe(`Unknown stage '${name}'. Stages: ${STAGES.join(" → ")}`);
+    }
+    expect(feature().stage).toBe("review");
+  });
+
   it("refuses done without a PASS report and from other stages", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
@@ -177,6 +189,38 @@ describe("kf ship pipeline (TC-005..TC-007)", () => {
     expect(off.code).toBe(1);
     expect(off.stdout).toContain("Manual ship checklist");
     expect(feature().meta!.ship).toBeUndefined();
+  });
+
+  it("refuses a FAIL review and pushes nothing", async () => {
+    await writeCfg({ enabled: true, merge: "manual", release: true, changelog: true });
+    await shipReadyItem();
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
+      `---\nstatus: FAIL\nexecution: ${feature().meta?.executionId}\n---\n# Review\nNo.`);
+    // A local commit the remote lacks, so a push would be visible on the remote ref.
+    writeFileSync(join(root, "change.txt"), "x");
+    execFileSync("git", ["-C", root, "add", "change.txt"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "commit", "-qm", "change"], { stdio: "pipe" });
+    const remoteHead = () => execFileSync("git", ["--git-dir", join(scratch, "remote.git"), "rev-parse", "HEAD"], { encoding: "utf8" });
+    const before = remoteHead();
+    const res = await cmdShip(args("ship", ["demo"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toBe("direction gate failed");
+    expect(res.stdout).toContain("review_not_pass");
+    expect(ghLog()).toBe("");
+    expect(remoteHead()).toBe(before);
+    expect(feature().meta!.pr).toBeUndefined();
+    expect(feature().meta!.ship).toBeUndefined();
+    expect(feature().stage).toBe("review");
+  });
+
+  it("PASS with landing: pr and no PR yet still publishes — ship is what records it", async () => {
+    await writeCfg({ enabled: true, merge: "manual", release: false, changelog: false });
+    await shipReadyItem();
+    const file = join(feature().dir, ARTIFACTS["review-report"].file);
+    await writeFile(file, readFileSync(file, "utf8").replace("landing: none", "landing: pr"));
+    const res = await cmdShip(args("ship", ["demo"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature().meta!.pr).toBe("https://github.com/o/r/pull/7");
   });
 
   it("publishes once, waits on manual merge, resumes to release+changelog after merge", async () => {

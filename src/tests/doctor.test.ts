@@ -310,16 +310,16 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
 
     // Opted in via one file — the rest are missing and the one present is stale.
-    await writeFile(join(hooks, "review.sh"), "#!/usr/bin/env bash\n# edited\n");
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n# edited\n");
     const report = runDoctor(root);
     expect(report.findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
-    expect(report.findings.some((f) => f.message.includes("review.sh differs"))).toBe(true);
+    expect(report.findings.some((f) => f.message.includes("done.sh differs"))).toBe(true);
 
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain("restored .kf/hooks/lib-github.sh");
     expect(existsSync(join(hooks, "brainstorm.sh"))).toBe(true);
     // The project-edited file is never clobbered.
-    await expect(readFile(join(hooks, "review.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
+    await expect(readFile(join(hooks, "done.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
   });
 
   it("reports a legacy statusMap once and --fix rewrites it to the new stage keys", async () => {

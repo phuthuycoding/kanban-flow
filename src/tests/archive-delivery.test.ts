@@ -102,14 +102,11 @@ async function reviewBug(name = "buggy"): Promise<void> {
   await report(name, "review-report");
 }
 
-/** Real pack hooks (lib + named hook) copied into the project's .kf/hooks/. The pack still ships
- *  `dones.sh`; until it is renamed, `done.sh` is seeded from it with the stage word renamed. */
+/** Real pack hooks (lib + named hook) copied into the project's .kf/hooks/. */
 async function seedPackHooks(...names: string[]): Promise<void> {
   await mkdir(join(root, ".kf", "hooks"), { recursive: true });
   for (const n of ["lib-github.sh", ...names]) {
-    const legacy = n === "done.sh" && !existsSync(join(PKG_GITHUB_HOOKS_DIR, n));
-    const content = readFileSync(join(PKG_GITHUB_HOOKS_DIR, legacy ? "dones.sh" : n), "utf8");
-    await writeFile(join(root, ".kf", "hooks", n), legacy ? content.replace(/\bdones\b/g, "done") : content);
+    await writeFile(join(root, ".kf", "hooks", n), readFileSync(join(PKG_GITHUB_HOOKS_DIR, n), "utf8"));
   }
 }
 
@@ -267,6 +264,10 @@ describe("finalization — archive is the delivery gate (UC-002, TC-007…010)",
 
     const packFiles = await readdir(PKG_GITHUB_HOOKS_DIR);
     expect(packFiles).not.toContain("delivered.sh");
+    // The hook is resolved by stage name, so a pack still shipping the old names is silently skipped.
+    expect(packFiles).toContain("done.sh");
+    expect(packFiles).not.toContain("dones.sh");
+    expect(packFiles).not.toContain("shipping.sh");
   });
 
   it("rolls back a mid-pass failure — folder restored, flag never written (TC-009)", async () => {

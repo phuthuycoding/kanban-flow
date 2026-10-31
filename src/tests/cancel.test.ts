@@ -528,6 +528,23 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
     }
   });
 
+  it("reopens an item cancelled from a legacy stage at the stage that replaced it", async () => {
+    for (const [legacy, current] of [["dones", "done"], ["shipping", "review"]] as const) {
+      const name = `legacy-${legacy}`;
+      await addItem(name, "cancelled", {
+        status: "cancelled",
+        cancellation: { at: "20260919_1300", by: "q", reason: "dropped", fromStage: legacy },
+      });
+      const wrong = await cmdStage(args("stage", [name, "planning"]), root);
+      expect(wrong.code, legacy).toBe(1);
+      expect(wrong.stdout, legacy).toContain(`only be reopened at ${current} (where it was cancelled). Run: kf stage ${name} ${current}`);
+      const res = await cmdStage(args("stage", [name, current]), root);
+      expect(res.code, `${legacy}: the printed reopen must work without --force`).toBe(0);
+      expect(feature(name).stage, legacy).toBe(current);
+      expect(feature(name).meta?.cancellation, legacy).toBeUndefined();
+    }
+  });
+
   it("refuses --force straight into done for an item cancelled from elsewhere", async () => {
     // isReopen must mean "back where it came from". If it were true for any target, --force
     // would land an item in done with no archive, no canonical docs and no validation.
