@@ -341,7 +341,7 @@ export function computeBuckets(
         const number = /\/pull\/(\d+)$/.exec(s.close.pr)?.[1];
         waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number}` : `gh pr merge ${s.close.pr}` });
       } else if (s.close?.kind === "refused") {
-        needsYou.push({ feature: f.name, decision: `review PASS but not closed: ${s.close.detail}` });
+        needsYou.push({ feature: f.name, decision: `review PASS but not closed: ${s.close.detail.split("\n").map((l) => l.trim()).filter(Boolean).join(" ")}` });
       }
     }
   }
