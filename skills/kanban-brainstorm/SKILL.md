@@ -15,6 +15,16 @@ Brainstorming is **divergence then convergence**: first open the problem up from
 
 ---
 
+## 0. Classify the path, and say it out loud
+
+`kanban-flow` names a path before this skill runs; if you were called directly, name it now — "this looks bounded, so the spec will be a page and I skip the divergence framework" — so the user can override it:
+
+- **Spike** — a question or a one-shot operation that lands no code. **Stop here: no `kf new`.** Say in two sentences what you will probe, get a nod, probe as cheaply as correctness allows (an irreversible step waits for the human's explicit "go"), and report the answer with the exact commands run. If the answer becomes work, classify again.
+- **Bounded** — a change to a flow that already exists in this repository. Run sections 1, 3, 4 and 5; **skip section 2** (the frameworks). The spec is a page: the restated journey, one or two FRs, the Affected surfaces, a Test Strategy, acceptance criteria. Every gate below still applies.
+- **Architectural** — everything else. All sections.
+
+One-way ratchet: if the bounded spec grows a second surface or a new subsystem mid-way, say so and step up to architectural; never the reverse.
+
 ## 1. Understand the challenge
 
 Orientation before ideation. Cheap questions here prevent expensive ones later.
@@ -34,7 +44,7 @@ Rules of engagement:
 
 ## 2. Diverge — open the problem (framework phase)
 
-A `kanban` launch can arrive with the idea fully formed or as a vague half-thought. **If the requirement is not already crystal clear, run a brainstorming framework** to widen the view before committing to a shape.
+Architectural path only — a bounded change skips this section. A `kanban` launch can arrive with the idea fully formed or as a vague half-thought. **If the requirement is not already crystal clear, run a brainstorming framework** to widen the view before committing to a shape.
 
 Pick the framework that fits the situation. Ask yourself (or the user, if genuinely uncertain) which angle is weak:
 
