@@ -59,7 +59,11 @@ Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
 
 - `statusmap_legacy` — `project.statusMap` still uses the `dones` or `shipping` keys; `kf doctor --fix` renames `dones` to `done` and drops `shipping`.
 - A warning that the `ship` block in `.kf/config.json` is ignored (`kf ship` is deprecated); delete the block.
-- An orphaned `.kf/hooks/dones.sh` or `shipping.sh`; rename `dones.sh` to `done.sh`, delete `shipping.sh`. The hook pack's `done.sh` is restored by `kf doctor --fix` when pack files are missing.
+- `harness_stages_legacy` — `harness.stages` still uses the `dones` or `shipping` keys (`dones` is read as `done`, `shipping` is ignored); `kf doctor --fix` rewrites them (`dones` → `done` unless `done` is already set, `shipping` dropped).
+- A `.kf/hooks/dones.sh` or an orphaned `shipping.sh`. `kf doctor --fix` renames `dones.sh` to `done.sh` when `done.sh` is missing, keeping its content; delete `shipping.sh` by hand. When `done.sh` already exists, port any local edits from `dones.sh` into it and delete `dones.sh`.
+- Missing hook-pack files, only in a project that uses the pack (`.kf/hooks/lib-github.sh` is present or a stage hook sources it): `kf doctor --fix` restores them from the package and never overwrites a hook the project edited.
+- Leftover legacy folders `.works/dones/` or `.works/shipping/`; the next `kf status` (or `kf sync`) migrates them.
+- A `.gitignore` without `.kf/travel/`; `kf doctor --fix` adds the entry.
 - `docs_branch_unpushed` — canonical docs for a closed item sit on an unpushed `docs/<context>-<feature>` branch.
 - `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out.
 

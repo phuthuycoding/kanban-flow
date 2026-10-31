@@ -14,7 +14,7 @@ Batch 2 (if Batch 1 drains)
 ⏸ Needs you (decide)
   - t6 confirm spec epic-types — brainstorm, spec pending
   - t7 approve plan (or --backlog) search-index
-  - t10 review PASS but not closed legacy-login — Cannot archive 'legacy-login': review_landing_missing
+  - t10 legacy-login — review PASS but not closed: Gate failed for 'legacy-login'. Fix validation before archiving: review_landing_missing
   - t5 split or override docs-split — XL
 ✓ Waiting to merge (do this on GitHub)
   - t8 https://github.com/<owner>/<repo>/pull/104 — ! gh pr merge 104
