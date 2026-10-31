@@ -236,6 +236,49 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });
 
+  it("reports agents that went missing while the skills stayed, and --fix reinstalls them", async () => {
+    await project();
+    const agentsDir = join(process.env.HOME!, ".claude", "agents");
+    await rm(join(agentsDir, "code-reviewer.md"));
+    const before = runDoctor(root).findings.find((f) => f.area === agentsDir);
+    expect(before?.level).toBe("ERROR");
+    expect(before?.message).toContain("agents partial");
+    expect(before?.message).toContain("code-reviewer");
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("installed kanban agents for claude");
+    expect(runDoctor(root).findings.filter((f) => f.area === agentsDir)).toEqual([]);
+  });
+
+  it("warns about a user's own file under a managed agent name and never replaces it", async () => {
+    await project();
+    const agentsDir = join(process.env.HOME!, ".claude", "agents");
+    const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
+    await rm(join(agentsDir, "scout.md"));
+    await writeFile(join(agentsDir, "scout.md"), mine);
+    const finding = runDoctor(root).findings.find((f) => f.area === agentsDir);
+    expect(finding?.level).toBe("WARNING");
+    expect(finding?.message).toContain("scout.md");
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(await readFile(join(agentsDir, "scout.md"), "utf8")).toBe(mine);
+  });
+
+  it("a user's file under one agent name does not hide the agent missing beside it", async () => {
+    await project();
+    const agentsDir = join(process.env.HOME!, ".claude", "agents");
+    const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
+    await rm(join(agentsDir, "scout.md"));
+    await writeFile(join(agentsDir, "scout.md"), mine);
+    await rm(join(agentsDir, "code-reviewer.md"));
+    const findings = runDoctor(root).findings.filter((f) => f.area === agentsDir);
+    expect(findings.map((f) => f.level).sort()).toEqual(["ERROR", "WARNING"]);
+    expect(findings.find((f) => f.level === "ERROR")?.message).toContain("code-reviewer");
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("installed kanban agents for claude");
+    expect(existsSync(join(agentsDir, "code-reviewer.md"))).toBe(true);
+    expect(await readFile(join(agentsDir, "scout.md"), "utf8")).toBe(mine);
+    expect(runDoctor(root).findings.filter((f) => f.area === agentsDir && f.level === "ERROR")).toEqual([]);
+  });
+
   it("writes the repository link the origin remote implies", async () => {
     await project();
     execFileSync("git", ["init", root]);

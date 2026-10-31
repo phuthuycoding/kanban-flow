@@ -35,10 +35,12 @@ Facts are what the reviewer judges from; they are never a verdict.
 
 **Static checks.** Detect the real tooling from the repository (never assume `npm`), then run lint, build/typecheck and the suite in the worktree, recording each command, its exit code and the counts it printed. A suite that ran nothing is not a pass — report the count. Confirm the testing report is `PASS` for the current execution id.
 
-**Anti-pattern scan on added lines** — each hit is a HIGH finding you record directly, with the line as evidence:
+**Regression tests fail on the baseline (bugs, and any task that fixes behaviour).** A test that is green with the fix removed protects nothing. Run the new or changed test files against `BASE` in a throwaway worktree (`git worktree add <tmp> "$BASE"`, copy the test files in, run them, remove the worktree): they must fail there and pass on `HEAD`. Record `regression on BASE: <N> failed (expected), on HEAD: <N> passed` under `## Verified`; a test that passes on `BASE` is a HIGH finding you record directly.
+
+**Anti-pattern scan on added code lines** (prose files excluded — a skill that documents the scan is not a hit) — each hit is a HIGH finding you record directly, with the line as evidence:
 
 ```bash
-ADDED_LINES=$(git diff "$BASE" | grep '^+' | grep -v '^+++')
+ADDED_LINES=$(git diff "$BASE" -- . ':(exclude)*.md' | grep '^+' | grep -v '^+++')
 printf '%s\n' "$ADDED_LINES" | grep -nE '^\+(<<<<<<<|>>>>>>>)'            # conflict marker
 printf '%s\n' "$ADDED_LINES" | grep -nE '\.only\(|fdescribe\(|fit\('         # focused test locks out its siblings
 printf '%s\n' "$ADDED_LINES" | grep -nE '(^|[^A-Za-z_])debugger([^A-Za-z_]|$)'
@@ -50,13 +52,13 @@ A failing build, lint or suite, or a conflict marker, **short-circuits**: write 
 
 ## 3. Size the diff and pick the tier
 
-Compute `ADDED`, `SHARED` and `CRITICAL` as `references/review-tiers.md` shows, then:
+Compute `ADDED` (code lines only — lockfiles, snapshots and build output excluded), `SHARED` and `CRITICAL` as `references/review-tiers.md` shows, then:
 
 ```bash
-bash <this skill dir>/scripts/select-tier "$ADDED" "$SHARED" "$CRITICAL"   # line 1 = T1|T2|T3, line 2 = reason
+bash <this skill dir>/scripts/select-tier "$ADDED" "$SHARED" "$CRITICAL"   # line 1 = T1|T1C|T2|T3, line 2 = reason
 ```
 
-Print the tier, the reason and why `CRITICAL` is 0 or 1 in the report. Over 2000 lines: bundle per `references/review-tiers.md` before dispatching.
+Print the tier, the reason, the excluded line count and why `CRITICAL` is 0 or 1 in the report. Over 2000 lines: bundle per `references/review-tiers.md` before dispatching — a report note, never a question to the human.
 
 ## 4. Write the review pack
 
@@ -64,19 +66,22 @@ Print the tier, the reason and why `CRITICAL` is 0 or 1 in the report. Over 2000
 bash <this skill dir>/scripts/review-package "$BASE" HEAD <item>/reviews/<id>/review-<base7>..<head7>.diff --untracked
 ```
 
-Then write `<item>/reviews/<id>/pack.md` with the six blocks `references/reviewer-brief.md` describes — Intent (requirement, plan, UC/TC paths; for a bug the report and its sibling entry points), Diff (the package path), Verified (step 2's real commands and output, the test files that ran, **the changed behaviour no test touches**), Rules (paths), Deferred (verbatim `minor (deferred)` and `parked` lines from `<item>/sdd/progress.md`, or "no ledger"), Baseline. Paths, not pasted artifacts.
+Then write `<item>/reviews/<id>/pack.md` with the six blocks `references/reviewer-brief.md` describes — Intent (requirement, plan, UC/TC paths; for a bug the report and its sibling entry points), Diff (the package path), Verified (step 2's real commands and output, the test files that ran, **the changed behaviour no test touches**), Rules (paths), Deferred (verbatim `minor (deferred)` and `parked` lines from `<item>/loop/progress.md`, or "no ledger"), Baseline. Paths, not pasted artifacts.
 
 Write `## Verified` as numbers and names, never as "✅ tests pass": a verdict invites agreement; facts let the reviewer ask whether the tests are adequate.
 
 ## 5. Dispatch the independent reviewer(s)
 
-Follow `references/reviewer-brief.md` exactly: doctrine (`references/reviewer-doctrine.md`) pasted first, the pack path, the schema path, the report path, and **the model named on every dispatch**.
+Follow `references/reviewer-brief.md` exactly: the doctrine path to read first, the pack path, the schema path, and **the model named on every dispatch**. The reviewer has no write tool: **its reply is its report**, and you save each reply verbatim to `<item>/reviews/<id>/reviewer-<dimension>.md` before reading the next one.
 
 - **T1:** one `Agent(code-reviewer)` on `sonnet`, all dimensions.
+- **T1C:** T1 plus one `contracts` reviewer on `sonnet` — two dispatches.
 - **T2:** five in **one message** — `bugs`, `security`, `perf`, `contracts`, `intent` — on `sonnet`; `contracts` on `opus` when `SHARED=1`.
 - **T3:** the same five, all on `opus`.
 
-When the runtime has no `code-reviewer` agent, dispatch a general-purpose subagent with the same brief and the explicit instruction that it has no write tools. Collect each report **by name**; a reviewer that finishes without a report is an incomplete gate — ask it for the report, and if none comes, the review is incomplete, not clean. Never review the diff yourself in parallel "to be safe"; never pre-judge a finding in the brief.
+Collect each reply **by name**; a reviewer that finishes without one is an incomplete gate — ask it for the report, and if none comes, the review is incomplete, not clean. Never review the diff yourself in parallel "to be safe"; never pre-judge a finding in the brief.
+
+**Stand-ins.** When the runtime has subagents but no `code-reviewer` registered (an upgrade that relinked the skills before `kf install`, or a non-Claude runtime), dispatch a general-purpose subagent whose brief pastes the agent body from `<skills dir>/kanban-flow/agents/code-reviewer.md` verbatim and states that it must not write, edit or run anything; record `stand-in: general-purpose` for that reviewer in the report's `## Reviewer` section, because a stand-in's read-only limit is a request, not a guarantee. **When the runtime has no subagent tool at all, this session cannot complete the review**: a session does not grade its own work. Hand the stage to a runner role (`kf run <feature> --role reviewer`, configured in `harness.stages.review`) or stop and tell the human; a report written without an independent reviewer is never `PASS`.
 
 For `kind: bug`, the brief adds: review against the bug report and existing feature behaviour; check reproduction evidence, regression tests and fix scope; list the sibling entry points and whether the fix covers each; state a claim you tried to break. Do not demand feature planning artifacts for a bug.
 
@@ -84,7 +89,7 @@ For `kind: bug`, the brief adds: review against the bug report and existing feat
 
 ```bash
 # every reviewer's JSON array concatenated into one file
-node <this skill dir>/scripts/verify-findings <worktree> <item>/reviews/<id>/findings.json > <item>/reviews/<id>/verified.json
+node <this skill dir>/scripts/verify-findings.mjs <worktree> <item>/reviews/<id>/findings.json > <item>/reviews/<id>/verified.json
 ```
 
 Dedup by `title + file` keeping the highest severity. A finding whose `evidence` quote is not in the cited file is **refuted**: list it under "refuted at verification" in the report and do not count it. Carry every `Declined:` line and every `Deferred:` verdict into the report.
@@ -97,7 +102,7 @@ Do not reopen findings an earlier review verified and do not undo user-chosen sc
 kf instruct review-report --change {feature_name}
 ```
 
-Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model, the pack path and the verification counts (kept / refuted). Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly one of:
+Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly one of:
 
 - `PASS` — no open HIGH finding, no `Deferred` item marked must-fix-before-merge, and every MEDIUM assessed against acceptance criteria and the Definition of Done. Do not declare PASS merely because there are no HIGH findings.
 - `FAIL` — an open HIGH finding, a failed static check, or broken tests.
@@ -125,7 +130,7 @@ kf stage {feature_name} implementation
 - `references/finding-schema.md` — the one shape every reviewer returns; how findings become report rows.
 - `references/review-tiers.md` — `ADDED`/`SHARED`/`CRITICAL`, the tier rule, bundling, why tiers.
 - `references/reviewer-brief.md` — the dispatch template and the pack layout.
-- `scripts/review-package`, `scripts/select-tier`, `scripts/verify-findings` — run with `bash`/`node`; installs do not set the exec bit.
+- `scripts/review-package`, `scripts/select-tier`, `scripts/verify-findings.mjs` — run with `bash`/`node`; installs do not set the exec bit.
 
 ## Done
 

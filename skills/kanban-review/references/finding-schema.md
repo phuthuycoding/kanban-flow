@@ -13,7 +13,7 @@ Every reviewer the kanban skills dispatch — the whole-branch review in `kanban
 | `fix` | yes | A concrete recommendation. |
 | `file` | recommended | Repo-relative path. |
 | `line` | recommended | The line, or range, the finding anchors to. |
-| `evidence` | required with `file` + `line` | One **verbatim** line of code copied from the file at or near `line`, without the diff's `+`/`-` marker. `scripts/verify-findings` matches it against the real file and refutes a finding whose quote does not exist. |
+| `evidence` | required with `file` | One **verbatim** line of code (at least 6 characters) copied from the file at or near `line`, without the diff's `+`/`-` marker. `scripts/verify-findings.mjs` matches it against the real file within 20 lines of `line` and refutes a finding whose quote is missing, too short, elsewhere in the file, or whose path leaves the root. |
 
 Example:
 
@@ -39,6 +39,6 @@ Shippable: YES | NO
 
 1. Concatenate every reviewer's array (T2/T3 fan-out, or one per bundle).
 2. Dedup by `title + file`, keeping the highest severity.
-3. `bash scripts/verify-findings <root> < findings.json` → `kept` and `refuted`. Refuted findings are listed in the report under "refuted at verification" and do not count.
+3. `node <kanban-review skill dir>/scripts/verify-findings.mjs <root> findings.json` → `kept` and `refuted`, each kept finding carrying `verifiedLine` (the line where the quote was found, within 20 lines of the cited one). Refuted findings — no evidence, a quote under 6 characters, a path outside the root or not a regular file, a quote absent or far from the cited line — are listed in the report under "refuted at verification" and do not count.
 4. Rank kept findings HIGH → MEDIUM → LOW and copy them into the report's Findings table, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = `fix`.
 5. The report `status:` follows the gate semantics, not the reviewer's word: `PASS` only with zero open HIGH findings and every MEDIUM assessed against acceptance and the Definition of Done.

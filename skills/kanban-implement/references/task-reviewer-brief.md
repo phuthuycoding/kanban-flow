@@ -1,18 +1,21 @@
 # Task reviewer brief — the dispatch for one task's review
 
-Use this template verbatim after an implementer reports DONE. The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition); a general-purpose subagent with the same prompt stands in when the agent is not registered.
+Use this template verbatim after an implementer reports DONE. The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `<skills dir>/kanban-flow/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:
-  subagent_type: code-reviewer     # or general-purpose
+  subagent_type: code-reviewer     # or general-purpose (stand-in; paste the agent body first)
   model: [MODEL]                          # REQUIRED — sonnet; opus for a high-risk or subtle diff
   description: "Review TASK-NNN (spec + quality)"
   prompt: |
-    [DOCTRINE — paste kanban-review/references/reviewer-doctrine.md verbatim]
+    Read first: [DOCTRINE_FILE] (kanban-review/references/reviewer-doctrine.md). Then the rule
+    files that bind this repository, in precedence order: [RULE_FILES]. A violated rule is a
+    finding citing the rule's file:line.
 
     You are reviewing one task's implementation: first whether it matches its requirements,
     then whether it is well-built. This is a task-scoped gate, not the merge review — the
-    whole-branch review happens at the review stage.
+    whole-branch review happens at the review stage. The Output section below overrides the
+    default reply shape in your agent definition.
 
     ## What was requested
     Read the task brief: [BRIEF_FILE]
@@ -61,7 +64,7 @@ Agent:
     Acknowledge what was done well before listing issues.
 
     ## Output
-    Write the full report to [REVIEW_REPORT_FILE]. Reply with:
+    Your reply is the report (you have no write tool; the controller saves it). Reply with:
     ### Spec compliance
     ✅ compliant | ❌ issues found (file:line) · ⚠️ cannot verify from diff: <items>
     ### Strengths
@@ -75,9 +78,11 @@ Agent:
 **Placeholders**
 
 - `[MODEL]` — REQUIRED. `sonnet` by default; `opus` for a subtle or high-risk diff (concurrency, auth, data migration).
+- `[DOCTRINE_FILE]` — absolute path of `kanban-review/references/reviewer-doctrine.md` (the reviewer has Read; do not paste it on every dispatch).
+- `[RULE_FILES]` — the rule files resolved once by the controller, project → user → package (`.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, the package's `kanban-flow/review/rules/*.md`) plus `AGENTS.md`/`CLAUDE.md` when present.
 - `[BRIEF_FILE]`, `[REPORT_FILE]` — the same files the implementer worked from and wrote to.
 - `[GLOBAL_CONSTRAINTS]` — copied verbatim from the plan's `## Global Constraints` (exact values, formats, relationships) — not process rules, which the template already carries.
 - `[BASE_SHA]`, `[HEAD_SHA]`, `[DIFF_FILE]` — the recorded `BASE`, the current head, and the package `review-package` wrote.
-- `[REVIEW_REPORT_FILE]` — `<item>/sdd/task-NNN-review.md`.
+- `[REVIEW_REPORT_FILE]` — `<item>/loop/task-NNN-review.md`, written by the controller from the reply, verbatim.
 
 **Never in the brief:** "check all uses", "run the race tests if useful" without a task-specific reason; "do not flag X"; "at most LOW". If you believe a finding would be a false positive, let the reviewer raise it and adjudicate it in the loop.

@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync } from "node:fs";
-import { cp, lstat, mkdir, rm, symlink, unlink } from "node:fs/promises";
+import { cp, lstat, mkdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 import { findWorksRoot } from "../workflow/features.js";
@@ -33,7 +34,8 @@ export const MANAGED_SKILLS = [
 export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer"];
 
 const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
-const PKG_AGENTS_DIR = join(PKG_ROOT, "agents");
+/** The agent bodies live inside the kanban-flow skill, so every runtime that has the skill can read them. */
+export const PKG_AGENTS_DIR = join(PKG_SKILLS_DIR, "kanban-flow", "agents");
 
 /** Text a caller prints. This module does not depend on the CLI result type. */
 export interface InstallReport {
@@ -128,46 +130,151 @@ function assertPackageAgents(): InstallReport | null {
   return null;
 }
 
-/** Link each managed agent file to the package (global), or copy it (project / link denied / ephemeral package). */
+export type AgentEntryState = "absent" | "linked" | "copied" | "stale" | "foreign" | "not-file";
+
+/**
+ * Sidecar next to the agent files: the sha256 of every copy kanban-flow wrote there. A copy that
+ * still hashes to what we wrote is ours even when the package has since moved on ("stale" — the
+ * upgrade case); a file that hashes to anything else was edited or created by the user.
+ */
+const AGENTS_MANIFEST = ".kanban-flow-agents.json";
+
+function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function readAgentsManifest(agentsDir: string): Record<string, string> {
+  const path = join(agentsDir, AGENTS_MANIFEST);
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
+  } catch (err) {
+    if (err instanceof SyntaxError) return {};
+    throw err;
+  }
+}
+
+async function writeAgentsManifest(agentsDir: string, entries: Record<string, string>): Promise<void> {
+  await writeFile(join(agentsDir, AGENTS_MANIFEST), `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+}
+
+/**
+ * What sits at a managed agent path. The agent names are deliberately unprefixed, so a user's
+ * own `code-reviewer.md` is a real possibility: only an entry kanban-flow put there — a symlink
+ * into the package, a byte-equal copy of the packaged file, or a copy whose hash the manifest
+ * recorded — is ours to replace or remove.
+ */
+export function agentEntryState(agentsDir: string, name: string): AgentEntryState {
+  const target = join(agentsDir, `${name}.md`);
+  let st;
+  try {
+    st = lstatSync(target);
+  } catch {
+    return "absent";
+  }
+  const packaged = join(PKG_AGENTS_DIR, `${name}.md`);
+  if (st.isSymbolicLink()) {
+    const resolved = resolve(agentsDir, readlinkSync(target));
+    if (resolved === packaged) return "linked";
+    // A link kf made from another install of this package — a different Node version, an
+    // npm-link checkout, or a dir that no longer exists — is ours to replace, not the user's.
+    const ours = resolved.endsWith(join("kanban-flow", "agents", `${name}.md`));
+    return ours || !existsSync(resolved) ? "stale" : "foreign";
+  }
+  if (!st.isFile()) return "not-file";
+  const bytes = readFileSync(target);
+  if (existsSync(packaged) && bytes.equals(readFileSync(packaged))) return "copied";
+  return readAgentsManifest(agentsDir)[name] === sha256(bytes) ? "stale" : "foreign";
+}
+
+export type AgentsState = "linked" | "copied" | "mixed" | "stale" | "partial" | "missing" | "foreign";
+
+/** Aggregate state of the managed agents in one dir. "linked"/"copied"/"mixed" are healthy; "stale" is an outdated copy of ours; "foreign" means a user's file sits at one of the names. */
+export function agentsState(agentsDir: string): AgentsState {
+  const states = MANAGED_AGENTS.map((a) => agentEntryState(agentsDir, a));
+  if (states.some((s) => s === "foreign" || s === "not-file")) return "foreign";
+  if (states.every((s) => s === "absent")) return "missing";
+  if (states.some((s) => s === "stale")) return "stale";
+  if (states.some((s) => s === "absent")) return "partial";
+  if (states.every((s) => s === "linked")) return "linked";
+  if (states.every((s) => s === "copied")) return "copied";
+  return "mixed";
+}
+
+export function agentsAreHealthy(state: AgentsState): boolean {
+  return state === "linked" || state === "copied" || state === "mixed";
+}
+
+const SYMLINK_DENIED = new Set(["EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"]);
+
+/**
+ * Link each managed agent file to the package (global), or copy it (project / link denied /
+ * ephemeral package). A file kanban-flow does not own is left untouched and named in the result.
+ */
 export async function installAgentsTo(agentsDir: string, mode: InstallMode): Promise<SkillInstallResult> {
   const missing = assertPackageAgents();
   if (missing) return missing;
   await mkdir(agentsDir, { recursive: true });
   const link = mode === "link" && !packageIsEphemeral();
   let landed: InstallMode = link ? "link" : "copy";
+  const installed: string[] = [];
+  const skipped: string[] = [];
+  const manifest = readAgentsManifest(agentsDir);
   for (const name of MANAGED_AGENTS) {
+    const state = agentEntryState(agentsDir, name);
+    if (state === "foreign" || state === "not-file") {
+      skipped.push(name);
+      continue;
+    }
     const from = join(PKG_AGENTS_DIR, `${name}.md`);
     const to = join(agentsDir, `${name}.md`);
     await rm(to, { force: true });
+    delete manifest[name];
     if (link) {
       try {
         await symlink(from, to, "file");
+        installed.push(name);
         continue;
-      } catch {
-        // Same fallback as the skills: a denied symlink still leaves a correct install.
+      } catch (err) {
+        // A denied symlink (Windows without Developer Mode, restricted filesystems) still gets
+        // a correct install by copying; any other error is a real failure and must surface.
+        if (!SYMLINK_DENIED.has((err as NodeJS.ErrnoException).code ?? "")) throw err;
         landed = "copy";
       }
     }
     await cp(from, to, { force: true });
+    manifest[name] = sha256(readFileSync(from));
+    installed.push(name);
   }
-  return { code: 0, stdout: `${MANAGED_AGENTS.join(", ")} → ${agentsDir}/`, mode: landed };
+  await writeAgentsManifest(agentsDir, manifest);
+  const skippedNote = skipped.length > 0
+    ? `\n  ⚠ left untouched (not kanban-flow's): ${skipped.map((s) => `${s}.md`).join(", ")} in ${agentsDir}/ — the skills will dispatch your file under that name`
+    : "";
+  return { code: 0, stdout: `${installed.join(", ") || "nothing"} → ${agentsDir}/${skippedNote}`, mode: landed };
 }
 
-/** Remove the managed agent files from the given dir (leaves others intact). */
-export async function removeAgentsFrom(agentsDir: string): Promise<{ removed: string[] }> {
+/** Remove the managed agent files kanban-flow owns from the given dir; a user's own file under a managed name is kept and named. */
+export async function removeAgentsFrom(agentsDir: string): Promise<{ removed: string[]; kept: string[] }> {
   const removed: string[] = [];
+  const kept: string[] = [];
+  const manifest = readAgentsManifest(agentsDir);
   for (const name of MANAGED_AGENTS) {
-    const target = join(agentsDir, `${name}.md`);
-    try {
-      await lstat(target);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw err;
+    const state = agentEntryState(agentsDir, name);
+    if (state === "absent") continue;
+    if (state === "foreign" || state === "not-file") {
+      kept.push(name);
+      continue;
     }
-    await unlink(target);
+    await unlink(join(agentsDir, `${name}.md`));
+    delete manifest[name];
     removed.push(name);
   }
-  return { removed };
+  if (removed.length > 0) {
+    if (Object.keys(manifest).length > 0) await writeAgentsManifest(agentsDir, manifest);
+    else await rm(join(agentsDir, AGENTS_MANIFEST), { force: true });
+  }
+  return { removed, kept };
 }
 
 /** Remove the managed skills from the given skill dir (leaves others intact). */
@@ -423,6 +530,7 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     if (agentsDir) {
       const agents = await removeAgentsFrom(agentsDir);
       if (agents.removed.length > 0) lines.push(`✗ ${a.label}: removed ${agents.removed.length} agents from ${agentsDir}/`);
+      if (agents.kept.length > 0) lines.push(`· ${a.label}: kept ${agents.kept.map((k) => `${k}.md`).join(", ")} in ${agentsDir}/ — not kanban-flow's`);
     }
   }
   if (lines.length === 0) {

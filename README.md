@@ -214,11 +214,13 @@ runs the plan task by task: a fresh implementer per task, a `code-reviewer` on i
 diff, a fix loop capped at five rounds, every decision in a ledger that survives
 compaction. `kanban-review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
-diff size (one reviewer under 200 lines; five dimensions in parallel above; `opus`
-above 600 or on a critical area), and refutes any finding whose evidence quote is not
-in the file before it reaches the report. `kanban-ship` watches the pushed commit's
-GitHub Actions runs and the PR's mergeability in the background; a red run goes back
-through implementation, testing and review, never a re-run button.
+diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
+surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
+area), and refutes any finding whose evidence quote is missing or not where the
+reviewer said it is before it reaches the report. `kanban-ship` watches the pushed commit's
+GitHub Actions runs and the PR's mergeability in the background; a red run is handed
+to the human with the failed run and its log — never a re-run button, and never a
+transition the state machine does not have.
 
 ### From approval to the ship gate: `kf drive`
 

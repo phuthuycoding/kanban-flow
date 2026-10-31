@@ -15,8 +15,9 @@ import { readProjectConfig, configPath, effectiveSkillsScope, type ProjectConfig
 import { detectRepository } from "./repository.js";
 import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
-import { AGENTS, DEFAULT_AGENT, projectSkillsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, hasManagedEntries, installSkills, MANAGED_SKILLS, skillEntryState, skillsAreHealthy } from "../integrations/install.js";
+import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, hasManagedEntries, installAgentsTo, installSkills, MANAGED_AGENTS, MANAGED_SKILLS, agentEntryState, skillEntryState, skillsAreHealthy } from "../integrations/install.js";
+
 
 export interface DoctorFinding {
   level: "ERROR" | "WARNING";
@@ -161,6 +162,36 @@ function checkSkills(root: string, agents: AgentId[], scope: SkillScope): Doctor
       message: `skills ${state} (scope: ${scope}): ${bad.join(", ")}`,
       action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
     });
+  }
+  // The skills dispatch agents by name; an upgrade that relinks the skills without the agents
+  // leaves every dispatch on a stand-in. A user's own file under a managed name is theirs.
+  for (const id of agents) {
+    const adapter = AGENTS.find((a) => a.id === id);
+    if (!adapter) continue;
+    const agentsDir = scope === "global" ? userAgentsDir(adapter) : projectAgentsDir(adapter, root);
+    if (!agentsDir) continue;
+    const state = agentsState(agentsDir);
+    if (agentsAreHealthy(state)) continue;
+    const entries = MANAGED_AGENTS.map((a) => [a, agentEntryState(agentsDir, a)] as const);
+    const theirs = entries.filter(([, s]) => s === "foreign" || s === "not-file").map(([a]) => a);
+    const missing = entries.filter(([, s]) => s === "absent" || s === "stale").map(([a]) => a);
+    if (theirs.length > 0) {
+      findings.push({
+        level: "WARNING",
+        area: agentsDir,
+        message: `your own file sits at a managed agent name: ${theirs.map((a) => `${a}.md`).join(", ")} — the skills will dispatch it instead of kanban-flow's`,
+        action: "rename or remove your file, then kf install; or keep it and accept the substitution",
+      });
+    }
+    // A user's file under one name must not hide the agents missing or outdated next to it.
+    if (missing.length > 0) {
+      findings.push({
+        level: "ERROR",
+        area: agentsDir,
+        message: `agents ${theirs.length > 0 ? "partial" : state} (scope: ${scope}): ${missing.join(", ")}`,
+        action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
+      });
+    }
   }
   // At global scope the project copies shadow the shared install — they are duplicates, not skills.
   if (scope === "global") {
@@ -494,6 +525,22 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
     const res = await installSkills(root, missingFor, scope, { declaredScope });
     if (res.code === 0) fixed.push(`installed kanban skills for ${missingFor.join(", ")} (scope: ${scope})`);
     else fixed.push(`skill install reported a problem: ${res.stdout}`);
+  }
+  // installSkills carries the agents along for the agents it (re)installed; the others may still
+  // be missing theirs (an npm upgrade relinks skills, not agents). A foreign file is not repaired.
+  for (const id of agents) {
+    if (missingFor.includes(id)) continue;
+    const adapter = AGENTS.find((a) => a.id === id);
+    if (!adapter) continue;
+    const agentsDir = scope === "global" ? userAgentsDir(adapter) : projectAgentsDir(adapter, root);
+    if (!agentsDir) continue;
+    // installAgentsTo skips a user's file on its own, so a foreign entry never blocks the repair
+    // of the absent or stale ones beside it.
+    const needsRepair = MANAGED_AGENTS.some((a) => ["absent", "stale"].includes(agentEntryState(agentsDir, a)));
+    if (!needsRepair) continue;
+    const res = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy");
+    if (res.code === 0) fixed.push(`installed kanban agents for ${id} (scope: ${scope})`);
+    else fixed.push(`agent install reported a problem: ${res.stdout}`);
   }
 
   return fixed;

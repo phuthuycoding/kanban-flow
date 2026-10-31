@@ -11,7 +11,7 @@ Execute the approved implementation plan for a feature, or the approved bug repo
 
 **You are the controller, not the implementer.** The plan is executed by fresh subagents with isolated context, each reviewed by another fresh subagent before its work cascades into the next task. Your context stays for coordination: the ledger, the briefs, the rulings. Fixing a finding yourself pollutes that context and skips review.
 
-**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, do not commit, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. You still run section 3's task loop with subagents when your runtime offers them.
+**Invoked through `kf run` as the stage worker?** If your prompt starts with `kf-run:<id>` **without** a `TASK-###` token, you are the controller for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, never push, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. You run section 3's task loop when your runtime offers subagents; **the only commits in a stage worker's session are the ones that loop prescribes** — one per task on the item branch, made by the implementer it dispatches. You commit nothing yourself outside that loop.
 
 **Task worker:** if your prompt starts with `kf-run:<id> TASK-###`, you implement exactly that one task and nothing else — you are the implementer, not the controller. Only touch files in its allowlist; if you need another file, stop with `STATUS: BLOCKED` and say which file and why. Do not edit tasks.md, do not commit (kf commits, merges and verifies), never dispatch a subagent, and end with the STATUS lines above. Follow the TDD and self-review rules of `references/implementer-brief.md`.
 
@@ -78,7 +78,7 @@ kf runs {feature_name}           # poll until done, then read each run's STATUS
 
 Read the approved plan once: `kf tasks {feature_name} --json` gives the task graph (id, description, dependencies, role, files, refs, expected output, wave); the plan's `## Global Constraints` and `## Review Focus` bind every task. For a bug, the "plan" is the approved bug report: one task per fix scope item plus one regression task. Read the requirement the plan argues from; conflicts inside the plan resolve against the requirement.
 
-**Ledger first.** The item folder holds this item's loop artifacts under `<item>/sdd/`: `progress.md` (the ledger, first line `# SDD ledger — <feature> — plan: <abs plan path>`), `task-NNN-brief.md`, `task-NNN-report.md`, `review-<base7>..<head7>.diff`. **Resume from the ledger**: a `TASK-NNN: complete` line is never re-dispatched; a task whose last line is a fix round resumes at the next round. Conversation memory does not survive compaction; the ledger and `git log` do.
+**Ledger first.** The item folder holds this item's loop artifacts under `<item>/loop/`: `progress.md` (the ledger, first line `# Task loop ledger — <feature> — plan: <abs plan path>`), `task-NNN-brief.md`, `task-NNN-report.md`, `review-<base7>..<head7>.diff`. **Resume from the ledger**: a `TASK-NNN: complete` line is never re-dispatched; a task whose last line is a fix round resumes at the next round. Conversation memory does not survive compaction; the ledger and `git log` do.
 
 **Pre-Task-1 conflict scan.** Before the first dispatch, scan the plan for tasks that contradict each other or the Global Constraints, and for anything the plan mandates that the review rubric treats as a defect. Write the table to the ledger with a `Ruling:` per row — the requirement is binding, the plan is its argument. A clean scan is a table with no rows, not a sentence.
 
@@ -86,19 +86,19 @@ Read the approved plan once: `kf tasks {feature_name} --json` gives the task gra
 
 **Order and parallelism.** Tasks run by wave; within one worktree they are **sequential — never two implementers in the same git history**, because task A's review package would then contain task B's commits and the reviewer grades A against code it never wrote. Batch several tiny same-shape tasks (the same one-line change across files) into one brief and one review; keep one-dispatch-per-task for anything that needs its own judgement or its own tests.
 
-**Scout before a shared change.** When a task's `Files` touch a shared surface (a route, an event, a schema, a public export, a CLI contract) or the task changes existing behaviour, dispatch `Agent(scout)` on the thing about to change before the implementer, and carry its `Highest risk` and `Uncovered paths` lines into the brief. A scout report that changes nothing about the brief was either unnecessary or unread.
+**Scout before a shared change — reuse first.** The plan stage saved its scout reports under `<item>/reviews/scout-<target>.md`; a task whose target is covered there carries that report's `Highest risk` and `Uncovered paths` lines into the brief and dispatches nothing. Dispatch `Agent(scout)` only for a shared surface (a route, an event, a schema, a public export, a CLI contract) the plan stage did not scout, or one that changed on the base after approval; save the new report beside the others. A scout report that changes nothing about the brief was either unnecessary or unread.
 
 ### 3.1 Dispatch the implementer
 
 1. **Record `BASE`** — `git rev-parse HEAD` in the worktree. The review package and the fix diffs need it.
-2. **Write the brief** to `<item>/sdd/task-NNN-brief.md`: the task row verbatim (description, expected output, FR/UC refs, Files allowlist), the UC and TC excerpts it serves, the Global Constraints, the interfaces earlier tasks produced, your resolution of any ambiguity, and the scout lines. Exact values live only in the brief; no subagent reads the whole plan.
+2. **Write the brief** to `<item>/loop/task-NNN-brief.md`: the task row verbatim (description, expected output, FR/UC refs, Files allowlist), the UC and TC excerpts it serves, the Global Constraints, the interfaces earlier tasks produced, your resolution of any ambiguity, and the scout lines. Exact values live only in the brief; no subagent reads the whole plan.
 3. **Dispatch** with `references/implementer-brief.md` verbatim, naming the model: mechanical tasks (clear spec, one or two files) → `sonnet`; multi-file coordination or design judgement → `opus`; the same test failing twice in this task → `opus` with the error on disk. Record the implementer's agent identity — rounds 1–3 of the fix loop resume it.
 
-The implementer writes its full report to `<item>/sdd/task-NNN-report.md` and returns only status, commits, a one-line test summary and concerns. It never dispatches subagents and never spawns a reviewer.
+The implementer writes its full report to `<item>/loop/task-NNN-report.md` and returns only status, commits, a one-line test summary and concerns. It never dispatches subagents and never spawns a reviewer.
 
 ### 3.2 Handle the report
 
-- **DONE** → `bash <kanban-review skill dir>/scripts/review-package "$BASE" HEAD <item>/sdd/review-<base7>..<head7>.diff` (exit 3 "empty commit range" means it committed nothing: send it back — DONE requires a commit), then 3.3.
+- **DONE** → `bash <kanban-review skill dir>/scripts/review-package "$BASE" HEAD <item>/loop/review-<base7>..<head7>.diff` (exit 3 "empty commit range" means it committed nothing: send it back — DONE requires a commit), then 3.3.
 - **DONE_WITH_CONCERNS** → read the concerns; correctness or scope concerns are addressed before review, observations are noted and reviewed.
 - **NEEDS_CONTEXT** → supply it, re-dispatch the same agent.
 - **BLOCKED** → a context problem gets more context; a reasoning problem gets a more capable model; a too-large task gets split; a wrong plan gets a ledgered `Ruling:` and a re-dispatch carrying it. Never force an unchanged retry, never ignore an escalation.
@@ -124,7 +124,7 @@ A round is one fix dispatch plus one scoped re-review. **Five rounds maximum per
 
 Review clean, or every open finding parked at the cap → tick the task in tasks.md and append `TASK-NNN: complete (commits <base7>..<head7>, review clean)` or `… (<K> parked)`. "Review clean" certifies the diff matched the brief and the code is sound; it certifies nothing visual. A task whose deliverable is something a person looks at gets a real run before its ledger line (start the app at the item's domain or port, exercise the screen) — the plan should have flagged it.
 
-**No subagent tool in your runtime?** Do the same loop yourself in the same order: brief, implement, self-review against `references/task-reviewer-brief.md`, ledger — and say in the ledger that the review seat was the controller's own.
+**No subagent tool in your runtime?** Implement task by task in the same order (brief, implement, commit, ledger), but **do not fill the review seat yourself** — a session does not grade its own work. Write `TASK-NNN: implemented, review seat: none` in the ledger and hand the review to a runner role (`kf run <feature> --role reviewer` when `harness.roles` has one) or leave it to the review stage, which then treats every task as unreviewed and reviews the whole branch at the tier the diff demands. A `complete (review clean)` line without an independent reviewer is a lie the ledger must not carry.
 
 ## 4. Tick tasks as they land; gate on build
 

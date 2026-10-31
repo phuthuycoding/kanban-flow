@@ -2,11 +2,14 @@
 # Mechanical tier selection for the whole-branch review — no judgement call.
 #
 # Usage: select-tier ADDED_LOC SHARED CRITICAL
-#   ADDED_LOC  added + removed lines (plus the lines of untracked new files)
-#   SHARED     1 when the diff changes a shared surface (route, event, queue, schema, public API), else 0
+#   ADDED_LOC  added + removed CODE lines (lockfiles, snapshots and generated files excluded;
+#              plus the lines of untracked new code files)
+#   SHARED     1 when the diff changes a shared surface (route, event, queue, schema, migration), else 0
 #   CRITICAL   1 when the item touches auth, sessions, tenant scope, payments, migrations or secrets, else 0
 #
-# Output: line 1 = T1|T2|T3 ; line 2 = reason: <why>.  See references/review-tiers.md.
+# Output: line 1 = T1|T1C|T2|T3 ; line 2 = reason: <why>.  See references/review-tiers.md.
+#   T1  one reviewer, all dimensions          T1C  T1 plus one `contracts` reviewer
+#   T2  five dimensions in parallel            T3   five dimensions, all on the most capable model
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -15,17 +18,19 @@ if [ $# -ne 3 ]; then
 fi
 loc=$1; shared=$2; critical=$3
 case "$loc" in ''|*[!0-9]*) echo "ADDED_LOC must be a number: $loc" >&2; exit 2;; esac
+case "$shared" in 0|1) ;; *) echo "SHARED must be 0 or 1: $shared" >&2; exit 2;; esac
+case "$critical" in 0|1) ;; *) echo "CRITICAL must be 0 or 1: $critical" >&2; exit 2;; esac
 
 if [ "$critical" = "1" ]; then
-  echo "T3"; echo "reason: critical area -> five dimensions on opus regardless of size"
+  echo "T3"; echo "reason: critical area -> five dimensions on the most capable model regardless of size"
   exit 0
 fi
 if [ "$loc" -gt 600 ]; then
-  echo "T3"; echo "reason: large diff (>600 LOC) -> five dimensions on opus"
+  echo "T3"; echo "reason: large diff (>600 LOC) -> five dimensions on the most capable model"
 elif [ "$loc" -gt 200 ]; then
   echo "T2"; echo "reason: medium diff (201-600 LOC) -> five-dimension fan-out"
 elif [ "$shared" = "1" ]; then
-  echo "T2"; echo "reason: small diff touching a shared surface -> T2 floor (contracts dimension)"
+  echo "T1C"; echo "reason: small diff touching a shared surface -> one reviewer plus a contracts reviewer"
 else
   echo "T1"; echo "reason: small diff (<=200 LOC), no shared surface -> one reviewer"
 fi

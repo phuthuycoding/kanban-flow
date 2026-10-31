@@ -15,12 +15,12 @@ Use the least powerful model that can do the role, and **name it on every dispat
 
 ## The ledger
 
-Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/sdd/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection.
+Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/loop/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection.
 
 Lines, in order of appearance:
 
 ```
-# SDD ledger — <feature> — plan: <abs path>
+# Task loop ledger — <feature> — plan: <abs path>
 Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...>
 Ruling: <decision> — <why> — <cost if wrong>
 TASK-001: fix round 1/5 (2 addressed, 1 open — <one-liner>; commits a1b2c3d..d4e5f6a)
@@ -29,7 +29,7 @@ TASK-001: parked — <finding> — Ruling: <why>
 TASK-001: complete (commits a1b2c3d..9f8e7d6, review clean)
 ```
 
-`.works/` is gitignored, so the ledger travels with the item, not the branch; `kf archive` moves it with the item folder.
+When `.works/` is gitignored (the default `kf init` answer), the ledger travels with the item, not the branch; `kf archive` moves it with the item folder either way.
 
 ## The fix loop
 

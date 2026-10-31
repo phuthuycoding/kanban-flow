@@ -32,7 +32,7 @@ The four artifacts depend on each other: the UC list drives the diagram and the 
 | Step | Who | Output |
 | --- | --- | --- |
 | 0. Ground the requirement | You, inline | Every name the spec commits to verified against its definition; contradictions fixed in the spec before any plan text |
-| a. Impact survey | `Agent(scout)` — one dispatch per thing that changes (a module, a shared surface, a data shape), all in one message | A `file:line` blast-radius map per target, returned to you, never written to artifacts |
+| a. Impact survey | `Agent(scout)` — one dispatch per thing that changes (a module, a shared surface, a data shape), all in one message | A `file:line` blast-radius map per target, saved verbatim as `<item>/reviews/scout-<target>.md` for the implement stage to reuse; never pasted into the planning artifacts |
 | b. Skeleton | You | `implementation-plan`, the `use-case-specification` index with the final UC IDs, slugs and one-line goals |
 | c. UC files | One subagent per `UC-###`, in parallel | `use-cases/UC-###-<slug>.md` |
 | d. Diagram + test cases | You | `use-case-diagram`, `test-cases` |
@@ -70,7 +70,7 @@ Grounding protects you from a name that does not exist; it does nothing to prote
 
 **Check the receipt before using a report.** Every "none found" names the patterns searched; a countable claim never comes from documentation; the ref scouted is stated; a repo or module with no row was not covered. A missing report is *not scouted*, never *clean* — ask for it, and if none comes, say the survey is incomplete. `cannot enumerate by grep: <mechanism>` makes the result partial; carry "partial" into the plan's Risks.
 
-Feed `Highest risk`, `Uncovered paths` and `Written together` into the plan's impact analysis, risks and test cases — a scout report that changes nothing about the plan was either unnecessary or unread. Do not paste reports as-is. When the runtime has no subagent tool, run the four targets yourself in the same order and say so.
+Save each report verbatim as `<item>/reviews/scout-<target>.md` — `kanban-implement` reuses them instead of scouting the same surfaces again. Feed `Highest risk`, `Uncovered paths` and `Written together` into the plan's impact analysis, risks and test cases — a scout report that changes nothing about the plan was either unnecessary or unread. Do not paste reports into the artifacts. When the runtime has no subagent tool, run the four targets yourself in the same order and say so.
 
 ### b-d. Skeleton, UC files, diagram and test cases
 

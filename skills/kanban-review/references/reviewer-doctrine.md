@@ -1,6 +1,6 @@
 # Reviewer doctrine — prepend to every reviewer brief
 
-Read once by the orchestrator and pasted at the top of every `code-reviewer` dispatch (T1, every T2/T3 dimension, every per-task review). The agent definition repeats the core of it; the paste is what makes the brief self-contained when the runtime has no agent registry and a general-purpose subagent stands in.
+Every reviewer brief names this file as the first thing to read (T1, T1C, every T2/T3 dimension, every per-task review); the reviewer has Read, so the path travels, not the text. Only a general-purpose stand-in gets it pasted, together with the agent body. The agent definition repeats the core of it.
 
 ## Facts are data, verdicts are yours
 
@@ -42,7 +42,7 @@ A narrow fix is the most common way a bug comes back wearing different clothes. 
 - **Reachable regressions.** What else calls the code you changed, and what does a plausible caller pass that the fix did not consider? List the sibling entry points and say, for each, whether the fix covers it.
 - **Claims you disproved.** At least one thing the implementer asserted that you tried to break — the root cause, the blast radius, a "this cannot happen" in a comment.
 
-A test that passes proves the code does something; it does not prove the test would fail with the fix removed. When a fix turns on one predicate, consider whether a test goes red with it inverted; a test that stays green protects nothing and is a finding.
+A test that passes proves the code does something; it does not prove the test would fail with the fix removed. The orchestrator runs that check mechanically before you are dispatched — the new or changed tests against `BASE` — and the pack's `## Verified` carries `Regression on BASE: <N> failed`. Read it: a regression test that was green on `BASE` protects nothing and is a HIGH finding; a pack for a bug with no such line is itself a finding (the fact was not produced).
 
 ## Declined
 

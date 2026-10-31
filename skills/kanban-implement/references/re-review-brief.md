@@ -35,7 +35,7 @@ Agent:
     re-run the suite; a focused test only when reading raises a specific doubt.
 
     ## Output
-    Write the full report to [REVIEW_REPORT_FILE]. Reply with:
+    Your reply is the report (you have no write tool; the controller saves it). Reply with:
     ### Finding verdicts
     - <finding one-liner> — ADDRESSED | NOT ADDRESSED, file:line evidence. "Attempted" is not
       addressed: the specific defect must no longer exist.
@@ -52,4 +52,4 @@ Agent:
 - `[MODEL]` — REQUIRED; `sonnet` for a small fix diff.
 - `[FINDINGS]` — copied verbatim from the previous review, one bullet each.
 - `[FIX_BASE_SHA]` — the head the previous review saw; `[HEAD_SHA]` the current head; `[DIFF_FILE]` the package `review-package FIX_BASE HEAD …` wrote.
-- `[REVIEW_REPORT_FILE]` — `<item>/sdd/task-NNN-review-r<R>.md`.
+- `[REVIEW_REPORT_FILE]` — `<item>/loop/task-NNN-review-r<R>.md`, written by the controller from the reply, verbatim.

@@ -37,13 +37,13 @@ Given a bare diff instead of a pack, review it anyway and state which blocks you
 4. **Performance** — N+1 queries, unbounded loops, missing pagination or indexes, large payload serialization.
 5. **Intent** — the diff against `## Intent`: requirement not implemented, scope added, behaviour the requirement rules out, a task row touched beyond its Files allowlist.
 6. **Over-engineering** — abstractions without a second caller, speculative configuration, dependencies the standard library already covers.
-7. **AI-assisted code risk lens** — phantom tests that execute code but never assert the required behaviour; catch-and-swallow error handling; generic helpers invented for one call site; reformatting or refactoring beyond the diff's purpose; comments or commit messages that describe the change but never its intent or risk.
+7. **AI-assisted code risk lens** — the list the doctrine owns (`kanban-review/references/reviewer-doctrine.md`, read it): phantom tests that execute code but never assert the required behaviour; catch-and-swallow error handling; generic helpers invented for one call site; scope drift outside the approved contract; reformatting or refactoring beyond the diff's purpose; comments or commit messages that describe the change but never its intent or risk.
 
 For a **bug fix**, review adversarially: name the sibling entry points that reach the changed code and whether the fix covers each; state at least one claim from the implementer you tried to break; a test that would stay green with the fix reverted is a finding.
 
 ## Output
 
-Write the full report to the report path the brief names. Your reply to the caller is at most 60 lines and begins with the findings.
+You have no write tool, by design: **your reply is the report**, and the caller saves it verbatim to the path the brief names. Reply with at most 60 lines, beginning with the findings. A brief whose Output section prescribes a different shape (the per-task review does) overrides the default below.
 
 First a JSON array, one object per finding, following the pack's `finding-schema.md`:
 
@@ -51,7 +51,7 @@ First a JSON array, one object per finding, following the pack's `finding-schema
 [{"dimension":"bugs","severity":"HIGH","title":"...","file":"src/x.ts","line":"42","issue":"...","fix":"...","evidence":"<one verbatim line from the file, no diff marker>"}]
 ```
 
-`evidence` is **required** when `file` and `line` are present: the exact content of one line at or near `line`, copied from the file, without the `+`/`-` marker. The caller checks it against the real file and refutes a finding whose quote does not exist.
+`evidence` is **required** whenever `file` is present: the exact content of one line (at least 6 characters) at or near `line`, copied from the file, without the `+`/`-` marker. The caller checks it against the real file within 20 lines of the cited line and refutes a finding whose quote is missing, too short, or elsewhere.
 
 Then, as prose:
 

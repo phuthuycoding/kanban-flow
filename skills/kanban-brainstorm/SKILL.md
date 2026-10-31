@@ -22,7 +22,7 @@ Orientation before ideation. Cheap questions here prevent expensive ones later.
 1. **Read the repository.** Structure, stack, tooling, data model, conventions. Reading code beats asking — never make the user explain what the code already answers.
 2. **Ground the request.** Before your first question, verify every entity the idea names against its real definition — the file, command, table, field, endpoint or config key — spelled as the source spells it. A name the user used that the code does not have is your first question, not an assumption. Field-level detail waits for planning; here the names must be real.
 3. **Read one similar existing feature** (if any) for house patterns.
-4. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target. Brainstorm the real user journey — what they see and type — before any FR list or stage name; a spec that jumps to structure before the journey is agreed gets rejected.
+4. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target. Describe the real user journey — what they see and type — and have the user agree to it before any FR list or structural naming; the human decides whether the journey is right, and a spec written before that agreement is rework waiting to happen.
 5. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
 
 Rules of engagement:

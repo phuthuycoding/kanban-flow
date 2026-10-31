@@ -5,8 +5,8 @@ import { findWorksRoot } from "../../workflow/features.js";
 import { commandHelp } from "../args.js";
 import { effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, configPath, projectKabanDir, effectiveSkillsScope, type ProjectConfig } from "../../project/config.js";
-import { AGENTS, DEFAULT_AGENT, projectSkillsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
-import { agentSkillsState, hasManagedEntries, skillsAreHealthy } from "../../integrations/install.js";
+import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, hasManagedEntries, MANAGED_AGENTS, skillsAreHealthy } from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
 import type { CmdResult } from "../result.js";
 import type { ParsedArgs } from "../args.js";
@@ -46,6 +46,15 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
       label: `Skills for ${a.label} (scope: ${scope}, ${dir}/) — ${state}`,
       action: `kf install --agent ${id} --scope ${scope}`,
     });
+    const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root);
+    if (agentsDir) {
+      const agentsHealth = agentsState(agentsDir);
+      items.push({
+        done: agentsAreHealthy(agentsHealth),
+        label: `Agents for ${a.label} (${MANAGED_AGENTS.join(", ")}; scope: ${scope}, ${agentsDir}/) — ${agentsHealth}`,
+        action: agentsHealth === "foreign" ? "your own file sits at a managed agent name — rename it or keep the substitution" : `kf install --agent ${id} --scope ${scope}`,
+      });
+    }
   }
 
   if (scope === "global") {

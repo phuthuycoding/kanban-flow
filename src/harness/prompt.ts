@@ -161,7 +161,7 @@ export function buildWorkerPrompt(input: PromptInput): string {
     "- Do only this stage's work and write its artifacts into the work item folder.",
     "- Never run `kf stage`, `kf approve`, `kf archive`, or `kf run`; the main agent decides transitions.",
     "- Never edit approved contract artifacts (requirement, plan, use cases, test cases); track progress in tasks.md.",
-    "- Do not commit or push.",
+    "- Do not push. Commit only as the implementation task loop prescribes — one commit per task on the item branch, made by the implementer it dispatches; outside that loop, commit nothing.",
     "- Finish with two final lines exactly in this form:",
     "STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT",
     "Summary: <one or two sentences>",

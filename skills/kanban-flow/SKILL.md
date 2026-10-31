@@ -15,7 +15,7 @@ State is enforced by the `kf` CLI: artifact gates, approval fingerprints, execut
 
 **Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; use `kf init -i` when the user should answer the setup questions). Detect project stack/tooling by READING the repository — never assume.
 
-**Every delegated step leaves a named line.** The phase skills hand defined work to agents with a fresh context — `Agent(scout)` for the impact survey, `Agent(spec-reviewer)` before confirmation and approval, `Agent(code-reviewer)` for every task review and the whole-branch review. A line like `Agent(code-reviewer)` in the transcript is auditable; "I reviewed the diff" is not, and a missing line is a skipped step. `kf install` puts the three agent definitions where Claude Code looks (`.claude/agents/`); other runtimes paste the agent file's body into a plain subagent. The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
+**Every delegated step leaves a named line.** The phase skills hand defined work to agents with a fresh context — `Agent(scout)` for the impact survey, `Agent(spec-reviewer)` before confirmation and approval, `Agent(code-reviewer)` for every task review and the whole-branch review. A line like `Agent(code-reviewer)` in the transcript is auditable; "I reviewed the diff" is not, and a missing line is a skipped step. The three agent bodies live in this skill at `agents/<name>.md`; `kf install` registers them where Claude Code looks (`.claude/agents/`), and other runtimes paste that body into a plain subagent. A session never fills the review seat itself. The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
 
 ---
 
@@ -34,7 +34,7 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 | 1. Brainstorm / Bug triage | `kanban-brainstorm` or `kanban-bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Human + agent refine requirement or reproduce bug |
 | 2. Planning | `kanban-plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | **Human approval, then start/backlog decision** |
 | Backlog | — | Approved planning contract remains intact | Waiting for explicit user decision to start |
-| 3. Implement | `kanban-implement` | — (tasks.md and the `sdd/progress.md` ledger track) | Autonomous: `kf drive` when a task harness is configured, else the subagent-driven task loop — fresh implementer per task, `code-reviewer` per task, bounded fix loop |
+| 3. Implement | `kanban-implement` | — (tasks.md and the `loop/progress.md` ledger track) | Autonomous: `kf drive` when a task harness is configured, else the subagent-driven task loop — fresh implementer per task, `code-reviewer` per task, bounded fix loop |
 | 4. Testing | `kanban-test` | `phase-4-testing-result.md` (`status: PASS`) | FAIL/REJECT → loop to implementation |
 | 5. Review | `kanban-review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents (tier from the diff), evidence verified; FAIL/REJECT → loop; REQUIREMENT_BUG → STOP |
 | 5.5 Shipping | `kanban-ship` | — (`meta.ship` tracks) | Optional leg — code items only; **third human gate: ship now or archive directly?** |

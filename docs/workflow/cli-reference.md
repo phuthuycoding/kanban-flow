@@ -67,14 +67,14 @@ Two project hooks finish the job the domain starts: `.kf/hooks/worktree-create.s
 
 ## Skill installation
 
-Skills always live at **project scope** (`{root}/.claude/skills`, `{root}/.agents/skills` and so on). The `kf` CLI is the only thing installed globally, through `npm link`. `kf init` installs the skills during setup; `kf install` and `kf uninstall` work on the project root resolved from the nearest `.works/` above the working directory. Neither writes anything into `~/`.
+Skills and agents install at **global scope** by default (`~/.claude/skills`, `~/.claude/agents`, `~/.agents/skills` and so on — linked to the package so one set serves every project), or at **project scope** (`{root}/.claude/skills`, `{root}/.claude/agents`, …, copied) when `skills.scope: "project"` is declared or `--project` is passed. `kf init` installs them during setup; `kf install` and `kf uninstall` work on the project root resolved from the nearest `.works/` above the working directory. A file of your own that sits at a managed agent name (`code-reviewer.md`, `scout.md`, `spec-reviewer.md`) is never replaced or removed; `kf doctor` points it out.
 
 | Command | What it does |
 | --- | --- |
-| `kf install [--agent <id> ...]` | Installs the 9 skills into each agent's own directory, defaulting to `claude`, and the 3 agent definitions (`code-reviewer`, `scout`, `spec-reviewer`) into the runtime's agents dir when it has one (`.claude/agents` for Claude Code; linked at global scope, copied at project scope). Must run inside a kanban project, which means a `.works/` exists; run `kf init` first if it does not. The directory is `.claude/skills`, `.gemini/skills`, `.kiro/skills`, `.cursor/skills`, `.opencode/skills` — and `.agents/skills` for `codex`, which follows the open standard rather than its own name. An unknown agent also falls back to `.agents/skills`. |
+| `kf install [--agent <id> ...]` | Installs the 9 skills into each agent's own directory, defaulting to `claude`, and the 3 agent definitions (`code-reviewer`, `scout`, `spec-reviewer`, whose bodies live in `skills/kanban-flow/agents/`) into the runtime's agents dir when it has one (`.claude/agents` for Claude Code; linked at global scope, copied at project scope, or copied at both when the package runs from the npx cache or a symlink is denied). A file of yours under one of those names is left untouched and reported. Must run inside a kanban project, which means a `.works/` exists; run `kf init` first if it does not. The directory is `.claude/skills`, `.gemini/skills`, `.kiro/skills`, `.cursor/skills`, `.opencode/skills` — and `.agents/skills` for `codex`, which follows the open standard rather than its own name. An unknown agent also falls back to `.agents/skills`. |
 | `kf uninstall [--agent <id> ...] [--purge] [--force]` | Removes exactly the 9 skills and the 3 agent definitions that kanban-flow manages, leaving every other skill and agent alone. `--purge` also deletes `.works/`, `.kf/` and `docs/{requirement,use-cases,testplan}/`, asking first on a TTY and requiring `--force` without one. |
 
-Uninstall only removes skills. To take the CLI off PATH: `npm rm -g @phuthuycoding/kanban-flow`.
+Uninstall removes the managed skills and agents kanban-flow put there, nothing else. To take the CLI off PATH: `npm rm -g @phuthuycoding/kanban-flow`.
 
 ## Error conventions
 

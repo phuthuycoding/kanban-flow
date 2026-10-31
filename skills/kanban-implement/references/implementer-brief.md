@@ -94,8 +94,8 @@ Agent:
 **Placeholders**
 
 - `[MODEL]` — REQUIRED. See `references/task-loop.md` § Model selection.
-- `[BRIEF_FILE]` — `<item>/sdd/task-NNN-brief.md`, written by the controller before the dispatch.
-- `[REPORT_FILE]` — `<item>/sdd/task-NNN-report.md`.
+- `[BRIEF_FILE]` — `<item>/loop/task-NNN-brief.md`, written by the controller before the dispatch.
+- `[REPORT_FILE]` — `<item>/loop/task-NNN-report.md`.
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist, or "files unknown — change only what the brief describes and list every file in your report".
 
