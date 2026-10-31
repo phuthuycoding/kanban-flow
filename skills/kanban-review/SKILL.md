@@ -111,6 +111,34 @@ Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one
 
 For a bug, also record the verified root cause and whether related feature docs need an update — when none, say why.
 
+## 7b. The landing board — every check stamped with the tree it was earned on
+
+A `PASS` is a verdict about a tree. Before anything leaves review toward a PR, fingerprint the worktree and print a board whose every line names that fingerprint; any later change to the tree voids the stamps and the checks run again.
+
+```bash
+fp() { { git rev-parse HEAD; git diff HEAD; git status --porcelain -uall; } | git hash-object --stdin | cut -c1-10; }
+FP=$(fp)
+```
+
+Write `<item>/reviews/<id>/board-<FP>.md` and `cat` it — never retype or summarise it; a board that must be printed from a file leaves a visible hole where a tool call should be when a check was skipped:
+
+```
+Verified at fingerprint = <FP>
+
+✅/❌ Lint                  (<FP>)  <command> → exit <code>
+✅/❌ Build / typecheck      (<FP>)  <command> → exit <code>
+✅/❌ Tests                  (<FP>)  <N passed / M failed> — <command>; changed behaviour no test touches: <list or none>
+✅/❌ Regression on BASE     (<FP>)  <N failed on BASE, N passed on HEAD> — bugs and behaviour fixes; "n/a" otherwise
+✅/❌ Testing report         (<FP>)  phase-4-testing-result.md status PASS, execution <id>
+✅/❌ Independent review     (<FP>)  tier <T>, <seats> on <models>, <N> findings kept / <M> refuted, 0 HIGH open
+✅/❌ Worktree clean         (<FP>)  git status --porcelain empty
+Landable: YES only if every line above is ✅ at the current fingerprint
+```
+
+A ❌ means the item does not leave review forward: the report is `FAIL` (or stays unwritten until the check is green), and the failing line says where the item goes back to. Once a PR exists and CI has answered, append `✅/❌ CI (<sha>) <workflows>` and `✅/❌ Mergeable (<PR>) <mergeStateStatus>` to the same board.
+
+**Gate log.** Append one line per board to `.kf/review-gate.tsv` (`<UTC time>\t<feature>\t<FP>\tLANDABLE|BLOCKED\t<the check that blocked, or ->`), then print `blocked <N> of the last <M>` from it. A gate that has blocked nothing in a long run is not a gate; the number stays visible so the question stays answerable.
+
 ## 8. The directional gate decides
 
 - `PASS` → ask the human once: **ship or archive directly?** Ship (code item, PR/release wanted) → load kanban-ship and `kf stage <f> shipping`. Nothing to ship (docs/config/research) → load kanban-archive and `kf archive` straight from review.
