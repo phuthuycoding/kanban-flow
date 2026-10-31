@@ -498,10 +498,6 @@ export function agentSkillsState(dir: string): AgentSkillsState {
   return "mixed";
 }
 
-export function skillsAreHealthy(state: AgentSkillsState): boolean {
-  return state === "linked" || state === "copied" || state === "mixed";
-}
-
 /**
  * Managed skill names in `dir` held by an entry kanban-flow does not own (a user's own `travel`).
  * The install leaves those alone, so they are neither stale nor something a reinstall repairs.
@@ -520,18 +516,6 @@ export function unhealthySkills(dir: string, foreign: string[]): string[] {
 export function hasOwnedEntries(dir: string): boolean {
   const foreign = foreignSkills(dir);
   return MANAGED_SKILLS.some((s) => !foreign.includes(s) && lstatSync(join(dir, s), { throwIfNoEntry: false }) !== undefined);
-}
-
-/** True when at least one managed skill exists (or links) in the dir — catches dangling links too. */
-export function hasManagedEntries(dir: string): boolean {
-  return MANAGED_SKILLS.some((s) => {
-    try {
-      lstatSync(join(dir, s));
-      return true;
-    } catch {
-      return false;
-    }
-  });
 }
 
 function dirSnapshot(dir: string, base = dir, out = new Map<string, Buffer>()): Map<string, Buffer> {

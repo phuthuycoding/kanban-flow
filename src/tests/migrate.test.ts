@@ -149,6 +149,29 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     expect(f.meta?.runs).toEqual(legacyHistory.runs);
   });
 
+  it("removes a legacy dir left with only a stray .DS_Store, after moving its items or with none to move", async () => {
+    await seedLegacy("dones", "finder");
+    await writeFile(works("dones", ".DS_Store"), "x");
+    await mkdir(works("shipping"), { recursive: true });
+    await writeFile(works("shipping", ".DS_Store"), "x");
+
+    const res = await cmdStatus(statusAll(), root);
+    expect(res.code).toBe(0);
+    expect(migrationLines(res.stdout)).toEqual([`migrated finder_${TS}: .works/dones → .works/done`]);
+    expect(existsSync(works("dones"))).toBe(false);
+    expect(existsSync(works("shipping"))).toBe(false);
+  });
+
+  it("keeps a legacy dir that still holds a non-dotfile or a folder", async () => {
+    await mkdir(works("dones", ".keep-me"), { recursive: true });
+    await mkdir(works("shipping"), { recursive: true });
+    await writeFile(works("shipping", "notes.txt"), "mine");
+
+    expect((await cmdStatus(statusAll(), root)).code).toBe(0);
+    expect(readdirSync(works("dones"))).toEqual([".keep-me"]);
+    expect(readFileSync(works("shipping", "notes.txt"), "utf8")).toBe("mine");
+  });
+
   it("leaves an item with a dirty worktree in place and reports it", async () => {
     const wt = join(root, "wt-dirty");
     await mkdir(wt, { recursive: true });

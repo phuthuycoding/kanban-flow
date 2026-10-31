@@ -12,6 +12,7 @@ import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
+import { legacyFolders } from "../workflow/migrate.js";
 import { legacyHarnessStageKeys } from "../harness/config.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
@@ -63,7 +64,17 @@ function checkLegacyStageDirs(root: string): DoctorFinding[] {
   return LEGACY_STAGE_NAMES.flatMap((legacy) => {
     const dir = join(root, ".works", legacy);
     if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return [];
-    const folders = readdirSync(dir).filter((f) => statSync(join(dir, f), { throwIfNoEntry: false })?.isDirectory()).sort();
+    const folders = legacyFolders(root, legacy);
+    // kf status removes a dir left with dotfiles only; any other stray file is the user's to delete.
+    const stray = folders.length > 0 ? [] : readdirSync(dir).filter((f) => !f.startsWith(".")).sort();
+    if (stray.length > 0) {
+      return [{
+        level: "WARNING" as const,
+        area: `.works/${legacy}/`,
+        message: `legacy stage folder .works/${legacy}/ holds no work items, only ${stray.join(", ")}.`,
+        action: `remove .works/${legacy}/`,
+      }];
+    }
     return [{
       level: "WARNING" as const,
       area: `.works/${legacy}/`,
@@ -173,7 +184,10 @@ function checkDocsBranches(root: string): DoctorFinding[] {
     return [{
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
-      message: `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin and not proven merged (${proof.reason}).`,
+      // A branch that never had an upstream cannot have a PR, so there is nothing unproven to explain.
+      message: proof.pushed
+        ? `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin and not proven merged (${proof.reason}).`
+        : `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin.`,
       action: `git push -u origin ${branch}, then open a PR for it`,
     }];
   });
@@ -373,24 +387,59 @@ function checkOrphanedHooks(root: string): DoctorFinding[] {
 /** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
 const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
 
+/** A shell line that sources the pack's lib; a comment that merely names it does not count. */
+const SOURCES_HOOK_LIB = /^\s*(source|\.)\s+.*lib-github\.sh/m;
+
+interface HookPackScan {
+  optedIn: boolean;
+  /** Contents of the pack files present as regular files and readable. */
+  texts: Map<string, string>;
+  /** Pack-named entries that are not a readable file, with the cause; doctor reports them instead of crashing. */
+  unreadable: Array<{ file: string; cause: string }>;
+}
+
 /**
  * Opted in = the pack's lib is there, or a stage hook sources it. A stage-named hook alone is not
  * enough: a project's own done.sh (or a renamed 0.13 dones.sh) must not pull the whole pack in.
  */
-function usesHookPack(dir: string): boolean {
-  return existsSync(join(dir, "lib-github.sh"))
-    || STAGES.some((s) => existsSync(join(dir, `${s}.sh`)) && readFileSync(join(dir, `${s}.sh`), "utf8").includes("lib-github.sh"));
+function scanHookPack(dir: string): HookPackScan {
+  const texts = new Map<string, string>();
+  const unreadable: HookPackScan["unreadable"] = [];
+  for (const file of GITHUB_HOOK_PACK) {
+    const path = join(dir, file);
+    const stat = statSync(path, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (!stat.isFile()) {
+      unreadable.push({ file, cause: "not a regular file" });
+      continue;
+    }
+    try {
+      texts.set(file, readFileSync(path, "utf8"));
+    } catch (err) {
+      if (!(err instanceof Error && "code" in err)) throw err;
+      unreadable.push({ file, cause: err.message });
+    }
+  }
+  const optedIn = existsSync(join(dir, "lib-github.sh"))
+    || STAGES.some((s) => SOURCES_HOOK_LIB.test(texts.get(`${s}.sh`) ?? ""));
+  return { optedIn, texts, unreadable };
 }
 
 /**
- * The hook pack is opt-in, so its state is only checked once a project opted in (usesHookPack). Missing files get restored by --fix; divergent files are
+ * The hook pack is opt-in, so its state is only checked once a project opted in (scanHookPack). Missing files get restored by --fix; divergent files are
  * only reported, because a hook the project edited is project-owned and must not be clobbered.
  */
 function checkGithubHooks(root: string): DoctorFinding[] {
   const dir = join(root, ".kf", "hooks");
-  if (!usesHookPack(dir)) return [];
+  const scan = scanHookPack(dir);
+  const findings: DoctorFinding[] = scan.unreadable.map(({ file, cause }) => ({
+    level: "WARNING" as const,
+    area: ".kf/hooks",
+    message: `.kf/hooks/${file} cannot be read: ${cause}.`,
+    action: `replace .kf/hooks/${file} with a readable hook file, or remove it`,
+  }));
+  if (!scan.optedIn) return findings;
   const present = GITHUB_HOOK_PACK.filter((f) => existsSync(join(dir, f)));
-  const findings: DoctorFinding[] = [];
   const missing = GITHUB_HOOK_PACK.filter((f) => !present.includes(f));
   if (missing.length > 0) {
     findings.push({
@@ -402,7 +451,8 @@ function checkGithubHooks(root: string): DoctorFinding[] {
   }
   for (const f of present) {
     const pkg = join(PKG_GITHUB_HOOKS_DIR, f);
-    if (existsSync(pkg) && readFileSync(pkg, "utf8") !== readFileSync(join(dir, f), "utf8")) {
+    const text = scan.texts.get(f);
+    if (text !== undefined && existsSync(pkg) && readFileSync(pkg, "utf8") !== text) {
       findings.push({
         level: "WARNING",
         area: ".kf/hooks",
@@ -660,7 +710,7 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
   }
 
   const hooksDir = join(root, ".kf", "hooks");
-  const optedIn = usesHookPack(hooksDir);
+  const optedIn = scanHookPack(hooksDir).optedIn;
   // A dones.sh standing in for done.sh is the project's own gate: it is renamed, never replaced by the
   // pack's done.sh, which the restore below would otherwise copy in and so silence it.
   if (existsSync(join(hooksDir, "dones.sh")) && !existsSync(join(hooksDir, "done.sh"))) {

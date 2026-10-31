@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
+import { cmdStatus } from "../cli/commands/inspect.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
@@ -41,6 +42,32 @@ describe("kf doctor on a project upgraded from a release with dones and shipping
     await rm(join(root, ".works", "dones"), { recursive: true });
     await rm(join(root, ".works", "shipping"), { recursive: true });
     expect(runDoctor(root).findings).toEqual([]);
+  });
+
+  it("a legacy dir holding only a .DS_Store warns as empty and kf status clears it", async () => {
+    await project();
+    await mkdir(join(root, ".works", "dones"), { recursive: true });
+    await writeFile(join(root, ".works", "dones", ".DS_Store"), "x");
+
+    const legacy = runDoctor(root).findings.filter((f) => f.area === ".works/dones/");
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].message).toContain("is still present (empty)");
+    expect(legacy[0].action).toBe("run kf status to migrate them");
+
+    expect((await cmdStatus(args("status", [], { all: true }), root)).code).toBe(0);
+    expect(existsSync(join(root, ".works", "dones"))).toBe(false);
+    expect(runDoctor(root).findings).toEqual([]);
+  });
+
+  it("a legacy dir holding a stray file and no items names the file and says to remove the dir", async () => {
+    await project();
+    await mkdir(join(root, ".works", "shipping"), { recursive: true });
+    await writeFile(join(root, ".works", "shipping", "notes.txt"), "mine");
+
+    const legacy = runDoctor(root).findings.filter((f) => f.area === ".works/shipping/");
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].message).toContain("holds no work items, only notes.txt");
+    expect(legacy[0].action).toBe("remove .works/shipping/");
   });
 
   it("--fix renames a customised dones.sh to done.sh instead of restoring the pack's done.sh over it", async () => {
@@ -110,6 +137,24 @@ describe("kf doctor on a project upgraded from a release with dones and shipping
     expect(again.stdout).not.toContain("added .kf/travel/");
   });
 
+  it("counts a broader .kf/ ignore as covering the travel ledger and appends nothing", async () => {
+    execFileSync("git", ["init", "-q", root]);
+    await project();
+    const content = "node_modules/\n.works/\n.worktrees/\n.kf/\n";
+    await writeFile(join(root, ".gitignore"), content);
+
+    expect(runDoctor(root).findings.some((f) => f.area === ".gitignore")).toBe(false);
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).not.toContain("added .kf/travel/");
+    expect(await readFile(join(root, ".gitignore"), "utf8")).toBe(content);
+  });
+
+  it("outside git the travel entry is still matched by line", async () => {
+    await project();
+    await writeFile(join(root, ".gitignore"), ".kf/\n");
+    await expect(import("../project/bootstrap.js").then((m) => m.appendIgnoreWorks(root, [".kf/travel/"]))).resolves.toEqual([".kf/travel/"]);
+  });
+
   it("only adds the travel entry, leaving other missing entries to the project", async () => {
     execFileSync("git", ["init", "-q", root]);
     await project();
@@ -119,5 +164,39 @@ describe("kf doctor on a project upgraded from a release with dones and shipping
     expect(after).toContain(".kf/travel/");
     expect(after).not.toContain(".works/");
     expect(after).not.toContain(".worktrees/");
+  });
+});
+
+describe("kf doctor reading the GitHub hook pack", () => {
+  it("a stage hook that only mentions lib-github.sh in a comment does not opt the project in", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(hooks, { recursive: true });
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n# does not use lib-github.sh\nexit 0\n");
+
+    expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).not.toContain("restored .kf/hooks/");
+    expect(await readdir(hooks)).toEqual(["done.sh"]);
+  });
+
+  it("a stage hook that dot-sources lib-github.sh opts the project in", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(hooks, { recursive: true });
+    await writeFile(join(hooks, "review.sh"), "#!/usr/bin/env bash\n  . \"$(dirname \"$0\")/lib-github.sh\" || exit 0\n");
+
+    expect(runDoctor(root).findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
+  });
+
+  it("a stage-named directory is reported as a finding instead of crashing doctor", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(join(hooks, "done.sh"), { recursive: true });
+    await writeFile(join(hooks, "lib-github.sh"), "# lib\n");
+
+    const findings = runDoctor(root).findings.filter((f) => f.area === ".kf/hooks");
+    expect(findings.some((f) => f.message === ".kf/hooks/done.sh cannot be read: not a regular file.")).toBe(true);
+    expect(findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
   });
 });

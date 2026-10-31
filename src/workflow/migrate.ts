@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, rmdirSync, statSync, unlinkSync } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -27,7 +27,7 @@ interface LegacyItem {
 }
 
 /** Folders under a legacy stage dir; an absent dir (already migrated, or never there) yields none. */
-function legacyFolders(root: string, legacy: LegacyStageName): string[] {
+export function legacyFolders(root: string, legacy: LegacyStageName): string[] {
   const dir = join(root, ".works", legacy);
   if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return [];
   return readdirSync(dir).filter((folder) => statSync(join(dir, folder), { throwIfNoEntry: false })?.isDirectory()).sort();
@@ -109,10 +109,17 @@ async function migrateShipping(root: string, item: LegacyItem): Promise<{ line: 
   }
 }
 
-/** Drop a legacy stage dir once nothing is left in it, so later runs have nothing to look at. */
+/**
+ * Drop a legacy stage dir once nothing but dotfiles is left in it, so later runs have nothing to look at.
+ * A dotfile such as the .DS_Store Finder drops would otherwise keep the dir, and doctor's warning, forever.
+ */
 function removeIfEmpty(root: string, legacy: LegacyStageName): void {
   const dir = join(root, ".works", legacy);
-  if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() && readdirSync(dir).length === 0) rmdirSync(dir);
+  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return;
+  const entries = readdirSync(dir, { withFileTypes: true });
+  if (!entries.every((e) => e.name.startsWith(".") && !e.isDirectory())) return;
+  for (const e of entries) unlinkSync(join(dir, e.name));
+  rmdirSync(dir);
 }
 
 /**

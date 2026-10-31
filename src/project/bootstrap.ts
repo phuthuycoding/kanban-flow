@@ -15,6 +15,7 @@ import { assertPathName } from "../workflow/features.js";
 import { seedHarness } from "../harness/config.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
 import { readProjectConfig, effectiveSkillsScope } from "./config.js";
+import { runGit } from "../shared/git.js";
 
 export interface BootstrapAnswers {
   /** Declared contexts; the first is the default. Empty means "leave the project unrestricted". */
@@ -52,13 +53,26 @@ const IGNORED_ENTRIES = [".works/", ".worktrees/", ".kf/travel/"];
 /** The travel ledger entry: only a fresh kf init seeds it, so doctor checks it on upgraded projects. */
 export const TRAVEL_IGNORE_ENTRY = ".kf/travel/";
 
-function missingIgnoreEntries(content: string): string[] {
+/**
+ * Inside a git repository git decides whether the travel ledger is ignored, so a broader pattern such
+ * as `.kf/` or `/.kf/*` counts. Exit 1 is "not ignored"; anything else is a git failure, not an answer.
+ */
+function gitIgnoresTravel(root: string): boolean {
+  const res = runGit(root, ["check-ignore", "-q", `${TRAVEL_IGNORE_ENTRY}x`], { timeoutMs: 10_000 });
+  if (res.code === 0) return true;
+  if (res.code === 1) return false;
+  throw new Error(`git check-ignore failed (exit ${res.code}) in ${root}: ${res.stderr.trim()}`);
+}
+
+function missingIgnoreEntries(root: string, content: string): string[] {
   const lines = content.split("\n").map((l) => l.trim());
+  const inGit = existsSync(join(root, ".git"));
   return IGNORED_ENTRIES.filter((entry) => {
     const bare = entry.replace(/\/$/, "");
     // `.works` keeps its old lenient match (any line naming it) so a hand-written pattern such as
     // `/.works/*` still counts as ignored and is never appended a second time.
     if (entry === ".works/") return !lines.some((l) => l.includes(".works"));
+    if (entry === TRAVEL_IGNORE_ENTRY && inGit) return !gitIgnoresTravel(root);
     return !lines.some((l) => l === entry || l === bare || l === `/${entry}` || l === `/${bare}`);
   });
 }
@@ -68,14 +82,14 @@ export function shouldSuggestIgnoreWorks(root: string): boolean {
   if (!existsSync(join(root, ".git"))) return false;
   const gi = join(root, ".gitignore");
   if (!existsSync(gi)) return true;
-  return missingIgnoreEntries(readFileSync(gi, "utf8")).length > 0;
+  return missingIgnoreEntries(root, readFileSync(gi, "utf8")).length > 0;
 }
 
 /** The kanban-flow entries .gitignore lacks; none outside a git repository. */
 export function ignoreEntriesMissing(root: string): string[] {
   if (!existsSync(join(root, ".git"))) return [];
   const gi = join(root, ".gitignore");
-  return missingIgnoreEntries(existsSync(gi) ? readFileSync(gi, "utf8") : "");
+  return missingIgnoreEntries(root, existsSync(gi) ? readFileSync(gi, "utf8") : "");
 }
 
 /**
@@ -85,7 +99,7 @@ export function ignoreEntriesMissing(root: string): string[] {
 export function appendIgnoreWorks(root: string, only?: readonly string[]): string[] {
   const gi = join(root, ".gitignore");
   const content = existsSync(gi) ? readFileSync(gi, "utf8") : "";
-  const missing = missingIgnoreEntries(content).filter((entry) => !only || only.includes(entry));
+  const missing = missingIgnoreEntries(root, content).filter((entry) => !only || only.includes(entry));
   if (missing.length === 0) return [];
   writeFileSync(gi, `${content}\n# kanban-flow\n${missing.join("\n")}\n`, "utf8");
   return missing;

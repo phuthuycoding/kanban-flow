@@ -224,9 +224,9 @@ describe("kf doctor on a docs branch left at close", () => {
   const unproven = "docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin and not proven merged "
     + "(origin is not a GitHub repository, so a merged PR cannot be checked).";
 
-  it("warns while the branch is not on origin, naming it and why it is not proven merged", async () => {
+  it("warns while the branch never reached origin, naming it without a merge reason", async () => {
     await docsBranchProject();
-    expect(unpushed().map((f) => f.message)).toEqual([unproven]);
+    expect(unpushed().map((f) => f.message)).toEqual(["docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin."]);
   });
 
   it("keeps warning when the pushed branch was deleted from origin without being merged", async () => {
