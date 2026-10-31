@@ -53,28 +53,48 @@ const IGNORED_ENTRIES = [".works/", ".worktrees/", ".kf/travel/"];
 /** The travel ledger entry: only a fresh kf init seeds it, so doctor checks it on upgraded projects. */
 export const TRAVEL_IGNORE_ENTRY = ".kf/travel/";
 
-/**
- * Inside a git repository git decides whether the travel ledger is ignored, so a broader pattern such
- * as `.kf/` or `/.kf/*` counts. Exit 1 is "not ignored"; anything else is a git failure, not an answer.
- */
-function gitIgnoresTravel(root: string): boolean {
-  const res = runGit(root, ["check-ignore", "-q", `${TRAVEL_IGNORE_ENTRY}x`], { timeoutMs: 10_000 });
-  if (res.code === 0) return true;
-  if (res.code === 1) return false;
-  throw new Error(`git check-ignore failed (exit ${res.code}) in ${root}: ${res.stderr.trim()}`);
+/** The entries .gitignore lacks; `gitError` is set when git could not answer and the line match decided instead. */
+export interface IgnoreCheck {
+  missing: string[];
+  gitError: string | null;
 }
 
-function missingIgnoreEntries(root: string, content: string): string[] {
+/**
+ * Inside a git repository git decides whether the travel ledger is ignored, so a broader pattern such
+ * as `.kf/` or `/.kf/*` counts. Exit 1 is "not ignored"; anything else (dubious ownership exits 128,
+ * a .git pointing at a pruned worktree, git not installed) is no answer, so the caller falls back to
+ * the line match and reports the error instead of failing doctor or init over an advisory check.
+ */
+function gitIgnoresTravel(root: string): { ignored: boolean } | { error: string } {
+  let res: ReturnType<typeof runGit>;
+  try {
+    res = runGit(root, ["check-ignore", "-q", `${TRAVEL_IGNORE_ENTRY}x`], { timeoutMs: 10_000 });
+  } catch (err) {
+    // runGit throws only when git cannot be spawned or times out.
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  if (res.code === 0) return { ignored: true };
+  if (res.code === 1) return { ignored: false };
+  return { error: `git check-ignore failed (exit ${res.code}): ${res.stderr.trim() || "no output"}` };
+}
+
+function missingIgnoreEntries(root: string, content: string): IgnoreCheck {
   const lines = content.split("\n").map((l) => l.trim());
   const inGit = existsSync(join(root, ".git"));
-  return IGNORED_ENTRIES.filter((entry) => {
+  let gitError: string | null = null;
+  const missing = IGNORED_ENTRIES.filter((entry) => {
     const bare = entry.replace(/\/$/, "");
     // `.works` keeps its old lenient match (any line naming it) so a hand-written pattern such as
     // `/.works/*` still counts as ignored and is never appended a second time.
     if (entry === ".works/") return !lines.some((l) => l.includes(".works"));
-    if (entry === TRAVEL_IGNORE_ENTRY && inGit) return !gitIgnoresTravel(root);
+    if (entry === TRAVEL_IGNORE_ENTRY && inGit) {
+      const res = gitIgnoresTravel(root);
+      if ("ignored" in res) return !res.ignored;
+      gitError = res.error;
+    }
     return !lines.some((l) => l === entry || l === bare || l === `/${entry}` || l === `/${bare}`);
   });
+  return { missing, gitError };
 }
 
 /** True when .git exists and any kanban-flow entry is not already ignored. */
@@ -82,27 +102,27 @@ export function shouldSuggestIgnoreWorks(root: string): boolean {
   if (!existsSync(join(root, ".git"))) return false;
   const gi = join(root, ".gitignore");
   if (!existsSync(gi)) return true;
-  return missingIgnoreEntries(root, readFileSync(gi, "utf8")).length > 0;
+  return missingIgnoreEntries(root, readFileSync(gi, "utf8")).missing.length > 0;
 }
 
 /** The kanban-flow entries .gitignore lacks; none outside a git repository. */
-export function ignoreEntriesMissing(root: string): string[] {
-  if (!existsSync(join(root, ".git"))) return [];
+export function ignoreEntriesMissing(root: string): IgnoreCheck {
+  if (!existsSync(join(root, ".git"))) return { missing: [], gitError: null };
   const gi = join(root, ".gitignore");
   return missingIgnoreEntries(root, existsSync(gi) ? readFileSync(gi, "utf8") : "");
 }
 
 /**
- * Appends only the entries .gitignore lacks, so a re-run never duplicates a line. Returns what it added.
- * `only` limits it to some of the entries.
+ * Appends only the entries .gitignore lacks, so a re-run never duplicates a line. Returns what it added,
+ * and the git error when the line match stood in for git. `only` limits it to some of the entries.
  */
-export function appendIgnoreWorks(root: string, only?: readonly string[]): string[] {
+export function appendIgnoreWorks(root: string, only?: readonly string[]): { added: string[]; gitError: string | null } {
   const gi = join(root, ".gitignore");
   const content = existsSync(gi) ? readFileSync(gi, "utf8") : "";
-  const missing = missingIgnoreEntries(root, content).filter((entry) => !only || only.includes(entry));
-  if (missing.length === 0) return [];
-  writeFileSync(gi, `${content}\n# kanban-flow\n${missing.join("\n")}\n`, "utf8");
-  return missing;
+  const check = missingIgnoreEntries(root, content);
+  const missing = check.missing.filter((entry) => !only || only.includes(entry));
+  if (missing.length > 0) writeFileSync(gi, `${content}\n# kanban-flow\n${missing.join("\n")}\n`, "utf8");
+  return { added: missing, gitError: check.gitError };
 }
 
 async function confirm(rl: ReturnType<typeof createInterface>, q: string, def: boolean): Promise<boolean> {

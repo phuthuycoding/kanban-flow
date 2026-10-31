@@ -70,6 +70,31 @@ describe("kf doctor on a project upgraded from a release with dones and shipping
     expect(legacy[0].action).toBe("remove .works/shipping/");
   });
 
+  it("names a user dotfile kf status keeps, but not the .DS_Store beside it", async () => {
+    await project();
+    await mkdir(join(root, ".works", "dones"), { recursive: true });
+    await writeFile(join(root, ".works", "dones", ".notes.md"), "mine");
+    await writeFile(join(root, ".works", "dones", ".DS_Store"), "x");
+
+    expect((await cmdStatus(args("status", [], { all: true }), root)).code).toBe(0);
+    const legacy = runDoctor(root).findings.filter((f) => f.area === ".works/dones/");
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].message).toContain("holds no work items, only .notes.md.");
+    expect(legacy[0].action).toBe("remove .works/dones/");
+  });
+
+  it("a folder that is not a work item gets the action to remove it, not to run kf status", async () => {
+    await project();
+    await mkdir(join(root, ".works", "dones", ".keep-me"), { recursive: true });
+    await mkdir(join(root, ".works", "dones", "old"), { recursive: true });
+
+    expect((await cmdStatus(args("status", [], { all: true }), root)).code).toBe(0);
+    const legacy = runDoctor(root).findings.filter((f) => f.area === ".works/dones/");
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].message).toContain("holds no work items, only .keep-me/, old/.");
+    expect(legacy[0].action).toBe("remove .works/dones/.keep-me/, .works/dones/old/");
+  });
+
   it("--fix renames a customised dones.sh to done.sh instead of restoring the pack's done.sh over it", async () => {
     await project();
     const hooks = join(root, ".kf", "hooks");
@@ -152,7 +177,7 @@ describe("kf doctor on a project upgraded from a release with dones and shipping
   it("outside git the travel entry is still matched by line", async () => {
     await project();
     await writeFile(join(root, ".gitignore"), ".kf/\n");
-    await expect(import("../project/bootstrap.js").then((m) => m.appendIgnoreWorks(root, [".kf/travel/"]))).resolves.toEqual([".kf/travel/"]);
+    await expect(import("../project/bootstrap.js").then((m) => m.appendIgnoreWorks(root, [".kf/travel/"]))).resolves.toEqual({ added: [".kf/travel/"], gitError: null });
   });
 
   it("only adds the travel entry, leaving other missing entries to the project", async () => {

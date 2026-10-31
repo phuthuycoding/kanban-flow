@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, mkdir, writeFile, rename } from "node:fs/promises";
+import { chmod, mkdtemp, rm, mkdir, writeFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -170,6 +170,57 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     expect((await cmdStatus(statusAll(), root)).code).toBe(0);
     expect(readdirSync(works("dones"))).toEqual([".keep-me"]);
     expect(readFileSync(works("shipping", "notes.txt"), "utf8")).toBe("mine");
+  });
+
+  it("deletes only OS litter: a dir holding a user dotfile is kept whole, one holding .DS_Store and ._ files is removed", async () => {
+    await mkdir(works("dones"), { recursive: true });
+    await writeFile(works("dones", ".notes.md"), "mine");
+    await writeFile(works("dones", ".DS_Store"), "x");
+    await mkdir(works("shipping"), { recursive: true });
+    await writeFile(works("shipping", ".DS_Store"), "x");
+    await writeFile(works("shipping", "._.DS_Store"), "x");
+
+    const res = await cmdStatus(statusAll(), root);
+    expect(res.code).toBe(0);
+    expect(readFileSync(works("dones", ".notes.md"), "utf8")).toBe("mine");
+    expect(readdirSync(works("dones")).sort()).toEqual([".DS_Store", ".notes.md"]);
+    expect(existsSync(works("shipping"))).toBe(false);
+  });
+
+  it.skipIf(process.getuid?.() === 0)("a cleanup the fs refuses is a ⚠ line, not a failed status", async () => {
+    await mkdir(works("shipping"), { recursive: true });
+    await writeFile(works("shipping", ".DS_Store"), "x");
+    await chmod(works("shipping"), 0o555);
+    try {
+      const res = await cmdStatus(statusAll(), root);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toMatch(/^⚠ could not remove \.works\/shipping\/: EACCES.* — remove it by hand$/m);
+      expect(readdirSync(works("shipping"))).toEqual([".DS_Store"]);
+    } finally {
+      await chmod(works("shipping"), 0o755);
+    }
+  });
+
+  it("leaves an item with a live worker run or a live drive in place and reports it", async () => {
+    const now = new Date().toISOString();
+    await seedLegacy("dones", "busy", {
+      runs: [{ id: "r9", role: "developer", runner: "claude", stage: "implementation", mode: "start", at: TS, log: "runs/r9.log", status: "running", pid: process.pid }],
+    });
+    await seedLegacy("shipping", "driven", {
+      pr: "https://github.com/o/r/pull/6",
+      drive: { id: "drv", status: "running", step: "review", loops: 0, runs: 1, configHash: "h", supervisorPid: process.pid, startedAt: now, updatedAt: now },
+    });
+
+    const res = await cmdStatus(statusAll(), root);
+    expect(res.code).toBe(0);
+    expect(migrationLines(res.stdout)).toEqual([
+      `⚠ busy_${TS} left in .works/dones: worker run r9 is still running — wait for it to end, then re-run kf status --change busy`,
+      `⚠ driven_${TS} left in .works/shipping: drive drv is live (supervisor pid ${process.pid}) — wait for it to end, then re-run kf status --change driven`,
+    ]);
+    expect(folders("dones")).toEqual([`busy_${TS}`]);
+    expect(folders("shipping")).toEqual([`driven_${TS}`]);
+    expect(folders("done")).toEqual([]);
+    expect(folders("review")).toEqual([]);
   });
 
   it("leaves an item with a dirty worktree in place and reports it", async () => {

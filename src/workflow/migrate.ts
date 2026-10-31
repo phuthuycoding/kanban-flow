@@ -2,9 +2,10 @@ import { existsSync, readdirSync, rmdirSync, statSync, unlinkSync } from "node:f
 import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
-import { LEGACY_REOPEN_STAGE, type LegacyStageName, type Stage } from "./schema.js";
-import { parseFolderName, readFeatureMeta, stageDir, type FeatureMeta } from "./features.js";
+import { LEGACY_REOPEN_STAGE, METADATA_FILE, type LegacyStageName, type Stage } from "./schema.js";
+import { driveLive, parseFolderName, readFeatureMeta, stageDir, type FeatureMeta } from "./features.js";
 import { archiveItem } from "./archive.js";
+import { liveRecords } from "../harness/run.js";
 import { withLock } from "../shared/lock.js";
 import { checkMergeGate } from "../integrations/github.js";
 import { readProjectConfig } from "../project/config.js";
@@ -33,13 +34,25 @@ export function legacyFolders(root: string, legacy: LegacyStageName): string[] {
   return readdirSync(dir).filter((folder) => statSync(join(dir, folder), { throwIfNoEntry: false })?.isDirectory()).sort();
 }
 
+/** Whether the migration treats a legacy folder as a work item: it has a .kfw.json or a timestamped name. */
+export function isLegacyItemFolder(root: string, legacy: LegacyStageName, folder: string): boolean {
+  return parseFolderName(folder).ts !== null || existsSync(join(root, ".works", legacy, folder, METADATA_FILE));
+}
+
 /** One folder read the way listFeatures reads a stage; null when it is not a work item. A corrupt .kfw.json throws. */
 function readLegacyItem(root: string, legacy: LegacyStageName, folder: string): LegacyItem | null {
+  if (!isLegacyItemFolder(root, legacy, folder)) return null;
   const dir = join(root, ".works", legacy, folder);
-  const parsed = parseFolderName(folder);
   const meta = readFeatureMeta(dir);
-  if (!meta && !parsed.ts) return null;
-  return { folder, dir, name: meta?.feature ?? parsed.name, meta };
+  return { folder, dir, name: meta?.feature ?? parseFolderName(folder).name, meta };
+}
+
+/** What still runs in the item: a live worker run or drive holds its folder as an absolute path, so it must not be renamed. */
+function liveWork(meta: FeatureMeta | null): string | null {
+  const runs = liveRecords(meta?.runs);
+  if (runs.length > 0) return `worker run ${runs.map((r) => r.id).join(", ")} is still running`;
+  if (driveLive(meta?.drive)) return `drive ${meta?.drive?.id} is live (supervisor pid ${meta?.drive?.supervisorPid})`;
+  return null;
 }
 
 /** The item worktree when it exists and holds uncommitted work; null otherwise. */
@@ -109,25 +122,47 @@ async function migrateShipping(root: string, item: LegacyItem): Promise<{ line: 
   }
 }
 
+/** Files macOS drops into any folder it shows. Any other dotfile may be the user's, so it is never deleted. */
+export const isOsLitter = (name: string): boolean => name === ".DS_Store" || name.startsWith("._");
+
+const isFsError = (err: unknown): err is NodeJS.ErrnoException => err instanceof Error && typeof (err as NodeJS.ErrnoException).code === "string";
+
+/** Runs one fs step; ENOENT means a concurrent kf process already removed the entry, which is the goal. */
+function unlessGone(step: () => void): void {
+  try {
+    step();
+  } catch (err) {
+    if (!(isFsError(err) && err.code === "ENOENT")) throw err;
+  }
+}
+
 /**
- * Drop a legacy stage dir once nothing but dotfiles is left in it, so later runs have nothing to look at.
- * A dotfile such as the .DS_Store Finder drops would otherwise keep the dir, and doctor's warning, forever.
+ * Drop a legacy stage dir once only OS litter is left in it, so later runs have nothing to look at.
+ * A .DS_Store would otherwise keep the dir, and doctor's warning, forever. An fs failure is only a
+ * failed cleanup, not a failed migration: it comes back as a ⚠ line and doctor keeps naming the dir.
  */
-function removeIfEmpty(root: string, legacy: LegacyStageName): void {
+function removeIfEmpty(root: string, legacy: LegacyStageName): string | null {
   const dir = join(root, ".works", legacy);
-  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return;
-  const entries = readdirSync(dir, { withFileTypes: true });
-  if (!entries.every((e) => e.name.startsWith(".") && !e.isDirectory())) return;
-  for (const e of entries) unlinkSync(join(dir, e.name));
-  rmdirSync(dir);
+  try {
+    if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return null;
+    const entries = readdirSync(dir, { withFileTypes: true });
+    if (!entries.every((e) => isOsLitter(e.name) && !e.isDirectory())) return null;
+    for (const e of entries) unlessGone(() => unlinkSync(join(dir, e.name)));
+    unlessGone(() => rmdirSync(dir));
+  } catch (err) {
+    if (!isFsError(err)) throw err;
+    if (err.code === "ENOENT") return null;
+    return `⚠ could not remove ${rel(legacy)}/: ${err.message} — remove it by hand`;
+  }
+  return null;
 }
 
 /**
  * One-time move of folders left by releases that had `dones` and `shipping` stages:
  * `dones/*` → `done/*`; `shipping/*` → `review/*`, or on to `done/*` through archiveItem when
  * the recorded PR is merged. The stage is the folder, so `.kfw.json` is not rewritten and its
- * history keeps the legacy names. An item with a dirty worktree, a clashing target or an
- * unreadable `.kfw.json` stays where it is and gets a line; everything else is untouched.
+ * history keeps the legacy names. An item with a dirty worktree, a live run or drive, a clashing
+ * target or an unreadable `.kfw.json` stays where it is and gets a line; everything else is untouched.
  */
 export async function migrateLegacyStages(root: string): Promise<MigrationResult> {
   const lines: string[] = [];
@@ -148,6 +183,11 @@ export async function migrateLegacyStages(root: string): Promise<MigrationResult
           lines.push(`⚠ ${item.folder} left in ${rel(legacy)}: worktree has uncommitted changes (${dirty}) — commit or discard them, then re-run kf status --change ${item.name}`);
           continue;
         }
+        const live = liveWork(item.meta);
+        if (live) {
+          lines.push(`⚠ ${item.folder} left in ${rel(legacy)}: ${live} — wait for it to end, then re-run kf status --change ${item.name}`);
+          continue;
+        }
         const res = await migrate(item);
         if (!res) continue;
         lines.push(res.line);
@@ -157,7 +197,8 @@ export async function migrateLegacyStages(root: string): Promise<MigrationResult
         failed = true;
       }
     }
-    removeIfEmpty(root, legacy);
+    const cleanup = removeIfEmpty(root, legacy);
+    if (cleanup) lines.push(cleanup);
   }
   return { lines, failed };
 }

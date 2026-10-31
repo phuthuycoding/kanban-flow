@@ -7,12 +7,12 @@ import { ARTIFACTS, LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
-import { branchPushed, landedProof } from "../shared/git.js";
+import { branchPushed, landedProof, revParse } from "../shared/git.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
-import { legacyFolders } from "../workflow/migrate.js";
+import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
 import { legacyHarnessStageKeys } from "../harness/config.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
@@ -64,16 +64,22 @@ function checkLegacyStageDirs(root: string): DoctorFinding[] {
   return LEGACY_STAGE_NAMES.flatMap((legacy) => {
     const dir = join(root, ".works", legacy);
     if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) return [];
-    const folders = legacyFolders(root, legacy);
-    // kf status removes a dir left with dotfiles only; any other stray file is the user's to delete.
-    const stray = folders.length > 0 ? [] : readdirSync(dir).filter((f) => !f.startsWith(".")).sort();
-    if (stray.length > 0) {
-      return [{
-        level: "WARNING" as const,
-        area: `.works/${legacy}/`,
-        message: `legacy stage folder .works/${legacy}/ holds no work items, only ${stray.join(", ")}.`,
-        action: `remove .works/${legacy}/`,
-      }];
+    const all = legacyFolders(root, legacy);
+    const folders = all.filter((folder) => isLegacyItemFolder(root, legacy, folder));
+    // kf status removes a dir left with OS litter only; any other file or a non-item folder is the user's to delete.
+    if (folders.length === 0) {
+      const strayFiles = readdirSync(dir).filter((f) => !isOsLitter(f) && !all.includes(f)).sort();
+      const strayFolders = all.map((f) => `${f}/`);
+      if (strayFiles.length + strayFolders.length > 0) {
+        return [{
+          level: "WARNING" as const,
+          area: `.works/${legacy}/`,
+          message: `legacy stage folder .works/${legacy}/ holds no work items, only ${[...strayFolders, ...strayFiles].join(", ")}.`,
+          action: strayFiles.length === 0
+            ? `remove ${strayFolders.map((f) => `.works/${legacy}/${f}`).join(", ")}`
+            : `remove .works/${legacy}/`,
+        }];
+      }
     }
     return [{
       level: "WARNING" as const,
@@ -86,13 +92,24 @@ function checkLegacyStageDirs(root: string): DoctorFinding[] {
 
 /** Only a fresh kf init seeds the travel ledger entry; without it `git add -A` commits the ledger. */
 function checkTravelIgnore(root: string): DoctorFinding[] {
-  if (!ignoreEntriesMissing(root).includes(TRAVEL_IGNORE_ENTRY)) return [];
-  return [{
+  const check = ignoreEntriesMissing(root);
+  const findings: DoctorFinding[] = [];
+  if (check.gitError) {
+    findings.push({
+      level: "WARNING",
+      area: ".gitignore",
+      message: `git could not say whether ${TRAVEL_IGNORE_ENTRY} is ignored (${check.gitError}); only .gitignore lines were matched.`,
+      action: "fix git in this checkout (for example: git config --global --add safe.directory <path>), then re-run kf doctor",
+    });
+  }
+  if (!check.missing.includes(TRAVEL_IGNORE_ENTRY)) return findings;
+  findings.push({
     level: "WARNING",
     area: ".gitignore",
     message: `${TRAVEL_IGNORE_ENTRY} is not ignored; the travel ledger shows up as untracked files.`,
     action: `kf doctor --fix (adds ${TRAVEL_IGNORE_ENTRY} to .gitignore)`,
-  }];
+  });
+  return findings;
 }
 
 /**
@@ -178,13 +195,24 @@ function checkAwaitingMerge(root: string): DoctorFinding[] {
 function checkDocsBranches(root: string): DoctorFinding[] {
   return listFeatures(root).flatMap((f) => {
     const branch = f.meta?.docsBranch;
-    if (!branch || branchPushed(root, "origin", branch) !== false) return [];
+    if (!branch) return [];
+    // null: no local branch. It is still pushed work when origin has it; otherwise landedProof says it is gone.
+    const pushed = branchPushed(root, "origin", branch);
+    if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) return [];
     const proof = landedProof(root, branch);
     if (proof.landed) return [];
+    if (proof.gone) {
+      return [{
+        level: "WARNING" as const,
+        area: `${f.stage}/${f.folder}`,
+        message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone locally and on origin with no merged PR found (${proof.reason}).`,
+        action: `nothing to push; the docs never landed — re-run the close docs step or remove docsBranch from .works/${f.stage}/${f.folder}/.kfw.json`,
+      }];
+    }
     return [{
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
-      // A branch that never had an upstream cannot have a PR, so there is nothing unproven to explain.
+      // pushed: false means nothing records a push and no merged PR was found, so there is no reason to show.
       message: proof.pushed
         ? `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin and not proven merged (${proof.reason}).`
         : `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin.`,
@@ -704,7 +732,7 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
       return { agents: [DEFAULT_AGENT], scope: "global" as SkillScope, declaredScope: undefined };
     }
   })();
-  if (ignoreEntriesMissing(root).includes(TRAVEL_IGNORE_ENTRY)) {
+  if (ignoreEntriesMissing(root).missing.includes(TRAVEL_IGNORE_ENTRY)) {
     appendIgnoreWorks(root, [TRAVEL_IGNORE_ENTRY]);
     fixed.push(`added ${TRAVEL_IGNORE_ENTRY} to .gitignore`);
   }

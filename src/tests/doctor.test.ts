@@ -237,6 +237,17 @@ describe("kf doctor on a docs branch left at close", () => {
     expect(unpushed().map((f) => f.message)).toEqual([unproven]);
   });
 
+  it("says a branch gone locally and on origin has nothing to push, and how to clear the record", async () => {
+    await docsBranchProject();
+    sh(root, "branch", "-D", "docs/app-demo");
+    const found = unpushed();
+    expect(found.map((f) => f.message)).toEqual([
+      "docs_branch_unpushed: canonical docs for demo were committed to docs/app-demo, which is gone locally and on origin with no merged PR found "
+        + "(local branch docs/app-demo is gone and it is not on origin, so there is nothing to push; origin is not a GitHub repository, so a merged PR cannot be checked).",
+    ]);
+    expect(found[0].action).toBe("nothing to push; the docs never landed — re-run the close docs step or remove docsBranch from .works/done/demo_20260101_0000/.kfw.json");
+  });
+
   it("stays quiet once the branch merged into the default branch and was pruned from origin", async () => {
     await docsBranchProject();
     sh(root, "push", "-q", "-u", "origin", "docs/app-demo");
