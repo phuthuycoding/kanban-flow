@@ -64,6 +64,16 @@ Add one row per task. Execution progress lives outside the approved plan: in `.k
 ## Implementation Constraints
 - {implementation_constraint}
 
+## Global Constraints
+- {global_constraint}
+
+The spec's project-wide requirements that bind every task — version floors, dependency limits, naming and copy rules, exact values — one line each, verbatim. The task reviewer receives this section word for word. `None` when the spec states none.
+
+## Review Focus
+- {review_focus}
+
+Up to five inputs or failure modes the spec implies but no task's tests exercise, likeliest first: the condition and the behaviour expected. Each line's pinning test belongs to the task that owns the behaviour. `None` only after checking.
+
 ## Testing Strategy
 - Unit: {unit_strategy}
 - Integration: {integration_strategy}

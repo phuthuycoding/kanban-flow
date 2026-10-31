@@ -46,12 +46,15 @@ describe("the user-facing surface is English", () => {
     expect(offenders(files)).toEqual([]);
   });
 
-  it("leaves no Vietnamese in the skills or the templates, and keeps every skill intact", () => {
+  it("leaves no Vietnamese in the skills, their references, the agents or the templates, and keeps every skill and agent intact", () => {
     const skillFiles = walk(join(ROOT, "skills"), (p) => p.endsWith("SKILL.md"));
+    const skillReferences = walk(join(ROOT, "skills"), (p) => p.endsWith(".md") && !p.endsWith("SKILL.md"));
+    const agentFiles = walk(join(ROOT, "agents"), (p) => p.endsWith(".md"));
     const templates = walk(join(ROOT, "kanban-flow", "templates"), (p) => p.endsWith(".md"));
     expect(skillFiles).toHaveLength(9);
-    expect(offenders([...skillFiles, ...templates])).toEqual([]);
-    for (const file of skillFiles) {
+    expect(agentFiles).toHaveLength(3);
+    expect(offenders([...skillFiles, ...skillReferences, ...agentFiles, ...templates])).toEqual([]);
+    for (const file of [...skillFiles, ...agentFiles]) {
       const head = readFileSync(file, "utf8").split("---")[1] ?? "";
       expect(head, file).toMatch(/\nname:\s*\S/);
       expect(head, file).toMatch(/\ndescription:\s*\S/);

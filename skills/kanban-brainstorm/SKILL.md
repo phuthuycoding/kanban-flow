@@ -20,9 +20,10 @@ Brainstorming is **divergence then convergence**: first open the problem up from
 Orientation before ideation. Cheap questions here prevent expensive ones later.
 
 1. **Read the repository.** Structure, stack, tooling, data model, conventions. Reading code beats asking — never make the user explain what the code already answers.
-2. **Read one similar existing feature** (if any) for house patterns.
-3. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target.
-4. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
+2. **Ground the request.** Before your first question, verify every entity the idea names against its real definition — the file, command, table, field, endpoint or config key — spelled as the source spells it. A name the user used that the code does not have is your first question, not an assumption. Field-level detail waits for planning; here the names must be real.
+3. **Read one similar existing feature** (if any) for house patterns.
+4. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target. Brainstorm the real user journey — what they see and type — before any FR list or stage name; a spec that jumps to structure before the journey is agreed gets rejected.
+5. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
 
 Rules of engagement:
 - **Material ambiguity** (missing scope, unclear behavior, conflicting acceptance criteria) → ask **up to 3 focused questions**, then proceed. Each question names the decision it feeds.
@@ -266,7 +267,11 @@ The checklist reports content completion; human confirmation is still required b
 
 ---
 
-## 5. Confirm with the human
+## 5. Review the spec, then confirm with the human
+
+**Self-review first**, with fresh eyes: placeholders or vague requirements; sections that contradict each other; a scope too wide for one implementation plan; a requirement that could be read two ways. Fix inline.
+
+**Then dispatch `Agent(spec-reviewer)` once**, `model: opus`, with a fresh context: the brief names the work item folder, points at the user's original request (an excerpt file you write under the item folder, or the Objective) and names a report file (`<item>/reviews/spec-review.md`). It reports only requirement gaps, untestable FRs or acceptance criteria, internal contradictions and ungrounded names — never new scope. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report`. HIGH findings go into the confirmation ask below; the review never blocks on its own, the human does. When the runtime has no subagent tool, run the same four checks yourself and say so.
 
 Present a tight summary (do not dump the whole file):
 
@@ -292,6 +297,9 @@ DECISIONS RECORDED:
 
 SCOPE OUT (explicit):
 - {item} — because {reason}
+
+SPEC REVIEW (spec-reviewer, <model>): {n HIGH, n MEDIUM, n LOW}
+- [HIGH] {finding} — {fixed | left for your call because ...}
 
 Please confirm the requirement.
 ```

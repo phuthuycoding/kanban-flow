@@ -75,8 +75,10 @@ cd kanban-flow && npm install && npm run build && npm link
 
 `kf init` does the filesystem half: it installs the nine kanban skills into the
 agent's skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`; `claude` is
-the default, and several agents read each other's directories) and seeds
-`AGENTS.md` when the project does not already have one. By default the install is
+the default, and several agents read each other's directories), installs the three
+kanban agents the skills dispatch by name — `code-reviewer`, `scout`,
+`spec-reviewer` — into the runtime's agents dir when it has one (Claude Code:
+`.claude/agents/`), and seeds `AGENTS.md` when the project does not already have one. By default the install is
 **global** — symlinked into `~/.<agent>/skills` so one set serves every project and
 tracks package upgrades (copied instead when linking is unavailable). A project
 that wants its own copies sets `skills.scope: "project"` in `.kf/config.json` (the
@@ -201,6 +203,22 @@ kf runs user-login --json      # each run: role, runner, status, usage where rep
 ```
 
 Presets ship for claude, codex, devin, gemini and opencode. Assign no stages and the harness stays out of the way.
+
+### Independent review, and a task loop that reviews every task
+
+Whoever runs a stage, the skills never let that session grade its own work.
+`kanban-plan` dispatches a `scout` agent per thing that changes (consumers, covering
+tests, dual writes, why the code exists — a `file:line` map under 40 lines) and a
+`spec-reviewer` with a fresh context before the human approves. `kanban-implement`
+runs the plan task by task: a fresh implementer per task, a `code-reviewer` on its
+diff, a fix loop capped at five rounds, every decision in a ledger that survives
+compaction. `kanban-review` establishes the facts mechanically — lint, build, the
+suite's real counts, the rules — writes a review pack, picks the reviewer set from the
+diff size (one reviewer under 200 lines; five dimensions in parallel above; `opus`
+above 600 or on a critical area), and refutes any finding whose evidence quote is not
+in the file before it reaches the report. `kanban-ship` watches the pushed commit's
+GitHub Actions runs and the PR's mergeability in the background; a red run goes back
+through implementation, testing and review, never a re-run button.
 
 ### From approval to the ship gate: `kf drive`
 

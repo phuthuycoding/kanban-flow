@@ -37,6 +37,7 @@
   "files": [
     "dist",
     "skills",
+    "agents",
     "docs/workflow",
     "kanban-flow/templates",
     "kanban-flow/review",

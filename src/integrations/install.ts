@@ -9,7 +9,9 @@ import { PKG_ROOT } from "../shared/paths.js";
 import {
   AGENTS,
   DEFAULT_AGENT,
+  projectAgentsDir,
   projectSkillsDir,
+  userAgentsDir,
   userSkillsDir,
   type AgentId,
   type SkillScope,
@@ -27,7 +29,11 @@ export const MANAGED_SKILLS = [
   "kanban-archive",
 ];
 
+/** Subagent definitions the phase skills dispatch by name; installed only for runtimes with an agent registry. */
+export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer"];
+
 const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
+const PKG_AGENTS_DIR = join(PKG_ROOT, "agents");
 
 /** Text a caller prints. This module does not depend on the CLI result type. */
 export interface InstallReport {
@@ -110,6 +116,58 @@ export async function linkOrCopySkillsTo(skillsDir: string): Promise<SkillInstal
     installed.push(name);
   }
   return { code: 0, stdout: `${installed.join(", ")} → ${skillsDir}/`, mode };
+}
+
+function assertPackageAgents(): InstallReport | null {
+  for (const name of MANAGED_AGENTS) {
+    const from = join(PKG_AGENTS_DIR, `${name}.md`);
+    if (!existsSync(from)) {
+      return { code: 1, stdout: `Package agent missing: ${from}`, stderr: "agent missing" };
+    }
+  }
+  return null;
+}
+
+/** Link each managed agent file to the package (global), or copy it (project / link denied / ephemeral package). */
+export async function installAgentsTo(agentsDir: string, mode: InstallMode): Promise<SkillInstallResult> {
+  const missing = assertPackageAgents();
+  if (missing) return missing;
+  await mkdir(agentsDir, { recursive: true });
+  const link = mode === "link" && !packageIsEphemeral();
+  let landed: InstallMode = link ? "link" : "copy";
+  for (const name of MANAGED_AGENTS) {
+    const from = join(PKG_AGENTS_DIR, `${name}.md`);
+    const to = join(agentsDir, `${name}.md`);
+    await rm(to, { force: true });
+    if (link) {
+      try {
+        await symlink(from, to, "file");
+        continue;
+      } catch {
+        // Same fallback as the skills: a denied symlink still leaves a correct install.
+        landed = "copy";
+      }
+    }
+    await cp(from, to, { force: true });
+  }
+  return { code: 0, stdout: `${MANAGED_AGENTS.join(", ")} → ${agentsDir}/`, mode: landed };
+}
+
+/** Remove the managed agent files from the given dir (leaves others intact). */
+export async function removeAgentsFrom(agentsDir: string): Promise<{ removed: string[] }> {
+  const removed: string[] = [];
+  for (const name of MANAGED_AGENTS) {
+    const target = join(agentsDir, `${name}.md`);
+    try {
+      await lstat(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    await unlink(target);
+    removed.push(name);
+  }
+  return { removed };
 }
 
 /** Remove the managed skills from the given skill dir (leaves others intact). */
@@ -270,6 +328,19 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
       const { removed } = await removeSkillsFrom(projectDir);
       if (removed.length > 0) cleaned.push(`  ${a.label}: removed ${removed.length} project copies from ${projectDir}/`);
     }
+    // Subagent definitions ride along with the skills, at the same scope, for runtimes that have a registry.
+    const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root!);
+    if (res.code === 0 && agentsDir) {
+      const agents = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy");
+      failed ||= agents.code !== 0;
+      const agentsNote = scope === "global" && agents.code === 0 ? ` (${agents.mode === "link" ? "linked" : "copied"})` : "";
+      lines.push(agents.code === 0 ? `✓ ${a.label} agents: ${agents.stdout}${agentsNote}` : `⚠ ${a.label} agents: ${agents.stdout}`);
+      const projectAgents = root ? projectAgentsDir(a, root) : null;
+      if (agents.code === 0 && scope === "global" && projectAgents && opts.declaredScope !== "project") {
+        const { removed } = await removeAgentsFrom(projectAgents);
+        if (removed.length > 0) cleaned.push(`  ${a.label}: removed ${removed.length} project agent copies from ${projectAgents}/`);
+      }
+    }
   }
   if (lines.length === 0) {
     return { code: 1, stdout: "No valid agents given for install.", stderr: "no agent" };
@@ -348,6 +419,11 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root);
     const { removed } = await removeSkillsFrom(dir);
     lines.push(removed.length > 0 ? `✗ ${a.label}: removed ${removed.length} skills from ${dir}/` : `· ${a.label}: already clean in ${dir}/`);
+    const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root);
+    if (agentsDir) {
+      const agents = await removeAgentsFrom(agentsDir);
+      if (agents.removed.length > 0) lines.push(`✗ ${a.label}: removed ${agents.removed.length} agents from ${agentsDir}/`);
+    }
   }
   if (lines.length === 0) {
     return { code: 1, stdout: "No valid agents given for uninstall.", stderr: "no agent" };

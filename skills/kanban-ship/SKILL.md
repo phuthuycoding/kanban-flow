@@ -31,6 +31,16 @@ kf ship {feature_name}              # resumable: publish → merge → release �
 
 Config lives in `.kf/config.json` (`ship` block); flags (`--draft`, `--skip-release`, `--skip-changelog`) override it per run. Every outcome is stamped into `.kfw.json` `meta.ship` — killing `kf ship` mid-pipeline and re-running converges to the same state.
 
+## Watch CI and mergeability after publish
+
+"Published" is not "green". Once step 1 has pushed and opened the PR, follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run the GitHub Actions watcher as a background command that wakes the session when it exits, and report in one line what is being watched. Then act on its exit code:
+
+- **green** → run the mergeability wait (same reference, Step 3); when the PR is `CLEAN`, hand the human the PR URL and the merge step (`merge: "manual"`), or note that `--auto` is queued (`merge: "auto"`).
+- **red** → the failed run URLs and the failing job's log tail become the repair brief: `kf stage {feature_name} implementation`, fix on the same branch through `kanban-implement`, re-run `kanban-test` and `kanban-review` (new execution id), then `kf ship` again — the PR exists, the push updates it; never open a second one. **Two CI rounds, then hand back to the human** with each round's failed run and what changed.
+- **blocked / behind / conflicts** → say which; a `BEHIND` branch is updated from the base in the worktree and pushed (strict up-to-date-with-base repos need this after every other merge), then watched again.
+
+The watcher never re-runs, cancels or approves a workflow, never resolves a review thread and never merges. A repo without `.github/workflows` has nothing to watch — say so and go straight to the mergeability wait.
+
 ## When ship automation is off
 
 `ship.enabled` unset/false → `kf ship` prints the manual checklist for the item (push, `gh pr create`, `kf issues link <f> --pr`, merge/release/changelog by hand, then `kf archive`) and exits 1. Nothing is written. The `shipping` stage itself remains usable as a waiting state while a PR awaits merge — move items there manually if the board should show "waiting for merge".
@@ -41,7 +51,7 @@ Config lives in `.kf/config.json` (`ship` block); flags (`--draft`, `--skip-rele
 
 ## Delivery
 
-When `kf ship` reports complete (or the human finished the manual steps and the PR is merged):
+When `kf ship` reports complete (CI green, PR merged by the human or by `--auto`) — or the human finished the manual steps and the PR is merged:
 
 ```bash
 kf archive {feature_name}           # shipping → dones — delivery gate, docs sync, issue close, board Done
@@ -53,6 +63,7 @@ kf archive {feature_name}           # shipping → dones — delivery gate, docs
 
 - Never force a review FAIL/REJECT/REQUIREMENT_BUG item into shipping — the gate refuses; loop back per the review skill.
 - Never merge a PR yourself — `merge: "auto"` schedules `--auto` at most; `--merge`/`--admin`/`--force` on `gh pr merge` is not allowed.
+- Never re-run, cancel or approve a workflow run, and never resolve a review thread, to make CI look green — a red run goes back through implementation, testing and review.
 - A PR closed unmerged means stop and report to the human — never silently republish.
 - Do not edit approved contract artifacts; ship progress lives in `meta.ship` only.
 

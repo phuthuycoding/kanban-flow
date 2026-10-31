@@ -1,0 +1,61 @@
+#!/usr/bin/env node
+// Refute findings whose `evidence` quote does not exist in the cited file.
+//
+// Usage: verify-findings ROOT [FINDINGS_JSON]   (reads stdin when no file is given)
+//   ROOT           the checkout the findings cite paths against (the item worktree)
+//   FINDINGS_JSON  a JSON array in the shape of references/finding-schema.md
+//
+// Prints {"kept":[...],"refuted":[{...,"reason":"..."}],"counts":{"kept":N,"refuted":M}} to stdout.
+// A finding with no `file` or no `evidence` cannot be checked and is kept as-is.
+// A reviewer that cites a line it never read is the failure this script exists to catch:
+// the quote is matched as an exact substring of some line of the real file, trimmed.
+import { existsSync, readFileSync } from "node:fs";
+import { join, isAbsolute } from "node:path";
+
+const [root, source] = process.argv.slice(2);
+if (!root) {
+  process.stderr.write("usage: verify-findings ROOT [FINDINGS_JSON]\n");
+  process.exit(2);
+}
+const raw = source ? readFileSync(source, "utf8") : readFileSync(0, "utf8");
+let findings;
+try {
+  findings = JSON.parse(raw);
+} catch (err) {
+  process.stderr.write(`findings are not valid JSON: ${err.message}\n`);
+  process.exit(2);
+}
+if (!Array.isArray(findings)) {
+  process.stderr.write("findings must be a JSON array\n");
+  process.exit(2);
+}
+
+const kept = [];
+const refuted = [];
+for (const f of findings) {
+  if (!f || typeof f !== "object") {
+    refuted.push({ finding: f, reason: "not an object" });
+    continue;
+  }
+  const file = typeof f.file === "string" ? f.file.trim() : "";
+  const evidence = typeof f.evidence === "string" ? f.evidence.trim() : "";
+  if (!file || !evidence) {
+    kept.push(f);
+    continue;
+  }
+  const path = isAbsolute(file) ? file : join(root, file);
+  if (!existsSync(path)) {
+    refuted.push({ ...f, reason: `file not found: ${file}` });
+    continue;
+  }
+  const lines = readFileSync(path, "utf8").split("\n");
+  const hit = lines.findIndex((line) => line.trim().includes(evidence));
+  if (hit === -1) {
+    refuted.push({ ...f, reason: "evidence quote not found in file" });
+    continue;
+  }
+  kept.push({ ...f, verifiedLine: String(hit + 1) });
+}
+
+process.stdout.write(`${JSON.stringify({ kept, refuted, counts: { kept: kept.length, refuted: refuted.length } }, null, 2)}\n`);
+process.stderr.write(`verify-findings: kept ${kept.length}, refuted ${refuted.length}\n`);

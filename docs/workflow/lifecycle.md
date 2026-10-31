@@ -24,7 +24,7 @@ flowchart TD
     L -- Not yet --> K
     L -- Yes --> M[kf approve: store the contract fingerprint]
     M --> N{Start implementation now?}
-    N -- Yes --> O[Implementation: tasks.md + code]
+    N -- Yes --> O[Implementation: kf drive, or the task loop - implementer + code-reviewer per task, ledger]
     N -- Not yet --> P[Backlog: hold the approved contract]
     P --> Q{User chooses to start?}
     Q -- Not yet --> P
@@ -39,13 +39,14 @@ flowchart TD
     W -- FAIL/REJECT --> O
     W -- BLOCKED --> X([Stop and report the blocker])
     W -- PASS --> Y[kf stage item review]
-    Y --> Z[Review changed files against rules: project, then user, then package]
-    Z --> AA[Write review-report carrying the execution id]
+    Y --> Z[Facts and review pack: lint, build, suite counts, rules project then user then package]
+    Z --> Z2[Independent code-reviewer agents, tier from the diff; evidence verified]
+    Z2 --> AA[Write review-report carrying the execution id]
     AA --> AB{Review result?}
     AB -- FAIL/REJECT --> O
     AB -- REQUIREMENT_BUG --> AC([Stop and ask the user to decide])
     AB -- PASS --> SG{Ship gate: ship now or archive directly?}
-    SG -- Ship --> SH[kf stage item shipping + kf ship: publish, merge gate, release, changelog]
+    SG -- Ship --> SH[kf stage item shipping + kf ship: publish, watch CI and mergeability, merge gate, release, changelog]
     SG -- "Nothing to ship (docs/config/research)" --> AD{Work item kind?}
     SH -->|PR merged / steps complete| AD
     SH -->|waiting on merge| SG

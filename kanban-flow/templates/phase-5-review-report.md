@@ -23,6 +23,17 @@ status: REJECT
 | Open blocking findings | {blocking_findings} |
 | Overall decision | {review_status} |
 
+## Reviewer
+
+| Field | Result |
+|---|---|
+| Tier and reason | {review_tier} |
+| Reviewers dispatched (agent, dimension, model) | {reviewer_dispatch} |
+| Review pack | {review_pack} |
+| Evidence verification (kept / refuted) | {evidence_verification} |
+
+The orchestrator writes facts and the pack; the findings below come from the independent reviewer(s) named here, after their evidence quotes were checked against the real files.
+
 ## Requirement Compliance
 {requirement_compliance}
 

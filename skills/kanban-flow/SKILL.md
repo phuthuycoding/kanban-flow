@@ -15,6 +15,8 @@ State is enforced by the `kf` CLI: artifact gates, approval fingerprints, execut
 
 **Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; use `kf init -i` when the user should answer the setup questions). Detect project stack/tooling by READING the repository — never assume.
 
+**Every delegated step leaves a named line.** The phase skills hand defined work to agents with a fresh context — `Agent(scout)` for the impact survey, `Agent(spec-reviewer)` before confirmation and approval, `Agent(code-reviewer)` for every task review and the whole-branch review. A line like `Agent(code-reviewer)` in the transcript is auditable; "I reviewed the diff" is not, and a missing line is a skipped step. `kf install` puts the three agent definitions where Claude Code looks (`.claude/agents/`); other runtimes paste the agent file's body into a plain subagent. The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
+
 ---
 
 ## Phase model & artifact contract
@@ -32,9 +34,9 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 | 1. Brainstorm / Bug triage | `kanban-brainstorm` or `kanban-bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Human + agent refine requirement or reproduce bug |
 | 2. Planning | `kanban-plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | **Human approval, then start/backlog decision** |
 | Backlog | — | Approved planning contract remains intact | Waiting for explicit user decision to start |
-| 3. Implement | `kanban-implement` | — (tasks.md tracks) | Autonomous |
+| 3. Implement | `kanban-implement` | — (tasks.md and the `sdd/progress.md` ledger track) | Autonomous: `kf drive` when a task harness is configured, else the subagent-driven task loop — fresh implementer per task, `code-reviewer` per task, bounded fix loop |
 | 4. Testing | `kanban-test` | `phase-4-testing-result.md` (`status: PASS`) | FAIL/REJECT → loop to implementation |
-| 5. Review | `kanban-review` | `phase-5-review-report.md` (`status: PASS`) | FAIL/REJECT → loop; REQUIREMENT_BUG → STOP |
+| 5. Review | `kanban-review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents (tier from the diff), evidence verified; FAIL/REJECT → loop; REQUIREMENT_BUG → STOP |
 | 5.5 Shipping | `kanban-ship` | — (`meta.ship` tracks) | Optional leg — code items only; **third human gate: ship now or archive directly?** |
 | 6. Closure | `kanban-archive` | Feature: `phase-6-feature-report.md`; bug: current test/review evidence | Feature canonical docs or affected bug docs, then archive — accepts review **or** shipping |
 
@@ -69,6 +71,8 @@ Then **load the skill for the feature's CURRENT phase** and follow it to its end
 If planning is already approved and its fingerprint is unchanged, first check `.kf/config.json`: when `harness.verify.stage` is set and `worktree.enabled` is not `true`, the drive cannot start, so ask the human to enable worktrees before asking anything else. Then ask whether to start now or keep the item in backlog. After the human chooses start, if a drive is configured (`harness.verify.stage` set and `worktree.enabled: true`), run `kf drive {feature}` instead of loading `kanban-implement` yourself, monitor it with `kf drive {feature} --status`, and handle stops as the `kanban-implement` stop-code table says. Human gates stay human: when the drive reports "ready for ship decision", ask the ship decision yourself. If an item is in backlog, do not start implementation without an explicit user decision. If review has a current PASS report, the item is at the ship gate — ask the human once: ship via `kanban-ship` (`kf stage <f> shipping` → `kf ship`) or archive directly from review (non-code items). `kf archive` refuses while a recorded PR is unmerged and accepts items in either review or shipping. If already in dones, validate and finish only missing closure work; never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and dones.
 
 ## Multi-agent harness
+
+Two layers hand work off, and they do not overlap. **Runner roles** (`kf run`, `kf drive`) are whole headless sessions kf spawns per stage or per task from `harness.roles`; they are configured in `.kf/config.json` and kf supervises them. **In-session agents** (`scout`, `spec-reviewer`, `code-reviewer`) are subagents the phase skills dispatch from whatever session is running the skill — the main agent or a runner worker alike — for a bounded job with a fresh context and a short report back. A worker running `kanban-review` under `kf run` still dispatches `code-reviewer`; the harness decides *who runs the stage*, the skill decides *who reviews*.
 
 If `.kf/config.json` has `harness.stages`, some stages are assigned to **roles** (writer, coder, tester…), each backed by a runner CLI. Before doing a stage's work yourself, read `kf status --change {feature} --json`: when `assignedRoles` is non-empty, you are the orchestrator for that stage — do not do the work, hand it off:
 
