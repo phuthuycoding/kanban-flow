@@ -192,7 +192,7 @@ describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-00
     expect(feature().stage).toBe("review");
   });
 
-  it("refuses an already-done item whose PR is unmerged (TC-005)", async () => {
+  it("refuses an already-done item whose PR is unmerged", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     expect((await cmdArchive(args("archive", ["shipit"]), root)).code).toBe(0);
@@ -216,7 +216,7 @@ describe("merge gate — kf archive refuses unverifiable delivery (UC-001, TC-00
 });
 
 describe("finalization — archive is the delivery gate (UC-002, TC-007…010)", () => {
-  it("delivers a merged item: move, docs, done hook close+board, flag last (TC-007)", async () => {
+  it("delivers a merged item: move, docs, done hook close+board, flag last", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     await seedPackHooks("done.sh");
@@ -236,7 +236,7 @@ describe("finalization — archive is the delivery gate (UC-002, TC-007…010)",
     expect(existsSync(join(root, "docs", "requirement", "app", "shipit.md"))).toBe(true);
   });
 
-  it("packaged done.sh closes the issue and moves the board; delivered.sh is gone (TC-008)", async () => {
+  it("packaged done.sh closes the issue and moves the board; delivered.sh is gone", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
     await seedPackHooks("done.sh");
@@ -279,7 +279,7 @@ describe("finalization — archive is the delivery gate (UC-002, TC-007…010)",
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });
 
-  it("kf stage <f> done hits the same merge gate (TC-010)", async () => {
+  it("kf stage <f> done hits the same merge gate", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     process.env.GH_PR_STATE = "OPEN";
@@ -319,7 +319,7 @@ describe("archive without PR evidence (UC-003, TC-011…013)", () => {
   });
 });
 
-describe("reconcile — re-archive on done items (UC-004, TC-014/TC-015)", () => {
+describe("reconcile — re-archive on done items", () => {
   it("re-runs docs + hook and stamps delivered on a legacy item (TC-014)", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
@@ -378,7 +378,7 @@ describe("visibility — awaiting merge states surface (UC-005, TC-016/TC-017)",
     expect(awaiting?.action).toBe(`merge ${PR} on GitHub, then run: kf status --change shipit`);
   });
 
-  it("doctor points undelivered done items and inert statusMap.delivered at the right actions (TC-017)", async () => {
+  it("doctor points undelivered done items and inert statusMap.delivered at the right actions", async () => {
     // Legacy done item: archived, linked, never delivered.
     await reviewStage();
     await link("shipit", { issue: ISSUE });

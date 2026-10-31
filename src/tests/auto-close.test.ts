@@ -339,7 +339,7 @@ describe("auto-close on merge", () => {
     const res = await status();
     expect(res.code, res.stdout).toBe(0);
     expect(res.stdout).toContain("Branch t/demo: deleted locally, kept on origin");
-    expect(res.stdout).toContain(`origin kept t/demo: it moved to ${moved.slice(0, 12)}, past the commit that landed`);
+    expect(res.stdout).toContain(`origin kept t/demo: it is at ${moved.slice(0, 12)}, not the commit that landed`);
     expect(feature().stage).toBe("done");
     expect(git(root, "branch", "--list", "t/demo")).toBe("");
     expect(git(origin, "rev-parse", "refs/heads/t/demo")).toBe(moved);
@@ -445,6 +445,18 @@ describe("auto-close on merge", () => {
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
   }, 15_000);
 
+  it("kf sync skips an item another close is already closing", async () => {
+    await reviewItem();
+    await mkdir(join(root, ".works", ".locks"), { recursive: true });
+    await writeFile(join(root, ".works", ".locks", "demo.closing.lock"), String(process.pid));
+
+    const synced = await cmdSync(args("sync"), root);
+    expect(synced.code, synced.stdout).toBe(0);
+    expect(synced.stdout).toContain("- demo: skipped (another close of it is running)");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+  }, 15_000);
+
   it("a second close while one is running refuses before its hook", async () => {
     await reviewItem();
     const outcomes = await Promise.all([archiveItem(root, "demo"), archiveItem(root, "demo")]);
@@ -531,6 +543,7 @@ describe("the canonical docs commit after the irreversible steps", () => {
     const res = await status();
     expect(res.code, res.stdout).toBe(0);
     expect(res.stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    expect(res.stdout).toContain("Commit hooks were skipped for this kf-authored docs commit (--no-verify)");
     expect(feature().stage).toBe("done");
   }, 15_000);
 
@@ -558,6 +571,39 @@ describe("the canonical docs commit after the irreversible steps", () => {
     expect(finished.code, finished.stdout).toBe(0);
     expect(finished.stdout).toContain("✓ done demo");
     expect(feature().stage).toBe("done");
+  }, 15_000);
+});
+
+describe("a close that fails after the done hook says what is already gone", () => {
+  it("a teardown failure that is not a dirty worktree is reported as such, with what was removed", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    // The hook leaves the routes file unreadable, so teardown fails after git worktree remove.
+    await writeFile(join(root, ".kf", "hooks", "done.sh"), `#!/bin/sh\nprintf '{' > "$KFW_WORK_ROOT/../routes.json"\n`, { mode: 0o755 });
+
+    const outcome = await archiveItem(root, "demo");
+    expect(outcome.kind === "refused" && outcome.reason).toBe("teardown-failed");
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).toContain("Cannot archive 'demo': worktree teardown failed:");
+    expect(text).toContain("The done hook already ran (issue closed, board moved).");
+    expect(text).toContain(`The worktree ${wt.path} was already removed. The branch was not deleted.`);
+    expect(feature().stage).toBe("review");
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(onOrigin("t/demo")).toContain("t/demo");
+  }, 15_000);
+
+  it("an item that changed during the close names the worktree and branches already removed", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    // The worktree-remove hook runs inside teardown, after every gate held: it moves the item.
+    await writeFile(join(root, ".kf", "hooks", "worktree-remove.sh"), `#!/bin/sh\nmv "$KFW_FEATURE_DIR" "$KFW_WORK_ROOT/.works/implementation/"\n`, { mode: 0o755 });
+
+    const outcome = await archiveItem(root, "demo");
+    expect(outcome.kind === "refused" && outcome.reason).toBe("changed-concurrently");
+    expect(outcome.kind === "refused" && outcome.stdout).toBe(
+      `Cannot archive 'demo': it changed while the archive was running. Already removed and not restored: worktree ${wt.path}, branch t/demo (local), branch t/demo on origin. Re-run: kf archive demo`,
+    );
+    expect(feature().stage).toBe("implementation");
   }, 15_000);
 });
 

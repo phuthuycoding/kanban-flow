@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { ARTIFACTS, METADATA_FILE, type Stage } from "./schema.js";
+import { ARTIFACTS, METADATA_FILE, type LegacyStageName, type Stage } from "./schema.js";
 import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
 import { lockPath, withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
@@ -23,9 +23,10 @@ import { checkMergeGate, type MergeGateFailure } from "../integrations/github.js
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type LandedProof, type TeardownResult } from "../worktree/lifecycle.js";
-import { branchExists } from "../worktree/manager.js";
+import { branchExists, WorktreeDirtyError } from "../worktree/manager.js";
 import { countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
+import { LEGACY_REOPEN_STAGE } from "./transition.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
 export type ArchiveTrigger = "status" | "sync" | "archive";
@@ -49,6 +50,7 @@ export type ArchiveRefusalReason =
   | "target-exists"
   | "metadata-missing"
   | "worktree-dirty"
+  | "teardown-failed"
   | "landing-commits"
   | "docs-target"
   | "changed-concurrently"
@@ -214,7 +216,10 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const f = findFeature(root, name);
   if (!f) return refuse("unknown-item", "unknown feature", `Unknown feature '${name}'. Run: kf list`);
   if (f.stage === "cancelled") {
-    return refuse("cancelled", "cancelled", `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${f.meta?.cancellation?.fromStage ?? "its stage"} first if you want to finish it.`);
+    // The type says Stage, but features.ts accepts legacy names in old metadata; name the stage kf stage accepts.
+    const recorded: string | undefined = f.meta?.cancellation?.fromStage;
+    const reopen = recorded !== undefined && Object.hasOwn(LEGACY_REOPEN_STAGE, recorded) ? LEGACY_REOPEN_STAGE[recorded as LegacyStageName] : recorded;
+    return refuse("cancelled", "cancelled", `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${reopen ?? "its stage"} first if you want to finish it.`);
   }
 
   // A live drive owns the item: closing under it would tear down the worktree it works in.
@@ -406,7 +411,15 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     try {
       teardown = await teardownWorktree(root, f, wtCfg);
     } catch (err) {
-      return refuse("worktree-dirty", "worktree dirty", `Cannot archive '${name}': ${err instanceof Error ? err.message : String(err)}`);
+      const hookRan = skipHooks ? "" : " The done hook already ran (issue closed, board moved).";
+      // Teardown checks dirtiness before it removes anything; any other failure may come after
+      // `git worktree remove`, so say what is left on disk.
+      if (err instanceof WorktreeDirtyError) {
+        return refuse("worktree-dirty", "worktree dirty", `Cannot archive '${name}': ${err.message}${hookRan} Nothing was removed. Then re-run: ${rerun}`);
+      }
+      const where = f.meta.worktree.path;
+      const left = existsSync(where) ? `The worktree ${where} is still on disk.` : `The worktree ${where} was already removed.`;
+      return refuse("teardown-failed", "teardown failed", `Cannot archive '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}.${hookRan} ${left} The branch was not deleted. Fix the cause, then re-run: ${rerun}`);
     }
   }
   const branch = f.meta.worktree ? deleteItemBranch(root, f.meta.worktree.branch, proof) : null;
@@ -417,7 +430,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const stale = await withLock(root, f.name, async (): Promise<ArchiveOutcome | null> => {
     const cur = findFeature(root, f.name);
     if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
-      return refuse("changed-concurrently", "changed concurrently", `Cannot archive '${name}': it changed while the archive was running. Re-run: ${rerun}`);
+      return refuse("changed-concurrently", "changed concurrently", `Cannot archive '${name}': it changed while the archive was running.${alreadyRemoved(teardown, f.meta?.worktree?.path ?? null, branch)} Re-run: ${rerun}`);
     }
     const originalMeta = readFileSync(join(cur.dir, METADATA_FILE), "utf8");
     let moved = false;

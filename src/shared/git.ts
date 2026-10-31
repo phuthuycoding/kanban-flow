@@ -178,6 +178,21 @@ export function pruneWorktrees(root: string): void {
 
 const REMOTE_TIMEOUT_MS = 30_000;
 
+/**
+ * runGit against a remote, bounded by REMOTE_TIMEOUT_MS. A timeout comes back as a failed
+ * result (code -1, the reason in stderr), so callers past irreversible steps report an
+ * unreachable remote instead of throwing; a git that cannot spawn at all still throws.
+ */
+export function runRemoteGit(dir: string, args: string[]): GitResult {
+  try {
+    return runGit(dir, args, { timeoutMs: REMOTE_TIMEOUT_MS });
+  } catch (err) {
+    const code = err instanceof Error && err.cause instanceof Error ? (err.cause as NodeJS.ErrnoException).code : undefined;
+    if (code !== "ETIMEDOUT") throw err;
+    return { code: -1, stdout: "", stderr: `git ${args[0]} timed out after ${REMOTE_TIMEOUT_MS / 1000}s` };
+  }
+}
+
 /** True when `dir` is inside a git work tree; false outside one. */
 export function insideWorkTree(dir: string): boolean {
   const res = runGit(dir, ["rev-parse", "--is-inside-work-tree"]);
@@ -236,13 +251,13 @@ export function deleteRemoteBranch(dir: string, remote: string, branch: string, 
   assertSafeArg("branch", branch);
   assertSafeArg("ref", expectedSha);
   if (!hasRemote(dir, remote)) return { kind: "no-remote" };
-  const probe = runGit(dir, ["ls-remote", "--exit-code", "--heads", remote, `refs/heads/${branch}`], { timeoutMs: REMOTE_TIMEOUT_MS });
+  const probe = runRemoteGit(dir, ["ls-remote", "--exit-code", "--heads", remote, `refs/heads/${branch}`]);
   // --exit-code: 2 means the ref is not there.
   if (probe.code === 2) return { kind: "absent" };
   if (probe.code !== 0) return { kind: "refused", detail: probe.stderr.trim() || `git ls-remote exited ${probe.code}` };
   const remoteSha = probe.stdout.trim().split(/\s+/)[0] ?? "";
   if (remoteSha !== expectedSha) return { kind: "moved", sha: remoteSha };
-  const push = runGit(dir, ["push", "--quiet", `--force-with-lease=refs/heads/${branch}:${expectedSha}`, remote, "--delete", branch], { timeoutMs: REMOTE_TIMEOUT_MS });
+  const push = runRemoteGit(dir, ["push", "--quiet", `--force-with-lease=refs/heads/${branch}:${expectedSha}`, remote, "--delete", branch]);
   if (push.code !== 0) return { kind: "refused", detail: push.stderr.trim() || `git push exited ${push.code}` };
   return { kind: "deleted" };
 }

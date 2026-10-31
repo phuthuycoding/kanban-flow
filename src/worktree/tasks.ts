@@ -13,7 +13,7 @@ import {
   trackedChanges,
   untrackedFiles,
 } from "../shared/git.js";
-import { branchExists, taskWorktreeEntries } from "./manager.js";
+import { branchExists, taskWorktreeEntries, WorktreeDirtyError } from "./manager.js";
 import { taskWorktreesDir, worktreeDir, type WorktreeConfig } from "./config.js";
 
 export interface TaskWorktree {
@@ -129,7 +129,7 @@ export function taskWorktreeDirty(path: string): boolean {
 export function assertTaskWorktreesClean(root: string, feature: string, cfg: WorktreeConfig): void {
   const dirty = listTaskWorktrees(root, feature, cfg).filter((t) => taskWorktreeDirty(t.path));
   if (dirty.length === 0) return;
-  throw new Error(
+  throw new WorktreeDirtyError(
     `Task worktree ${dirty.map((t) => t.path).join(", ")} of '${feature}' has uncommitted changes. ` +
     `Commit them inside it, or discard deliberately: kf worktree remove ${feature} --force`,
   );

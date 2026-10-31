@@ -13,9 +13,10 @@ import {
   isGitRepo,
   unmergedCommitCount,
   worktreeDirty,
+  WorktreeDirtyError,
 } from "./manager.js";
 import { addRoute, removeRoute, readRoutes } from "./routes.js";
-import { deleteRemoteBranch, hasRemote, runGit, type RemoteBranchDeletion } from "../shared/git.js";
+import { deleteRemoteBranch, hasRemote, runGit, runRemoteGit, type RemoteBranchDeletion } from "../shared/git.js";
 import { assertTaskWorktreesClean, removeTaskWorktrees } from "./tasks.js";
 import { worktreeDir, worktreeDomain, worktreeBranch, type WorktreeConfig } from "./config.js";
 
@@ -219,7 +220,7 @@ export function assertWorktreeClean(root: string, feature: Feature, cfg: Worktre
   if (!wt) return;
   const wtPath = real(wt.path);
   if (gitWorktreePaths(root).includes(wtPath) && worktreeDirty(wtPath)) {
-    throw new Error(
+    throw new WorktreeDirtyError(
       `Worktree for '${feature.name}' has uncommitted changes (${wt.path}). ` +
       `Commit them inside the worktree, or discard deliberately: kf worktree remove ${feature.name} --force`,
     );
@@ -264,7 +265,7 @@ function keptDetail(root: string, branch: string, proof: Exclude<LandedProof, { 
 /** A branch kept without proof is "kept" on origin only when it is there; a read-only probe says so. */
 function keptRemote(root: string, branch: string, detail: string): BranchDeletion["remote"] {
   if (!hasRemote(root, "origin")) return { kind: "no-remote" };
-  const probe = runGit(root, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
+  const probe = runRemoteGit(root, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
   // --exit-code: 2 means the ref is not there.
   if (probe.code === 2) return { kind: "absent" };
   return { kind: "kept", detail: probe.code === 0 ? detail : `${detail} (origin could not be probed: ${probe.stderr.trim() || `git ls-remote exited ${probe.code}`})` };

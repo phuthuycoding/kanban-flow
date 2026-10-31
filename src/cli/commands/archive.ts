@@ -33,7 +33,7 @@ function branchNote(branch: BranchDeletion): string {
     (branch.local.kind === "kept" ? `\n  ⚠ kept ${branch.branch}: ${branch.local.detail}` : "") +
     (branch.local.kind === "failed" ? `\n  ⚠ git branch -D ${branch.branch}: ${branch.local.detail}` : "") +
     (branch.remote.kind === "refused" ? `\n  ⚠ origin kept ${branch.branch} (never forced): ${branch.remote.detail}` : "") +
-    (branch.remote.kind === "moved" ? `\n  ⚠ origin kept ${branch.branch}: it moved to ${branch.remote.sha.slice(0, 12)}, past the commit that landed` : "") +
+    (branch.remote.kind === "moved" ? `\n  ⚠ origin kept ${branch.branch}: it is at ${branch.remote.sha.slice(0, 12)}, not the commit that landed` : "") +
     (branch.remote.kind === "kept" && branch.local.kind !== "kept" ? `\n  ⚠ origin kept ${branch.branch}: ${branch.remote.detail}` : "");
 }
 
@@ -44,6 +44,7 @@ function docsBranchNote(outcome: Extract<ArchiveOutcome, { kind: "archived" }>):
   if (!outcome.docsBranch) return `\n  Canonical docs already current on origin's default branch${why} — nothing committed.`;
   return `\n  Canonical docs committed to ${outcome.docsBranch}, not pushed${why}:` +
     outcome.docs.map((d) => `\n    ${d}`).join("") +
+    `\n  Commit hooks were skipped for this kf-authored docs commit (--no-verify); run them before pushing if the repo relies on them.` +
     `\n  Push it: git push -u origin ${outcome.docsBranch}, then open a PR for it.`;
 }
 

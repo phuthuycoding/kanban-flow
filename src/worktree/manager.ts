@@ -66,6 +66,9 @@ export function taskWorktreeEntries(root: string, cfg: WorktreeConfig, feature: 
   return gitWorktreeEntries(root).filter((e) => e.path.startsWith(prefix));
 }
 
+/** Thrown when a worktree holds uncommitted work, so a caller can tell that refusal from a failed git call. */
+export class WorktreeDirtyError extends Error {}
+
 /** Uncommitted or untracked content → teardown must refuse, never silently drop it. */
 export function worktreeDirty(path: string): boolean {
   const status = git(path, ["status", "--porcelain"]);

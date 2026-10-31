@@ -162,6 +162,18 @@ describe("archiveItem — typed outcome", () => {
     expect(normalize(renderArchive(outcome).stdout)).toBe(RECORDED.reconcile.stdout);
   });
 
+  it("names review, not the removed shipping stage, for an item cancelled from shipping", async () => {
+    const dir = join(root, ".works", "cancelled", "legacy_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, ".kfw.json"), JSON.stringify({
+      schema: "kanban-flow", feature: "legacy", context: "app", created: "x",
+      cancellation: { at: "2026-01-01T00:00:00Z", by: "me", reason: "paused", fromStage: "shipping" },
+    }));
+    const outcome = await archiveItem(root, "legacy");
+    expect(outcome.kind === "refused" && outcome.reason).toBe("cancelled");
+    expect(outcome.kind === "refused" && outcome.stdout).toBe("'legacy' was cancelled (paused). Move it back to review first if you want to finish it.");
+  });
+
   it("returns an unknown item as a refusal, not a throw", async () => {
     expect(await archiveItem(root, "nope")).toEqual({ kind: "refused", reason: "unknown-item", stderrTag: "unknown feature", stdout: "Unknown feature 'nope'. Run: kf list" });
   });

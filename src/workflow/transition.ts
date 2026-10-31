@@ -76,7 +76,7 @@ export type Transition = (root: string, name: string, to: Stage, opts: Transitio
  * `shipping` items were awaiting merge, which is `review` now. Without this the reopen hint names
  * a stage `kf stage` rejects, and the item can only leave `cancelled` with --force.
  */
-const LEGACY_REOPEN_STAGE: Record<LegacyStageName, Stage> = { dones: "done", shipping: "review" };
+export const LEGACY_REOPEN_STAGE: Record<LegacyStageName, Stage> = { dones: "done", shipping: "review" };
 
 /** Retry advice of a gate refusal; exported so a caller that takes no --force (kf approve) can leave it out. */
 export const FORCE_RETRY_HINT = "Or re-run with --force.";
