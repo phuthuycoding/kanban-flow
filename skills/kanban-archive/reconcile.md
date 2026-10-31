@@ -1,6 +1,6 @@
 # Reconcile superseded docs
 
-Canonical docs are per-feature snapshots. When a new feature changes behavior an older feature documented, the older snapshot keeps describing the old behavior unless closure marks it. This step keeps `docs/` true to the system as it is after this feature.
+Canonical docs are per-feature snapshots. When a new feature changes behavior an older feature documented, the older snapshot keeps describing the old behavior unless it is marked. This step keeps `docs/` true to the system as it is after this feature. It runs at review PASS (`kanban-review` step 7a), in the item worktree, before the feature report is written; the edits are one commit on the item branch, so they land with the PR.
 
 ## 1. List the behavior this feature changes
 
@@ -46,4 +46,6 @@ A banner changes that feature's canonical docs, so a later `kf archive` of the o
 
 ## 4. Record
 
-Fill `## Docs Reconciled` in `phase-6-feature-report.md` with one row per doc touched (document, superseded/updated behavior, action). When no doc describes the changed behavior, write `None — <reason>` (e.g. "None — new command, no earlier doc covers it"). Review reads this section; an empty or missing one means the step was skipped.
+Commit the edits on the item branch: `docs({context}): reconcile docs superseded by {feature_name}`. Nothing touched → no commit.
+
+Fill `## Docs Reconciled` in `phase-6-feature-report.md` — written at review PASS (`kanban-review` step 10), right after this step — with one row per doc touched (document, superseded/updated behavior, action). When no doc describes the changed behavior, write `None — <reason>` (e.g. "None — new command, no earlier doc covers it"). The human reads this section with the PR; an empty or missing one means the step was skipped.
