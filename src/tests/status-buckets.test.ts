@@ -80,16 +80,25 @@ describe("Waiting to merge bucket", () => {
     }]);
   });
 
-  it("names the remedy first in the decision for a gone docs branch, and as the command otherwise", () => {
+  it("names the remedy first in the decision for a gone docs branch", () => {
     const buckets = computeBuckets([], [
       { feature: "a", branch: "docs/app-a", reason: "origin/HEAD is not set", remedy: "git remote set-head origin -a", gone: true },
-      { feature: "b", branch: "docs/app-b", remedy: "git remote set-head origin -a", command: "kf status --all" },
     ], 0);
 
     expect(buckets.needsYou).toEqual([{
       feature: "a",
       decision: "canonical docs for a never landed (origin/HEAD is not set): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive a, or leave them",
     }]);
-    expect(buckets.waitingToMerge).toEqual([{ feature: "b", docsBranch: "docs/app-b", command: "git remote set-head origin -a" }]);
+    expect(buckets.waitingToMerge).toEqual([]);
+  });
+
+  it("keeps kf status --all as the command of a gone docs branch whose lookup could not run, and offers the re-land beside it", () => {
+    const buckets = computeBuckets([], [
+      { feature: "a", branch: "docs/app-a", reason: "gh is not installed", command: "kf status --all" },
+    ], 0);
+
+    expect(buckets.waitingToMerge).toEqual([{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "gh is not installed" }]);
+    expect(renderBuckets(buckets)).toContain("  a — docs/app-a not proven merged (gh is not installed): "
+      + "re-run kf status --all once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive a");
   });
 });

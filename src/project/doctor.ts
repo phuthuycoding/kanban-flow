@@ -11,7 +11,7 @@ import { branchPushed, revParse, type LandedRun } from "../shared/git.js";
 import { docsLandedProof } from "../workflow/canonical-docs.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
-import { docsNeverLandedDecision, reportStatus } from "../workflow/status.js";
+import { docsLookupRerunDecision, docsNeverLandedDecision, reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
 import { legacyHarnessStageKeys } from "../harness/config.js";
@@ -203,13 +203,12 @@ function checkDocsBranches(root: string): DoctorFinding[] {
     if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) return [];
     const proof = docsLandedProof(root, f, run);
     if (proof.landed) return [];
-    const remedy = proof.remedy ? `${proof.remedy}, then re-run kf doctor` : null;
     if (proof.gone) {
       return [{
         level: "WARNING" as const,
         area: `${f.stage}/${f.folder}`,
         message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here, and nothing proves they landed (${proof.reason}).`,
-        action: remedy ?? docsNeverLandedDecision(f.name),
+        action: proof.remedy ? `${proof.remedy}, then re-run kf doctor` : docsNeverLandedDecision(f.name),
       }];
     }
     if (pushed === null) {
@@ -217,7 +216,7 @@ function checkDocsBranches(root: string): DoctorFinding[] {
         level: "WARNING" as const,
         area: `${f.stage}/${f.folder}`,
         message: `docs_branch_unpushed: canonical docs for ${f.name} were committed to ${branch}, which is gone here and not proven merged (${proof.reason}).`,
-        action: remedy ?? `nothing to push; re-run kf doctor once the merged-PR lookup can run, or re-land the docs on a fresh docs branch with kf archive ${f.name}`,
+        action: `nothing to push; ${docsLookupRerunDecision(f.name, "kf doctor")}`,
       }];
     }
     return [{
@@ -227,7 +226,7 @@ function checkDocsBranches(root: string): DoctorFinding[] {
       message: proof.pushed
         ? `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin and not proven merged (${proof.reason}).`
         : `docs_branch_unpushed: canonical docs for ${f.name} sit on ${branch}, which is not on origin.`,
-      action: remedy ?? `git push -u origin ${branch}, then open a PR for it`,
+      action: `git push -u origin ${branch}, then open a PR for it`,
     }];
   });
 }

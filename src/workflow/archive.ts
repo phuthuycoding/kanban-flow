@@ -118,18 +118,19 @@ export type ArchiveOutcome =
  * The recorded docs branch on a done-item reconcile. `waiting`: it is still live (local or on
  * origin) — record kept, nothing written; `push` when it is only local, `reason` why a local
  * branch is not proven landed, when there is one. `landed`: proven landed, recorded as docsLanded.
- * `relanded`: gone, so the docs were committed anew on `branch` (now the record).
+ * `relanded`: gone, so the docs were committed anew on `branch` (now the record); `unproven`
+ * says why the merged-PR lookup could not run, when it could not — the earlier PR may have merged.
  */
 export type ReconciledDocsBranch =
   | { kind: "waiting"; branch: string; push: boolean; reason?: string }
   | { kind: "landed"; branch: string }
-  | { kind: "relanded"; branch: string; why: string };
+  | { kind: "relanded"; branch: string; why: string; unproven?: string };
 
 /** What the reconcile will do about a recorded docs branch, decided before any side effect. */
 type DocsBranchPlan =
   | { kind: "waiting"; branch: string; push: boolean; reason?: string }
   | { kind: "landed"; branch: string; by: "ancestor" | "merged-pr" | "content" }
-  | { kind: "branch"; branch: string; target: Extract<DocsTarget, { kind: "branch" }> }
+  | { kind: "branch"; branch: string; target: Extract<DocsTarget, { kind: "branch" }>; unproven?: string }
   | { kind: "refused"; message: string };
 
 /**
@@ -147,7 +148,7 @@ function docsBranchPlan(root: string, f: Feature, branch: string): DocsBranchPla
   const target = resolveDocsTarget(root, f, { branchOnly: `the docs branch ${branch} is gone and nothing proves its docs landed, so the rewrite must show in a PR diff` });
   if (target.kind === "tree") throw new Error(`resolveDocsTarget chose the working tree for '${f.name}' although a branch was required`);
   if (target.kind === "refused") return target;
-  return { kind: "branch", branch, target };
+  return { kind: "branch", branch, target, ...(!proof.gone && proof.reason ? { unproven: proof.reason } : {}) };
 }
 
 const refuse = (reason: ArchiveRefusalReason, stderrTag: string, stdout: string): ArchiveOutcome => ({ kind: "refused", reason, stdout, stderrTag });
@@ -241,7 +242,7 @@ function reconciledDocsBranch(plan: DocsBranchPlan | null, written: DocsBranchRe
   if (!plan || plan.kind === "refused") return null;
   if (plan.kind === "landed") return { kind: "landed", branch: plan.branch };
   if (plan.kind === "branch") {
-    return written?.branch ? { kind: "relanded", branch: written.branch, why: plan.target.why } : { kind: "landed", branch: plan.branch };
+    return written?.branch ? { kind: "relanded", branch: written.branch, why: plan.target.why, ...(plan.unproven ? { unproven: plan.unproven } : {}) } : { kind: "landed", branch: plan.branch };
   }
   return plan;
 }

@@ -8,6 +8,7 @@ import {
   computeBuckets,
   computeStatus,
   currentReportStatus,
+  DOCS_LOOKUP_RERUN,
   renderBuckets,
   renderStatusText,
   statusToJson,
@@ -264,7 +265,7 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
     }
     // No local branch to push: only a lookup that can run again can still prove it.
     if (pushed === null) {
-      out.push({ feature: f.name, branch, ...(proof.reason ? { reason: proof.reason } : {}), command: "kf status --all" });
+      out.push({ feature: f.name, branch, ...(proof.reason ? { reason: proof.reason } : {}), command: DOCS_LOOKUP_RERUN });
       continue;
     }
     // No trace of a push (and no merged PR found) shows as awaiting push, not unproven.

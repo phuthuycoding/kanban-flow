@@ -13,6 +13,7 @@ import { runDoctor } from "../project/doctor.js";
 const GH_STUB = `#!/usr/bin/env bash
 echo "gh $*" >> "$GH_CALLS"
 if [ -n "$GH_SLEEP" ]; then sleep "$GH_SLEEP"; fi
+if [ -n "$GH_FAIL" ]; then echo "gh: not logged in" >&2; exit 1; fi
 [ "$1" = pr ] && [ "$2" = list ] && { echo '[]'; exit 0; }
 exit 0
 `;
@@ -64,6 +65,7 @@ afterEach(async () => {
   process.env.PATH = prevPath;
   delete process.env.GH_CALLS;
   delete process.env.GH_SLEEP;
+  delete process.env.GH_FAIL;
   await rm(scratch, { recursive: true, force: true });
 });
 
@@ -84,6 +86,9 @@ async function goneItem(name: string, opts: { commit?: boolean } = {}): Promise<
 const base = () => `origin/${git(root, "symbolic-ref", "--short", "HEAD")}`;
 const neverLanded = (name: string) => `canonical docs for ${name} never landed (local branch docs/app-${name} is gone and there is no remote-tracking ref for it here, so there is nothing to push; `
   + `no docs commit was recorded and ${base()} does not hold these docs): re-land them on a fresh docs branch for a PR with kf archive ${name}, or leave them`;
+
+const rerun = (name: string, cmd = "kf status --all") =>
+  `re-run ${cmd} once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive ${name}`;
 
 describe("kf status --all on a docs branch gone locally and on origin", () => {
   it("puts it under Needs you as a re-land decision, not under Waiting to merge, without asking gh when no docs commit was recorded", async () => {
@@ -129,6 +134,56 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     expect(ghCalls()).toEqual([]);
   });
 
+  it("names the set-head command first in status and doctor, without asking gh, when a docs commit was recorded and origin/HEAD is unset", async () => {
+    await goneItem("demo", { commit: true });
+    git(root, "remote", "set-head", "origin", "-d");
+
+    const json = JSON.parse((await cmdStatus({ command: "status", positionals: [], options: { all: true, json: true } }, root)).stdout) as {
+      needsYou: Array<{ feature: string; decision: string }>; waitingToMerge: unknown[];
+    };
+    expect(json.waitingToMerge).toEqual([]);
+    expect(json.needsYou).toHaveLength(1);
+    expect(json.needsYou[0].decision).toMatch(/^canonical docs for demo never landed \(.*origin\/HEAD is not set.*\): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
+
+    const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+    expect(found.map((f) => f.action)).toEqual(["git remote set-head origin -a, then re-run kf doctor"]);
+    expect(ghCalls()).toEqual([]);
+  });
+
+  it("names adding an origin first in status and doctor, without asking gh, when there is no origin remote", async () => {
+    await goneItem("demo", { commit: true });
+    git(root, "remote", "remove", "origin");
+
+    const json = JSON.parse((await cmdStatus({ command: "status", positionals: [], options: { all: true, json: true } }, root)).stdout) as {
+      needsYou: Array<{ feature: string; decision: string }>; waitingToMerge: unknown[];
+    };
+    expect(json.waitingToMerge).toEqual([]);
+    expect(json.needsYou).toHaveLength(1);
+    expect(json.needsYou[0].decision).toMatch(/^canonical docs for demo never landed \(.*there is no origin remote.*\): run git remote add origin <url> first, then re-land them/);
+
+    const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+    expect(found.map((f) => f.action)).toEqual(["git remote add origin <url>, then re-run kf doctor"]);
+    expect(ghCalls()).toEqual([]);
+  });
+
+  it("gives the same re-run-or-re-land step as kf doctor when the merged-PR lookup could not run", async () => {
+    await goneItem("demo", { commit: true });
+    process.env.GH_FAIL = "1";
+
+    const json = JSON.parse((await cmdStatus({ command: "status", positionals: [], options: { all: true, json: true } }, root)).stdout) as {
+      needsYou: unknown[]; waitingToMerge: Array<{ feature: string; command: string }>;
+    };
+    expect(json.needsYou).toEqual([]);
+    expect(json.waitingToMerge.map((w) => w.command), "the command stays runnable").toEqual(["kf status --all"]);
+    const text = (await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root)).stdout;
+    const line = text.split("\n").find((l) => l.startsWith("  demo — docs/app-demo not proven merged ("));
+    expect(line).toContain("gh pr list failed");
+    expect(line?.endsWith(`): ${rerun("demo")}`), line).toBe(true);
+
+    const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+    expect(found.map((f) => f.action)).toEqual([`nothing to push; ${rerun("demo", "kf doctor")}`]);
+  });
+
   it("skips the remaining docs-branch lookups after the first gh timeout", async () => {
     await goneItem("one", { commit: true });
     await goneItem("two", { commit: true });
@@ -138,8 +193,8 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     const lookups = ghCalls().filter((c) => c.startsWith("gh pr list"));
     expect(lookups, "the second branch makes no gh call").toHaveLength(1);
     const [first, second] = lookups[0].includes("docs/app-one") ? ["one", "two"] : ["two", "one"];
-    expect(res.stdout).toContain(`${first} — docs/app-${first} not proven merged (local branch docs/app-${first} is gone and there is no remote-tracking ref for it here, so there is nothing to push; gh pr list failed: gh pr list timed out after 15000 ms): kf status --all`);
-    expect(res.stdout).toContain(`${second} — docs/app-${second} not proven merged (local branch docs/app-${second} is gone and there is no remote-tracking ref for it here, so there is nothing to push; the merged-PR lookup was skipped after a gh timeout in this run): kf status --all`);
+    expect(res.stdout).toContain(`${first} — docs/app-${first} not proven merged (local branch docs/app-${first} is gone and there is no remote-tracking ref for it here, so there is nothing to push; gh pr list failed: gh pr list timed out after 15000 ms): ${rerun(first)}`);
+    expect(res.stdout).toContain(`${second} — docs/app-${second} not proven merged (local branch docs/app-${second} is gone and there is no remote-tracking ref for it here, so there is nothing to push; the merged-PR lookup was skipped after a gh timeout in this run): ${rerun(second)}`);
     expect(res.stdout, "a branch that does not exist is never offered for a push").not.toContain("git push");
   }, 40_000);
 });

@@ -387,14 +387,6 @@ function mergedPrProof(root: string, branch: string, tip: string, run: LandedRun
   return unproven(`no merged PR has ${branch} at ${tip.slice(0, 12)} as its head`);
 }
 
-/** The bytes of `path` (repository-relative) at `ref`, or null when `ref` has no such file. */
-export function fileAt(dir: string, ref: string, path: string): string | null {
-  assertSafeArg("ref", ref);
-  // Everything after the colon is the path; a missing path or a directory there makes cat-file exit non-zero.
-  const res = runGit(dir, ["cat-file", "blob", `${ref}:${path}`]);
-  return res.code === 0 ? res.stdout : null;
-}
-
 /**
  * Blob ids at `ref` of `paths` (relative to `dir`), keyed by the path as given, in one git spawn.
  * A path with no blob there is absent; a `ref` that does not resolve gives an empty map.

@@ -163,7 +163,9 @@ export function docsOnDefault(root: string, feature: Feature, base: string | nul
  * landedProof for a feature's recorded docs branch. A branch gone locally whose docs are already
  * on origin/<default> is landed by content, whatever route they took; with a recorded docs commit
  * the one-spawn ancestor check runs first and the gh lookup last. A gone branch with no recorded
- * docs commit is never asked about on GitHub: no merged PR could be tied to it.
+ * docs commit is never asked about on GitHub: no merged PR could be tied to it. Without
+ * origin/<default> a gone branch is never asked about either: kf archive could not re-land the
+ * docs anyway, so the proof names the git command that gives it a default branch.
  */
 export function docsLandedProof(root: string, feature: Feature, run: LandedRun = {}): LandedProof {
   const branch = feature.meta?.docsBranch;
@@ -171,18 +173,27 @@ export function docsLandedProof(root: string, feature: Feature, run: LandedRun =
   const commit = feature.meta?.docsCommit;
   if (revParse(root, `refs/heads/${branch}`)) return landedProof(root, branch, commit, run);
   const base = originDefaultRef(root);
-  if (commit && base && isAncestor(root, commit, base)) return { landed: true, by: "ancestor" };
+  if (!base) {
+    const noCommit = commit ? "" : "no docs commit was recorded and ";
+    return hasRemote(root, "origin")
+      ? {
+        landed: false,
+        pushed: true,
+        gone: true,
+        remedy: "git remote set-head origin -a",
+        reason: `${goneBranchText(branch)}; ${noCommit}origin/HEAD is not set, so the docs on the default branch cannot be compared (set it: git remote set-head origin -a)`,
+      }
+      : {
+        landed: false,
+        pushed: true,
+        gone: true,
+        remedy: "git remote add origin <url>",
+        reason: `${goneBranchText(branch)}; ${noCommit}there is no origin remote, so there is no default branch to compare the docs with or to re-land them on (add it: git remote add origin <url>)`,
+      };
+  }
+  if (commit && isAncestor(root, commit, base)) return { landed: true, by: "ancestor" };
   if (docsOnDefault(root, feature, base)) return { landed: true, by: "content" };
   if (commit) return goneLookupProof(root, branch, commit, run);
-  if (!base) {
-    return {
-      landed: false,
-      pushed: true,
-      gone: true,
-      remedy: "git remote set-head origin -a",
-      reason: `${goneBranchText(branch)}; no docs commit was recorded and origin/HEAD is not set, so the docs on the default branch cannot be compared (set it: git remote set-head origin -a)`,
-    };
-  }
   return { landed: false, pushed: true, gone: true, reason: `${goneBranchText(branch)}; no docs commit was recorded and ${base} does not hold these docs` };
 }
 

@@ -9,7 +9,6 @@ import { cmdNew } from "../cli/commands/new.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta, type Feature } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import { docsLandedProof, docsOnDefault, prepareCanonicalCopies, writeCanonicalCopies } from "../workflow/canonical-docs.js";
-import { fileAt } from "../shared/git.js";
 
 const GH_STUB = `#!/usr/bin/env bash
 echo "gh $*" >> "$GH_CALLS"
@@ -148,19 +147,29 @@ describe("docsLandedProof on a gone docs branch", () => {
     });
     expect(calls(process.env.GH_CALLS!)).toEqual([]);
   });
-});
 
-describe("fileAt", () => {
-  it("returns the bytes of a file and null for a missing path or a directory, in one spawn each", async () => {
-    await mkdir(join(root, "docs", "dir"), { recursive: true });
-    await writeFile(join(root, "docs", "dir", "a.md"), "hello\n");
-    git(root, "add", "-A");
-    git(root, "commit", "-qm", "doc");
-    await resetGitLog();
+  it("names git remote set-head without asking gh when a docs commit was recorded and origin/HEAD is unset", async () => {
+    const feature = await goneItem("demo", { commit: "a".repeat(40) });
+    git(root, "remote", "set-head", "origin", "-d");
 
-    expect(fileAt(root, "HEAD", "docs/dir/a.md")).toBe("hello\n");
-    expect(fileAt(root, "HEAD", "docs/dir/missing.md")).toBeNull();
-    expect(fileAt(root, "HEAD", "docs/dir")).toBeNull();
-    expect(calls(gitLog)).toHaveLength(3);
+    expect(docsLandedProof(root, feature)).toEqual({
+      landed: false,
+      pushed: true,
+      gone: true,
+      remedy: "git remote set-head origin -a",
+      reason: "local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; "
+        + "origin/HEAD is not set, so the docs on the default branch cannot be compared (set it: git remote set-head origin -a)",
+    });
+    expect(calls(process.env.GH_CALLS!)).toEqual([]);
+  });
+
+  it("names git remote add origin when there is no origin remote at all", async () => {
+    const feature = await goneItem("demo", { commit: "a".repeat(40) });
+    git(root, "remote", "remove", "origin");
+
+    const proof = docsLandedProof(root, feature);
+    expect(proof).toMatchObject({ landed: false, pushed: true, gone: true, remedy: "git remote add origin <url>" });
+    expect(proof.landed === false && proof.reason).toContain("there is no origin remote");
+    expect(calls(process.env.GH_CALLS!)).toEqual([]);
   });
 });

@@ -695,7 +695,8 @@ describe("kf archive on a done item with a recorded docs branch", () => {
 
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain("committed again to docs/app-demo, not pushed (the docs branch docs/app-demo is gone and nothing proves its docs landed, so the rewrite must show in a PR diff):");
+    expect(res.stdout).toContain("Canonical docs never landed; committed again to docs/app-demo, not pushed (the docs branch docs/app-demo is gone and nothing proves its docs landed, so the rewrite must show in a PR diff):");
+    expect(res.stdout).not.toContain("do not merge it");
     expect(git(root, "status", "--porcelain")).toBe("");
     expect(existsSync(requirement())).toBe(false);
     expect(git(root, "rev-parse", "docs/app-demo^")).toBe(git(root, "rev-parse", `origin/${base()}`));
@@ -754,7 +755,9 @@ describe("kf archive on a done item with a recorded docs branch", () => {
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
     expect(ghCalls().slice(before.length)).not.toContain("--head docs/app-demo");
-    expect(res.stdout).toContain("Canonical docs never landed; committed again to docs/app-demo, not pushed");
+    expect(res.stdout).toContain("Canonical docs not proven landed (local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; origin is not a GitHub repository, so a merged PR cannot be checked); committed again to docs/app-demo, not pushed");
+    expect(res.stdout).not.toContain("never landed");
+    expect(res.stdout).toContain("\nif the earlier PR did merge, this PR reverts later edits to these docs: do not merge it\n");
     expect(git(root, "status", "--porcelain")).toBe("");
     expect(existsSync(requirement())).toBe(false);
     expect(git(root, "rev-parse", "docs/app-demo^")).toBe(git(root, "rev-parse", `origin/${base()}`));

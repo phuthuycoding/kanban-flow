@@ -247,7 +247,7 @@ describe("kf doctor on a docs branch left at close", () => {
       "docs_branch_unpushed: canonical docs for demo were committed to docs/app-demo, which is gone here and not proven merged "
         + "(local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; origin is not a GitHub repository, so a merged PR cannot be checked).",
     ]);
-    expect(found[0].action).toBe("nothing to push; re-run kf doctor once the merged-PR lookup can run, or re-land the docs on a fresh docs branch with kf archive demo");
+    expect(found[0].action).toBe("nothing to push; re-run kf doctor once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive demo");
   });
 
   it("stays quiet once the branch merged into the default branch and was pruned from origin", async () => {

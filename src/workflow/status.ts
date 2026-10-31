@@ -350,7 +350,7 @@ export function computeBuckets(
       needsYou.push({ feature: d.feature, decision: docsNeverLandedDecision(d.feature, d.reason, d.remedy) });
       continue;
     }
-    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.remedy ?? d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
   return { needsYou, waitingToMerge, running };
 }
@@ -358,6 +358,14 @@ export function computeBuckets(
 /** A docs branch nothing proves landed and nothing is left to push; doctor gives the same decision. */
 export function docsNeverLandedDecision(feature: string, reason?: string, remedy?: string): string {
   return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: ${remedy ? `run ${remedy} first, then ` : ""}re-land them on a fresh docs branch for a PR with kf archive ${feature}, or leave them`;
+}
+
+/** The command kf status --all gives a gone docs branch whose merged-PR lookup could not run. */
+export const DOCS_LOOKUP_RERUN = "kf status --all";
+
+/** The next step for a gone docs branch whose merged-PR lookup could not run; doctor gives the same one. */
+export function docsLookupRerunDecision(feature: string, rerun: string): string {
+  return `re-run ${rerun} once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive ${feature}`;
 }
 
 export function renderBuckets(b: Buckets): string {
@@ -368,6 +376,7 @@ export function renderBuckets(b: Buckets): string {
   if (b.waitingToMerge.length === 0) lines.push("  (none)");
   for (const w of b.waitingToMerge) {
     if (!w.docsBranch) lines.push(`  ${w.feature} — ${w.pr}: ${w.command}`);
+    else if (w.command === DOCS_LOOKUP_RERUN) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged${w.reason ? ` (${w.reason})` : ""}: ${docsLookupRerunDecision(w.feature, w.command)}`);
     else if (w.reason) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged (${w.reason}): ${w.command}`);
     else lines.push(`  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}`);
   }
