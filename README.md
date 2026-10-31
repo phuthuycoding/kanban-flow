@@ -40,9 +40,10 @@ Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>
 
 Upgrading: the first `kf status` or `kf sync` moves any `.works/dones/*` item to
 `done` and any `.works/shipping/*` item back to `review` (a shipping item whose PR
-already merged is closed). Rename `statusMap.dones` to `done` in `.kf/config.json`
-and run `kf doctor --fix`: when `.kf/hooks/done.sh` is missing it renames
-`.kf/hooks/dones.sh` to `done.sh`, keeping its content. `KFW_PROJECT_STATUS_DONES` is
+already merged is closed). Then run `kf doctor --fix`: it rewrites the legacy
+`statusMap` and `harness.stages` keys in `.kf/config.json` (`dones` → `done`,
+`shipping` dropped), renames `.kf/hooks/dones.sh` to `done.sh` when `done.sh` is
+missing (content kept), and adds a missing `.kf/travel/` `.gitignore` entry. `KFW_PROJECT_STATUS_DONES` is
 still exported to done hooks, so a legacy board move keeps working. Until then
 `dones.sh` runs as the done hook; `kf doctor` flags leftovers.
 

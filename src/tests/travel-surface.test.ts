@@ -30,7 +30,7 @@ describe("the travel skill", () => {
 
   it("prints the progress block with every field", () => {
     for (const s of ["Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P", "⏸ Needs you (decide)", "▶ Running",
-      "✓ Waiting to merge (do this on GitHub)", "! gh pr merge <n>", "docsBranch", "awaiting push", "<worktree path>"]) {
+      "✓ Waiting to merge (do this on GitHub)", "! gh pr merge <n>", "docsBranch", "awaiting push", "not proven merged (<reason>)", "review PASS but not closed", "<worktree path>"]) {
       expect(skill, s).toContain(s);
     }
     for (const text of [skill, read("references", "ledger-format.md"), read("references", "daily-plan.md")]) {

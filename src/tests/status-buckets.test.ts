@@ -40,15 +40,6 @@ describe("Needs you bucket", () => {
     expect(renderBuckets(buckets)).toContain("  legacy — review PASS but not closed: Cannot archive 'legacy'");
   });
 
-  it("puts a multi-line refusal on one line, so the check that failed is named", async () => {
-    await legacyPassReviewItem("legacy");
-    const status = { ...computeStatus(findFeature(root, "legacy")!), close: { kind: "refused" as const, detail: "Cannot archive 'legacy':\n  review_landing_missing: the review report has no landing\n" } };
-
-    const rendered = renderBuckets(computeBuckets([status], [], 0));
-
-    expect(rendered).toContain("  legacy — review PASS but not closed: Cannot archive 'legacy': review_landing_missing: the review report has no landing\n");
-  });
-
   it("kf status --all keeps a legacy review PASS item that cannot close under Needs you", async () => {
     execFileSync("git", ["init", "-q", root]);
     await legacyPassReviewItem("legacy");

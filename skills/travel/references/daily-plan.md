@@ -14,10 +14,12 @@ Batch 2 (if Batch 1 drains)
 ⏸ Needs you (decide)
   - t6 confirm spec epic-types — brainstorm, spec pending
   - t7 approve plan (or --backlog) search-index
+  - t10 review PASS but not closed legacy-login — Cannot archive 'legacy-login': review_landing_missing
   - t5 split or override docs-split — XL
 ✓ Waiting to merge (do this on GitHub)
   - t8 https://github.com/<owner>/<repo>/pull/104 — ! gh pr merge 104
   - t9 docs/cli-d awaiting push — ! git push -u origin docs/cli-d
+  - t11 docs/cli-e not proven merged (no merged PR has docs/cli-e at 0123456789ab as its head) — ! git push -u origin docs/cli-e
 Calibration: budget = median daily actual points of 2026-10-28 (6), 2026-10-29 (10), 2026-10-30 (8); kind feature: hit rate 9/14, bias +0.3 sizes, factor 1 (defaults — 14 rows with estmin, needs 20)
 Approve, or edit (drop / reorder / resize / override XL / slots=N)?
 ```
