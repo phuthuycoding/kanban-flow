@@ -207,6 +207,21 @@ describe("kf run hands a stage to the assigned worker", () => {
     expect(p.feature().meta!.sessions!.coder).not.toBe("dead-session");
   });
 
+  it("keeps the stored session when a failed resume names its own reason and stderr only warns", async () => {
+    await p.writeHarness(harnessWith({ testing: ["coder"] }));
+    await writeFeatureMeta(p.feature().dir, { ...p.feature().meta!, sessions: { coder: "live-session" } });
+    p.cli.scenario("claude", {
+      script: "echo 'warning: unknown option --foo'",
+      resumeStdout: JSON.stringify({ type: "result", is_error: true, result: "hook failed", session_id: "live-session" }),
+      resumeExit: 1,
+    });
+    await cmdRun(args("run", ["demo"]), p.root);
+    const runs = p.feature().meta!.runs!;
+    expect(runs.map((r) => r.status)).not.toContain("reset");
+    expect(runs.length).toBe(1);
+    expect(p.feature().meta!.sessions!.coder).toBe("live-session");
+  });
+
   it("kills the worker when its pid cannot be recorded", async () => {
     p.cli.scenario("gemini", { sleep: 5 });
     const writer = paths.writeFileAtomic;
