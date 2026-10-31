@@ -17,7 +17,7 @@ import { archiveItem } from "../workflow/archive.js";
 import { deleteRemoteBranch, landedProof } from "../shared/git.js";
 import { deleteItemBranch } from "../worktree/lifecycle.js";
 import { runDoctor } from "../project/doctor.js";
-import { gh } from "../integrations/github.js";
+import { checkMergeGate, gh } from "../integrations/github.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let root: string;
@@ -531,7 +531,7 @@ describe("canonical docs when the primary checkout is behind origin", () => {
 
     const all = await status({ all: true });
     expect(all.stdout).toContain("demo — docs/app-demo awaiting push: git push -u origin docs/app-demo");
-    expect(ghCalls(), "a branch that never had an upstream has no PR to look up").not.toContain("gh pr list");
+    expect(ghCalls(), "a push without -u leaves no trace once pruned, so gh is still asked").toContain("gh pr list -R o/r --head docs/app-demo --state merged");
 
     git(root, "push", "-q", "origin", "docs/app-demo");
     expect(runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"))).toHaveLength(0);
@@ -735,10 +735,72 @@ describe("landedProof on a docs branch gone from origin", () => {
     expect(ghCalls()).toContain("gh pr list -R o/r --head docs/app-x --state merged");
   });
 
-  it("does not call gh for a branch that never had an upstream", () => {
-    git(root, "branch", "docs/app-x", git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs"));
-    expect(landedProof(root, "docs/app-x")).toEqual({ landed: false, pushed: false });
+  it("reports a branch with no trace of a push and no merged PR as not pushed", () => {
+    const tip = git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs");
+    git(root, "branch", "docs/app-x", tip);
+    expect(landedProof(root, "docs/app-x")).toMatchObject({ landed: false, pushed: false });
+  });
+
+  it("finds the merged PR of a branch pushed without -u, then deleted on origin and pruned", () => {
+    const tip = git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs");
+    git(root, "branch", "docs/app-x", tip);
+    git(root, "push", "-q", "origin", "docs/app-x");
+    git(origin, "branch", "-D", "docs/app-x");
+    git(root, "fetch", "-q", "--prune", "origin");
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: tip }]);
+    expect(landedProof(root, "docs/app-x")).toEqual({ landed: true, by: "merged-pr" });
+  });
+
+  it("counts a remote-tracking ref left by a push without -u as a push", () => {
+    const tip = git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs");
+    git(root, "branch", "docs/app-x", tip);
+    git(root, "push", "-q", "origin", "docs/app-x");
+    git(origin, "branch", "-D", "docs/app-x");
+    expect(landedProof(root, "docs/app-x")).toEqual({
+      landed: false, pushed: true, reason: `no merged PR has docs/app-x at ${tip.slice(0, 12)} as its head`,
+    });
+  });
+
+  it("proves a branch deleted locally and on origin by a merged PR with its name", () => {
+    prunedDocsBranch();
+    git(root, "branch", "-D", "docs/app-x");
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
+    expect(landedProof(root, "docs/app-x")).toEqual({ landed: true, by: "merged-pr" });
+    expect(ghCalls()).toContain("gh pr list -R o/r --head docs/app-x --state merged");
+  });
+
+  it("marks a branch deleted locally and on origin with no merged PR as gone, with nothing to push", () => {
+    prunedDocsBranch();
+    git(root, "branch", "-D", "docs/app-x");
+    expect(landedProof(root, "docs/app-x")).toEqual({
+      landed: false,
+      pushed: true,
+      gone: true,
+      reason: "local branch docs/app-x is gone and it is not on origin, so there is nothing to push; no merged PR has docs/app-x as its head",
+    });
+  });
+
+  it("names an invalid project config in one line instead of throwing", async () => {
+    prunedDocsBranch();
+    await writeFile(join(root, ".kf", "config.json"), "{ not json\n");
+    const proof = landedProof(root, "docs/app-x");
+    expect(proof).toMatchObject({ landed: false, pushed: true });
+    const reason = proof.landed ? "" : proof.reason ?? "";
+    expect(reason).toMatch(/^the project config is invalid \(.+\), so a merged PR cannot be checked$/);
+    expect(reason).not.toContain("\n");
     expect(ghCalls()).toBe("");
+  });
+
+  it("keeps kf's own hint whole for a long branch name", () => {
+    const branch = "docs/app-workflow-slim-with-a-long-name";
+    const tip = git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs");
+    git(root, "branch", branch, tip);
+    git(root, "push", "-q", "-u", "origin", branch);
+    git(root, "push", "-q", "origin", "--delete", branch);
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
+    const proof = landedProof(root, branch);
+    const reason = proof.landed ? "" : proof.reason ?? "";
+    expect(reason.endsWith("fetch it, or delete the local branch if that PR carried this work)")).toBe(true);
   });
 
   it("accepts a merged PR whose head, available locally, builds on the local tip", () => {
@@ -768,7 +830,7 @@ describe("landedProof on a docs branch gone from origin", () => {
     const reason = proof.landed ? "" : proof.reason ?? "";
     expect(reason.startsWith("gh pr list failed: GraphQL: Could not resolve at line 1 xxx")).toBe(true);
     expect(reason).not.toContain("\n");
-    expect(reason.length).toBe(200);
+    expect(reason.length).toBe("gh pr list failed: ".length + 200);
     expect(reason.endsWith("…")).toBe(true);
   });
 
@@ -776,5 +838,14 @@ describe("landedProof on a docs branch gone from origin", () => {
     process.env.GH_SLEEP = "5";
     const res = gh(["pr", "list"], { timeoutMs: 300 });
     expect(res).toMatchObject({ ok: false, missing: false, stderr: "gh pr list timed out after 300 ms" });
+  });
+
+  it("treats a merge gate gh call that outlives its timeout as unverifiable", () => {
+    process.env.GH_SLEEP = "5";
+    const started = Date.now();
+    expect(checkMergeGate({ meta: { pr: PR } }, "o/r", 300)).toEqual({
+      kind: "failed", failure: { reason: "unverifiable", pr: PR, detail: "gh pr view timed out after 300 ms" },
+    });
+    expect(Date.now() - started).toBeLessThan(4_000);
   });
 });

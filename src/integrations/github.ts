@@ -7,6 +7,9 @@ export interface GhResult {
   stderr: string;
 }
 
+/** How long a gh lookup that kf status, kf sync or doctor waits on may run before it counts as failed. */
+export const GH_LOOKUP_TIMEOUT_MS = 15_000;
+
 /**
  * `gh` is an optional dependency — surfaces only when a repository is configured and used.
  * With `timeoutMs`, a call still running then is killed and reported as a failure.
@@ -54,11 +57,12 @@ export type MergeGateResult =
 export function checkMergeGate(
   feature: { meta?: { pr?: string } | null },
   repo: string | undefined,
+  timeoutMs = GH_LOOKUP_TIMEOUT_MS,
 ): MergeGateResult {
   const pr = feature.meta?.pr;
   if (!pr) return { kind: "no-pr" };
   if (!repo) return { kind: "failed", failure: { reason: "no-repository", pr } };
-  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName,headRefOid"]);
+  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName,headRefOid"], { timeoutMs });
   if (!res.ok) {
     return {
       kind: "failed",

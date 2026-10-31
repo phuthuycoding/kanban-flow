@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { gh } from "../integrations/github.js";
+import { GH_LOOKUP_TIMEOUT_MS, gh } from "../integrations/github.js";
 import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { detectRepository } from "../project/repository.js";
 
@@ -221,17 +221,27 @@ export type LandedProof =
   | { landed: true; by: "ancestor" | "merged-pr" }
   /**
    * Not landed, or a check could not run (no GitHub repository, gh missing, failing or timing
-   * out): unproven is not landed. `pushed: false` means the branch never had an upstream, so no
-   * merged PR was looked up and there is no `reason`; otherwise `reason` is one line.
+   * out): unproven is not landed. `pushed: false` means nothing records a push of the branch (no
+   * upstream configured, no remote-tracking ref or its reflog) and no merged PR was found for it.
+   * `gone: true` means the local branch no longer exists, so there is nothing left to push.
+   * `reason` is one line; callers show it only when `pushed` is true.
    */
-  | { landed: false; pushed: boolean; reason?: string };
+  | { landed: false; pushed: boolean; gone?: true; reason?: string };
 
-const LANDED_GH_TIMEOUT_MS = 15_000;
-const REASON_MAX = 200;
+const DETAIL_MAX = 200;
 
-function unproven(reason: string): LandedProof {
-  const line = reason.replace(/\s+/g, " ").trim();
-  return { landed: false, pushed: true, reason: line.length > REASON_MAX ? `${line.slice(0, REASON_MAX - 1)}…` : line };
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** gh's or the config's own text embedded in a reason: kf's words around it are never cut. */
+function detail(text: string): string {
+  const line = oneLine(text);
+  return line.length > DETAIL_MAX ? `${line.slice(0, DETAIL_MAX - 1)}…` : line;
+}
+
+function unproven(reason: string): { landed: false; pushed: true; reason: string } {
+  return { landed: false, pushed: true, reason: oneLine(reason) };
 }
 
 /** The repository merged PRs are looked up in: the configured one, else the origin URL's. */
@@ -239,9 +249,39 @@ function landedRepository(root: string): { repo: string | null } | { error: stri
   try {
     return { repo: readProjectConfig(root).repository ?? detectRepository(root) };
   } catch (err) {
-    if (err instanceof ProjectConfigError) return { error: `the project config is invalid (${err.message})` };
+    if (err instanceof ProjectConfigError) return { error: `the project config is invalid (${detail(err.message)})` };
     throw err;
   }
+}
+
+/** Merged PRs whose head branch is `branch`, or why they could not be looked up. */
+function mergedPrs(root: string, branch: string): { prs: unknown[] } | { failure: string } {
+  const found = landedRepository(root);
+  if ("error" in found) return { failure: `${found.error}, so a merged PR cannot be checked` };
+  const repo = found.repo;
+  if (!repo) return { failure: "origin is not a GitHub repository, so a merged PR cannot be checked" };
+  const res = gh(["pr", "list", "-R", repo, "--head", branch, "--state", "merged", "--json", "number,headRefOid"], { timeoutMs: GH_LOOKUP_TIMEOUT_MS });
+  if (res.missing) return { failure: "gh CLI not found, so a merged PR cannot be checked" };
+  if (!res.ok) return { failure: `gh pr list failed: ${detail(res.stderr.trim() || res.stdout.trim())}` };
+  let prs: unknown;
+  try {
+    prs = JSON.parse(res.stdout);
+  } catch (err) {
+    return { failure: `gh pr list returned unparseable output (${detail((err as Error).message)}): ${detail(res.stdout)}` };
+  }
+  if (!Array.isArray(prs)) return { failure: `gh pr list returned unexpected output: ${detail(res.stdout)}` };
+  return { prs };
+}
+
+/**
+ * Anything here that records a push of `branch` to origin. A push without -u leaves no upstream
+ * config, and a prune removes the remote-tracking ref together with its reflog, so a branch
+ * without a trace may still have been pushed: the merged-PR lookup runs either way.
+ */
+function pushTrace(root: string, branch: string): boolean {
+  return runGit(root, ["config", "--get", `branch.${branch}.remote`]).code === 0
+    || runGit(root, ["reflog", "exists", `refs/remotes/origin/${branch}`]).code === 0
+    || revParse(root, `refs/remotes/origin/${branch}`) !== null;
 }
 
 /**
@@ -249,30 +289,30 @@ function landedRepository(root: string): { repo: string | null } | { error: stri
  * origin/<default>, or GitHub has a merged PR whose head is this branch at this tip, or at a
  * local commit the tip is an ancestor of (the squash merge case, where the tip is never an
  * ancestor). A deleted or pruned upstream proves nothing — a PR closed unmerged leaves the same
- * trace. A branch that never had an upstream cannot have a PR, so gh is not asked.
+ * trace. When the local branch is gone there is no tip to compare, so any merged PR with this
+ * head branch proves it.
  */
 export function landedProof(root: string, branch: string): LandedProof {
   assertSafeArg("branch", branch);
   const tip = revParse(root, `refs/heads/${branch}`);
-  if (!tip) return unproven(`local branch ${branch} not found`);
+  if (!tip) {
+    const gone = `local branch ${branch} is gone and it is not on origin, so there is nothing to push`;
+    const lookup = mergedPrs(root, branch);
+    if ("failure" in lookup) return { ...unproven(`${gone}; ${lookup.failure}`), gone: true };
+    if (lookup.prs.length > 0) return { landed: true, by: "merged-pr" };
+    return { ...unproven(`${gone}; no merged PR has ${branch} as its head`), gone: true };
+  }
   const base = originDefaultRef(root);
   if (base && runGit(root, ["merge-base", "--is-ancestor", tip, base]).code === 0) return { landed: true, by: "ancestor" };
-  if (runGit(root, ["config", "--get", `branch.${branch}.remote`]).code !== 0) return { landed: false, pushed: false };
-  const found = landedRepository(root);
-  if ("error" in found) return unproven(`${found.error}, so a merged PR cannot be checked`);
-  const repo = found.repo;
-  if (!repo) return unproven("origin is not a GitHub repository, so a merged PR cannot be checked");
-  const res = gh(["pr", "list", "-R", repo, "--head", branch, "--state", "merged", "--json", "number,headRefOid"], { timeoutMs: LANDED_GH_TIMEOUT_MS });
-  if (res.missing) return unproven("gh CLI not found, so a merged PR cannot be checked");
-  if (!res.ok) return unproven(`gh pr list failed: ${res.stderr.trim() || res.stdout.trim()}`);
-  let prs: unknown;
-  try {
-    prs = JSON.parse(res.stdout);
-  } catch (err) {
-    return unproven(`gh pr list returned unparseable output (${(err as Error).message}): ${res.stdout.trim()}`);
-  }
-  if (!Array.isArray(prs)) return unproven(`gh pr list returned unexpected output: ${res.stdout.trim()}`);
-  const heads = prs
+  const proof = mergedPrProof(root, branch, tip);
+  if (proof.landed || pushTrace(root, branch)) return proof;
+  return { ...proof, pushed: false };
+}
+
+function mergedPrProof(root: string, branch: string, tip: string): LandedProof {
+  const lookup = mergedPrs(root, branch);
+  if ("failure" in lookup) return unproven(lookup.failure);
+  const heads = lookup.prs
     .map((pr) => (pr as { headRefOid?: unknown } | null)?.headRefOid)
     .filter((oid): oid is string => typeof oid === "string" && /^[0-9a-f]{40,64}$/.test(oid));
   if (heads.includes(tip)) return { landed: true, by: "merged-pr" };
