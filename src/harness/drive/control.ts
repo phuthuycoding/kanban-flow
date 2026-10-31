@@ -10,7 +10,7 @@ import { isPidAlive } from "../../shared/process.js";
 import { harnessLimits } from "../config.js";
 import { applyRunRecord, killGroup, liveRecords } from "../run.js";
 import { appendDriveEvent, lastDriveEvent } from "../drive-log.js";
-import { describeEvent, formatElapsed, type DriveLiveRun } from "./progress.js";
+import { describeEvent, formatElapsed, workerActivity, type DriveLiveRun } from "./progress.js";
 
 export interface DriveEnd {
   status: "ready" | "stopped";
@@ -137,10 +137,15 @@ export function driveView(root: string, feature: Feature, nowMs: number = Date.n
   const limits = harnessLimits(resolveDriveConfig(root, feature).cfg.harness);
   const crashed = d.status === "running" && !driveLive(d);
   const runningTasks = Object.entries(feature.meta?.tasks ?? {}).filter(([, t]) => IN_FLIGHT.has(t.state)).map(([id]) => id).sort();
-  const liveRuns: DriveLiveRun[] = liveRecords(feature.meta?.runs).map((r) => ({
-    id: r.id, role: r.role, runner: r.runner, stage: r.stage, ...(r.task ? { task: r.task } : {}),
-    at: r.at, elapsed: formatElapsed(r.at, nowMs), log: join(feature.dir, r.log),
-  }));
+  const liveRuns: DriveLiveRun[] = liveRecords(feature.meta?.runs).map((r) => {
+    const log = join(feature.dir, r.log);
+    const seen = workerActivity(log);
+    return {
+      id: r.id, role: r.role, runner: r.runner, stage: r.stage, ...(r.task ? { task: r.task } : {}),
+      at: r.at, elapsed: formatElapsed(r.at, nowMs), log,
+      ...(seen ? { activity: seen.activity, activityAgo: formatElapsed(seen.at, nowMs) } : {}),
+    };
+  });
   const last = lastDriveEvent(feature.dir, d.id);
   const lastEvent = last ? { at: typeof last.at === "string" ? last.at : "", summary: describeEvent(last) } : undefined;
   return {

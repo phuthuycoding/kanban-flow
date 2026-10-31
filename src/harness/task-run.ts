@@ -21,6 +21,9 @@ export { setTaskState, type CompleteTaskInput, type TaskCompletion } from "./tas
 
 export const taskSessionKey = (taskId: string): string => `task:${taskId}`;
 
+/** Reason prefix of a task the usage limit sent back to `pending`; its next run resumes the same worker session. */
+export const USAGE_LIMIT_REASON = "usage limit: ";
+
 export interface TaskRunContext {
   task: PlannedTask;
   harness: HarnessConfig;
@@ -138,7 +141,11 @@ export interface TaskRunOptions {
 
 export type TaskRunResult =
   | { started: false; reason: string }
-  | ({ started: true; outcome: RunOutcome | null } & Omit<TaskCompletion, "retryable"> & { retryable?: boolean });
+  | ({ started: true; outcome: RunOutcome | null } & Omit<TaskCompletion, "retryable" | "stop"> & {
+    retryable?: boolean;
+    /** `usage_limit`: the worker hit the API usage limit; the task is `pending` again and the attempt was not counted. */
+    stop?: TaskCompletion["stop"] | "usage_limit";
+  });
 
 /** Prompt and session plan shared by a real run and `--dry-run`; the run id is a placeholder in a dry run. */
 export function taskPrompt(root: string, feature: Feature, ctx: TaskRunContext, runId: string, previousFailure?: string): string {
@@ -168,6 +175,8 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
   // A manual re-run of a failed task tells the worker why the last attempt failed.
   const prior = feature.meta.tasks?.[task.id];
   const previousFailure = opts.previousFailure ?? (prior?.state === "failed" ? prior.reason : undefined);
+  const pausedByLimit = prior?.state === "pending" && prior.reason?.startsWith(USAGE_LIMIT_REASON) === true;
+  let attemptsBefore = 0;
 
   // The claim carries this process as supervisor, so the run counts as live before the worker has a pid.
   const claim: RunRecord = {
@@ -178,7 +187,8 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
     await updateTasks(root, featureName, harness, (meta) => {
       const conflict = runConflict(meta.runs, featureName, task.id, { drive: meta.drive, driver: opts.driver });
       if (conflict) throw new Refused(conflict);
-      const claimed = withTask(meta, task.id, { state: "running", attempts: (meta.tasks?.[task.id]?.attempts ?? 0) + 1, branch: ctx.branch });
+      attemptsBefore = meta.tasks?.[task.id]?.attempts ?? 0;
+      const claimed = withTask(meta, task.id, { state: "running", attempts: attemptsBefore + 1, branch: ctx.branch });
       return { ...claimed, runs: applyRunRecord(meta.runs, claim) };
     }, baseline);
   } catch (err) {
@@ -208,8 +218,8 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
     id: runId, root, feature: featureName, role: ctx.assignment.role, runnerName: ctx.assignment.runnerName, stage: "implementation",
     runner: ctx.assignment.runner, prompt: taskPrompt(root, current, ctx, runId, previousFailure), output: ctx.assignment.output,
     task: task.id, cwd: worktree.path, sessionKey: key,
-    // The first attempt of a task never inherits a stale session; later attempts resume the task's own.
-    fresh: opts.fresh || ctx.attempts === 0, timeoutMs: opts.timeoutMs,
+    // The first attempt of a task never inherits a stale session; later attempts, and a run after the usage limit, resume the task's own.
+    fresh: opts.fresh || (ctx.attempts === 0 && !pausedByLimit), timeoutMs: opts.timeoutMs,
   };
   writeRunPlan(current, plan);
 
@@ -224,6 +234,12 @@ export async function executeTaskRun(root: string, featureName: string, ctx: Tas
   const session = findFeature(root, featureName)?.meta?.sessions?.[key];
   const sessionPatch = session ? { session } : {};
 
+  if (outcome.usageLimit !== undefined) {
+    // Not the worker's fault and not retryable now: give the attempt back and keep the worktree and session for later.
+    const reason = `${USAGE_LIMIT_REASON}${outcome.usageLimit}`;
+    await setTaskState(root, featureName, harness, task.id, { state: "pending", reason, attempts: attemptsBefore, ...sessionPatch });
+    return { started: true, outcome, state: "pending", reason, retryable: false, stop: "usage_limit" };
+  }
   if (outcome.ok) {
     await setTaskState(root, featureName, harness, task.id, { state: "running", ...sessionPatch });
     const done = await completeTask({ root, feature: featureName, harness, task, worktree, run: record, timeoutMs: opts.timeoutMs });

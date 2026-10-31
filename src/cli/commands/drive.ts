@@ -1,5 +1,5 @@
 import { claimDrive, driveView, followDrive, startDetachedDrive, stopDrive, superviseDrive, type DriveOutcome, type DriveView } from "../../harness/drive.js";
-import { liveRunLabel } from "../../harness/drive/progress.js";
+import { activitySuffix, liveRunLabel } from "../../harness/drive/progress.js";
 import { driveConfigSource } from "../../harness/drive-log.js";
 import { findFeature } from "../../workflow/features.js";
 import { resolveItem } from "./helpers.js";
@@ -15,7 +15,7 @@ function renderView(v: DriveView, configSource: string | null): string {
   ];
   if (configSource) lines.push(`  Config: ${configSource}`);
   if (v.runningTasks.length > 0) lines.push(`  Running tasks: ${v.runningTasks.join(", ")}`);
-  for (const run of v.liveRuns) lines.push(`  Live: ${liveRunLabel(run)}  ${run.log}`);
+  for (const run of v.liveRuns) lines.push(`  Live: ${liveRunLabel(run)}  ${run.log}${activitySuffix(run)}`);
   if (v.lastEvent) lines.push(`  Last: ${v.lastEvent.at} ${v.lastEvent.summary}`);
   if (v.reason) lines.push(`  ${v.stopCode ? `Stop: ${v.stopCode} — ` : v.state === "crashed" ? "Crashed: " : "Result: "}${v.reason}`);
   if (v.nextCommand && v.state !== "running") lines.push(`  Next: ${v.nextCommand}`);

@@ -7,7 +7,7 @@ import { cmdRun, cmdRuns } from "../cli/commands/run.js";
 import { cmdStatus, cmdView } from "../cli/commands/inspect.js";
 import { harnessPresets } from "../harness/config.js";
 import { captureSession, parseUsage } from "../harness/session.js";
-import { extractStatus, isPidAlive } from "../harness/run.js";
+import { extractStatus, isPidAlive, workerResult } from "../harness/run.js";
 import { writeFeatureMeta } from "../workflow/features.js";
 import * as paths from "../shared/paths.js";
 import { vi } from "vitest";
@@ -147,6 +147,49 @@ describe("kf run hands a stage to the assigned worker", () => {
     expect((await cmdRun(args("run", ["rev"]), p.root)).code).toBe(0);
     expect(p.feature("rev").meta!.runs![0]).toMatchObject({ role: "reviewer", runner: "codex", statusLine: "DONE", summary: "reviewed", session: "t-1" });
     expect(extractStatus(`${JSON.stringify({ result: "STATUS: BLOCKED" })}\nSTATUS: DONE`)).toMatchObject({ statusLine: "BLOCKED" });
+  });
+
+  it("reads STATUS, usage and the error from the final result line of a stream-json log (FR-016)", async () => {
+    const stream = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "s-1" }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "SKILL.md" } }], usage: { input_tokens: 99, output_tokens: 99 } }, session_id: "s-1" }),
+      JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: "template:\nSTATUS: BLOCKED\nSummary: from a file" }] }, session_id: "s-1" }),
+      JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "Done.\nSTATUS: DONE\nSummary: streamed", session_id: "s-1", usage: { input_tokens: 5, output_tokens: 2 }, total_cost_usd: 0.5 }),
+    ].join("\n");
+    expect(extractStatus(stream)).toEqual({ statusLine: "DONE", summary: "streamed" });
+    expect(parseUsage(stream)).toEqual({ input: 5, output: 2, costUsd: 0.5 });
+    expect(workerResult(`${stream}\n`)).toEqual({ isError: false, text: "Done.\nSTATUS: DONE\nSummary: streamed", usageLimit: false });
+    const limited = JSON.stringify({ type: "result", is_error: true, api_error_status: 429, api_error: "usage_limit_reached", result: "You've hit your 5-hour limit · resets 1:30pm", session_id: "s-1" });
+    expect(workerResult(limited)).toMatchObject({ isError: true, usageLimit: true });
+    expect(workerResult(JSON.stringify({ type: "result", is_error: true, api_error: "usage_limit_reached" }))?.usageLimit).toBe(true);
+    expect(workerResult("STATUS: DONE")).toBeNull();
+
+    await p.writeHarness(harnessWith({ testing: ["coder"] }));
+    expect(harnessPresets().claude.start.slice(-3)).toEqual(["--output-format", "stream-json", "--verbose"]);
+    expect(harnessPresets().claude.resume!.slice(-3)).toEqual(["--output-format", "stream-json", "--verbose"]);
+    p.cli.scenario("claude", { stdout: `${JSON.stringify({ type: "system", subtype: "init", session_id: "s-1" })}\n${JSON.stringify({ type: "result", is_error: true, result: "boom: tool denied", session_id: "s-1" })}`, exit: 1 });
+    const failed = await cmdRun(args("run", ["demo"]), p.root);
+    expect(failed.code).toBe(1);
+    expect(p.feature().meta!.runs![0]).toMatchObject({ mode: "start", status: "failed", exitCode: 1, error: "worker exited 1: boom: tool denied" });
+    expect(failed.stdout).toContain("worker exited 1: boom: tool denied");
+
+    // A failing resume whose streamed log names session_id is a failed run, not a dead session to reset.
+    const session = p.feature().meta!.sessions!.coder;
+    expect((await cmdRun(args("run", ["demo"]), p.root)).code).toBe(1);
+    expect(p.feature().meta!.runs!.at(-1)).toMatchObject({ mode: "resume", status: "failed", session });
+    expect(p.feature().meta!.runs).toHaveLength(2);
+    expect(p.feature().meta!.sessions!.coder).toBe(session);
+  });
+
+  it("keeps the session of a resume that hit the usage limit (FR-016)", async () => {
+    await p.writeHarness(harnessWith({ testing: ["coder"] }));
+    await writeFeatureMeta(p.feature().dir, { ...p.feature().meta!, sessions: { coder: "live-session" } });
+    p.cli.scenario("claude", { resumeStdout: JSON.stringify({ type: "result", is_error: true, api_error_status: 429, result: "You've hit your 5-hour limit · resets 1:30pm", session_id: "live-session" }), resumeExit: 1 });
+    expect((await cmdRun(args("run", ["demo"]), p.root)).code).toBe(1);
+    const runs = p.feature().meta!.runs!;
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ mode: "resume", status: "failed", error: "worker exited 1: You've hit your 5-hour limit · resets 1:30pm" });
+    expect(p.feature().meta!.sessions!.coder).toBe("live-session");
   });
 
   it("kills the worker when its pid cannot be recorded", async () => {

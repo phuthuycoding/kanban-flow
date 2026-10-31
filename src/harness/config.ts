@@ -202,8 +202,8 @@ export function harnessLimits(h?: HarnessConfig): { parallel: number; retries: n
 export function harnessPresets(): Record<string, RunnerConfig> {
   return {
     claude: {
-      start: ["claude", "-p", "{prompt}", "--session-id", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "json"],
-      resume: ["claude", "-p", "{prompt}", "-r", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "json"],
+      start: ["claude", "-p", "{prompt}", "--session-id", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "stream-json", "--verbose"],
+      resume: ["claude", "-p", "{prompt}", "-r", "{session}", "--add-dir", "{itemDir}", "--permission-mode", "acceptEdits", "--output-format", "stream-json", "--verbose"],
       session: "provided",
       usage: "json",
     },

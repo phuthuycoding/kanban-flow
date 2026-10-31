@@ -44,6 +44,8 @@ export interface RunOutcome {
   ok: boolean;
   /** Extra line for the CLI, e.g. that a dead session was reset. */
   note?: string;
+  /** Set when the worker stopped on the API usage limit (HTTP 429 / usage_limit_reached): the worker's own text. */
+  usageLimit?: string;
 }
 
 function loadFeature(root: string, name: string): Feature {
@@ -183,14 +185,52 @@ function jsonStrings(output: string): string[] {
 }
 
 /**
+ * The worker's final `{"type":"result"}` object: the whole output (claude `--output-format json`) or the last such
+ * line of a JSONL log (`--output-format stream-json`). Null when the output carries none.
+ */
+export function resultObject(output: string): Record<string, unknown> | null {
+  const candidates = [output.trim(), ...output.split("\n").map((line) => line.trim()).reverse()];
+  for (const text of candidates) {
+    if (!text.startsWith("{")) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      if (err instanceof SyntaxError) continue;
+      throw err;
+    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && (parsed as Record<string, unknown>).type === "result") return parsed as Record<string, unknown>;
+  }
+  return null;
+}
+
+export interface WorkerResult {
+  isError: boolean;
+  /** The result's `result` string, trimmed; absent when it has none. */
+  text?: string;
+  /** HTTP 429 or `usage_limit_reached`: the account is out of quota until its reset, so a retry now cannot succeed. */
+  usageLimit: boolean;
+}
+
+export function workerResult(output: string): WorkerResult | null {
+  const r = resultObject(output);
+  if (!r) return null;
+  const text = typeof r.result === "string" && r.result.trim() ? r.result.trim() : undefined;
+  return { isError: r.is_error === true, ...(text ? { text } : {}), usageLimit: r.api_error_status === 429 || r.api_error === "usage_limit_reached" };
+}
+
+/**
  * Last STATUS/Summary lines the worker printed. CLIs in JSON mode (claude
  * --output-format json, codex exec --json) wrap the reply in a JSON string, so
  * the lines are also searched inside every string value of any JSON on stdout.
+ * When a claude result object is present only its reply is searched: a streamed log also carries tool output
+ * (files the worker read), whose STATUS lines are not the worker's.
  */
 export function extractStatus(output: string): { statusLine: string | null; summary?: string } {
   let statusLine: string | null = null;
   let summary: string | undefined;
-  for (const source of [output, ...jsonStrings(output)]) {
+  const reply = resultObject(output)?.result;
+  for (const source of typeof reply === "string" ? [reply] : [output, ...jsonStrings(output)]) {
     const statuses = [...source.matchAll(/^STATUS:\s*(.+?)\s*$/gm)];
     const summaries = [...source.matchAll(/^Summary:\s*(.+?)\s*$/gm)];
     if (statuses.length > 0) statusLine = statuses[statuses.length - 1][1];
@@ -289,6 +329,7 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
   const { statusLine, summary } = extractStatus(output);
   const exitCode = result.exitCode ?? (result.signal ? 128 : 1);
   const usage = plan.runner.usage === "json" ? parseUsage(output) : null;
+  const worker = workerResult(output);
   record = { ...record, exitCode, endedAt, statusLine, summary, ...(usage ? { usage } : {}) };
 
   if (result.timedOut) {
@@ -296,7 +337,13 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
     await upsertRun(plan.root, plan.feature, record);
     return { record, ok: false };
   }
-  if (provisioned.mode === "resume" && isResumeFailure(plan.runner, exitCode, output)) {
+  const usageLimit = worker?.usageLimit === true && !(exitCode === 0 && statusLine?.startsWith("DONE"));
+  // Checked before the resume-failure test: a limit result names its session_id, which the default resume-failure
+  // pattern matches, and a reset would throw away the worker's context although the session is fine.
+  // A worker that produced a result object did run in its session; only its reply can say the session is gone.
+  // The whole streamed log names session_id on every line, which the default pattern would read as a dead session.
+  const resumeProbe = worker ? (worker.text ?? "") : output;
+  if (!usageLimit && provisioned.mode === "resume" && isResumeFailure(plan.runner, exitCode, resumeProbe)) {
     record = { ...record, status: "reset", error: "Resume failed: session no longer usable; stored session dropped." };
     await upsertRun(plan.root, plan.feature, record);
     await saveSession(plan.root, plan.feature, sessionKey, null);
@@ -311,7 +358,8 @@ export async function executeRun(plan: RunPlan, env: NodeJS.ProcessEnv = process
     if (captured) record = { ...record, session: captured };
   }
   const ok = exitCode === 0 && statusLine !== null && statusLine.startsWith("DONE");
-  record = { ...record, status: exitCode === 0 ? "done" : "failed" };
+  const workerError = exitCode !== 0 && worker?.isError && worker.text ? `worker exited ${exitCode}: ${worker.text}` : undefined;
+  record = { ...record, status: exitCode === 0 ? "done" : "failed", ...(workerError ? { error: workerError } : {}) };
   await upsertRun(plan.root, plan.feature, record);
-  return { record, ok };
+  return { record, ok, ...(usageLimit ? { usageLimit: worker?.text ?? "API usage limit reached" } : {}) };
 }

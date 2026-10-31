@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { claimDrive, superviseDrive, type DriveOutcome } from "../harness/drive.js";
+import { claimDrive, followDrive, superviseDrive, type DriveOutcome } from "../harness/drive.js";
 import { cmdDrive } from "../cli/commands/drive.js";
 import { transitionItem, type Transition } from "../workflow/transition.js";
 import { findFeature, updateFeatureMeta } from "../workflow/features.js";
@@ -630,5 +630,113 @@ describe("drive config resolution: worktree → origin → primary", () => {
     expect(res.stdout).toContain("origin/<default>:.kf/config.json");
     expect(res.stdout).toContain(join(pr.root, ".kf", "config.json"));
     expect(pr.readMeta()!.drive).toBeUndefined();
+  });
+});
+
+describe("kf drive shows its workers (FR-016: TC-034, TC-035, TC-036)", () => {
+  const until = async <T>(what: string, probe: () => Promise<T | null> | T | null, ms = 30_000): Promise<T> => {
+    const end = Date.now() + ms;
+    for (;;) {
+      const hit = await probe();
+      if (hit !== null) return hit;
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+      await wait(100);
+    }
+  };
+  const line = (o: unknown) => JSON.stringify(o).replace(/'/g, "'\\''");
+  const SESSION = "s-1";
+  const editLine = line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: "src/a.ts", old_string: "a", new_string: "b" } }] }, session_id: SESSION });
+  const result = (o: Record<string, unknown>) => JSON.stringify({ type: "result", session_id: SESSION, ...o });
+
+  it("streams the worker log; --status, the heartbeat and --tail show readable activity (TC-034)", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }]);
+    // The fake's script output goes to the run log as it is written; the result line comes last, at exit.
+    pr.cli.scenario("claude", {
+      write: { "src/a.ts": "a" },
+      script: `echo '${line({ type: "system", subtype: "init", session_id: SESSION })}'; sleep 1; echo '${editLine}'; sleep 4`,
+      stdout: result({ is_error: false, result: "Edited.\nSTATUS: DONE\nSummary: edited a" }),
+    }, "TASK-001");
+    reports(pr);
+
+    const watched: string[] = [];
+    const ac = new AbortController();
+    const running = drive(pr);
+    await until("the drive record", () => pr.readMeta()?.drive?.status === "running" || null);
+    const followed = followDrive({ root: pr.root, name: "demo", json: false, tail: true, replay: true, signal: ac.signal, heartbeatMs: 200, pollMs: 50, write: (l) => watched.push(l) });
+
+    const live = await until("the Edit activity in --status", async () => {
+      const text = (await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout;
+      return /Edit src\/a\.ts \(\d+s ago\)/.test(text) ? text : null;
+    });
+    expect(live).toMatch(/Live: TASK-001 coder claude \d+s {2}\S+\.log — Edit src\/a\.ts \(\d+s ago\)/);
+    const view = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(view.liveRuns[0]).toMatchObject({ task: "TASK-001", activity: "Edit src/a.ts", activityAgo: expect.stringMatching(/^\d+s$/) });
+    // The worker is still running, and its log already holds the streamed lines.
+    expect(pr.calls("claude")).toHaveLength(0);
+    expect(readFileSync(view.liveRuns[0].log, "utf8")).toContain('"tool_use"');
+
+    const out = await running;
+    expect(out.status, out.reason).toBe("ready");
+    await followed;
+    expect(watched.some((l) => l.startsWith("♥ TASK-001 coder claude") && l.endsWith(")") && l.includes(" — Edit src/a.ts ("))).toBe(true);
+    const tail = watched.filter((l) => l.startsWith("    "));
+    expect(tail).toContain("    Edit src/a.ts");
+    expect(tail.some((l) => l.trimStart().startsWith("{"))).toBe(false);
+    expect(events(pr).some((e) => e.event === "task" && e.task === "TASK-001" && e.state === "done")).toBe(true);
+  });
+
+  it("puts the worker's own error text in the task and stop reasons (TC-035)", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }], { limits: { retries: 1 } });
+    pr.cli.scenario("claude", { stdout: result({ is_error: true, result: "boom: tool denied" }), exit: 1 }, "TASK-001");
+
+    const out = await drive(pr);
+    expect(out.stopCode).toBe("tasks_blocked");
+    expect(out.reason).toContain("worker exited 1: boom: tool denied");
+    const meta = pr.readMeta()!;
+    expect(meta.tasks!["TASK-001"]).toMatchObject({ state: "blocked", reason: "worker exited 1: boom: tool denied (after 2 attempts)" });
+    expect(meta.drive!.runs).toBe(2);
+    const runs = meta.runs!.filter((r) => r.task === "TASK-001");
+    expect(runs.map((r) => [r.mode, r.error])).toEqual([["start", "worker exited 1: boom: tool denied"], ["resume", "worker exited 1: boom: tool denied"]]);
+    // The retry resumed the first worker's session instead of resetting it.
+    expect(meta.sessions!["task:TASK-001"]).toBe(runs[0].session);
+    expect((await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout).toMatch(/Stop: tasks_blocked — .*worker exited 1: boom: tool denied/);
+  });
+
+  it("stops on the usage limit without spending a run, then resumes the same session (TC-036)", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }]);
+    const limit = "You've hit your 5-hour limit · resets 1:30pm";
+    pr.cli.scenario("claude", {
+      script: "mkdir -p src; if [ -f src/a.ts ]; then printf full > src/a.ts; else printf partial > src/a.ts; fi",
+      stdout: result({ is_error: true, api_error_status: 429, api_error: "usage_limit_reached", result: limit }),
+      exit: 1,
+      resumeStdout: "STATUS: DONE\nSummary: finished after the reset",
+      resumeExit: 0,
+    }, "TASK-001");
+    reports(pr);
+
+    const first = await drive(pr);
+    expect(first.stopCode).toBe("usage_limit");
+    expect(first.reason).toContain(limit);
+    expect(first.nextCommand).toBe("kf drive demo");
+    expect(first.runs).toBe(0);
+    let meta = pr.readMeta()!;
+    expect(meta.drive!.runs).toBe(0);
+    expect(meta.tasks!["TASK-001"]).toMatchObject({ state: "pending", reason: `usage limit: ${limit}`, attempts: 0 });
+    const calls = taskCalls(pr, "TASK-001");
+    expect(calls).toHaveLength(1);
+    const session = calls[0].argv[calls[0].argv.indexOf("--session-id") + 1];
+    expect(meta.sessions!["task:TASK-001"]).toBe(session);
+    expect(readFileSync(join(calls[0].cwd, "src/a.ts"), "utf8")).toBe("partial");
+    expect((await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout).toContain(`Stop: usage_limit — TASK-001 hit the API usage limit: ${limit}`);
+
+    const second = await drive(pr);
+    expect(second.status, second.reason).toBe("ready");
+    const again = taskCalls(pr, "TASK-001");
+    expect(again).toHaveLength(2);
+    expect(again[1].argv).toContain("-r");
+    expect(again[1].argv[again[1].argv.indexOf("-r") + 1]).toBe(session);
+    meta = pr.readMeta()!;
+    expect(meta.tasks!["TASK-001"].state).toBe("done");
+    expect(readFileSync(join(pr.worktreePath()!, "src/a.ts"), "utf8")).toBe("full");
   });
 });

@@ -94,6 +94,20 @@ class Driver {
     return stop.reason;
   }
 
+  /** Give back the run `admit` reserved: a worker that hit the API usage limit did no work and must not use the budget. */
+  private async releaseRun(): Promise<void> {
+    await updateFeatureMeta(this.root, this.name, (meta) => {
+      const d = meta.drive;
+      if (!d || d.id !== this.id || d.runs === 0) return meta;
+      return { ...meta, drive: { ...d, runs: d.runs - 1, updatedAt: new Date().toISOString() } };
+    });
+  }
+
+  private async stopOnUsageLimit(who: string, text: string): Promise<void> {
+    await this.releaseRun();
+    this.requestStop({ code: "usage_limit", reason: `${who} hit the API usage limit: ${oneLine(text)}; after the reset, resume the same worker session: kf drive ${this.name}` });
+  }
+
   private logRun(outcome: RunOutcome | null | undefined, task?: string): void {
     if (!outcome) return;
     const r = outcome.record;
@@ -286,6 +300,10 @@ class Driver {
       if (result.warning) this.log({ event: "warning", task: task.id, warning: result.warning });
 
       if (result.state === "done") return;
+      if (result.stop === "usage_limit") {
+        await this.stopOnUsageLimit(task.id, result.outcome?.usageLimit ?? result.reason ?? "");
+        return;
+      }
       if (result.stop) {
         this.requestStop({ code: result.stop, reason: result.stop === "plan_change_needed"
           ? `${task.id}: ${oneLine(result.reason ?? "")}; the plan's Files must change: edit the plan, re-approve it (kf stage ${this.name} planning, kf approve ${this.name}, kf stage ${this.name} implementation), then kf drive ${this.name}`
@@ -337,6 +355,11 @@ class Driver {
     });
     for (const o of summary.outcomes) this.logRun(o);
     if (summary.refused) return false;
+    const limited = summary.outcomes[summary.outcomes.length - 1]?.usageLimit;
+    if (!summary.ok && limited !== undefined) {
+      await this.stopOnUsageLimit(`the ${stage} role ${summary.stoppedAt ?? "?"}`, limited);
+      return false;
+    }
     if (!summary.ok) {
       const last = summary.outcomes[summary.outcomes.length - 1]?.record;
       const detail = last ? (last.summary ?? last.error ?? (last.statusLine ? `STATUS: ${last.statusLine}` : `exit ${last.exitCode ?? "?"}`)) : "it did not start";
