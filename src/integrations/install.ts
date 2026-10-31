@@ -27,7 +27,15 @@ export const MANAGED_SKILLS = [
   "kanban-test",
   "kanban-review",
   "kanban-archive",
+  "travel",
 ];
+
+/**
+ * Skills earlier releases installed that no longer ship. An install removes the leftover entry,
+ * but only when kanban-flow demonstrably owns it — a stale skill the agent still loads would keep
+ * steering work through a stage that no longer exists.
+ */
+export const RETIRED_SKILLS = ["kanban-ship"];
 
 /** Subagent definitions the phase skills dispatch by name; installed only for runtimes with an agent registry. */
 export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer"];
@@ -298,6 +306,40 @@ export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: st
   return { removed };
 }
 
+/** Packaged skills dirs are laid out as <package>/skills/<name>; a link into one is kanban-flow's. */
+function isKanbanFlowSkillLink(skillsDir: string, name: string, target: string): boolean {
+  const resolved = resolve(skillsDir, target);
+  if (resolved === join(PKG_SKILLS_DIR, name)) return true;
+  return resolved.split(sep).join("/").endsWith(`/kanban-flow/skills/${name}`);
+}
+
+/**
+ * Remove retired skills from a skills dir. Only a symlink into a kanban-flow package is ours
+ * (dangling included); skill copies carry no sidecar, so a real directory is never deleted and is
+ * reported in `kept` instead.
+ */
+export async function removeRetiredSkills(skillsDir: string): Promise<{ removed: string[]; kept: string[] }> {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  for (const name of RETIRED_SKILLS) {
+    const target = join(skillsDir, name);
+    let st;
+    try {
+      st = await lstat(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (st.isSymbolicLink() && isKanbanFlowSkillLink(skillsDir, name, readlinkSync(target))) {
+      await unlink(target);
+      removed.push(name);
+    } else {
+      kept.push(name);
+    }
+  }
+  return { removed, kept };
+}
+
 export type SkillEntryState = "linked" | "copied" | "stale" | "broken-link" | "missing";
 
 /** State of one managed skill inside a skills dir. */
@@ -425,6 +467,11 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root!);
     const res: SkillInstallResult = scope === "global" ? await linkOrCopySkillsTo(dir) : await copySkillsTo(dir);
     failed ||= res.code !== 0;
+    if (res.code === 0) {
+      const retired = await removeRetiredSkills(dir);
+      if (retired.removed.length > 0) cleaned.push(`  ${a.label}: removed retired ${retired.removed.join(", ")} from ${dir}/`);
+      for (const name of retired.kept) lines.push(`⚠ ${a.label}: ${name} in ${dir}/ is not a kanban-flow link — left untouched; remove it yourself if unwanted`);
+    }
     const note = scope === "global" && res.code === 0 ? ` (${res.mode === "link" ? "linked" : "copied"})` : "";
     lines.push(res.code === 0 ? `✓ ${a.label}: ${res.stdout}${note}` : `⚠ ${a.label}: ${res.stdout}`);
     // Only clean project copies when the global install actually landed — removing them
