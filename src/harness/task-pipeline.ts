@@ -4,7 +4,7 @@ import { findFeature, type TaskState } from "../workflow/features.js";
 import type { PlannedTask } from "../workflow/tasks.js";
 import type { HarnessConfig } from "./config.js";
 import { LOCK_TIMEOUT_MS, withLock } from "../shared/lock.js";
-import { readProjectConfig } from "../project/config.js";
+import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
 import {
   changedPathsSince, commitAll, mergeAbort, mergeInProgress, mergeNoFf, resetHard, revParse, runGit, trackedChanges, untrackedFiles,
 } from "../shared/git.js";
@@ -239,8 +239,9 @@ export async function recoverItemMerge(root: string, feature: string): Promise<v
   const found = findFeature(root, feature);
   const item = found?.meta?.worktree;
   if (!found?.meta || !item) return;
-  const harness = readProjectConfig(root).harness;
-  if (!harness) throw new Error("No harness configured in .kf/config.json.");
+  const { cfg, file } = resolveDriveConfig(root, found);
+  const harness = cfg.harness;
+  if (!harness) throw new Error(`No harness configured in ${file}.`);
   const tasks = found.meta.tasks ?? {};
   const inFlight = Object.entries(tasks).filter(([, t]) => t.state === "merging" || t.state === "verifying");
 

@@ -7,7 +7,7 @@ import { findFeature, updateFeatureMeta, type DriveState, type Feature } from ".
 import { resolveStageRoles, taskView, writeTasksMd, type PlannedTask } from "../../workflow/tasks.js";
 import { transitionItem, type Transition } from "../../workflow/transition.js";
 import { validateFeature } from "../../workflow/validate.js";
-import { readProjectConfig } from "../../project/config.js";
+import { resolveDriveConfig } from "../../project/config.js";
 import { harnessLimits, type HarnessConfig } from "../config.js";
 import { resolveChain, type Assignment } from "../prompt.js";
 import { executeChain } from "../chain.js";
@@ -47,9 +47,9 @@ class Driver {
   }
 
   private harness(): HarnessConfig {
-    const h = readProjectConfig(this.root).harness;
-    if (!h) throw new Error("No harness configured in .kf/config.json.");
-    return h;
+    const { cfg, file } = resolveDriveConfig(this.root, this.feature());
+    if (!cfg.harness) throw new Error(`No harness configured in ${file}.`);
+    return cfg.harness;
   }
 
   private log(event: Parameters<typeof appendDriveEvent>[3]): void {
@@ -100,7 +100,10 @@ class Driver {
     const drive = first.meta!.drive!;
     // A hand-over from the claiming CLI: from here on this process is the supervisor.
     await patchDrive(this.root, this.name, this.id, { supervisorPid: process.pid });
-    this.log({ event: drive.runs > 0 || drive.loops > 0 || drive.step !== "implementation" ? "resume" : "start", stage: first.stage, step: drive.step, loops: drive.loops, runs: drive.runs });
+    this.log({
+      event: drive.runs > 0 || drive.loops > 0 || drive.step !== "implementation" ? "resume" : "start",
+      stage: first.stage, step: drive.step, loops: drive.loops, runs: drive.runs, config_source: resolveDriveConfig(this.root, first).source,
+    });
 
     if (!(await this.recover())) return;
 

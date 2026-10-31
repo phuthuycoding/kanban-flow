@@ -3,9 +3,10 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { readProjectConfig } from "../project/config.js";
+import { readOriginConfig, readProjectConfig, resolveDriveConfig, type OriginConfigReader } from "../project/config.js";
 import { harnessPresets, harnessLimits, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
 import { provisionSession } from "../harness/session.js";
 import { cmdInit } from "../cli/commands/init.js";
@@ -147,6 +148,101 @@ describe("migrating a stage that points straight at a runner", () => {
     const unknown = { ...harness, stages: { testing: "nobody" } };
     await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", harness: unknown }));
     expect(() => readProjectConfig(dir)).toThrow("Known roles: architect");
+  });
+});
+
+describe("resolveDriveConfig: worktree → origin → primary (TC-020)", () => {
+  let dir: string;
+  let primary: string;
+  let worktree: string;
+  const config = (harness?: unknown) => JSON.stringify({ schema: "kanban-flow", created: "x", ...(harness ? { harness } : {}) });
+  const harness = (main: string) => ({ main, roles: { [main]: "claude" }, stages: {}, runners: harnessPresets() });
+  const item = () => ({ meta: { worktree: { path: worktree } } }) as never;
+  const noOrigin: OriginConfigReader = () => ({ ref: null, text: null });
+  const gitIn = (cwd: string, ...a: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-hres-"));
+    primary = join(dir, "repo");
+    worktree = join(dir, "wt");
+    await mkdir(join(primary, ".kf"), { recursive: true });
+    await mkdir(worktree, { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("(a) prefers the item worktree's copy", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config());
+    await mkdir(join(worktree, ".kf"), { recursive: true });
+    await writeFile(join(worktree, ".kf", "config.json"), config(harness("wt")));
+    const origin: OriginConfigReader = () => { throw new Error("origin must not be read when the worktree has a copy"); };
+    const r = resolveDriveConfig(primary, item(), origin);
+    expect(r.source).toBe("worktree");
+    expect(r.file).toBe(join(worktree, ".kf", "config.json"));
+    expect(r.cfg.harness?.main).toBe("wt");
+  });
+
+  it("(b) falls back to origin's default branch when the worktree has none", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config());
+    const r = resolveDriveConfig(primary, item(), () => ({ ref: "origin/trunk", text: config(harness("origin")) }));
+    expect(r.source).toBe("origin");
+    expect(r.file).toBe("origin/trunk:.kf/config.json");
+    expect(r.cfg.harness?.main).toBe("origin");
+  });
+
+  it("(c) falls back to the primary when neither has one", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("primary")));
+    for (const origin of [noOrigin, (() => ({ ref: "origin/main", text: null })) as OriginConfigReader]) {
+      const r = resolveDriveConfig(primary, item(), origin);
+      expect(r.source).toBe("primary");
+      expect(r.cfg.harness?.main).toBe("primary");
+    }
+    expect(resolveDriveConfig(primary, { meta: {} } as never, noOrigin).looked).toHaveLength(2);
+  });
+
+  it("(d) with no config anywhere, resolves an empty primary and names the three places looked", () => {
+    const r = resolveDriveConfig(primary, item(), noOrigin);
+    expect(r.source).toBe("primary");
+    expect(r.cfg).toEqual({});
+    expect(r.looked).toEqual([
+      join(worktree, ".kf", "config.json"),
+      "origin/<default>:.kf/config.json (origin/HEAD is not set)",
+      join(primary, ".kf", "config.json"),
+    ]);
+  });
+
+  it("refuses an unparsable source instead of skipping it", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("primary")));
+    await mkdir(join(worktree, ".kf"), { recursive: true });
+    await writeFile(join(worktree, ".kf", "config.json"), "{ nope");
+    expect(() => resolveDriveConfig(primary, item(), noOrigin)).toThrow("Invalid JSON in project config");
+    await rm(join(worktree, ".kf"), { recursive: true });
+    expect(() => resolveDriveConfig(primary, item(), () => ({ ref: "origin/main", text: "{ nope" }))).toThrow("origin/main:.kf/config.json");
+  });
+
+  it("reads origin's default branch with git show, and treats a missing origin, ref or file as absent", async () => {
+    expect(readOriginConfig(dir)).toEqual({ ref: null, text: null });
+    gitIn(primary, "init", "-q");
+    gitIn(primary, "commit", "-q", "--allow-empty", "-m", "init");
+    expect(readOriginConfig(primary)).toEqual({ ref: null, text: null });
+
+    const bare = join(dir, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    const branch = gitIn(primary, "symbolic-ref", "--short", "HEAD");
+    gitIn(primary, "remote", "add", "origin", bare);
+    gitIn(primary, "push", "-q", "origin", branch);
+    gitIn(primary, "remote", "set-head", "origin", branch);
+    expect(readOriginConfig(primary)).toEqual({ ref: `origin/${branch}`, text: null });
+
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("origin")));
+    gitIn(primary, "add", ".kf/config.json");
+    gitIn(primary, "commit", "-qm", "config");
+    gitIn(primary, "push", "-q", "origin", branch);
+    gitIn(primary, "fetch", "-q", "origin");
+    const read = readOriginConfig(primary);
+    expect(read.ref).toBe(`origin/${branch}`);
+    expect(JSON.parse(read.text!).harness.main).toBe("origin");
   });
 });
 

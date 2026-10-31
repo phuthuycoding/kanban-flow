@@ -8,7 +8,7 @@ import { transitionItem, type Transition } from "../workflow/transition.js";
 import { findFeature, updateFeatureMeta } from "../workflow/features.js";
 import { createTaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
-import { readProjectConfig } from "../project/config.js";
+import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
 import { gitDriveProject, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -266,12 +266,15 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
     ]);
-    const cfg = join(pr.root, ".kf", "config.json");
-    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${cfg}'` }, "TASK-001");
+    // The fixture commits no config and has no origin, so the drive resolves the primary copy; edit what it resolves.
+    const resolved = resolveDriveConfig(pr.root, pr.feature());
+    expect(resolved.source).toBe("primary");
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${resolved.file}'` }, "TASK-001");
     const changed = await drive(pr);
     expect(changed.stopCode, changed.reason).toBe("config_changed");
     expect(changed.reason).toContain("harness.verify");
     expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+    expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("primary");
   });
 
   it("stops worker_blocked without retrying a BLOCKED task (TC-023)", async () => {
@@ -465,5 +468,84 @@ describe("transition errors keep their stack (review FINDING-002)", () => {
     const stage = events(pr).find((e) => e.event === "stage" && e.refused);
     expect(String(stage?.stack)).toContain("rename exploded");
     expect(String(stage?.stack)).toMatch(/\n\s+at /);
+  });
+});
+
+describe("drive config resolution: worktree → origin → primary (TC-021, FR-006, UC-004)", () => {
+  const twoTasks: DriveTask[] = [
+    { id: "TASK-001", files: ["src/a.txt"] },
+    { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
+  ];
+  const stripPrimaryHarness = (pr: GitDriveProject) => editConfig(pr, (c) => { delete c.harness; });
+  const status = async (pr: GitDriveProject) => cmdDrive(args(["demo"], { status: true }), pr.root);
+
+  it("drives from the worktree copy when the primary has no harness; the log and --status name the source", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    stripPrimaryHarness(pr);
+    expect(readProjectConfig(pr.root).harness).toBeUndefined();
+    reports(pr);
+
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("worktree");
+    const text = await status(pr);
+    expect(text.stdout).toContain("Config: worktree");
+    const json = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(json.configSource).toBe("worktree");
+  });
+
+  it("stops config_changed when the worktree copy is edited mid-drive", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    expect(resolveDriveConfig(pr.root, pr.feature()).file).toBe(copy);
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${copy}'` }, "TASK-001");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+    expect(out.reason).toContain("harness.verify");
+    expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+  });
+
+  it("does not stop when only the primary copy is edited while the worktree copy exists", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const primary = join(pr.root, ".kf", "config.json");
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${primary}'` }, "TASK-001");
+    reports(pr);
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    expect(readFileSync(primary, "utf8")).toContain(`"true", "x"`);
+    expect(taskCalls(pr, "TASK-002")).toHaveLength(1);
+  });
+
+  it("uses origin's default branch when the worktree has no copy", async () => {
+    const pr = await project(twoTasks, { origin: true });
+    // Publish the full config on origin only: the item worktree was cut before it existed.
+    const clone = join(pr.scratch, "clone");
+    pr.git(pr.scratch, "clone", "-q", pr.originDir!, clone);
+    mkdirSync(join(clone, ".kf"), { recursive: true });
+    writeFileSync(join(clone, ".kf", "config.json"), readFileSync(join(pr.root, ".kf", "config.json"), "utf8"));
+    pr.git(clone, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".kf/config.json");
+    pr.git(clone, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "config");
+    pr.git(clone, "push", "-q", "origin", "HEAD");
+    pr.git(pr.root, "fetch", "-q", "origin");
+    stripPrimaryHarness(pr);
+    expect(existsSync(join(pr.worktreePath()!, ".kf", "config.json"))).toBe(false);
+    reports(pr);
+
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("origin");
+    expect((await status(pr)).stdout).toContain("Config: origin");
+  });
+
+  it("refuses naming the three places it looked when none has a harness", async () => {
+    const pr = await project(twoTasks);
+    stripPrimaryHarness(pr);
+    const res = await cmdDrive(args(["demo"]), pr.root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("No harness configured");
+    expect(res.stdout).toContain(join(pr.worktreePath()!, ".kf", "config.json"));
+    expect(res.stdout).toContain("origin/<default>:.kf/config.json");
+    expect(res.stdout).toContain(join(pr.root, ".kf", "config.json"));
+    expect(pr.readMeta()!.drive).toBeUndefined();
   });
 });

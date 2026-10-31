@@ -66,3 +66,21 @@ export function lastDriveEvent(itemDir: string, driveId: string): Record<string,
     return null;
   }
 }
+
+/** The `config_source` of the drive's latest start or resume event; null when the log has none (a drive started before it was logged). */
+export function driveConfigSource(itemDir: string, driveId: string): string | null {
+  const path = driveLogPath(itemDir, driveId);
+  if (!existsSync(path)) return null;
+  let source: string | null = null;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.includes("\"config_source\"")) continue;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(line) as Record<string, unknown>;
+    } catch (err) {
+      throw new Error(`Malformed line in drive log ${path}: ${line.slice(0, 200)}`, { cause: err });
+    }
+    if ((event.event === "start" || event.event === "resume") && typeof event.config_source === "string") source = event.config_source;
+  }
+  return source;
+}

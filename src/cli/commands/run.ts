@@ -2,7 +2,7 @@ import { relative, join } from "node:path";
 
 import { findFeature, listFeatures, type Feature, type RunRecord } from "../../workflow/features.js";
 import { STAGES, type Stage } from "../../workflow/schema.js";
-import { readProjectConfig } from "../../project/config.js";
+import { resolveDriveConfig } from "../../project/config.js";
 import { resolveChain, type Assignment } from "../../harness/prompt.js";
 import { provisionSession } from "../../harness/session.js";
 import { executeChain, planFor, type ChainResultSummary } from "../../harness/chain.js";
@@ -104,7 +104,7 @@ export async function cmdRun(args: ParsedArgs, cwd: string): Promise<CmdResult> 
   if (stageRaw !== undefined && !STAGES.includes(String(stageRaw) as Stage)) {
     return { code: 1, stdout: `Unknown stage '${String(stageRaw)}'. Stages: ${STAGES.join(", ")}`, stderr: "unknown stage" };
   }
-  const cfg = readProjectConfig(root.root);
+  const { cfg } = resolveDriveConfig(root.root, feature);
   const resolved = resolveChain(cfg.harness, feature, root.root, {
     stage: stageRaw === undefined ? undefined : (String(stageRaw) as Stage),
     role: typeof args.options.role === "string" ? args.options.role : undefined,

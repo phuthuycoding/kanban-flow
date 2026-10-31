@@ -1,5 +1,6 @@
 import { claimDrive, driveView, followDrive, startDetachedDrive, stopDrive, superviseDrive, type DriveOutcome, type DriveView } from "../../harness/drive.js";
 import { liveRunLabel } from "../../harness/drive/progress.js";
+import { driveConfigSource } from "../../harness/drive-log.js";
 import { findFeature } from "../../workflow/features.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -7,11 +8,12 @@ import type { CmdResult } from "../result.js";
 
 const USAGE = "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--json]";
 
-function renderView(v: DriveView): string {
+function renderView(v: DriveView, configSource: string | null): string {
   const lines = [
     `Drive ${v.id} of '${v.feature}': ${v.state} (step ${v.step})`,
     `  Loops: ${v.loops}/${v.maxLoops}   Runs: ${v.runs}/${v.maxRuns}`,
   ];
+  if (configSource) lines.push(`  Config: ${configSource}`);
   if (v.runningTasks.length > 0) lines.push(`  Running tasks: ${v.runningTasks.join(", ")}`);
   for (const run of v.liveRuns) lines.push(`  Live: ${liveRunLabel(run)}  ${run.log}`);
   if (v.lastEvent) lines.push(`  Last: ${v.lastEvent.at} ${v.lastEvent.summary}`);
@@ -44,7 +46,8 @@ export async function cmdDrive(args: ParsedArgs, cwd: string): Promise<CmdResult
   if (args.options.status) {
     const view = driveView(root.root, feature);
     if (!view) return { code: 1, stdout: `'${feature.name}' has no drive. Start one: kf drive ${feature.name}`, stderr: "no drive" };
-    return { code: 0, stdout: json ? JSON.stringify(view, null, 2) : renderView(view) };
+    const configSource = driveConfigSource(feature.dir, view.id);
+    return { code: 0, stdout: json ? JSON.stringify({ ...view, configSource }, null, 2) : renderView(view, configSource) };
   }
 
   if (args.options.stop) {

@@ -7,7 +7,7 @@ import { splitFrontmatter } from "../shared/frontmatter.js";
 import { driveLive, findFeature, type DriveState, type Feature, type RunRecord } from "../workflow/features.js";
 import { approvalState } from "../workflow/status.js";
 import { checkTaskGraph, parseTaskGraph, resolveTaskRole, type PlannedTask, type TasksBaseline } from "../workflow/tasks.js";
-import { readProjectConfig } from "../project/config.js";
+import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
 import { worktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { createTaskWorktree, taskBranch, taskWorktreePath, type TaskWorktree } from "../worktree/tasks.js";
 import { revParse, runGit } from "../shared/git.js";
@@ -65,9 +65,10 @@ export function runConflict(
 export function prepareTaskRun(root: string, feature: Feature, rawId: string, opts: { driver?: boolean } = {}): TaskPrepared {
   const taskId = rawId.toUpperCase();
   const fail = (reason: string): TaskPrepared => ({ ok: false, reason });
-  const cfg = readProjectConfig(root);
-  if (!cfg.harness) return fail("No harness configured in .kf/config.json — run: kf init (seeds roles and runner presets).");
-  const wt = worktreeConfig(root, cfg.worktree);
+  const { cfg, file } = resolveDriveConfig(root, feature);
+  if (!cfg.harness) return fail(`No harness configured in ${file} — run: kf init (seeds roles and runner presets).`);
+  // baseDir locates the task worktrees, so it comes from the primary like every other worktree lookup (doctor, resume).
+  const wt: WorktreeConfig = { ...worktreeConfig(root, cfg.worktree), baseDir: worktreeConfig(root, readProjectConfig(root).worktree).baseDir };
   if (!wt.enabled) {
     return fail(WORKTREE_REQUIRED);
   }
