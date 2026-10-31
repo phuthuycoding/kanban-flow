@@ -340,6 +340,48 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
   });
 
+  it("warns once that a leftover ship block is ignored, and the config still reads", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.ship = { enabled: true, merge: "now" };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const report = runDoctor(root);
+    expect(report.findings.some((f) => f.message.startsWith("Cannot read the project config"))).toBe(false);
+    const ship = report.findings.filter((f) => f.message.includes("ship block is ignored"));
+    expect(ship).toHaveLength(1);
+    expect(ship[0].level).toBe("WARNING");
+    expect(ship[0].action).toContain('remove the "ship" block');
+    expect(report.ok).toBe(true);
+
+    delete cfg.ship;
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+    expect(runDoctor(root).findings.some((f) => f.message.includes("ship block"))).toBe(false);
+  });
+
+  it("warns about orphaned legacy stage hooks, naming each file and its fix", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(hooks, { recursive: true });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("orphaned"))).toBe(false);
+
+    await writeFile(join(hooks, "dones.sh"), "#!/usr/bin/env bash\n");
+    await writeFile(join(hooks, "shipping.sh"), "#!/usr/bin/env bash\n");
+    const orphans = runDoctor(root).findings.filter((f) => f.message.includes("orphaned legacy hook"));
+    expect(orphans).toHaveLength(2);
+    const dones = orphans.find((f) => f.message.includes(".kf/hooks/dones.sh"));
+    const shipping = orphans.find((f) => f.message.includes(".kf/hooks/shipping.sh"));
+    expect(dones?.level).toBe("WARNING");
+    expect(dones?.action).toContain("rename .kf/hooks/dones.sh to .kf/hooks/done.sh");
+    expect(shipping?.level).toBe("WARNING");
+    expect(shipping?.action).toContain("delete .kf/hooks/shipping.sh");
+
+    // Doctor is read-only: the orphans stay where they are until the user acts.
+    expect(existsSync(join(hooks, "dones.sh"))).toBe(true);
+    expect(existsSync(join(hooks, "shipping.sh"))).toBe(true);
+  });
+
   it("drops legacy config fields but leaves judgment calls alone", async () => {
     await project();
     const path = join(root, ".kf", "config.json");

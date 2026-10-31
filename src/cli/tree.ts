@@ -40,7 +40,7 @@ const VERB_DISPATCH: Record<string, { dispatch: string; verbHelp: string }> = {
   show: { dispatch: "show", verbHelp: "show a work item" },
   move: { dispatch: "stage", verbHelp: "move a work item between stages" },
   approve: { dispatch: "approve", verbHelp: "approve the planning contract" },
-  ship: { dispatch: "ship", verbHelp: "run the resumable shipping pipeline" },
+  ship: { dispatch: "ship", verbHelp: "deprecated: review opens the PR, merge on GitHub" },
   finish: { dispatch: "archive", verbHelp: "deliver: archive to done" },
   drop: { dispatch: "cancel", verbHelp: "cancel a work item" },
   run: { dispatch: "run", verbHelp: "run the roles assigned to the current stage" },

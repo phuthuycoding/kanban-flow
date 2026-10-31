@@ -1,115 +1,13 @@
-import { updateFeatureMeta } from "../../workflow/features.js";
-import { readProjectConfig } from "../../project/config.js";
-import { resolveItem } from "./helpers.js";
-import { gh } from "../../integrations/github.js";
-import { checkDirectionGate } from "../../workflow/direction.js";
-import { shipPublish, shipMerge, shipRelease, shipChangelog, type StepResult } from "../../ship/steps.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
+export const SHIP_DEPRECATED = "kf ship is deprecated: review opens the PR; merge on GitHub; kf status closes the item";
+
 /**
- * `kf ship <feature>` — resumable shipping pipeline for items awaiting merge in the `review` stage.
- * Steps: publish (push + PR + record meta.pr) → merge gate → release → changelog.
- * Each enabled step runs once and is stamped into `meta.ship`, so re-runs resume at
- * the first unfinished step. Disabled steps are recorded as "skipped" — manual territory.
+ * `kf ship <feature>` — kept only as a deprecated alias so old scripts and muscle memory get a
+ * pointer instead of "unknown command". It reads and writes nothing: review opens the PR, the
+ * merge happens on GitHub, and `kf status` closes the item.
  */
-export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult> {
-  const name = args.positionals[0];
-  if (!name) return { code: 1, stdout: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]", stderr: "missing feature" };
-  const root = await resolveItem(cwd, name);
-  if (!root.ok) return root.refusal;
-  const f = root.item;
-  if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
-
-  if (f.stage !== "review") {
-    return {
-      code: 1,
-      stdout: `'${name}' is in ${f.stage} — ship runs in the review stage after a PASS review. Nothing to ship? kf archive ${name} works straight from review.`,
-      stderr: "wrong stage",
-    };
-  }
-
-  // Publishing is the first step toward done, so the review → done gate must hold before anything
-  // is pushed. `review_pr_missing` is the one finding ship itself resolves: publishing records the PR.
-  const gate = checkDirectionGate(f, "done").filter((i) => i.code !== "review_pr_missing");
-  if (gate.length > 0) {
-    const lines = gate.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-    return { code: 1, stdout: `Cannot ship '${name}' — the review report does not allow review → done:\n\n${lines}`, stderr: "direction gate failed" };
-  }
-
-  const project = readProjectConfig(root.root);
-  const cfg = project.ship;
-  if (!cfg?.enabled) {
-    return {
-      code: 1,
-      stdout:
-        `Ship automation is off for this project (ship.enabled not set in .kf/config.json).\n\nManual ship checklist for '${name}':\n` +
-        `  1. push the branch:   git push -u origin ${f.meta.worktree?.branch ?? "<branch>"}\n` +
-        `  2. open the PR:       gh pr create${project.repository ? ` -R ${project.repository}` : ""}\n` +
-        `  3. record it:         kf issues link ${name} <pr-url> --pr\n` +
-        `  4. merge / release / changelog — human steps\n` +
-        `  5. deliver:           kf archive ${name}\n\n` +
-        `Enable the pipeline with "ship": { "enabled": true, "merge": "manual", "release": true, "changelog": true }.`,
-      stderr: "ship disabled",
-    };
-  }
-  if (!project.repository) {
-    return { code: 1, stdout: `No repository configured — set "repository": "owner/name" in .kf/config.json (kf ship needs gh).`, stderr: "no repository" };
-  }
-
-  const repo = project.repository;
-  const wantRelease = cfg.release && !args.options["skip-release"];
-  const wantChangelog = cfg.changelog && !args.options["skip-changelog"];
-  const lines: string[] = [];
-  let ship = { ...f.meta.ship };
-
-  const fail = (r: StepResult): CmdResult => ({ code: 1, stdout: [...lines, `✗ ${r.line}`].join("\n"), stderr: "ship step failed" });
-
-  // Step 1 — publish (skipped once meta.pr exists).
-  const pub = shipPublish(root.root, f, repo, gh, { draft: Boolean(args.options.draft) });
-  if (pub.stamp) { Object.assign(ship, { published: pub.stamp.published }); const pr = pub.stamp.pr as string | undefined; f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, pr: pr ?? meta.pr, ship }))).meta!; }
-  lines.push(`${pub.ok ? "✓" : "✗"} ${pub.line}`);
-  if (!pub.ok) return fail({ ...pub, line: pub.line });
-
-  // Step 2 — merge gate.
-  const m = shipMerge(f, repo, cfg, gh);
-  if (m.stamp) { Object.assign(ship, m.stamp); f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!; }
-  lines.push(`${m.ok ? "✓" : "✗"} ${m.line}`);
-  if (!m.ok) return fail(m);
-  if (!m.proceed) return { code: 0, stdout: [...lines, "", `Not ready to archive — ${m.line.includes("waiting") ? "waiting for the merge." : "see above."}`].join("\n") };
-
-  // Step 3 — release (per config/override).
-  if (ship.release === undefined) {
-    if (!wantRelease) {
-      ship = { ...ship, release: "skipped" };
-      f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!;
-      lines.push("- release: skipped (manual)");
-    } else {
-      const r = shipRelease(root.root, f, repo, gh);
-      if (r.stamp) { Object.assign(ship, r.stamp); f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!; }
-      lines.push(`${r.ok ? "✓" : "✗"} ${r.line}`);
-      if (!r.ok) return fail(r);
-    }
-  } else {
-    lines.push(`- release: already ${ship.release}${ship.releaseTag ? ` (${ship.releaseTag})` : ""}`);
-  }
-
-  // Step 4 — changelog (per config/override).
-  if (ship.changelog === undefined) {
-    if (!wantChangelog) {
-      ship = { ...ship, changelog: "skipped" };
-      f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!;
-      lines.push("- changelog: skipped (manual)");
-    } else {
-      const c = shipChangelog(root.root, f);
-      Object.assign(ship, c.stamp ?? {});
-      f.meta = (await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, ship }))).meta!;
-      lines.push(`✓ ${c.line}`);
-    }
-  } else {
-    lines.push(`- changelog: already ${ship.changelog}`);
-  }
-
-  lines.push("", `✓ Ship complete for '${name}'. Deliver with: kf archive ${name}`);
-  return { code: 0, stdout: lines.join("\n") };
+export async function cmdShip(_args: ParsedArgs, _cwd: string): Promise<CmdResult> {
+  return { code: 1, stdout: SHIP_DEPRECATED, stderr: "deprecated" };
 }

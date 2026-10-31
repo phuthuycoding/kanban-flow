@@ -105,7 +105,7 @@ export interface FeatureMeta {
   runs?: RunRecord[];
   /** Git worktree + domain allocated for implementation; absent until created. */
   worktree?: WorktreeRegistration;
-  /** Ship pipeline progress; written by `kf ship`, absent until it first runs. */
+  /** Progress of the removed `kf ship` pipeline. Nothing writes it now; items shipped by earlier releases still carry it, so it must keep loading. */
   ship?: ShipState;
   /** Per-task progress of the task harness, keyed by task id; tasks with no entry are pending or ready (computed). */
   tasks?: Record<string, TaskState>;
@@ -203,7 +203,7 @@ function isTaskState(value: unknown): value is TaskState {
     && (t.updatedAt === undefined || typeof t.updatedAt === "string");
 }
 
-/** Per-step ship progress so `kf ship` stays resumable/idempotent. */
+/** Per-step progress recorded by the removed `kf ship` pipeline — read-only legacy metadata. */
 export interface ShipState {
   /** ISO stamp — PR created/recorded (meta.pr is the value itself). */
   published?: string;

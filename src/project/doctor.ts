@@ -11,7 +11,7 @@ import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
-import { readProjectConfig, configPath, effectiveSkillsScope, type ProjectConfig } from "./config.js";
+import { readProjectConfig, configPath, effectiveSkillsScope, parseShipConfig, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { bootstrapDefaults, saveConfig } from "./bootstrap.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
@@ -243,6 +243,14 @@ function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfi
       action: "remove the legacy stack field (kf doctor --fix does it)",
     });
   }
+  if (parseShipConfig(raw?.ship)) {
+    findings.push({
+      level: "WARNING",
+      area: ".kf/config.json",
+      message: "The ship block is ignored: kf ship is deprecated (review opens the PR; merge on GitHub; kf status closes the item).",
+      action: 'remove the "ship" block from .kf/config.json',
+    });
+  }
   return findings;
 }
 
@@ -260,6 +268,27 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
     message: `No repository link; the origin remote points at ${detected}.`,
     action: `set "repository": "${detected}" in .kf/config.json (kf doctor --fix does it)`,
   }];
+}
+
+/**
+ * Hooks named after stages that no longer exist. resolveHook looks a hook up by the target stage,
+ * so these files never run again — a project that edited one would silently lose its behaviour.
+ */
+const ORPHANED_STAGE_HOOKS: Array<{ file: string; action: string }> = [
+  { file: "dones.sh", action: "rename .kf/hooks/dones.sh to .kf/hooks/done.sh (the stage is now done)" },
+  { file: "shipping.sh", action: "delete .kf/hooks/shipping.sh (the shipping stage is gone; review opens the PR)" },
+];
+
+function checkOrphanedHooks(root: string): DoctorFinding[] {
+  const dir = join(root, ".kf", "hooks");
+  return ORPHANED_STAGE_HOOKS
+    .filter(({ file }) => existsSync(join(dir, file)))
+    .map(({ file, action }) => ({
+      level: "WARNING" as const,
+      area: ".kf/hooks",
+      message: `.kf/hooks/${file} is an orphaned legacy hook: no stage runs it any more.`,
+      action,
+    }));
 }
 
 /** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
@@ -426,6 +455,7 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkLegacyFields(root, config.cfg));
   findings.push(...checkRepository(root, config.cfg));
   findings.push(...checkGithubHooks(root));
+  findings.push(...checkOrphanedHooks(root));
   findings.push(...checkGhProjectScope(config.cfg));
 
   const agents = config.cfg?.agents ? parseAgentIds(config.cfg.agents) : [DEFAULT_AGENT];

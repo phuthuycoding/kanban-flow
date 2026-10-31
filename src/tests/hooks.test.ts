@@ -3,8 +3,12 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readdirSync, readFileSync } from "node:fs";
+
 import { resolveHook, runHook } from "../integrations/hooks.js";
 import { ensureWorksStructure } from "../workflow/features.js";
+import { STAGES } from "../workflow/schema.js";
+import { PKG_GITHUB_HOOKS_DIR, PKG_ROOT } from "../shared/paths.js";
 
 let root: string;
 
@@ -87,3 +91,16 @@ describe("runHook", () => {
     expect(res.code).toBe(3);
   });
 });
+
+describe("GitHub hook pack follows the stage list (TC-019)", () => {
+  for (const dir of [PKG_GITHUB_HOOKS_DIR, join(PKG_ROOT, ".kf", "hooks")]) {
+    it(`${dir.slice(PKG_ROOT.length + 1)} has done.sh and no legacy stage hooks`, () => {
+      const files = readdirSync(dir);
+      for (const stage of STAGES) expect(files).toContain(`${stage}.sh`);
+      expect(files).not.toContain("dones.sh");
+      expect(files).not.toContain("shipping.sh");
+      expect(readFileSync(join(dir, "done.sh"), "utf8")).toMatch(/sync_project_status "\$KFW_FEATURE_DIR" done\n/);
+    });
+  }
+});
+

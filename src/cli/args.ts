@@ -261,7 +261,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   ship: {
-    help: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]  — resumable shipping pipeline for items in the `shipping` stage: publish (push + gh pr create + record meta.pr) → merge gate → release → changelog; each step can be disabled in config or per run, and re-runs resume where the last run stopped. Requires \"ship.enabled\": true in .kf/config.json; without it, prints the manual ship checklist instead",
+    help: "Usage: kf ship <feature>  — deprecated: exits 1 and changes nothing. Review opens the PR; merge on GitHub; kf status closes the item",
     allowPositionals: true,
     options: {
       draft: { type: "boolean" },

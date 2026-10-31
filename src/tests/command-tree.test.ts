@@ -80,6 +80,11 @@ describe("help resolves nested paths (UC-003)", () => {
     expect(commandHelp("feature start")).toContain("Usage: kf feature start");
     expect(commandHelp("bug ship")).toContain("Usage: kf bug ship");
   });
+  it("kf ship help says it is deprecated (TC-018)", () => {
+    expect(commandHelp("ship")).toContain("deprecated");
+    expect(commandHelp("feature ship")).toContain("deprecated");
+    expect(commandHelp("ship")).not.toContain("--skip-release");
+  });
   it("flat help unchanged", () => {
     expect(commandHelp("stage")).toContain("Usage: kf stage");
   });

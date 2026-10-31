@@ -19,12 +19,6 @@
   "worktree": {
     "enabled": true
   },
-  "ship": {
-    "enabled": true,
-    "merge": "manual",
-    "release": false,
-    "changelog": false
-  },
   "project": {
     "owner": "phuthuycoding",
     "number": 3,
@@ -36,7 +30,7 @@
       "implementation": "In progress",
       "testing": "In progress",
       "review": "In review",
-      "dones": "Done"
+      "done": "Done"
     }
   },
   "harness": {
