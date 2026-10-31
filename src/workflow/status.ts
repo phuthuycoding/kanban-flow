@@ -318,7 +318,7 @@ export interface Buckets {
  */
 export function computeBuckets(
   statuses: FeatureStatus[],
-  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }>,
+  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; command?: string; remedy?: string; gone?: true }>,
   running: number,
 ): Buckets {
   const needsYou: Buckets["needsYou"] = [];
@@ -347,17 +347,17 @@ export function computeBuckets(
   }
   for (const d of docsBranchesUnpushed) {
     if (d.gone) {
-      needsYou.push({ feature: d.feature, decision: docsNeverLandedDecision(d.feature, d.reason) });
+      needsYou.push({ feature: d.feature, decision: docsNeverLandedDecision(d.feature, d.reason, d.remedy) });
       continue;
     }
-    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: d.remedy ?? d.command ?? `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
   return { needsYou, waitingToMerge, running };
 }
 
 /** A docs branch nothing proves landed and nothing is left to push; doctor gives the same decision. */
-export function docsNeverLandedDecision(feature: string, reason?: string): string {
-  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: re-land them with kf archive ${feature} (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them`;
+export function docsNeverLandedDecision(feature: string, reason?: string, remedy?: string): string {
+  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: ${remedy ? `run ${remedy} first, then ` : ""}re-land them on a fresh docs branch for a PR with kf archive ${feature}, or leave them`;
 }
 
 export function renderBuckets(b: Buckets): string {

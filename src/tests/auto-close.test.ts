@@ -674,7 +674,7 @@ describe("kf archive on a done item with a recorded docs branch", () => {
     await closedOntoDocsBranch();
     git(root, "branch", "-D", "docs/app-demo");
     expect((await status({ all: true })).stdout).toContain(
-      "): re-land them with kf archive demo (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them");
+      "): re-land them on a fresh docs branch for a PR with kf archive demo, or leave them");
 
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
@@ -688,31 +688,91 @@ describe("kf archive on a done item with a recorded docs branch", () => {
     expect((await status({ all: true })).stdout).toContain("  demo — docs/app-demo awaiting push: git push -u origin docs/app-demo");
   }, 15_000);
 
-  it("re-lands a gone docs branch into a clean, current primary like the close does, keeps the record until the docs reach origin", async () => {
+  it("re-lands a gone docs branch from a clean, current primary on a fresh docs branch, never into the working tree", async () => {
     await closedOntoDocsBranch();
-    const recorded = meta().docsCommit;
     git(root, "branch", "-D", "docs/app-demo");
     git(root, "reset", "-q", "--hard", `origin/${base()}`);
 
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain("Canonical docs synced:");
-    expect(res.stdout).toContain("They replace the docs of docs/app-demo, which never landed: they are in the working tree, not committed — commit them;");
-    expect(readFileSync(requirement(), "utf8")).toContain("status: archived");
-    expect(git(root, "branch", "--list", "docs/app-demo")).toBe("");
+    expect(res.stdout).toContain("committed again to docs/app-demo, not pushed (the docs branch docs/app-demo is gone and nothing proves its docs landed, so the rewrite must show in a PR diff):");
+    expect(git(root, "status", "--porcelain")).toBe("");
+    expect(existsSync(requirement())).toBe(false);
+    expect(git(root, "rev-parse", "docs/app-demo^")).toBe(git(root, "rev-parse", `origin/${base()}`));
     expect(meta().docsBranch).toBe("docs/app-demo");
-    expect(meta().docsCommit).toBe(recorded);
+    expect(meta().docsCommit).toBe(git(root, "rev-parse", "docs/app-demo"));
+  }, 15_000);
+
+  it("a second reconcile after a re-land waits on the new local branch: no switch, nothing written to the tree", async () => {
+    await closedOntoDocsBranch();
+    git(root, "branch", "-D", "docs/app-demo");
+    git(root, "reset", "-q", "--hard", `origin/${base()}`);
+    expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
+    const relanded = meta().docsCommit;
 
     const again = await cmdArchive(args("archive", ["demo"]), root);
     expect(again.code, again.stdout).toBe(0);
-    expect(again.stdout, "nothing changed, so there is nothing to commit").not.toContain("commit them");
+    expect(again.stdout).toContain("Canonical docs wait on docs/app-demo: git push -u origin docs/app-demo, then open a PR for it — nothing rewritten.");
+    expect(git(root, "status", "--porcelain")).toBe("");
+    expect(existsSync(requirement())).toBe(false);
+    expect(git(root, "rev-parse", "docs/app-demo")).toBe(relanded);
+    expect(meta().docsBranch).toBe("docs/app-demo");
+    expect(meta().docsCommit).toBe(relanded);
+  }, 15_000);
 
+  it("refuses to re-land a gone docs branch when origin/HEAD is unset and leaves an edited canonical doc as it is", async () => {
+    await closedOntoDocsBranch();
+    const before = meta();
+    git(root, "branch", "-D", "docs/app-demo");
+    git(root, "reset", "-q", "--hard", `origin/${base()}`);
+    await mkdir(join(root, "docs", "requirement", "app"), { recursive: true });
+    writeFileSync(requirement(), "# My draft\n");
     git(root, "add", "docs");
-    git(root, "commit", "-qm", "docs");
-    git(root, "push", "-q", "origin", base());
-    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo");
-    expect(meta().docsBranch).toBeUndefined();
-    expect(meta().docsLanded).toMatchObject({ branch: "docs/app-demo", by: "content" });
+    git(root, "commit", "-qm", "draft");
+    writeFileSync(requirement(), "# My draft\nUncommitted edit.\n");
+    git(root, "remote", "set-head", "origin", "-d");
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code, res.stdout).toBe(1);
+    expect(res.stdout).toContain("git remote set-head origin -a");
+    expect(readFileSync(requirement(), "utf8")).toBe("# My draft\nUncommitted edit.\n");
+    expect(git(root, "branch", "--list", "docs/app-demo")).toBe("");
+    expect(meta().docsBranch).toBe(before.docsBranch);
+    expect(meta().docsCommit).toBe(before.docsCommit);
+  }, 15_000);
+
+  it("re-lands a gone docs branch on a fresh branch when the merged-PR lookup cannot run", async () => {
+    await closedOntoDocsBranch();
+    git(root, "branch", "-D", "docs/app-demo");
+    const { pr: _pr, ...rest } = meta();
+    await writeFeatureMeta(feature().dir, rest);
+    const config = JSON.parse(readFileSync(join(root, ".kf", "config.json"), "utf8"));
+    delete config.repository;
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify(config));
+    const before = ghCalls();
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(ghCalls().slice(before.length)).not.toContain("--head docs/app-demo");
+    expect(res.stdout).toContain("Canonical docs never landed; committed again to docs/app-demo, not pushed");
+    expect(git(root, "status", "--porcelain")).toBe("");
+    expect(existsSync(requirement())).toBe(false);
+    expect(git(root, "rev-parse", "docs/app-demo^")).toBe(git(root, "rev-parse", `origin/${base()}`));
+    expect(meta().docsCommit).toBe(git(root, "rev-parse", "docs/app-demo"));
+  }, 15_000);
+
+  it("says why a local docs branch that was pushed and pruned is not proven merged", async () => {
+    await closedOntoDocsBranch();
+    git(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    git(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    git(root, "fetch", "-q", "--prune", "origin");
+    const tip = git(root, "rev-parse", "docs/app-demo");
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain(`Canonical docs wait on docs/app-demo — not proven merged (no merged PR has docs/app-demo at ${tip.slice(0, 12)} as its head)`);
+    expect(git(root, "status", "--porcelain")).toBe("");
+    expect(meta().docsBranch).toBe("docs/app-demo");
   }, 15_000);
 
   it("proves an item closed before docsCommit landed by the docs on origin, without asking gh", async () => {
@@ -742,12 +802,12 @@ describe("kf archive on a done item with a recorded docs branch", () => {
     const before = ghCalls();
 
     const needs = (await status({ all: true })).stdout;
-    expect(needs).toContain(`no docs commit was recorded and origin/${base()} does not hold these docs): re-land them with kf archive demo`);
+    expect(needs).toContain(`no docs commit was recorded and origin/${base()} does not hold these docs): re-land them on a fresh docs branch for a PR with kf archive demo`);
     expect(ghCalls().slice(before.length)).not.toContain("--head docs/app-demo");
 
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain("committed again to docs/app-demo, not pushed (no docs commit was recorded, so the rewrite must show in a PR diff):");
+    expect(res.stdout).toContain("committed again to docs/app-demo, not pushed (the docs branch docs/app-demo is gone and nothing proves its docs landed, so the rewrite must show in a PR diff):");
     expect(readFeatureMeta(feature().dir)!.bypasses ?? []).toEqual([]);
     expect(git(root, "status", "--porcelain")).toBe("");
     expect(readFileSync(requirement(), "utf8")).toContain("Edited after the merge.");

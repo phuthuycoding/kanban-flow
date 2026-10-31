@@ -83,7 +83,7 @@ async function goneItem(name: string, opts: { commit?: boolean } = {}): Promise<
 
 const base = () => `origin/${git(root, "symbolic-ref", "--short", "HEAD")}`;
 const neverLanded = (name: string) => `canonical docs for ${name} never landed (local branch docs/app-${name} is gone and there is no remote-tracking ref for it here, so there is nothing to push; `
-  + `no docs commit was recorded and ${base()} does not hold these docs): re-land them with kf archive ${name} (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them`;
+  + `no docs commit was recorded and ${base()} does not hold these docs): re-land them on a fresh docs branch for a PR with kf archive ${name}, or leave them`;
 
 describe("kf status --all on a docs branch gone locally and on origin", () => {
   it("puts it under Needs you as a re-land decision, not under Waiting to merge, without asking gh when no docs commit was recorded", async () => {
@@ -112,8 +112,21 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
 
     const res = await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root);
     expect(res.stdout).toContain("  demo — canonical docs for demo never landed (local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; "
-      + "no merged PR has docs/app-demo as its head): re-land them with kf archive demo (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them");
+      + "no merged PR has docs/app-demo as its head): re-land them on a fresh docs branch for a PR with kf archive demo, or leave them");
     expect(ghCalls()).toEqual(["gh pr list -R o/r --head docs/app-demo --state merged --json number,headRefOid"]);
+  });
+
+  it("names the set-head command first when origin/HEAD is unset and no docs commit was recorded", async () => {
+    await goneItem("demo");
+    git(root, "remote", "set-head", "origin", "-d");
+
+    const json = JSON.parse((await cmdStatus({ command: "status", positionals: [], options: { all: true, json: true } }, root)).stdout) as {
+      needsYou: Array<{ feature: string; decision: string }>; waitingToMerge: unknown[];
+    };
+    expect(json.waitingToMerge).toEqual([]);
+    expect(json.needsYou).toHaveLength(1);
+    expect(json.needsYou[0].decision).toMatch(/^canonical docs for demo never landed \(.*origin\/HEAD is not set.*\): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
+    expect(ghCalls()).toEqual([]);
   });
 
   it("skips the remaining docs-branch lookups after the first gh timeout", async () => {
@@ -139,7 +152,15 @@ describe("kf doctor on a docs branch gone locally and on origin", () => {
       "docs_branch_unpushed: canonical docs for demo were committed to docs/app-demo, which is gone here, and nothing proves they landed "
         + "(local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; no merged PR has docs/app-demo as its head).",
     ]);
-    expect(found[0].action).toBe("canonical docs for demo never landed: re-land them with kf archive demo (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them");
+    expect(found[0].action).toBe("canonical docs for demo never landed: re-land them on a fresh docs branch for a PR with kf archive demo, or leave them");
     expect(readFeatureMeta(findFeature(root, "demo")!.dir)!.docsBranch, "doctor writes nothing").toBe("docs/app-demo");
+  });
+
+  it("gives the set-head command as the action when origin/HEAD is unset and no docs commit was recorded", async () => {
+    await goneItem("demo");
+    git(root, "remote", "set-head", "origin", "-d");
+    const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+    expect(found.map((f) => f.action)).toEqual(["git remote set-head origin -a, then re-run kf doctor"]);
+    expect(found[0].message).toContain("origin/HEAD is not set");
   });
 });

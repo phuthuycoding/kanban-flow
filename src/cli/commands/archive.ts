@@ -66,7 +66,7 @@ function reconciledDocs(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>
   if (!d) return canonicalBlock(outcome.docs, outcome.skipSpecs, "");
   switch (d.kind) {
     case "waiting":
-      return `Canonical docs wait on ${d.branch}${d.push ? `: git push -u origin ${d.branch}, then open a PR for it` : ""} — nothing rewritten.`;
+      return `Canonical docs wait on ${d.branch}${d.reason ? ` — not proven merged (${d.reason})` : ""}${d.push ? `: git push -u origin ${d.branch}, then open a PR for it` : ""} — nothing rewritten.`;
     case "landed":
       return `Canonical docs from ${d.branch} are on origin's default branch — recorded as landed, nothing rewritten.`;
     case "relanded":
@@ -74,10 +74,6 @@ function reconciledDocs(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>
         outcome.docs.map((doc) => `\n  ${doc}`).join("") +
         `\nCommit hooks were skipped for this kf-authored docs commit (--no-verify); run them before pushing if the repo relies on them.` +
         `\nPush it: git push -u origin ${d.branch}, then open a PR for it.`;
-    case "tree":
-      return canonicalBlock(outcome.docs, outcome.skipSpecs, "") +
-        (d.note ? `\n⚠ ${d.note}` : "") +
-        (outcome.docsChanged ? `\n  They replace the docs of ${d.branch}, which never landed: they are in the working tree, not committed — commit them; ${d.branch} stays recorded until they reach origin's default branch.` : "");
   }
 }
 

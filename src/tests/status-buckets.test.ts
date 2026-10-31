@@ -76,7 +76,20 @@ describe("Waiting to merge bucket", () => {
     expect(buckets.waitingToMerge).toEqual([]);
     expect(buckets.needsYou).toEqual([{
       feature: "a",
-      decision: "canonical docs for a never landed (no merged PR has docs/app-a as its head): re-land them with kf archive a (on a docs branch for a PR, or in the working tree of a clean, current default branch), or leave them",
+      decision: "canonical docs for a never landed (no merged PR has docs/app-a as its head): re-land them on a fresh docs branch for a PR with kf archive a, or leave them",
     }]);
+  });
+
+  it("names the remedy first in the decision for a gone docs branch, and as the command otherwise", () => {
+    const buckets = computeBuckets([], [
+      { feature: "a", branch: "docs/app-a", reason: "origin/HEAD is not set", remedy: "git remote set-head origin -a", gone: true },
+      { feature: "b", branch: "docs/app-b", remedy: "git remote set-head origin -a", command: "kf status --all" },
+    ], 0);
+
+    expect(buckets.needsYou).toEqual([{
+      feature: "a",
+      decision: "canonical docs for a never landed (origin/HEAD is not set): run git remote set-head origin -a first, then re-land them on a fresh docs branch for a PR with kf archive a, or leave them",
+    }]);
+    expect(buckets.waitingToMerge).toEqual([{ feature: "b", docsBranch: "docs/app-b", command: "git remote set-head origin -a" }]);
   });
 });

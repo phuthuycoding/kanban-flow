@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -228,8 +229,10 @@ export type LandedProof =
    * found no PR that carries these docs, or no docs commit was recorded to look for: nothing is
    * left to push and nothing proves they landed.
    * `reason` is one line; callers show it only when `pushed` is true.
+   * `remedy` is a command the human must run before anything can be proven or re-landed; callers
+   * show it as the action when present.
    */
-  | { landed: false; pushed: boolean; gone?: true; reason?: string };
+  | { landed: false; pushed: boolean; gone?: true; reason?: string; remedy?: string };
 
 /** State shared by the landedProof calls of one command run. */
 export interface LandedRun {
@@ -325,12 +328,24 @@ export const goneBranchText = (branch: string): string =>
   `local branch ${branch} is gone and there is no remote-tracking ref for it here, so there is nothing to push`;
 
 function goneProof(root: string, branch: string, commit: string | undefined, run: LandedRun): LandedProof {
-  const gone = goneBranchText(branch);
   // Without a commit no merged PR can prove anything (the name is reused), so gh is not asked.
-  if (!commit) return { ...unproven(`${gone}; no docs commit was recorded to tie a merged PR to these docs`), gone: true };
-  assertSafeArg("commit", commit);
+  if (!commit) return { ...unproven(`${goneBranchText(branch)}; no docs commit was recorded to tie a merged PR to these docs`), gone: true };
   const base = originDefaultRef(root);
-  if (base && runGit(root, ["merge-base", "--is-ancestor", commit, base]).code === 0) return { landed: true, by: "ancestor" };
+  if (base && isAncestor(root, commit, base)) return { landed: true, by: "ancestor" };
+  return goneLookupProof(root, branch, commit, run);
+}
+
+export function isAncestor(dir: string, commit: string, ref: string): boolean {
+  assertSafeArg("commit", commit);
+  assertSafeArg("ref", ref);
+  return runGit(dir, ["merge-base", "--is-ancestor", commit, ref]).code === 0;
+}
+
+/** The merged-PR half of the proof for a gone branch whose recorded docs commit is not an ancestor of origin/<default>. */
+export function goneLookupProof(root: string, branch: string, commit: string, run: LandedRun): LandedProof {
+  assertSafeArg("branch", branch);
+  assertSafeArg("commit", commit);
+  const gone = goneBranchText(branch);
   const lookup = mergedPrs(root, branch, run);
   if ("failure" in lookup) return unproven(`${gone}; ${lookup.failure}`);
   const numbers = lookup.prs
@@ -375,10 +390,36 @@ function mergedPrProof(root: string, branch: string, tip: string, run: LandedRun
 /** The bytes of `path` (repository-relative) at `ref`, or null when `ref` has no such file. */
 export function fileAt(dir: string, ref: string, path: string): string | null {
   assertSafeArg("ref", ref);
-  const spec = `${ref}:${path}`;
-  // Everything after the colon is the path, so no ^{blob} peel: a directory there fails cat-file below.
-  if (runGit(dir, ["rev-parse", "-q", "--verify", spec]).code !== 0) return null;
-  return gitRaw(dir, ["cat-file", "blob", spec]);
+  // Everything after the colon is the path; a missing path or a directory there makes cat-file exit non-zero.
+  const res = runGit(dir, ["cat-file", "blob", `${ref}:${path}`]);
+  return res.code === 0 ? res.stdout : null;
+}
+
+/**
+ * Blob ids at `ref` of `paths` (relative to `dir`), keyed by the path as given, in one git spawn.
+ * A path with no blob there is absent; a `ref` that does not resolve gives an empty map.
+ */
+export function blobIdsAt(dir: string, ref: string, paths: string[]): Map<string, string> {
+  assertSafeArg("ref", ref);
+  const ids = new Map<string, string>();
+  if (paths.length === 0) return ids;
+  const res = runGit(dir, ["ls-tree", "-r", "-z", ref, "--", ...paths]);
+  if (res.code !== 0) {
+    // Only a dangling ref (e.g. origin/HEAD naming a pruned branch) is "nothing there"; any other failure is real.
+    if (revParse(dir, ref) === null) return ids;
+    throw new Error(`git ls-tree -r ${ref} failed (exit ${res.code}) in ${dir}: ${res.stderr.trim()}`);
+  }
+  for (const entry of splitZ(res.stdout)) {
+    const tab = entry.indexOf("\t");
+    const [, type, oid] = entry.slice(0, tab).split(" ");
+    if (type === "blob") ids.set(entry.slice(tab + 1), oid);
+  }
+  return ids;
+}
+
+/** The git object id of a blob holding `content`, in the repository's hash (an `oidLength` of 64 is sha256). */
+export function blobId(content: Buffer, oidLength: number): string {
+  return createHash(oidLength === 64 ? "sha256" : "sha1").update(`blob ${content.length}\0`).update(content).digest("hex");
 }
 
 /** Fetch one branch of a remote so its remote-tracking ref is current; returns git's result. */

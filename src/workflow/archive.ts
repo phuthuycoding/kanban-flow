@@ -99,8 +99,6 @@ export type ArchiveOutcome =
       alreadyDelivered: boolean;
       /** What this reconcile did about the recorded docs branch; null when there is none or --skip-specs was set. */
       docsBranch: ReconciledDocsBranch | null;
-      /** True when at least one written doc differs from the file it replaced. */
-      docsChanged: boolean;
       hasIssue: boolean;
       bypasses: Bypass[];
     }
@@ -118,40 +116,38 @@ export type ArchiveOutcome =
 
 /**
  * The recorded docs branch on a done-item reconcile. `waiting`: it is still live (local or on
- * origin) or not proven either way — record kept, nothing written; `push` when it is only local.
- * `landed`: proven landed, recorded as docsLanded. `relanded`: gone, so the docs were committed
- * anew on `branch` (now the record). `tree`: gone, and the checkout was a safe place, so the docs
- * went into the working tree like a close's; the record stays until they reach origin.
+ * origin) — record kept, nothing written; `push` when it is only local, `reason` why a local
+ * branch is not proven landed, when there is one. `landed`: proven landed, recorded as docsLanded.
+ * `relanded`: gone, so the docs were committed anew on `branch` (now the record).
  */
 export type ReconciledDocsBranch =
-  | { kind: "waiting"; branch: string; push: boolean }
+  | { kind: "waiting"; branch: string; push: boolean; reason?: string }
   | { kind: "landed"; branch: string }
-  | { kind: "relanded"; branch: string; why: string }
-  | { kind: "tree"; branch: string; note: string | null };
+  | { kind: "relanded"; branch: string; why: string };
 
 /** What the reconcile will do about a recorded docs branch, decided before any side effect. */
 type DocsBranchPlan =
-  | { kind: "waiting"; branch: string; push: boolean }
+  | { kind: "waiting"; branch: string; push: boolean; reason?: string }
   | { kind: "landed"; branch: string; by: "ancestor" | "merged-pr" | "content" }
   | { kind: "branch"; branch: string; target: Extract<DocsTarget, { kind: "branch" }> }
-  | { kind: "tree"; branch: string; note: string | null }
   | { kind: "refused"; message: string };
 
 /**
- * Only a docs branch nothing is left to push and nothing proves landed is re-landed, through the
- * close's own target decision. One with no recorded docs commit always goes to a branch: its
- * docs on origin may have been edited since, and that overwrite must show in a PR diff.
+ * A live docs branch (local or on origin) is only waited on. One gone from here that nothing
+ * proves landed is re-landed on a fresh docs branch, never into the working tree — whatever kept
+ * the proof from running: the docs on origin may have been edited since, and that overwrite
+ * must show in a PR diff.
  */
 function docsBranchPlan(root: string, f: Feature, branch: string): DocsBranchPlan {
   const pushed = branchPushed(root, "origin", branch);
   if (pushed === true || (pushed === null && revParse(root, `refs/remotes/origin/${branch}`))) return { kind: "waiting", branch, push: false };
   const proof = docsLandedProof(root, f);
   if (proof.landed) return { kind: "landed", branch, by: proof.by };
-  if (!proof.gone) return { kind: "waiting", branch, push: pushed === false };
-  const target = resolveDocsTarget(root, f, f.meta?.docsCommit ? {} : { branchOnly: "no docs commit was recorded, so the rewrite must show in a PR diff" });
+  if (pushed === false) return { kind: "waiting", branch, push: true, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) };
+  const target = resolveDocsTarget(root, f, { branchOnly: `the docs branch ${branch} is gone and nothing proves its docs landed, so the rewrite must show in a PR diff` });
+  if (target.kind === "tree") throw new Error(`resolveDocsTarget chose the working tree for '${f.name}' although a branch was required`);
   if (target.kind === "refused") return target;
-  if (target.kind === "branch") return { kind: "branch", branch, target };
-  return { kind: "tree", branch, note: target.note ?? null };
+  return { kind: "branch", branch, target };
 }
 
 const refuse = (reason: ArchiveRefusalReason, stderrTag: string, stdout: string): ArchiveOutcome => ({ kind: "refused", reason, stdout, stderrTag });
@@ -347,9 +343,8 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     const recordedBranch = opts.skipSpecs ? undefined : f.meta?.docsBranch;
     const plan = recordedBranch ? docsBranchPlan(root, f, recordedBranch) : null;
     if (plan?.kind === "refused") return refuse("docs-target", "docs target", `Cannot archive '${name}': ${plan.message}`);
-    const copies = opts.skipSpecs || (plan && plan.kind !== "tree") ? [] : prepareCanonicalCopies(root, f);
-    // A re-land follows the close, which overwrites without asking; only the plain resync refuses edited docs.
-    const changedDocs = plan ? [] : copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
+    const copies = opts.skipSpecs || plan ? [] : prepareCanonicalCopies(root, f);
+    const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
     if (changedDocs.length > 0 && !opts.force) {
       return refuse(
         "docs-changed",
@@ -414,7 +409,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       skipSpecs: Boolean(opts.skipSpecs),
       alreadyDelivered: Boolean(f.meta?.delivered),
       docsBranch: reconciledDocsBranch(plan, written),
-      docsChanged: copies.some((copy) => copy.original !== copy.content),
       hasIssue: Boolean(f.meta?.issue),
       bypasses: recorded,
     };

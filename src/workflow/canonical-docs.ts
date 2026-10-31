@@ -8,16 +8,19 @@ import { assertPathName, type Feature } from "./features.js";
 import { splitFrontmatter, applyFrontmatter, getFmValue } from "../shared/frontmatter.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import {
+  blobId,
+  blobIdsAt,
   commitAll,
   countCommits,
   currentBranch,
   deleteBranch,
   fetchBranch,
-  fileAt,
   git,
   goneBranchText,
+  goneLookupProof,
   hasRemote,
   insideWorkTree,
+  isAncestor,
   landedProof,
   originDefaultRef,
   removeWorktree,
@@ -138,35 +141,47 @@ function snapshotSources(feature: Feature, context: string, base: string): [stri
  * Whether origin/<default> already holds this feature's archived snapshot: every canonical doc
  * byte-identical there. False when origin/HEAD is not set or a source artifact is missing (the
  * snapshot cannot be built, so nothing is proven). Reads only local refs; nothing is fetched.
+ * One git spawn: the blob ids on `base` are compared to the ids of the expected bytes.
  */
-export function docsOnDefault(root: string, feature: Feature): boolean {
+export function docsOnDefault(root: string, feature: Feature, base: string | null = originDefaultRef(root)): boolean {
   if (!feature.context || feature.meta?.kind === "bug") return false;
   assertPathName(feature.context, "context");
   assertPathName(feature.name, "feature");
-  const base = originDefaultRef(root);
   if (!base) return false;
-  const prefix = repoPrefix(root);
   const sources = snapshotSources(feature, feature.context, join(root, "docs"));
   if (!sources.every(([source]) => existsSync(source))) return false;
-  return sources.every(([source, destination, kind]) =>
-    fileAt(root, base, `${prefix}${relative(root, destination).split(sep).join("/")}`) === canonicalContent(kind, readFileSync(source, "utf8")));
+  const docs = sources.map(([source, destination, kind]): [string, Buffer] =>
+    [relative(root, destination).split(sep).join("/"), Buffer.from(canonicalContent(kind, readFileSync(source, "utf8")), "utf8")]);
+  const ids = blobIdsAt(root, base, docs.map(([path]) => path));
+  return docs.every(([path, content]) => {
+    const id = ids.get(path);
+    return id !== undefined && id === blobId(content, id.length);
+  });
 }
 
 /**
  * landedProof for a feature's recorded docs branch. A branch gone locally whose docs are already
- * on origin/<default> is landed by content, whatever route they took. A gone branch with no
- * recorded docs commit is never asked about on GitHub: no merged PR could be tied to it.
+ * on origin/<default> is landed by content, whatever route they took; with a recorded docs commit
+ * the one-spawn ancestor check runs first and the gh lookup last. A gone branch with no recorded
+ * docs commit is never asked about on GitHub: no merged PR could be tied to it.
  */
 export function docsLandedProof(root: string, feature: Feature, run: LandedRun = {}): LandedProof {
   const branch = feature.meta?.docsBranch;
   if (!branch) throw new Error(`'${feature.name}' has no docs branch to prove`);
   const commit = feature.meta?.docsCommit;
   if (revParse(root, `refs/heads/${branch}`)) return landedProof(root, branch, commit, run);
-  if (docsOnDefault(root, feature)) return { landed: true, by: "content" };
-  if (commit) return landedProof(root, branch, commit, run);
   const base = originDefaultRef(root);
+  if (commit && base && isAncestor(root, commit, base)) return { landed: true, by: "ancestor" };
+  if (docsOnDefault(root, feature, base)) return { landed: true, by: "content" };
+  if (commit) return goneLookupProof(root, branch, commit, run);
   if (!base) {
-    return { landed: false, pushed: true, reason: `${goneBranchText(branch)}; no docs commit was recorded and origin/HEAD is not set, so the docs on the default branch cannot be compared (set it: git remote set-head origin -a)` };
+    return {
+      landed: false,
+      pushed: true,
+      gone: true,
+      remedy: "git remote set-head origin -a",
+      reason: `${goneBranchText(branch)}; no docs commit was recorded and origin/HEAD is not set, so the docs on the default branch cannot be compared (set it: git remote set-head origin -a)`,
+    };
   }
   return { landed: false, pushed: true, gone: true, reason: `${goneBranchText(branch)}; no docs commit was recorded and ${base} does not hold these docs` };
 }

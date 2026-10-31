@@ -236,11 +236,11 @@ const DOCS_LANDED_LOCK_MS = 2_000;
  * is a cache: when another kf command holds the item lock, it waits for the next run.
  */
 async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<{
-  entries: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }>;
+  entries: Array<{ feature: string; branch: string; reason?: string; command?: string; remedy?: string; gone?: true }>;
   warnings: string[];
 }> {
   const run: LandedRun = {};
-  const out: Array<{ feature: string; branch: string; reason?: string; command?: string; gone?: true }> = [];
+  const out: Array<{ feature: string; branch: string; reason?: string; command?: string; remedy?: string; gone?: true }> = [];
   const warnings: string[] = [];
   for (const f of features) {
     const branch = f.meta?.docsBranch;
@@ -259,7 +259,7 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
       continue;
     }
     if (proof.gone) {
-      out.push({ feature: f.name, branch, reason: proof.reason, gone: true });
+      out.push({ feature: f.name, branch, reason: proof.reason, ...(proof.remedy ? { remedy: proof.remedy } : {}), gone: true });
       continue;
     }
     // No local branch to push: only a lookup that can run again can still prove it.
