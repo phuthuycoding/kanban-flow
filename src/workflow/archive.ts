@@ -2,23 +2,38 @@ import { mkdir, rename } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { METADATA_FILE, type Stage } from "./schema.js";
+import { ARTIFACTS, METADATA_FILE, type Stage } from "./schema.js";
 import { findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
 import { withLock } from "../shared/lock.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
 import { recordBypasses } from "./bypass.js";
-import { prepareCanonicalCopies, isUnstampedSnapshot, writeCanonicalCopies, rollbackCanonicalCopies } from "./canonical-docs.js";
+import {
+  prepareCanonicalCopies,
+  isUnstampedSnapshot,
+  writeCanonicalCopies,
+  rollbackCanonicalCopies,
+  resolveDocsTarget,
+  writeCanonicalDocsBranch,
+  type DocsTarget,
+} from "./canonical-docs.js";
 import { checkMergeGate, type MergeGateFailure } from "../integrations/github.js";
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
-import { teardownWorktree, type TeardownResult } from "../worktree/lifecycle.js";
+import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type TeardownResult } from "../worktree/lifecycle.js";
+import { branchExists, unmergedCommitCount } from "../worktree/manager.js";
+import { deleteBranch } from "../shared/git.js";
+import { splitFrontmatter } from "../shared/frontmatter.js";
+
+/** Which command asked for the close; only the re-run hints differ. */
+export type ArchiveTrigger = "status" | "sync" | "archive";
 
 export interface ArchiveOptions {
   force?: boolean;
   skipHooks?: boolean;
   skipSpecs?: boolean;
+  trigger?: ArchiveTrigger;
 }
 
 /** Why an archive was refused. Each reason carries the short stderr tag `kf archive` has always printed. */
@@ -33,6 +48,8 @@ export type ArchiveRefusalReason =
   | "target-exists"
   | "metadata-missing"
   | "worktree-dirty"
+  | "landing-commits"
+  | "docs-target"
   | "changed-concurrently";
 
 export type ArchiveOutcome =
@@ -49,6 +66,16 @@ export type ArchiveOutcome =
       teardown: TeardownResult | null;
       /** Worktree path printed when one was removed; null when there was no worktree. */
       worktreePath: string | null;
+      /** The item branch deleted locally and on origin; null when the item had no worktree branch. */
+      branch: BranchDeletion | null;
+      /** The recorded PR the close was verified against; null when the item had nothing to land. */
+      pr: string | null;
+      /** Where the canonical docs went: the working tree, or a branch cut from origin's default branch. */
+      docsOn: "tree" | "branch";
+      /** Unpushed branch the docs were committed to (then `docs` are repository-relative); null when they went into the working tree. */
+      docsBranch: string | null;
+      /** Why the docs went where they went, when that is worth saying. */
+      docsNote: string | null;
     }
   | {
       /** The item was already in done: canonical docs re-synced and delivery re-stamped. */
@@ -62,14 +89,19 @@ export type ArchiveOutcome =
       hasIssue: boolean;
       bypasses: Bypass[];
     }
-  | { kind: "refused"; reason: ArchiveRefusalReason; stdout: string; stderrTag: string }
+  | { kind: "refused"; reason: ArchiveRefusalReason; stdout: string; stderrTag: string; merge?: MergeGateFailure }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
 
 const refuse = (reason: ArchiveRefusalReason, stderrTag: string, stdout: string): ArchiveOutcome => ({ kind: "refused", reason, stdout, stderrTag });
 
-/** The same sentences `kf archive` has always printed for a merge-gate refusal. */
+/** The same sentences `kf archive` has always printed for a merge-gate refusal; the failure rides along for callers that act on it. */
 function refuseMerge(name: string, failure: MergeGateFailure): ArchiveOutcome {
+  const outcome = mergeRefusal(name, failure);
+  return outcome.kind === "refused" ? { ...outcome, merge: failure } : outcome;
+}
+
+function mergeRefusal(name: string, failure: MergeGateFailure): ArchiveOutcome {
   switch (failure.reason) {
     case "no-repository":
       return refuse("merge-gate", "no repository", `Cannot archive '${name}': PR ${failure.pr} is recorded but no "repository" is configured to verify it. Set one in .kf/config.json or archive after removing the pr link.`);
@@ -78,6 +110,9 @@ function refuseMerge(name: string, failure: MergeGateFailure): ArchiveOutcome {
     case "parse":
       return refuse("merge-gate", "pr view parse", `Cannot archive '${name}': gh pr view ${failure.pr} returned unexpected output:\n${failure.output}`);
     case "not-merged":
+      if (failure.state === "CLOSED") {
+        return refuse("merge-gate", "pr closed", `Cannot archive '${name}': PR ${failure.pr} is not merged — it was closed without merging. Reopen and merge it, or decide what happens to the item (kf stage ${name} implementation, or kf cancel ${name}).`);
+      }
       return refuse("merge-gate", "pr not merged", `Cannot archive '${name}': PR ${failure.pr} is not merged (state: ${failure.state}) — merge it first, then archive.`);
   }
 }
@@ -88,6 +123,13 @@ const hookFailed = (hook: HookResult): ArchiveOutcome => ({
   stdout: `Hook 'done' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\nArchive refused.\n\n${hook.output}\n\nRe-run with --skip-hooks to bypass.`,
   stderrTag: "hook failed",
 });
+
+/** `landing:` of the review report, or null when the report or the key is absent. */
+function reviewLanding(dir: string): string | null {
+  const p = join(dir, ARTIFACTS["review-report"].file);
+  if (!existsSync(p)) return null;
+  return splitFrontmatter(readFileSync(p, "utf8")).fm.landing ?? null;
+}
 
 /**
  * Archive a work item: review → done, or an idempotent reconcile of an item already in
@@ -188,6 +230,17 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     return refuse("wrong-stage", "wrong stage", `Cannot archive '${name}': feature is in stage "${f.stage}". Archive only from review (run: kf stage ${name} review first).`);
   }
 
+  const rerun = opts.trigger === "status" ? `kf status --change ${name}` : opts.trigger === "sync" ? "kf sync" : `kf archive ${name}`;
+
+  // Landing rule: with no PR to verify, `landing: none` may close only when the item branch
+  // carries nothing — otherwise unpushed work would be counted as delivered.
+  if (!f.meta?.pr && reviewLanding(f.dir) === "none" && f.meta?.worktree && branchExists(root, f.meta.worktree.branch)) {
+    const ahead = unmergedCommitCount(root, f.meta.worktree.branch);
+    if (ahead > 0) {
+      return refuse("landing-commits", "landing none with commits", `Cannot archive '${name}': landing: none but the branch has ${ahead} commits — open a PR or cancel.`);
+    }
+  }
+
   const force = Boolean(opts.force);
   const forcedCodes: string[] = [];
   const check = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
@@ -214,6 +267,26 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     return refuse("target-exists", "target exists", `Target already exists: ${target}`);
   }
 
+  // Where the canonical docs go is settled while nothing has happened yet: preparing the copies
+  // fails on a missing source artifact, and the target may refuse (origin unreachable, a
+  // leftover docs branch). Both must refuse before the hook and the branch deletion.
+  if (f.context) assertPathName(f.context, "context");
+  assertPathName(f.name, "feature");
+  const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);
+  const docsTarget: DocsTarget = copies.length > 0 ? resolveDocsTarget(root, f) : { kind: "tree" };
+  if (docsTarget.kind === "refused") return refuse("docs-target", "docs target", `Cannot archive '${name}': ${docsTarget.message}`);
+
+  // A dirty worktree refuses before the hook: the hook closes the issue and moves the board,
+  // which must not happen for an item that then stays in review.
+  const wtCfg = f.meta?.worktree ? worktreeConfig(root, readProjectConfig(root).worktree) : null;
+  if (wtCfg) {
+    try {
+      assertWorktreeClean(root, f, wtCfg);
+    } catch (err) {
+      return refuse("worktree-dirty", "worktree dirty", `Cannot archive '${name}': ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Phase hook: run the 'done' hook before archiving (unless --skip-hooks).
   const skipHooks = Boolean(opts.skipHooks);
   const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "done") : null;
@@ -234,48 +307,67 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   if (!afterHook.valid && !force) return refuse("gate", "gate failed", renderValidateText(afterHook));
   if (!f.meta) return refuse("metadata-missing", "metadata missing", "Feature metadata is missing.");
 
-  // Worktree teardown is the last refusal point before the move: a dirty worktree keeps the
-  // item in review untouched. Removing a CLEAN worktree before a possibly-failing docs sync
-  // is safe — resume is `kf worktree create`, which rebuilds it from the kept branch.
+  // Every gate held and the hook ran: from here on the close is irreversible. Removing a CLEAN
+  // worktree is safe — its work has landed (merged PR) or there was none (landing: none, 0
+  // commits). Teardown re-checks dirtiness as a guard against a change since the check above.
   let teardown: TeardownResult | null = null;
-  if (f.meta.worktree) {
-    const wtCfg = worktreeConfig(root, readProjectConfig(root).worktree);
+  if (f.meta.worktree && wtCfg) {
     try {
       teardown = await teardownWorktree(root, f, wtCfg);
     } catch (err) {
       return refuse("worktree-dirty", "worktree dirty", `Cannot archive '${name}': ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  const branch = f.meta.worktree ? deleteItemBranch(root, f.meta.worktree.branch) : null;
 
   const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
-  if (f.context) assertPathName(f.context, "context");
-  assertPathName(f.name, "feature");
-  const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);
+  let docs: string[] = copies.map((copy) => copy.destination);
+  let docsBranch: string | null = null;
   const stale = await withLock(root, f.name, async (): Promise<ArchiveOutcome | null> => {
     const cur = findFeature(root, f.name);
     if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
-      return refuse("changed-concurrently", "changed concurrently", `Cannot archive '${name}': it changed while the archive was running. Re-run: kf archive ${name}`);
+      return refuse("changed-concurrently", "changed concurrently", `Cannot archive '${name}': it changed while the archive was running. Re-run: ${rerun}`);
     }
     const originalMeta = readFileSync(join(cur.dir, METADATA_FILE), "utf8");
     let moved = false;
     try {
+      // Canonical docs → move → meta stamp.
+      if (docsTarget.kind === "branch") {
+        const written = await writeCanonicalDocsBranch(root, cur, docsTarget);
+        docsBranch = written.branch;
+        docs = written.docs;
+      } else {
+        await writeCanonicalCopies(copies);
+      }
       await mkdir(dest, { recursive: true });
       await rename(cur.dir, target);
       moved = true;
-      await writeCanonicalCopies(copies);
       // `delivered` is the terminal fact — written last, after every other side effect landed.
-      await writeFeatureMeta(target, { ...cur.meta, bypasses: recorded.length > 0 ? [...(cur.meta.bypasses ?? []), ...recorded] : cur.meta.bypasses, status: "archived", worktree: undefined, delivered: true, deliveredAt: new Date().toISOString() });
+      await writeFeatureMeta(target, {
+        ...cur.meta,
+        bypasses: recorded.length > 0 ? [...(cur.meta.bypasses ?? []), ...recorded] : cur.meta.bypasses,
+        status: "archived",
+        worktree: undefined,
+        ...(docsBranch ? { docsBranch } : {}),
+        delivered: true,
+        deliveredAt: new Date().toISOString(),
+      });
     } catch (err) {
-      if (!moved) throw err;
+      // writeCanonicalDocsBranch removes its own branch when it fails; a committed one is undone here.
+      const undoDocs = docsTarget.kind === "branch"
+        ? async () => { if (docsBranch) deleteBranch(root, docsBranch); }
+        : () => rollbackCanonicalCopies(copies);
       const rollback = await Promise.allSettled([
-        writeFileAtomic(join(target, METADATA_FILE), originalMeta),
-        rollbackCanonicalCopies(copies),
+        undoDocs(),
+        ...(moved ? [writeFileAtomic(join(target, METADATA_FILE), originalMeta)] : []),
       ]);
       const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
-      try {
-        await rename(target, cur.dir);
-      } catch (rollbackError) {
-        failures.push(rollbackError);
+      if (moved) {
+        try {
+          await rename(target, cur.dir);
+        } catch (rollbackError) {
+          failures.push(rollbackError);
+        }
       }
       if (failures.length > 0) throw new AggregateError([err, ...failures], `Archive failed and rollback was incomplete for '${name}'.`);
       throw new Error(`Archive failed for '${name}'; feature restored to review.`, { cause: err });
@@ -289,11 +381,16 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     name,
     from: f.stage,
     dir: target,
-    docs: copies.map((copy) => copy.destination),
+    docs,
     skipSpecs: Boolean(opts.skipSpecs),
     hasIssue: Boolean(f.meta?.issue),
     bypasses: recorded,
     teardown,
     worktreePath: f.meta?.worktree?.path ?? null,
+    branch,
+    pr: f.meta?.pr ?? null,
+    docsOn: docsTarget.kind === "branch" ? "branch" : "tree",
+    docsBranch,
+    docsNote: docsTarget.kind === "branch" ? docsTarget.why : docsTarget.kind === "tree" ? docsTarget.note ?? null : null,
   };
 }

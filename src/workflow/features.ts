@@ -95,6 +95,8 @@ export interface FeatureMeta {
   /** Set by `kf archive` — archive is the delivery gate and stamps this last in its pass. */
   delivered?: boolean;
   deliveredAt?: string;
+  /** Unpushed branch the close committed canonical docs to, when the primary checkout was not a safe place for them. */
+  docsBranch?: string;
   approval?: Approval;
   executionId?: string;
   status?: "archived" | "cancelled";
@@ -119,6 +121,7 @@ export type DriveStatus = (typeof DRIVE_STATUSES)[number];
 export const DRIVE_STOP_CODES = [
   "loop_limit", "requirement_bug", "worker_blocked", "plan_change_needed", "tasks_blocked", "verify_failed",
   "transition_refused", "approval_changed", "config_changed", "budget", "stopped_by_user", "git_error", "internal_error",
+  "usage_limit",
 ] as const;
 export type DriveStopCode = (typeof DRIVE_STOP_CODES)[number];
 
@@ -304,6 +307,7 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.pr !== undefined && (typeof meta.pr !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(meta.pr)))
     || (meta.delivered !== undefined && typeof meta.delivered !== "boolean")
     || (meta.deliveredAt !== undefined && typeof meta.deliveredAt !== "string")
+    || (meta.docsBranch !== undefined && (typeof meta.docsBranch !== "string" || !meta.docsBranch.startsWith("docs/")))
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)

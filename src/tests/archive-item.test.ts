@@ -139,7 +139,10 @@ describe("archiveItem — typed outcome", () => {
     await reviewStage();
     process.env.GH_PR_STATE = "OPEN";
     const outcome = await archiveItem(root, "shipit", { force: true });
-    expect(outcome).toEqual({ kind: "refused", reason: "merge-gate", stderrTag: RECORDED.unmerged.stderr, stdout: RECORDED.unmerged.stdout });
+    expect(outcome).toEqual({
+      kind: "refused", reason: "merge-gate", stderrTag: RECORDED.unmerged.stderr, stdout: RECORDED.unmerged.stdout,
+      merge: { reason: "not-merged", pr: PR, state: "OPEN" },
+    });
     expect(feature().stage).toBe("review");
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });

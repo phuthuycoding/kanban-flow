@@ -15,6 +15,7 @@ import {
   worktreeDirty,
 } from "./manager.js";
 import { addRoute, removeRoute, readRoutes } from "./routes.js";
+import { deleteRemoteBranch, runGit, type RemoteBranchDeletion } from "../shared/git.js";
 import { assertTaskWorktreesClean, removeTaskWorktrees } from "./tasks.js";
 import { worktreeDir, worktreeDomain, worktreeBranch, type WorktreeConfig } from "./config.js";
 
@@ -210,6 +211,43 @@ function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration,
 }
 
 /**
+ * Throws when the item worktree or one of its task worktrees holds uncommitted work — the
+ * refusal teardown makes, callable before any irreversible step of a close.
+ */
+export function assertWorktreeClean(root: string, feature: Feature, cfg: WorktreeConfig): void {
+  const wt = feature.meta?.worktree;
+  if (!wt) return;
+  const wtPath = real(wt.path);
+  if (gitWorktreePaths(root).includes(wtPath) && worktreeDirty(wtPath)) {
+    throw new Error(
+      `Worktree for '${feature.name}' has uncommitted changes (${wt.path}). ` +
+      `Commit them inside the worktree, or discard deliberately: kf worktree remove ${feature.name} --force`,
+    );
+  }
+  assertTaskWorktreesClean(root, feature.name, cfg);
+}
+
+export interface BranchDeletion {
+  branch: string;
+  local: { kind: "deleted" } | { kind: "absent" } | { kind: "failed"; detail: string };
+  remote: RemoteBranchDeletion;
+}
+
+/**
+ * Delete a closed item's branch locally, then on origin. Only for a branch whose work has
+ * landed (merged PR, or nothing to land) and whose worktree is already gone. A failure on
+ * either side is reported, never forced, and does not stop the other side.
+ */
+export function deleteItemBranch(root: string, branch: string): BranchDeletion {
+  let local: BranchDeletion["local"] = { kind: "absent" };
+  if (branchExists(root, branch)) {
+    const res = runGit(root, ["branch", "-D", branch]);
+    local = res.code === 0 ? { kind: "deleted" } : { kind: "failed", detail: res.stderr.trim() || `git branch -D exited ${res.code}` };
+  }
+  return { branch, local, remote: deleteRemoteBranch(root, "origin", branch) };
+}
+
+/**
  * Remove worktree + route for an item that is closing. Refuses on a dirty worktree —
  * uncommitted work must be committed or deliberately discarded via `worktree remove --force`.
  */
@@ -223,15 +261,8 @@ export async function teardownWorktree(
 
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
-  if (!missing && worktreeDirty(wtPath)) {
-    throw new Error(
-      `Worktree for '${feature.name}' has uncommitted changes (${wt.path}). ` +
-      `Commit them inside the worktree, or discard deliberately: kf worktree remove ${feature.name} --force`,
-    );
-  }
-
   // Checked before anything is removed so a refusal leaves everything in place.
-  assertTaskWorktreesClean(root, feature.name, cfg);
+  assertWorktreeClean(root, feature, cfg);
 
   const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
   if (!missing) git(root, ["worktree", "remove", wtPath]);

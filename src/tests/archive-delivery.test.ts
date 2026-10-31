@@ -356,17 +356,28 @@ describe("reconcile — re-archive on done items (UC-004, TC-014/TC-015)", () =>
 });
 
 describe("visibility — awaiting merge states surface (UC-005, TC-016/TC-017)", () => {
-  it("status shows 'awaiting merge' only for review-PASS items with a linked issue (TC-016)", async () => {
+  it("status names the merge as the next step only when the close attempt found the PR unmerged (TC-016)", async () => {
+    await reviewStage();
+    await link("shipit", { issue: ISSUE, pr: PR });
+    const text = renderStatusText({ ...computeStatus(feature()), close: { kind: "awaiting-merge", pr: PR } });
+    expect(text).toContain(`Awaiting merge: ${PR}`);
+    expect(text).toContain(`Next: merge ${PR} on GitHub, then kf status`);
+    expect(text).not.toContain("kf archive");
+
+    // Rendering is pure: without a close attempt there is no merge hint.
+    const plain = renderStatusText(computeStatus(feature()));
+    expect(plain).not.toContain("Awaiting merge");
+  });
+
+  it("doctor reports awaiting merge for a review PASS item keyed on its recorded PR, not on the issue", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE });
-    const text = renderStatusText(computeStatus(feature()));
-    expect(text).toContain("Awaiting merge");
-    expect(text).toContain("kf archive shipit");
+    expect(runDoctor(root).findings.some((f) => f.message.includes("awaiting merge"))).toBe(false);
 
-    // No PASS report → no hint.
-    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), "---\nstatus: FAIL\n---\n# Evidence\n");
-    const failing = renderStatusText(computeStatus(feature()));
-    expect(failing).not.toContain("Awaiting merge");
+    await link("shipit", { pr: PR });
+    const awaiting = runDoctor(root).findings.find((f) => f.message.includes("awaiting merge"));
+    expect(awaiting?.message).toContain(PR);
+    expect(awaiting?.action).toBe(`merge ${PR} on GitHub, then run: kf status --change shipit`);
   });
 
   it("doctor points undelivered done items and inert statusMap.delivered at the right actions (TC-017)", async () => {

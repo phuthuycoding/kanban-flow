@@ -348,24 +348,35 @@ describe("worktree lifecycle hooks", () => {
 });
 
 describe("teardown (FR-007, FR-008)", () => {
-  it("archive removes worktree + route, keeps branch, warns on unmerged commits", async () => {
+  it("archive with nothing to land removes worktree + route and deletes the empty branch", async () => {
     await reviewReadyItem();
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature Report\nShipped.");
     const wt = feature().meta!.worktree!;
-    git(wt.path, "config", "user.email", "t@t");
-    git(wt.path, "config", "user.name", "t");
-    writeFileSync(join(wt.path, "new-file.txt"), "work");
-    git(wt.path, "add", ".");
-    git(wt.path, "commit", "-qm", "wip");
 
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
     expect(existsSync(wt.path)).toBe(false);
     expect(readRoutes(join(scratch, "routes.json")).routes["demo.repo.test"]).toBeUndefined();
-    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
-    expect(res.stdout).toMatch(/unmerged|not merged/);
+    expect(git(root, "branch", "--list", "t/demo")).toBe("");
+    expect(res.stdout).toContain("Branch t/demo: deleted locally");
     expect(feature().stage).toBe("done");
     expect(feature().meta!.worktree).toBeUndefined();
+  });
+
+  it("archive refuses landing: none on a branch with commits and keeps worktree + branch", async () => {
+    await reviewReadyItem();
+    await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature Report\nShipped.");
+    const wt = feature().meta!.worktree!;
+    writeFileSync(join(wt.path, "new-file.txt"), "work");
+    git(wt.path, "add", ".");
+    git(wt.path, "commit", "-qm", "wip");
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("landing: none but the branch has 1 commits — open a PR or cancel");
+    expect(existsSync(wt.path)).toBe(true);
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(feature().stage).toBe("review");
   });
 
   it("archive refuses a dirty worktree; worktree remove --force cleans it", async () => {

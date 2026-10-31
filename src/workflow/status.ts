@@ -50,7 +50,18 @@ export interface FeatureStatus {
   taskProgress: { done: number; total: number };
   /** Roles assigned to the current stage, in run order; empty when the main role does it. */
   assignedRoles: Array<{ role: string; runner: string }>;
+  /** Why a review PASS item did not close on this run; set by the command that attempted it. */
+  close?: CloseState;
 }
+
+/**
+ * The result of a close attempt on a review PASS item that stayed in review. Computed by the
+ * command layer (it calls gh through archiveItem); rendering here stays pure.
+ */
+export type CloseState =
+  | { kind: "awaiting-merge"; pr: string }
+  | { kind: "pr-closed"; pr: string }
+  | { kind: "refused"; detail: string };
 
 function readArtifactContent(dir: string, file: string): string {
   const p = join(dir, file);
@@ -67,6 +78,14 @@ export function reportStatus(dir: string, artifact: ArtifactId): string | null {
   } catch {
     return null;
   }
+}
+
+/** Report status of the current execution only; a report left over from an earlier execution is null. */
+export function currentReportStatus(feature: Feature, artifact: "testing-result" | "review-report"): string | null {
+  const p = join(feature.dir, ARTIFACTS[artifact].file);
+  if (!existsSync(p) || !feature.meta?.executionId) return null;
+  const { fm } = splitFrontmatter(readFileSync(p, "utf8"));
+  return fm.execution === feature.meta.executionId ? fm.status ?? null : null;
 }
 
 export function countTasks(content: string): { done: number; total: number } {
@@ -168,9 +187,10 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
   if (s.feature.meta?.issue) lines.push(`Issue: ${s.feature.meta.issue}`);
-  if (s.feature.stage === "review" && s.feature.meta?.issue && reportStatus(s.feature.dir, "review-report") === "PASS") {
-    lines.push(`Awaiting merge — run: kf archive ${s.feature.name} once the change has landed`);
-  }
+  if (s.close?.kind === "awaiting-merge") lines.push(`Awaiting merge: ${s.close.pr}`);
+  if (s.close?.kind === "pr-closed") lines.push(`PR closed without merging: ${s.close.pr}`);
+  if (s.close?.kind === "refused") lines.push(`Not closed: ${s.close.detail}`);
+  if (s.feature.meta?.docsBranch) lines.push(`Docs branch: ${s.feature.meta.docsBranch}`);
   if (s.feature.meta?.issue && s.feature.stage === "done") {
     lines.push(`Delivered: ${s.feature.meta.delivered ? `yes${s.feature.meta.deliveredAt ? ` at ${s.feature.meta.deliveredAt}` : ""}` : "no — run: kf archive " + s.feature.name + " to finalize delivery"}`);
   }
@@ -207,7 +227,13 @@ export function renderStatusText(s: FeatureStatus): string {
     for (const b of s.blockers) lines.push(`  [ERROR] ${b.file}: ${b.message} (${b.code})`);
   }
 
-  if (s.next) {
+  if (s.close?.kind === "awaiting-merge" && !s.next && s.blockers.length === 0) {
+    lines.push("");
+    lines.push(`Next: merge ${s.close.pr} on GitHub, then kf status`);
+  } else if (s.close?.kind === "pr-closed" && !s.next && s.blockers.length === 0) {
+    lines.push("");
+    lines.push(`Next: human decision — ${s.close.pr} was closed without merging: reopen and merge it, or kf stage "${s.feature.name}" implementation, or kf cancel "${s.feature.name}"`);
+  } else if (s.next) {
     lines.push("");
     lines.push(`Next: kf instruct ${s.next} --change "${s.feature.name}"`);
   } else if (s.blockers.length > 0) {
@@ -234,6 +260,9 @@ export function statusToJson(s: FeatureStatus) {
     approval: approvalState(s.feature),
     executionId: s.feature.meta?.executionId ?? null,
     issue: s.feature.meta?.issue ?? null,
+    pr: s.feature.meta?.pr ?? null,
+    docsBranch: s.feature.meta?.docsBranch ?? null,
+    close: s.close ?? null,
     worktree: s.feature.meta?.worktree ?? null,
     bypasses: s.feature.meta?.bypasses ?? [],
     cancellation: s.feature.meta?.cancellation ?? null,
@@ -260,4 +289,63 @@ export function approvalState(feature: Feature): "pending" | "approved" | "chang
   const approval = feature.meta?.approval;
   if (approval?.status !== "approved") return "pending";
   return approval.contractHash && approval.contractHash === executionContractHash(feature.dir, feature.meta?.kind === "bug" ? "bug" : "feature") ? "approved" : "changed";
+}
+
+export interface Buckets {
+  /** Items waiting on a human decision. */
+  needsYou: Array<{ feature: string; decision: string }>;
+  /** Things the human does outside kf: merge a PR, push a docs branch. */
+  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string }>;
+  /** Live `kf drive` supervisors. */
+  running: number;
+}
+
+/**
+ * The two buckets `kf status --all` ends with. `docsBranchesUnpushed` and `running` come from
+ * git and process state the caller read; everything else is read off the statuses.
+ */
+export function computeBuckets(
+  statuses: FeatureStatus[],
+  docsBranchesUnpushed: Array<{ feature: string; branch: string }>,
+  running: number,
+): Buckets {
+  const needsYou: Buckets["needsYou"] = [];
+  const waitingToMerge: Buckets["waitingToMerge"] = [];
+  for (const s of statuses) {
+    const f = s.feature;
+    if (f.stage === "brainstorm" && splitFrontmatter(readArtifactContent(f.dir, ARTIFACTS["spec-requirement"].file)).fm.status !== "confirmed") {
+      needsYou.push({ feature: f.name, decision: "confirm spec" });
+    } else if (f.stage === "planning" && approvalState(f) !== "approved") {
+      needsYou.push({ feature: f.name, decision: "approve plan (or --backlog)" });
+    } else if (f.stage === "testing" && currentReportStatus(f, "testing-result") === "BLOCKED") {
+      needsYou.push({ feature: f.name, decision: "testing BLOCKED — unblock it or revise the plan" });
+    } else if (f.stage === "review") {
+      const review = currentReportStatus(f, "review-report");
+      if (review === "FAIL" || review === "REJECT" || review === "REQUIREMENT_BUG") {
+        needsYou.push({ feature: f.name, decision: `review ${review} — repair (kf stage ${f.name} implementation) or revise the plan` });
+      } else if (s.close?.kind === "pr-closed") {
+        needsYou.push({ feature: f.name, decision: `${s.close.pr} was closed without merging — reopen and merge it, or move the item back` });
+      } else if (s.close?.kind === "awaiting-merge") {
+        const number = /\/pull\/(\d+)$/.exec(s.close.pr)?.[1];
+        waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number} --squash` : `gh pr merge ${s.close.pr} --squash` });
+      }
+    }
+  }
+  for (const d of docsBranchesUnpushed) {
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}` });
+  }
+  return { needsYou, waitingToMerge, running };
+}
+
+export function renderBuckets(b: Buckets): string {
+  const lines = ["Needs you"];
+  if (b.needsYou.length === 0) lines.push("  (none)");
+  for (const n of b.needsYou) lines.push(`  ${n.feature} — ${n.decision}`);
+  lines.push("Waiting to merge");
+  if (b.waitingToMerge.length === 0) lines.push("  (none)");
+  for (const w of b.waitingToMerge) {
+    lines.push(w.docsBranch ? `  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}` : `  ${w.feature} — ${w.pr}: ${w.command}`);
+  }
+  lines.push(`Running: ${b.running}`);
+  return lines.join("\n");
 }

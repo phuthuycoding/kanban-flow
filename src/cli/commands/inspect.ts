@@ -1,9 +1,20 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ARTIFACTS } from "../../workflow/schema.js";
-import { findFeature, listFeatures } from "../../workflow/features.js";
+import { driveLive, findFeature, listFeatures, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
-import { computeStatus, renderStatusText, statusToJson } from "../../workflow/status.js";
+import { archiveItem } from "../../workflow/archive.js";
+import {
+  computeBuckets,
+  computeStatus,
+  currentReportStatus,
+  renderBuckets,
+  renderStatusText,
+  statusToJson,
+  type CloseState,
+} from "../../workflow/status.js";
+import { branchPushed } from "../../shared/git.js";
+import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
 import { readProjectConfig } from "../../project/config.js";
@@ -82,6 +93,45 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
   return { code: 0, stdout: lines.join("\n") };
 }
 
+/**
+ * FR-005: a review PASS item closes on the next `kf status` once its PR merged (or it has
+ * nothing to land), through the same archiveItem transaction as `kf archive`. An item with a
+ * live drive is left to the drive. Returns the printed lines and, per item that stayed in
+ * review, why — the renderer turns that into the Next line.
+ */
+async function closeLanded(root: string, items: Feature[]): Promise<{ lines: string[]; states: Map<string, CloseState>; failed: boolean }> {
+  const lines: string[] = [];
+  const states = new Map<string, CloseState>();
+  let failed = false;
+  for (const f of items) {
+    if (f.stage !== "review" || currentReportStatus(f, "review-report") !== "PASS" || driveLive(f.meta?.drive)) continue;
+    const outcome = await archiveItem(root, f.name, { trigger: "status" });
+    switch (outcome.kind) {
+      case "archived":
+        lines.push(`✓ done ${outcome.name} (${outcome.pr ? `PR merged: ${outcome.pr}` : "nothing to land"})${closeDetails(outcome)}`);
+        break;
+      case "reconciled":
+        break;
+      case "refused":
+        if (outcome.merge?.reason === "not-merged") {
+          states.set(f.name, outcome.merge.state === "CLOSED" ? { kind: "pr-closed", pr: outcome.merge.pr } : { kind: "awaiting-merge", pr: outcome.merge.pr });
+        } else {
+          states.set(f.name, { kind: "refused", detail: outcome.stdout.split("\n")[0] });
+        }
+        break;
+      case "hook-failed":
+        states.set(f.name, { kind: "refused", detail: outcome.stdout.split("\n")[0] });
+        break;
+      case "error": {
+        failed = true;
+        lines.push(`✗ ${f.name}: close failed: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`);
+        break;
+      }
+    }
+  }
+  return { lines, states, failed };
+}
+
 export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
@@ -95,27 +145,45 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
 
   // Before the item lookup: a legacy `.works/dones` or `.works/shipping` item is invisible until it moves.
   const migration = await migrateLegacyStages(root.root);
-  const code = migration.failed ? 1 : 0;
-  const migrated = migration.lines.length > 0 ? `${migration.lines.join("\n")}\n\n` : "";
-
-  const features = change
+  const lookup = () => change
     ? (() => { const f = findFeature(root.root, change); return f ? [f] : []; })()
     : listFeatures(root.root);
+
+  const closed = await closeLanded(root.root, lookup());
+  const code = migration.failed || closed.failed ? 1 : 0;
+  const notes = [...migration.lines, ...closed.lines];
+  const migrated = notes.length > 0 ? `${notes.join("\n")}\n\n` : "";
+
+  // Read again: an item that just closed now lives in done.
+  const features = lookup();
 
   if (change && features.length === 0) {
     return { code: 1, stdout: `${migrated}Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
   }
   const harness = readProjectConfig(root.root).harness;
-  const statuses = features.map((f) => computeStatus(f, harness));
+  const statuses = features.map((f) => {
+    const s = computeStatus(f, harness);
+    const close = closed.states.get(f.name);
+    return close ? { ...s, close } : s;
+  });
+  const buckets = all
+    ? computeBuckets(
+      statuses,
+      features.flatMap((f) => f.meta?.docsBranch && branchPushed(root.root, "origin", f.meta.docsBranch) === false
+        ? [{ feature: f.name, branch: f.meta.docsBranch }]
+        : []),
+      features.filter((f) => driveLive(f.meta?.drive)).length,
+    )
+    : null;
   if (json) {
-    // stdout stays parseable JSON; the migration lines go to stderr.
+    // stdout stays parseable JSON; the migration and close lines go to stderr.
     return {
       code,
-      stderr: migration.lines.length > 0 ? migration.lines.join("\n") : undefined,
+      stderr: notes.length > 0 ? notes.join("\n") : undefined,
       stdout: JSON.stringify(
         change
           ? statusToJson(statuses[0])
-          : { features: statuses.map(statusToJson) },
+          : { features: statuses.map(statusToJson), ...buckets },
         null, 2,
       ),
     };
@@ -124,7 +192,7 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     return { code, stdout: `${migrated}No active features. Create one with: kf new <feature> --context <ctx>` };
   }
   const blocks = statuses.map(renderStatusText);
-  return { code, stdout: migrated + blocks.join("\n\n") };
+  return { code, stdout: migrated + blocks.join("\n\n") + (buckets ? `\n\n${renderBuckets(buckets)}` : "") };
 }
 
 export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdResult> {

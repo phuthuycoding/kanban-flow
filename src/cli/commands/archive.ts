@@ -1,6 +1,6 @@
 import { archiveItem, type ArchiveOutcome } from "../../workflow/archive.js";
 import { bypassNote } from "../../workflow/bypass.js";
-import type { TeardownResult } from "../../worktree/lifecycle.js";
+import type { BranchDeletion, TeardownResult } from "../../worktree/lifecycle.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -17,17 +17,40 @@ function issueNote(hasIssue: boolean): string {
 }
 
 function worktreeNote(teardown: TeardownResult, path: string | null): string {
-  return `\n  Worktree removed: ${path ?? ""} (branch ${teardown.branch} kept)` +
-    (teardown.unmergedCommits > 0
-      ? `\n  ⚠ ${teardown.branch} has ${teardown.unmergedCommits} commit(s) not merged into HEAD — merge or PR it yourself.`
-      : "") +
+  return `\n  Worktree removed: ${path ?? ""}` +
     teardown.taskBranches.map((b) => `\n  kept task branch: ${b}`).join("") +
     teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("");
 }
 
-function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
+function branchNote(branch: BranchDeletion): string {
+  const local = branch.local.kind === "deleted" ? "deleted locally" : branch.local.kind === "absent" ? "already gone locally" : "NOT deleted locally";
+  const remote = branch.remote.kind === "deleted" ? ", deleted on origin"
+    : branch.remote.kind === "absent" ? ", not on origin"
+    : branch.remote.kind === "no-remote" ? "" : ", NOT deleted on origin";
+  return `\n  Branch ${branch.branch}: ${local}${remote}` +
+    (branch.local.kind === "failed" ? `\n  ⚠ git branch -D ${branch.branch}: ${branch.local.detail}` : "") +
+    (branch.remote.kind === "refused" ? `\n  ⚠ origin kept ${branch.branch} (never forced): ${branch.remote.detail}` : "");
+}
+
+/** Where the docs went, when that is not the plain working-tree sync `canonicalBlock` already prints. */
+function docsBranchNote(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
+  if (outcome.docsOn === "tree") return outcome.docsNote ? `\n  ⚠ ${outcome.docsNote}` : "";
+  const why = outcome.docsNote ? ` (${outcome.docsNote})` : "";
+  if (!outcome.docsBranch) return `\n  Canonical docs already current on origin's default branch${why} — nothing committed.`;
+  return `\n  Canonical docs committed to ${outcome.docsBranch}, not pushed${why}:` +
+    outcome.docs.map((d) => `\n    ${d}`).join("") +
+    `\n  Push it: git push -u origin ${outcome.docsBranch}, then open a PR for it.`;
+}
+
+/** Worktree, branch and docs lines of a close, shared by kf archive, kf status and kf sync. */
+export function closeDetails(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
   const removed = outcome.teardown ? worktreeNote(outcome.teardown, outcome.worktreePath) : "";
-  return `✓ Archived '${outcome.name}'  review → done\n  ${outcome.dir}\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "  ")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${removed}${bypassNote(outcome.bypasses)}`;
+  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${docsBranchNote(outcome)}`;
+}
+
+function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
+  const docs = outcome.docsOn === "tree" ? `\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "  ")}` : "";
+  return `✓ Archived '${outcome.name}'  review → done\n  ${outcome.dir}${docs}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${closeDetails(outcome)}${bypassNote(outcome.bypasses)}`;
 }
 
 function renderReconciled(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>): string {

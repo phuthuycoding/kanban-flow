@@ -175,3 +175,76 @@ export function deleteBranch(root: string, branch: string): void {
 export function pruneWorktrees(root: string): void {
   git(root, ["worktree", "prune"]);
 }
+
+const REMOTE_TIMEOUT_MS = 30_000;
+
+/** True when `dir` is inside a git work tree; false outside one. */
+export function insideWorkTree(dir: string): boolean {
+  const res = runGit(dir, ["rev-parse", "--is-inside-work-tree"]);
+  return res.code === 0 && res.stdout.trim() === "true";
+}
+
+export function hasRemote(dir: string, remote: string): boolean {
+  assertSafeArg("remote", remote);
+  return runGit(dir, ["remote", "get-url", remote]).code === 0;
+}
+
+/** `origin/<default>` from `refs/remotes/origin/HEAD`, or null when origin/HEAD is not set. */
+export function originDefaultRef(dir: string): string | null {
+  const res = runGit(dir, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]);
+  if (res.code === 0) return res.stdout.trim() || null;
+  // -q makes "not a symbolic ref / no such ref" exit 1 silently; anything else is a real failure.
+  if (res.code === 1) return null;
+  throw new Error(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${res.code}) in ${dir}: ${res.stderr.trim()}`);
+}
+
+/** Fetch one branch of a remote so its remote-tracking ref is current; returns git's result. */
+export function fetchBranch(dir: string, remote: string, branch: string): GitResult {
+  assertSafeArg("remote", remote);
+  assertSafeArg("branch", branch);
+  return runGit(dir, ["fetch", "--quiet", remote, branch], { timeoutMs: REMOTE_TIMEOUT_MS });
+}
+
+/** Commits reachable from `to` but not from `from`. */
+export function countCommits(dir: string, from: string, to: string): number {
+  assertSafeArg("ref", from);
+  assertSafeArg("ref", to);
+  return Number(git(dir, ["rev-list", "--count", `${from}..${to}`])) || 0;
+}
+
+/** Path of `dir` relative to the repository top level ("" at the top, else ending in "/"). */
+export function repoPrefix(dir: string): string {
+  return git(dir, ["rev-parse", "--show-prefix"]);
+}
+
+export type RemoteBranchDeletion =
+  | { kind: "deleted" }
+  /** The branch is not on the remote: never pushed, or already deleted (e.g. by the merge). */
+  | { kind: "absent" }
+  | { kind: "no-remote" }
+  /** The remote refused or could not be reached (protected branch, no access, offline). Never forced. */
+  | { kind: "refused"; detail: string };
+
+/** `git push <remote> --delete <branch>` when the branch is on the remote; nothing is forced. */
+export function deleteRemoteBranch(dir: string, remote: string, branch: string): RemoteBranchDeletion {
+  assertSafeArg("branch", branch);
+  if (!hasRemote(dir, remote)) return { kind: "no-remote" };
+  const probe = runGit(dir, ["ls-remote", "--exit-code", "--heads", remote, `refs/heads/${branch}`], { timeoutMs: REMOTE_TIMEOUT_MS });
+  // --exit-code: 2 means the ref is not there.
+  if (probe.code === 2) return { kind: "absent" };
+  if (probe.code !== 0) return { kind: "refused", detail: probe.stderr.trim() || `git ls-remote exited ${probe.code}` };
+  const push = runGit(dir, ["push", "--quiet", remote, "--delete", branch], { timeoutMs: REMOTE_TIMEOUT_MS });
+  if (push.code !== 0) return { kind: "refused", detail: push.stderr.trim() || `git push exited ${push.code}` };
+  return { kind: "deleted" };
+}
+
+/**
+ * Whether a local branch has reached `remote`: a remote-tracking ref of the same name exists
+ * (`git push [-u] <remote> <branch>` writes one). A configured upstream alone does not count —
+ * it may point at another branch. Null when the local branch no longer exists.
+ */
+export function branchPushed(dir: string, remote: string, branch: string): boolean | null {
+  assertSafeArg("branch", branch);
+  if (runGit(dir, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).code !== 0) return null;
+  return runGit(dir, ["show-ref", "--verify", "--quiet", `refs/remotes/${remote}/${branch}`]).code === 0;
+}

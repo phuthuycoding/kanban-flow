@@ -1,11 +1,27 @@
 import { rm } from "node:fs/promises";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
 
 import { ARTIFACTS, UC_FILE_NAME, UC_FILE_PATTERN } from "./schema.js";
 import { assertPathName, type Feature } from "./features.js";
 import { splitFrontmatter, applyFrontmatter, getFmValue } from "../shared/frontmatter.js";
 import { writeFileAtomic } from "../shared/paths.js";
+import {
+  commitAll,
+  countCommits,
+  currentBranch,
+  deleteBranch,
+  fetchBranch,
+  git,
+  hasRemote,
+  insideWorkTree,
+  originDefaultRef,
+  removeWorktree,
+  repoPrefix,
+  revParse,
+  trackedChanges,
+} from "../shared/git.js";
 
 export interface CanonicalCopy {
   destination: string;
@@ -63,14 +79,19 @@ export function canonicalDocPaths(root: string, feature: Feature): string[] {
   return files.filter((p) => existsSync(p));
 }
 
-export function prepareCanonicalCopies(root: string, feature: Feature): CanonicalCopy[] {
+/**
+ * The canonical copies of a feature. Sources are always the item's artifacts; `docsRoot` is the
+ * project root the copies land under and are compared against — the primary working tree by
+ * default, or a checkout of `origin/<default>` when the docs go onto a branch.
+ */
+export function prepareCanonicalCopies(root: string, feature: Feature, docsRoot: string = root): CanonicalCopy[] {
   if (!feature.context) return [];
   if (feature.meta?.kind === "bug") return [];
   assertPathName(feature.context, "context");
   assertPathName(feature.name, "feature");
 
   const context = feature.context;
-  const base = join(root, "docs");
+  const base = join(docsRoot, "docs");
   const mappings: [string, string, CanonicalKind][] = [
     [ARTIFACTS["spec-requirement"].file, join(base, "requirement", context, `${feature.name}.md`), "requirement"],
     [ARTIFACTS["use-case-specification"].file, join(base, "use-cases", context, feature.name, "README.md"), "use-case-index"],
@@ -133,5 +154,102 @@ export async function rollbackCanonicalCopies(copies: CanonicalCopy[]): Promise<
   for (const copy of copies) {
     if (copy.original === null) await rm(copy.destination, { force: true });
     else await writeFileAtomic(copy.destination, copy.original);
+  }
+}
+
+/**
+ * Where a close writes canonical docs. `tree`: the primary working tree, as always. `branch`: a
+ * branch cut from `base` (`origin/<default>`) in a temporary worktree, because the primary is not
+ * a safe place — on another branch, carrying uncommitted changes, or behind origin.
+ */
+export type DocsTarget =
+  | { kind: "tree"; note?: string }
+  | { kind: "branch"; branch: string; base: string; why: string }
+  | { kind: "refused"; message: string };
+
+export const docsBranchName = (feature: Feature): string => `docs/${feature.context}-${feature.name}`;
+
+/** Decide the docs target before anything irreversible runs; fetches origin's default branch to know "behind". */
+export function resolveDocsTarget(root: string, feature: Feature): DocsTarget {
+  if (!insideWorkTree(root) || !hasRemote(root, "origin")) return { kind: "tree" };
+  const base = originDefaultRef(root);
+  if (!base) {
+    return { kind: "tree", note: "origin/HEAD is not set, so the default branch is unknown — docs written to the working tree (set it: git remote set-head origin -a)" };
+  }
+  const defaultBranch = base.slice(base.indexOf("/") + 1);
+  const fetched = fetchBranch(root, "origin", defaultBranch);
+  if (fetched.code !== 0) {
+    return {
+      kind: "refused",
+      message: `could not fetch ${base} to place the canonical docs: ${fetched.stderr.trim() || `git fetch exited ${fetched.code}`}. Re-run when origin is reachable.`,
+    };
+  }
+  const current = currentBranch(root);
+  let why: string | null = null;
+  if (current !== defaultBranch) why = `the checkout is on ${current ?? "a detached HEAD"}, not ${defaultBranch}`;
+  else if (trackedChanges(root).length > 0) why = "the checkout has uncommitted changes";
+  else {
+    const behind = countCommits(root, "HEAD", base);
+    if (behind > 0) why = `the checkout is ${behind} commit(s) behind ${base}`;
+  }
+  if (!why) return { kind: "tree" };
+  const branch = docsBranchName(feature);
+  if (revParse(root, `refs/heads/${branch}`)) {
+    return { kind: "refused", message: `the canonical docs branch ${branch} already exists — push or delete it, then re-run.` };
+  }
+  return { kind: "branch", branch, base, why };
+}
+
+export interface DocsBranchResult {
+  /** The committed branch; null when the docs on `base` were already current and nothing was committed. */
+  branch: string | null;
+  /** Destinations relative to the repository top level. */
+  docs: string[];
+}
+
+/**
+ * Write the canonical docs onto `target.branch` in a temporary worktree cut from `target.base`
+ * and commit them there. The branch is not pushed. On failure the worktree and the branch are
+ * removed again and the error propagates; the primary working tree is never touched.
+ */
+export async function writeCanonicalDocsBranch(
+  root: string,
+  feature: Feature,
+  target: Extract<DocsTarget, { kind: "branch" }>,
+): Promise<DocsBranchResult> {
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), "kf-docs-")));
+  const wt = join(scratch, "wt");
+  let added = false;
+  try {
+    // --no-track: cut from origin/<default>, the branch must not inherit it as upstream, or a
+    // bare `git push` from it would target the default branch.
+    git(root, ["worktree", "add", "--no-track", "-b", target.branch, wt, target.base]);
+    added = true;
+    const copies = prepareCanonicalCopies(root, feature, join(wt, repoPrefix(root)));
+    await writeCanonicalCopies(copies);
+    const docs = copies.map((copy) => relative(wt, copy.destination));
+    if (git(wt, ["status", "--porcelain"]) === "") {
+      removeWorktree(root, wt, { force: true });
+      deleteBranch(root, target.branch);
+      return { branch: null, docs };
+    }
+    const commit = commitAll(wt, `docs(${feature.context}): sync canonical docs for ${feature.name}`);
+    if (!commit.ok) throw new Error(`committing the canonical docs on ${target.branch} failed: ${commit.error}`);
+    removeWorktree(root, wt);
+    return { branch: target.branch, docs };
+  } catch (err) {
+    if (!added) throw err;
+    const failures: unknown[] = [];
+    for (const undo of [() => removeWorktree(root, wt, { force: true }), () => deleteBranch(root, target.branch)]) {
+      try {
+        undo();
+      } catch (undoError) {
+        failures.push(undoError);
+      }
+    }
+    if (failures.length > 0) throw new AggregateError([err, ...failures], `Canonical docs branch ${target.branch} failed and its cleanup was incomplete.`);
+    throw err;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 }

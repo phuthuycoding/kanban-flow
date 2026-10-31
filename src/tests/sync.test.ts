@@ -112,6 +112,15 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     expect(feature("nopritem").stage).toBe("review");
   });
 
+  it("closes a review PASS item with landing: none and no PR (nothing to land)", async () => {
+    await reviewBug("nothingbug");
+    const res = await cmdSync(args(), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("✓ nothingbug: archived (nothing to land)");
+    expect(feature("nothingbug").stage).toBe("done");
+    expect(readFeatureMeta(feature("nothingbug").dir)!.delivered).toBe(true);
+  });
+
   it("leaves delivered done items alone so later doc edits do not fail the sweep", async () => {
     await seedItem("done", "shipped", { pr: "https://github.com/o/r/pull/14", delivered: true });
     process.env.GH_FAIL = "1";

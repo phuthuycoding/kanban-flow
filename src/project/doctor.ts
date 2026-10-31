@@ -7,6 +7,7 @@ import { ARTIFACTS, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
 import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
+import { branchPushed } from "../shared/git.js";
 import { worktreeConfig, worktreeDir } from "../worktree/config.js";
 import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { reportStatus } from "../workflow/status.js";
@@ -123,15 +124,27 @@ function checkUndelivered(root: string): DoctorFinding[] {
     }));
 }
 
-/** A review-PASS item with a linked issue sits in review until archive confirms delivery. */
+/** A review-PASS item with a recorded PR sits in review until the PR merges; the next kf status closes it. */
 function checkAwaitingMerge(root: string): DoctorFinding[] {
   return listFeatures(root)
-    .filter((f) => f.stage === "review" && f.meta?.issue && reportStatus(f.dir, "review-report") === "PASS")
+    .filter((f) => f.stage === "review" && f.meta?.pr && reportStatus(f.dir, "review-report") === "PASS")
     .map((f) => ({
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
-      message: `review passed and still in review — awaiting merge.`,
-      action: `merge the PR (or confirm delivery), then run: kf archive ${f.name}`,
+      message: `review passed and still in review — awaiting merge of ${f.meta!.pr}.`,
+      action: `merge ${f.meta!.pr} on GitHub, then run: kf status --change ${f.name}`,
+    }));
+}
+
+/** Canonical docs committed to a docs branch at close are not on the default branch until someone pushes and merges it. */
+function checkDocsBranches(root: string): DoctorFinding[] {
+  return listFeatures(root)
+    .filter((f) => f.meta?.docsBranch && branchPushed(root, "origin", f.meta.docsBranch) === false)
+    .map((f) => ({
+      level: "WARNING" as const,
+      area: `${f.stage}/${f.folder}`,
+      message: `docs_branch_unpushed: canonical docs for ${f.name} sit on ${f.meta!.docsBranch}, which has no upstream.`,
+      action: `git push -u origin ${f.meta!.docsBranch}, then open a PR for it`,
     }));
 }
 
@@ -465,6 +478,7 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkItemMetadata(root));
   findings.push(...checkUndelivered(root));
   findings.push(...checkAwaitingMerge(root));
+  findings.push(...checkDocsBranches(root));
   findings.push(...checkStatusMap(config.cfg));
   findings.push(...checkStatusMapLegacy(config.cfg));
   findings.push(...checkHarness(root, config.cfg));
