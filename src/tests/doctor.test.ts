@@ -390,8 +390,12 @@ describe("kf doctor --fix", () => {
     // Not opted in — no pack files: doctor stays silent.
     expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
 
-    // Opted in via one file — the rest are missing and the one present is stale.
-    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n# edited\n");
+    // A stage-named hook of the project's own is not the pack: still silent.
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n# our own gate\n");
+    expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
+
+    // Opted in via one pack file that sources the lib — the rest are missing and the one present is stale.
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\nsource \"$(dirname \"$0\")/lib-github.sh\"\n# edited\n");
     const report = runDoctor(root);
     expect(report.findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
     expect(report.findings.some((f) => f.message.includes("done.sh differs"))).toBe(true);
@@ -400,7 +404,7 @@ describe("kf doctor --fix", () => {
     expect(res.stdout).toContain("restored .kf/hooks/lib-github.sh");
     expect(existsSync(join(hooks, "brainstorm.sh"))).toBe(true);
     // The project-edited file is never clobbered.
-    await expect(readFile(join(hooks, "done.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
+    await expect(readFile(join(hooks, "done.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\nsource \"$(dirname \"$0\")/lib-github.sh\"\n# edited\n");
   });
 
   it("reports a legacy statusMap once and --fix rewrites it to the new stage keys", async () => {

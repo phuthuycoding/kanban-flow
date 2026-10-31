@@ -374,14 +374,22 @@ function checkOrphanedHooks(root: string): DoctorFinding[] {
 const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
 
 /**
- * The hook pack is opt-in, so its state is only checked once a project opted in — detected by
- * any pack file already in .kf/hooks/. Missing files get restored by --fix; divergent files are
+ * Opted in = the pack's lib is there, or a stage hook sources it. A stage-named hook alone is not
+ * enough: a project's own done.sh (or a renamed 0.13 dones.sh) must not pull the whole pack in.
+ */
+function usesHookPack(dir: string): boolean {
+  return existsSync(join(dir, "lib-github.sh"))
+    || STAGES.some((s) => existsSync(join(dir, `${s}.sh`)) && readFileSync(join(dir, `${s}.sh`), "utf8").includes("lib-github.sh"));
+}
+
+/**
+ * The hook pack is opt-in, so its state is only checked once a project opted in (usesHookPack). Missing files get restored by --fix; divergent files are
  * only reported, because a hook the project edited is project-owned and must not be clobbered.
  */
 function checkGithubHooks(root: string): DoctorFinding[] {
   const dir = join(root, ".kf", "hooks");
+  if (!usesHookPack(dir)) return [];
   const present = GITHUB_HOOK_PACK.filter((f) => existsSync(join(dir, f)));
-  if (present.length === 0) return [];
   const findings: DoctorFinding[] = [];
   const missing = GITHUB_HOOK_PACK.filter((f) => !present.includes(f));
   if (missing.length > 0) {
@@ -652,15 +660,15 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
   }
 
   const hooksDir = join(root, ".kf", "hooks");
+  const optedIn = usesHookPack(hooksDir);
   // A dones.sh standing in for done.sh is the project's own gate: it is renamed, never replaced by the
   // pack's done.sh, which the restore below would otherwise copy in and so silence it.
   if (existsSync(join(hooksDir, "dones.sh")) && !existsSync(join(hooksDir, "done.sh"))) {
     renameSync(join(hooksDir, "dones.sh"), join(hooksDir, "done.sh"));
     fixed.push("renamed .kf/hooks/dones.sh to done.sh (content kept)");
   }
-  // Restore missing pack files only when the project opted in (some are present); divergent
+  // Restore missing pack files only when the project opted in; divergent
   // files stay warnings — a hook the project edited is not ours to overwrite.
-  const optedIn = GITHUB_HOOK_PACK.some((f) => existsSync(join(hooksDir, f)));
   if (optedIn) {
     const missing = GITHUB_HOOK_PACK.filter((f) => !existsSync(join(hooksDir, f)) && existsSync(join(PKG_GITHUB_HOOKS_DIR, f)));
     for (const f of missing) {

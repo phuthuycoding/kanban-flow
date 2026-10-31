@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -58,6 +58,22 @@ describe("kf doctor on a project upgraded from a release with dones and shipping
     expect(await readFile(join(hooks, "done.sh"), "utf8")).toBe(custom);
     expect(existsSync(join(hooks, "dones.sh"))).toBe(false);
     expect(runDoctor(root).findings.some((f) => f.message.includes("dones.sh"))).toBe(false);
+  });
+
+  it("--fix renames a project's own dones.sh without installing the hook pack it never used", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(hooks, { recursive: true });
+    const custom = "#!/usr/bin/env bash\n# our own AC gate\nexit 0\n";
+    await writeFile(join(hooks, "dones.sh"), custom);
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("renamed .kf/hooks/dones.sh to done.sh (content kept)");
+    expect(res.stdout).not.toContain("restored .kf/hooks/");
+    expect(await readdir(hooks)).toEqual(["done.sh"]);
+    expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
+    expect((await cmdDoctor(args("doctor", [], { fix: true }), root)).stdout).not.toContain("restored .kf/hooks/");
+    expect(await readdir(hooks)).toEqual(["done.sh"]);
   });
 
   it("--fix leaves dones.sh alone once a done.sh exists", async () => {
