@@ -17,7 +17,7 @@ each question in turn:
 - **Default reviewer** — the name `kf approve` records; defaults to the git user.
 - **GitHub repository** — `owner/name` or a URL for `kf issues` and the `KFW_REPOSITORY` hook variable; defaults to the detected `origin` remote, and `none` leaves the project unlinked.
 - **Agents** — which agent CLIs get the nine skills installed (and, for Claude Code, the three agent definitions).
-- **GitHub sync hooks** — offered only when a repository is linked; yes copies the generic pack into `.kf/hooks/` (see [cli-reference](./cli-reference.md#the-hook-pack-and-the-project-board)).
+- **GitHub sync hooks** — offered only when a repository is linked; yes copies the generic pack into `.kf/hooks/` (see [cli-reference](./cli-reference.md#the-hook-pack-and-the-project-board)); the catalog of issue types the pack can assign is GitHub's, see [GitHub sync: issue types](#github-sync-issue-types).
 - **`.gitignore`** — whether to add `.works/`; asked only when `.git` exists and the entry is missing.
 - **Demo feature** — whether to seed one to show the structure.
 
@@ -88,6 +88,19 @@ npm run build || { echo "build fails; fix before testing"; exit 1; }
 ```
 
 Hooks are the project's own gates: anything the built-in gates do not check — a lint run, a migration check, a required label — belongs here rather than in a prompt.
+
+## GitHub sync: issue types
+
+The sync hooks create issues; they never create issue types. An issue type (`Task`, `Bug`, `Feature`, or an `Epic` for an umbrella item) is part of the repository's GitHub catalog, which GitHub manages at the **organization** level — there is no kf command for it and the runbook below is run once by a human, with `gh` authenticated as a repository admin. Every command and its output go into the work item's testing report, because the catalog is live state that no CI fixture reproduces.
+
+| Step | Command | Expected |
+| --- | --- | --- |
+| 1. Read the catalog | `gh api repos/<owner>/<repo>/issue-types` | The enabled types; a user-owned repository starts with GitHub's defaults (`Task`, `Bug`, `Feature`) |
+| 2. Create the type | `gh api --method POST orgs/<org>/issue-types -f name=Epic -f description='Umbrella item' -F is_enabled=true` | `201` and the type in the catalog on the next step-1 read. Skip when step 1 already lists it |
+| 3. Type the issue | `gh issue edit <n> --type Epic`; when the installed `gh` has no `--type` flag, the GraphQL mutation `updateIssueIssueType(input: {issueId, issueTypeId})` with the ids from steps 1 and `gh issue view <n> --json id` | `gh api repos/<owner>/<repo>/issues/<n> --jq .type.name` prints `Epic` |
+| 4. Probe the CLI | `gh issue create --type Epic --title "probe: Epic type" --body "probe"`, then `gh issue close <probe>` | The probe is created with the type and closed in the same session |
+
+**When the API refuses.** Step 2 has no repository-level form: the only create endpoint is the organization one, so on a repository owned by a user account it answers `404` (or `403` without admin rights). That is a blocker, not a detour — stop, record the exact error, and point the human at the organization settings page where types are managed (`https://github.com/organizations/<org>/settings/issue-types`; a user account has no such page, so the remaining options are a GitHub-side change or moving the repository under an organization). Leave the tracking issue open and never stand in a label for the type: a label is not read by `gh issue create --type`, by the board's type field or by anything that filters on `type`, so it would pass a glance and fail the acceptance check.
 
 ## `kf autoconfig` against `kf doctor`
 
