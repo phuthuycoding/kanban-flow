@@ -128,7 +128,9 @@ describe("the review skill keeps the close possible", () => {
 describe("the CI watcher", () => {
   const watchDoc = readFileSync(join(ROOT, "skills", "kanban-review", "references", "ci-watch.md"), "utf8");
   const start = watchDoc.indexOf("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;");
-  const loop = watchDoc.slice(start, watchDoc.indexOf("\n```", start)).replace("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;", "REPO=o/r; SHA=abc123; WATCH=30;");
+  const loop = watchDoc.slice(start, watchDoc.indexOf("\n```", start)).replace("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;", "REPO=o/r; SHA=abc123; WATCH=30;")
+    .replaceAll("sleep 20", "sleep 1")
+    .replace("settle=$((SECONDS+60))", "settle=$((SECONDS+2))");
 
   /** Runs the documented loop against a stub `gh` that lists one run per conclusion. */
   async function watch(conclusions: string[]): Promise<number | null> {

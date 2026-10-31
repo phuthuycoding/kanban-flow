@@ -11,7 +11,7 @@ Travel runs the **day**; each item still walks its own ladder through `kf drive`
 
 **Travel only starts and reads drives.** It never runs `kf approve`, `kf archive`, `kf stage`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`, `git push`). Those are the human's: travel prints them as Needs you or Waiting to merge lines with the exact command. It runs `kf drive <f>`; do not pass `--watch` (or `--follow`) — a watcher blocks the session on one item.
 
-State lives in two gitignored files (`kf init` seeds `.kf/travel/` into `.gitignore`):
+State lives in two files under `.kf/travel/`, which is gitignored: `kf init` adds the `.gitignore` entry, and `kf doctor --fix` adds it to an upgraded project:
 
 | File | Holds | Format |
 |---|---|---|
@@ -92,7 +92,7 @@ Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P
 ▶ Running
   - <id> <feature> <step> (<worktree path>)
 ✓ Waiting to merge (do this on GitHub)
-  - <id> <PR URL> — ! gh pr merge <n> --squash
+  - <id> <PR URL> — ! gh pr merge <n>
   - <id> <docsBranch> awaiting push — ! git push -u origin <docsBranch>
 ```
 
@@ -109,7 +109,7 @@ Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P
 | State / code | Ledger line | Action |
 |---|---|---|
 | `running` | `driving` | leave it |
-| `ready`, `pr` set | `waiting-to-merge` | review PASS, PR open, CI watched: `kf status --change <f> --json` → `pr`; note the PR URL, `! gh pr merge <n> --squash`, `files=<n>` and `work=<n> review=<n>` (§6 needs them after the worktree is gone) |
+| `ready`, `pr` set | `waiting-to-merge` | review PASS, PR open, CI watched: `kf status --change <f> --json` → `pr`; note the PR URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` (§6 needs them after the worktree is gone) |
 | `ready`, `pr` null | `done` | nothing to land (`landing: none`): no merge command; measure at once (§6) |
 | `usage_limit` | stays `driving`, note `usage limit — reset <text from reason>` | the account is out of quota: dispatch nothing new, wait until the reset the reason quotes, then `kf drive <f>` (resumes the same worker session; it is not a retry) |
 | `crashed`, `internal_error`, `verify_failed` | `driving`, note `retry 1/1` → then `blocked` | one retry: `kf drive <f>`. Stopped again → `blocked` with kf's `reason` and `nextCommand` |
@@ -141,7 +141,7 @@ A line cancelled or restarted from scratch gets the same call with `--cancelled`
 Day YYYY-MM-DD — done: X | blocked: Z | waiting-to-merge: W | carry-over: C | points: P
 ✓ Done          <id> <feature> <est>→<actual>
 ✗ Blocked       <id> <feature> — <reason> — next: <command>
-✓ Waiting       <id> <PR URL> — ! gh pr merge <n> --squash
+✓ Waiting       <id> <PR URL> — ! gh pr merge <n>
 → Carry-over    <id> <feature> <size>
 <estimates stats lines: hit rate, bias, throughput, calibration, kind (hit rate, bias, factor), warning>
 ```

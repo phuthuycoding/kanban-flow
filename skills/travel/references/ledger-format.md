@@ -9,12 +9,12 @@ Gitignored. One section per day, newest last. The last section is the source of 
 slots: 3 · budget: 10 tasks (default — fewer than 3 days measured)
 t1 · workflow-slim · feature · L · carry-over · est0=L · estmin=40 · learn=no · blocked: verify_failed — npm test failed in harness.verify — next: kf drive workflow-slim
 t2 · cli-refactor · feature · M · done · est0=M · estmin=12 · merged https://github.com/<owner>/<repo>/pull/104
-t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-to-merge https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 --squash · files=3 · work=18 review=4
+t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-to-merge https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 
 ## 2026-10-31
 slots: 3 · budget: 8 points (median of 3 days)
 t1 · workflow-slim · feature · L · driving · est0=L · estmin=40 · learn=no · retry 1/1 (crashed)
-t2 · login-timeout · bug · S · waiting-to-merge · est0=S · estmin=4 · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 --squash · files=3 · work=18 review=4
+t2 · login-timeout · bug · S · waiting-to-merge · est0=S · estmin=4 · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequential with t1
 ```
 
@@ -33,7 +33,7 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 |---|---|---|
 | `queued` | approved for today, not started | travel |
 | `driving` | `kf drive` started by travel (running, paused on a usage limit, or on its one retry); a drive still running at end of day stays `driving` and the morning re-adopts it | travel — no other session drives it |
-| `waiting-to-merge` | drive `ready` with a PR: review PASS, PR open; the note has the URL, `! gh pr merge <n> --squash`, `files=<n>` and `work=<n> review=<n>` | the human merges |
+| `waiting-to-merge` | drive `ready` with a PR: review PASS, PR open; the note has the URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` | the human merges |
 | `blocked` | stopped for a reason travel cannot fix; the note has kf's reason and next command | travel, until the human opens it in a session — then that session, until the human says it is done |
 | `done` | kf reports stage `done` (merged and closed), or the drive is `ready` with no PR (`landing: none`) | — |
 | `carry-over` | end-of-day rewrite of any line not `done` (except a still-running `driving` line); the note keeps why | tomorrow's plan |

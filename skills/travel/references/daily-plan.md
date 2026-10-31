@@ -16,7 +16,7 @@ Batch 2 (if Batch 1 drains)
   - t7 approve plan (or --backlog) search-index
   - t5 split or override docs-split — XL
 ✓ Waiting to merge (do this on GitHub)
-  - t8 https://github.com/<owner>/<repo>/pull/104 — ! gh pr merge 104 --squash
+  - t8 https://github.com/<owner>/<repo>/pull/104 — ! gh pr merge 104
   - t9 docs/cli-d awaiting push — ! git push -u origin docs/cli-d
 Calibration: budget = median daily actual points of 2026-10-28 (6), 2026-10-29 (10), 2026-10-30 (8); kind feature: hit rate 9/14, bias +0.3 sizes, factor 1 (defaults — 14 rows with estmin, needs 20)
 Approve, or edit (drop / reorder / resize / override XL / slots=N)?
