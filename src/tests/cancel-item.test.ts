@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -123,6 +123,42 @@ describe("cancelItem returns a typed outcome", () => {
     const text = outcome.kind === "refused" ? outcome.stdout : "";
     expect(text).toContain(`The cancelled hook already ran (${hook}). The worktree ${path} is not on disk.`);
     expect(text).toContain(`re-run: kf cancel wt --reason 'it'\\''s done'`);
+  });
+
+  it("a dirty worktree after the cancelled hook names the hook and gives the re-run", async () => {
+    const git = (...a: string[]) => execFileSync("git", ["-C", root, ...a], { stdio: "ignore" });
+    git("init", "-q");
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
+    const path = join(root, "wt-tree");
+    git("worktree", "add", "-q", "-b", "t/wt", path);
+    await writeFile(join(path, "wip.txt"), "uncommitted");
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: true, routesFile: join(root, "routes.json") } }));
+    const hook = join(root, ".kf", "hooks", "cancelled.sh");
+    await mkdir(join(root, ".kf", "hooks"), { recursive: true });
+    await writeFile(hook, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    await addItem("wt", "implementation", { worktree: { path, branch: "t/wt", domain: "wt.test", port: 4000, createdAt: "20260919_1200" } });
+
+    const outcome = await cancelItem(root, "wt", { reason: "stop", by: "Quyen", purgeDocs: true });
+
+    expect(outcome.kind === "refused" && outcome.reason).toBe("worktree-dirty");
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).toContain("Cannot cancel 'wt': Worktree for 'wt' has uncommitted changes");
+    expect(text).toContain(`The cancelled hook already ran (${hook}). The item was not cancelled.`);
+    expect(text).toContain("re-run: kf cancel wt --reason 'stop' --by 'Quyen' --purge-docs");
+    expect(existsSync(path)).toBe(true);
+    expect(findFeature(root, "wt")!.stage).toBe("implementation");
+  });
+
+  it("the teardown re-run repeats the flags that change what cancel does", async () => {
+    const routesFile = join(root, "routes.json");
+    await writeFile(routesFile, "{");
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: true, routesFile } }));
+    await addItem("wt", "implementation", { worktree: { path: join(root, "gone-worktree"), branch: "t/wt", domain: "wt.test", port: 4000, createdAt: "20260919_1200" } });
+
+    const outcome = await cancelItem(root, "wt", { reason: "stop", by: " Quyen ", force: true, skipHooks: true, purgeDocs: true });
+
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).toContain("re-run: kf cancel wt --reason 'stop' --by 'Quyen' --purge-docs --force --skip-hooks");
   });
 
   it("asks the caller before purging, and keeps everything when declined", async () => {

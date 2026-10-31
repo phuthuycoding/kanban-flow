@@ -6,6 +6,7 @@ import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type 
 import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, writeFeatureMeta, type Bypass } from "./features.js";
 import { lockPath, withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
+import { liveRecords } from "../harness/run.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
@@ -54,6 +55,7 @@ export type ArchiveRefusalReason =
   | "docs-target"
   | "changed-concurrently"
   | "drive-live"
+  | "run-in-progress"
   | "pr-branch"
   | "close-in-progress";
 
@@ -221,6 +223,18 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     return refuse("cancelled", "cancelled", `'${name}' was cancelled (${f.meta?.cancellation?.reason ?? "no reason recorded"}). Move it back to ${reopen ?? "its stage"} first if you want to finish it.`);
   }
 
+  const rerun = opts.trigger === "status" ? `kf status --change ${name}` : opts.trigger === "sync" ? "kf sync" : `kf archive ${name}`;
+
+  // A live worker run may be the caller, from inside the worktree the close would remove; no
+  // --force escape, as for a live drive. Liveness is the pid alone, so a dead run whose pid was
+  // reused looks live: the refusal says where its record is, since no command ends it.
+  const live = liveRecords(f.meta?.runs);
+  if (live.length > 0) {
+    const runs = live.map((r) => `${r.id} (${r.role}, pid ${r.pid ?? r.supervisorPid})`).join(", ");
+    const record = relative(root, join(f.dir, METADATA_FILE));
+    return refuse("run-in-progress", "run in progress", `Cannot archive '${name}': worker run ${runs} is still running. Wait for it to end, then re-run: ${rerun}\nThe run record is in ${record} (runs, by id). If that pid is not the run (it died and the pid was reused), set the record's status to "failed" there, then re-run.`);
+  }
+
   // A live drive owns the item: closing under it would tear down the worktree it works in.
   if (driveLive(f.meta?.drive)) {
     return refuse("drive-live", "drive running", `Cannot archive '${name}': drive ${f.meta?.drive?.id} is live (supervisor pid ${f.meta?.drive?.supervisorPid}). Check: kf drive ${f.name} --status, or stop it: kf drive ${f.name} --stop`);
@@ -304,8 +318,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   if (f.stage !== "review") {
     return refuse("wrong-stage", "wrong stage", `Cannot archive '${name}': feature is in stage "${f.stage}". Archive only from review (run: kf stage ${name} review first).`);
   }
-
-  const rerun = opts.trigger === "status" ? `kf status --change ${name}` : opts.trigger === "sync" ? "kf sync" : `kf archive ${name}`;
 
   // The merged PR must be this item's branch, or its head commit proves nothing about the
   // commits about to be deleted.

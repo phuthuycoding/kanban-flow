@@ -5,7 +5,6 @@ import { closeDetails } from "./archive.js";
 import { archiveItem } from "../../workflow/archive.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { currentReportStatus } from "../../workflow/status.js";
-import { liveRecords } from "../../harness/run.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -44,11 +43,6 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const lines: string[] = [...migration.lines];
   let failed = migration.failed;
   for (const f of candidates) {
-    // A live worker run may be the caller, from inside the worktree the close would remove.
-    if (liveRecords(f.meta?.runs).length > 0) {
-      lines.push(`- ${f.name}: skipped (a worker run is in progress)`);
-      continue;
-    }
     const outcome = await archiveItem(root.root, f.name, { trigger: "sync" });
     switch (outcome.kind) {
       case "archived":
@@ -59,7 +53,9 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
         break;
       case "refused":
         // An unmerged or unverifiable PR is the normal state of a sweep, not a failure.
-        if (outcome.reason === "drive-live") {
+        if (outcome.reason === "run-in-progress") {
+          lines.push(`- ${f.name}: skipped (a worker run is in progress)`);
+        } else if (outcome.reason === "drive-live") {
           lines.push(`- ${f.name}: skipped (a drive is running)`);
         } else if (outcome.reason === "close-in-progress") {
           // Another kf status / kf archive is closing it right now; that close reports its own result.

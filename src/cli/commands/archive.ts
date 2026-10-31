@@ -1,7 +1,5 @@
 import { archiveItem, type ArchiveOutcome } from "../../workflow/archive.js";
 import { bypassNote } from "../../workflow/bypass.js";
-import { findFeature } from "../../workflow/features.js";
-import { liveRecords } from "../../harness/run.js";
 import type { BranchDeletion, TeardownResult } from "../../worktree/lifecycle.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -89,15 +87,6 @@ export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResu
   if (!name) return { code: 1, stdout: "Usage: kf archive <feature>", stderr: "missing feature" };
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
-  // Closing under a live worker run would remove the worktree that run works in; no --force escape, as for a live drive.
-  const live = liveRecords(findFeature(root.root, name)?.meta?.runs);
-  if (live.length > 0) {
-    return {
-      code: 1,
-      stdout: `Cannot archive '${name}': worker run ${live.map((r) => `${r.id} (${r.role}, pid ${r.pid ?? r.supervisorPid})`).join(", ")} is still running. Wait for it to end, then re-run: kf archive ${name}`,
-      stderr: "run in progress",
-    };
-  }
   return renderArchive(await archiveItem(root.root, name, {
     force: Boolean(args.options.force),
     skipHooks: Boolean(args.options["skip-hooks"]),

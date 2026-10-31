@@ -144,7 +144,7 @@ afterEach(async () => {
 });
 
 describe("merge gate — kf archive refuses unverifiable delivery", () => {
-  it.each(["OPEN", "CLOSED"])("refuses a %s PR with zero side effects (TC-001/TC-002)", async (state) => {
+  it.each(["OPEN", "CLOSED"])("refuses a %s PR with zero side effects", async (state) => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     await seedPackHooks("done.sh");

@@ -7,6 +7,8 @@ import { ensureWorksStructure, executionContractHash, findFeature, readFeatureMe
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdSync } from "../cli/commands/sync.js";
 import { cmdArchive } from "../cli/commands/archive.js";
+import { cmdStage } from "../cli/commands/stage.js";
+import { cmdIssues } from "../cli/commands/issues.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let root: string;
@@ -94,6 +96,7 @@ describe("kf sync and kf archive under a live worker run", () => {
       const res = await cmdArchive({ command: "archive", positionals: ["demo"], options }, root);
       expect(res.code).toBe(1);
       expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+      expect(res.stderr).toBe("run in progress");
       expect(findFeature(root, "demo")!.stage).toBe("review");
     }
 
@@ -101,5 +104,41 @@ describe("kf sync and kf archive under a live worker run", () => {
     const closed = await cmdArchive({ command: "archive", positionals: ["demo"], options: {} }, root);
     expect(closed.code).toBe(0);
     expect(findFeature(root, "demo")!.stage).toBe("done");
+  });
+
+  it("the refusal names the run record and how to end a dead run whose pid was reused", async () => {
+    const dir = await passedReviewItem();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [liveRun()] });
+
+    const res = await cmdArchive({ command: "archive", positionals: ["demo"], options: {} }, root);
+    expect(res.stdout).toContain("Wait for it to end, then re-run: kf archive demo");
+    expect(res.stdout).toContain(`The run record is in ${join(".works", "review", "demo_20260916_1800", ".kfw.json")}`);
+    expect(res.stdout).toContain('set the record\'s status to "failed" there');
+  });
+
+  it("kf stage <item> done refuses while the run lives, even with --force", async () => {
+    const dir = await passedReviewItem();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [liveRun()] });
+
+    for (const options of [{}, { force: true }]) {
+      const res = await cmdStage({ command: "stage", positionals: ["demo", "done"], options }, root);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toBe("run in progress");
+      expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+      expect(findFeature(root, "demo")!.stage).toBe("review");
+    }
+  });
+
+  it("kf issues done refuses while the run lives", async () => {
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", repository: "o/r", worktree: { enabled: false } }));
+    const dir = await passedReviewItem();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [liveRun()] });
+
+    const res = await cmdIssues({ command: "issues", positionals: ["done", "demo"], options: {} }, root);
+    expect(res.code).toBe(1);
+    expect(res.stderr).toBe("run in progress");
+    expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+    expect(findFeature(root, "demo")!.stage).toBe("review");
   });
 });

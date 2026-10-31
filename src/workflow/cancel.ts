@@ -68,6 +68,12 @@ const refuse = (reason: CancelRefusalReason, stderrTag: string, stdout: string):
 /** Single-quoted for a POSIX shell, so a printed re-run command can be pasted as is. */
 const shellArg = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
 
+/** The command that repeats this cancel, with every flag of the original call that changes what it does. */
+function rerunCommand(name: string, reason: string, opts: CancelOptions): string {
+  const by = typeof opts.by === "string" && opts.by.trim() ? ` --by ${shellArg(opts.by.trim())}` : "";
+  return `kf cancel ${name} --reason ${shellArg(reason)}${by}${opts.purgeDocs ? " --purge-docs" : ""}${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}`;
+}
+
 /**
  * The reason checks on their own, because `kf cancel` has always reported a missing reason before
  * it looks for a project — the CLI runs this ahead of `findRoot` to keep that order.
@@ -170,15 +176,16 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
     try {
       teardown = await teardownWorktree(root, f, wtCfg);
     } catch (err) {
+      const hookRan = ranHook ? ` The cancelled hook already ran (${ranHook.path}).` : "";
+      const rerun = rerunCommand(name, reason, opts);
       if (err instanceof WorktreeDirtyError) {
-        return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err.message}`);
+        return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err.message}.${hookRan} The item was not cancelled. Then re-run: ${rerun}`);
       }
       // Teardown checks dirtiness first; any other failure may come after `git worktree remove`.
       const left = existsSync(where)
         ? `The worktree ${where} is still on disk.`
         : wasOnDisk ? `The worktree ${where} was removed.` : `The worktree ${where} is not on disk.`;
-      const hookRan = ranHook ? ` The cancelled hook already ran (${ranHook.path}).` : "";
-      return refuse("teardown-failed", "teardown failed", `Cannot cancel '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}.${hookRan} ${left} The item was not cancelled. Fix the cause, then re-run: kf cancel ${name} --reason ${shellArg(reason)}`);
+      return refuse("teardown-failed", "teardown failed", `Cannot cancel '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}.${hookRan} ${left} The item was not cancelled. Fix the cause, then re-run: ${rerun}`);
     }
   }
 
