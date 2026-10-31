@@ -1,4 +1,4 @@
-import { STAGES, type Stage } from "../workflow/schema.js";
+import { LEGACY_STAGE_NAMES, STAGES, type LegacyStageName, type Stage } from "../workflow/schema.js";
 
 /** How kf learns the worker's session id after a `start` run. */
 export type SessionCapture =
@@ -159,6 +159,11 @@ export function validateHarness(value: unknown, file: string): HarnessConfig {
   if (!stagesRaw || typeof stagesRaw !== "object" || Array.isArray(stagesRaw)) fail("harness.stages", "must be an object");
   const stages: Partial<Record<Stage, string[]>> = {};
   for (const [stage, chain] of Object.entries(stagesRaw as Record<string, unknown>)) {
+    if (LEGACY_STAGE_NAMES.includes(stage as LegacyStageName)) {
+      // `dones` is the old spelling of `done`; an explicit `done` beside it wins. `shipping` has no stage left to run.
+      if (stage === "dones" && (stagesRaw as Record<string, unknown>).done === undefined) stages.done = validateChain(stage, chain, roles, runners, fail);
+      continue;
+    }
     if (!HARNESS_STAGES.includes(stage as Stage)) fail(`harness.stages.${stage}`, `is not an assignable stage (${HARNESS_STAGES.join(", ")})`);
     stages[stage as Stage] = validateChain(stage, chain, roles, runners, fail);
   }
@@ -182,6 +187,17 @@ export function validateHarness(value: unknown, file: string): HarnessConfig {
     extra.budget = b.maxRuns !== undefined ? { maxRuns: validateInt("harness.budget.maxRuns", b.maxRuns, 1, fail) } : {};
   }
   return { main, roles, stages, runners, ...extra };
+}
+
+/**
+ * The 0.13 keys `dones` (read as `done`) and `shipping` (dropped: the stage is gone) still in a raw
+ * `harness.stages`, for a warning. Not a HarnessConfig field: that object is hashed by a drive and
+ * written back by init, so a read-time flag would leak into both.
+ */
+export function legacyHarnessStageKeys(harness: unknown): LegacyStageName[] {
+  const stages = (harness as { stages?: unknown } | null | undefined)?.stages;
+  if (!stages || typeof stages !== "object" || Array.isArray(stages)) return [];
+  return LEGACY_STAGE_NAMES.filter((legacy) => Object.hasOwn(stages, legacy));
 }
 
 /** Effective run limits; defaults are applied here and never written into the config. */

@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { readOriginConfig, readProjectConfig, resolveDriveConfig, type OriginConfigReader } from "../project/config.js";
-import { harnessPresets, harnessLimits, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
+import { harnessPresets, harnessLimits, legacyHarnessStageKeys, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
 import { provisionSession } from "../harness/session.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdHarness } from "../cli/commands/harness.js";
@@ -113,6 +113,24 @@ describe("harness config validation", () => {
   it("rejects backlog as an assignable stage", async () => {
     await write({ ...base(), stages: { backlog: "writer" } });
     expect(() => readProjectConfig(dir)).toThrow("harness.stages.backlog");
+  });
+
+  it("reads the 0.13 stage keys: dones as done, shipping dropped", async () => {
+    await write({ ...base(), stages: { dones: "writer", shipping: ["architect"], testing: "writer" } });
+    expect(readProjectConfig(dir).harness!.stages).toEqual({ done: ["writer"], testing: ["writer"] });
+    await write({ ...base(), stages: { shipping: "architect" } });
+    expect(readProjectConfig(dir).harness!.stages).toEqual({});
+  });
+
+  it("keeps an explicit done over the legacy dones", async () => {
+    await write({ ...base(), stages: { done: "architect", dones: "writer" } });
+    expect(readProjectConfig(dir).harness!.stages).toEqual({ done: ["architect"] });
+  });
+
+  it("names the legacy stage keys a raw harness block still has", () => {
+    expect(legacyHarnessStageKeys({ ...base(), stages: { dones: "writer", shipping: "architect", testing: "writer" } })).toEqual(["shipping", "dones"]);
+    expect(legacyHarnessStageKeys({ ...base(), stages: { done: "writer" } })).toEqual([]);
+    expect(legacyHarnessStageKeys(undefined)).toEqual([]);
   });
 
   it("normalizes the short role form and a single-role stage", async () => {

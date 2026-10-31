@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import { ensureWorksStructure, executionContractHash, findFeature, readFeatureMeta, writeFeatureMeta, type RunRecord } from "../workflow/features.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
+import { cmdSync } from "../cli/commands/sync.js";
+import { cmdArchive } from "../cli/commands/archive.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let root: string;
@@ -57,5 +59,47 @@ describe("kf status auto-close", () => {
     await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [{ ...run, status: "done", endedAt: new Date().toISOString() }] });
     const closed = await cmdStatus(args({ change: "demo" }), root);
     expect(closed.stdout).toContain("✓ done demo (nothing to land)");
+  });
+});
+
+describe("kf sync and kf archive under a live worker run", () => {
+  const liveRun = (): RunRecord => ({
+    id: "run-a", role: "reviewer", runner: "codex", stage: "review", mode: "start", at: new Date().toISOString(),
+    log: "runs/run-a.log", status: "running", pid: process.pid, supervisorPid: process.pid,
+  });
+
+  it("kf sync skips the item while the run lives and closes it once the run is over", async () => {
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", repository: "o/r", worktree: { enabled: false } }));
+    const dir = await passedReviewItem();
+    const run = liveRun();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [run] });
+
+    const res = await cmdSync({ command: "sync", positionals: [], options: {} }, root);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("- demo: skipped (a worker run is in progress)");
+    expect(findFeature(root, "demo")!.stage).toBe("review");
+
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [{ ...run, status: "done", endedAt: new Date().toISOString() }] });
+    const closed = await cmdSync({ command: "sync", positionals: [], options: {} }, root);
+    expect(closed.stdout).toContain("✓ demo: archived (nothing to land)");
+  });
+
+  it("kf archive refuses while the run lives, even with --force, and closes once the run is over", async () => {
+    const dir = await passedReviewItem();
+    const run = liveRun();
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [run] });
+
+    for (const options of [{}, { force: true }]) {
+      const res = await cmdArchive({ command: "archive", positionals: ["demo"], options }, root);
+      expect(res.code).toBe(1);
+      expect(res.stdout).toContain(`Cannot archive 'demo': worker run run-a (reviewer, pid ${process.pid}) is still running`);
+      expect(findFeature(root, "demo")!.stage).toBe("review");
+    }
+
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, runs: [{ ...run, status: "done", endedAt: new Date().toISOString() }] });
+    const closed = await cmdArchive({ command: "archive", positionals: ["demo"], options: {} }, root);
+    expect(closed.code).toBe(0);
+    expect(findFeature(root, "demo")!.stage).toBe("done");
   });
 });

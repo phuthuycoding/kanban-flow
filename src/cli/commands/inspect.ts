@@ -1,7 +1,8 @@
+import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ARTIFACTS } from "../../workflow/schema.js";
-import { driveLive, findFeature, listFeatures, type Feature } from "../../workflow/features.js";
+import { ARTIFACTS, LEGACY_STAGE_NAMES } from "../../workflow/schema.js";
+import { driveLive, findFeature, listFeatures, parseFolderName, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { archiveItem } from "../../workflow/archive.js";
 import {
@@ -13,7 +14,7 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed, landedAndPruned } from "../../shared/git.js";
+import { branchPushed, landedProof } from "../../shared/git.js";
 import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
@@ -136,6 +137,14 @@ async function closeLanded(root: string, items: Feature[]): Promise<{ lines: str
   return { lines, states, failed };
 }
 
+/** True when a folder of `name` is still under a legacy stage dir, i.e. the migration just run left it behind. */
+function legacyLeftover(root: string, name: string): boolean {
+  return LEGACY_STAGE_NAMES.some((legacy) => {
+    const dir = join(root, ".works", legacy);
+    return existsSync(dir) && readdirSync(dir).some((folder) => folder === name || parseFolderName(folder).name === name);
+  });
+}
+
 export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
@@ -154,7 +163,10 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     : listFeatures(root.root);
 
   const closed = await closeLanded(root.root, lookup());
-  const code = migration.failed || closed.failed ? 1 : 0;
+  // Like a failed close, a failed move counts against the view that includes it: --all, or the
+  // item's own --change. Pollers of an unrelated item must not see exit 1 on every tick.
+  const migrationFailedHere = migration.failed && (change ? legacyLeftover(root.root, change) : all);
+  const code = migrationFailedHere || closed.failed ? 1 : 0;
   const notes = [...migration.lines, ...closed.lines];
   const migrated = notes.length > 0 ? `${notes.join("\n")}\n\n` : "";
 
@@ -173,10 +185,11 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   const buckets = all
     ? computeBuckets(
       statuses,
-      features.flatMap((f) => f.meta?.docsBranch && branchPushed(root.root, "origin", f.meta.docsBranch) === false
-        && !landedAndPruned(root.root, f.meta.docsBranch)
-        ? [{ feature: f.name, branch: f.meta.docsBranch }]
-        : []),
+      features.flatMap((f) => {
+        if (!f.meta?.docsBranch || branchPushed(root.root, "origin", f.meta.docsBranch) !== false) return [];
+        const proof = landedProof(root.root, f.meta.docsBranch);
+        return proof.landed ? [] : [{ feature: f.name, branch: f.meta.docsBranch, reason: proof.reason }];
+      }),
       features.filter((f) => driveLive(f.meta?.drive)).length,
     )
     : null;
