@@ -45,7 +45,7 @@ export interface Stop {
 
 export type Step = "implementation" | "repair" | "verify" | "testing" | "review";
 
-export const READY_REASON = "ready — review PASS: merge the PR, kf status closes the item";
+export const READY_REASON = "ready — review PASS: merge the PR, kf status --change <feature> closes the item";
 const REASON_MAX = 700;
 
 export const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -158,6 +158,23 @@ function driveRefusal(root: string, feature: Feature): string | null {
   const busy = liveRecords(meta.runs).find((r) => isPidAlive(r.supervisorPid));
   if (busy) return `Run ${busy.id} (${busy.role}${busy.task ? `, ${busy.task}` : ""}) is still running for '${name}'. Wait for it or check: kf runs ${name}`;
   return null;
+}
+
+/**
+ * The config half of driveRefusal, read from the config the drive itself resolves: an item worktree, worktrees on and
+ * a pinned harness.verify.stage. `kf status` and `kf approve` use it to name `kf drive` as the next step.
+ */
+export function driveConfigReady(root: string, feature: Feature): boolean {
+  if (!feature.meta?.worktree) return false;
+  let cfg: DriveConfig["cfg"];
+  try {
+    cfg = resolveDriveConfig(root, feature).cfg;
+  } catch (err) {
+    // The parse error is the drive's to report: claimDrive refuses with it, so kf drive is still the step to name.
+    if (err instanceof ProjectConfigError) return true;
+    throw err;
+  }
+  return (cfg.harness?.verify?.stage?.length ?? 0) > 0 && worktreeConfig(root, cfg.worktree).enabled;
 }
 
 /** Approval, config and `--stop` as seen right now for a running drive; the first thing that changed. */

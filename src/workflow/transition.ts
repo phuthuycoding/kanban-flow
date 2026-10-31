@@ -58,7 +58,14 @@ export type TransitionOutcome =
       reopened: boolean;
       stdout: string;
     }
-  | { kind: "refused"; reason: RefusalReason; stdout: string; stderrTag: string }
+  | {
+      kind: "refused";
+      reason: RefusalReason;
+      stdout: string;
+      stderrTag: string;
+      /** A worktree this transition created could not be removed after the refusal; stdout carries the warning. */
+      cleanupError?: unknown;
+    }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
 
@@ -70,6 +77,10 @@ export type Transition = (root: string, name: string, to: Stage, opts: Transitio
  * a stage `kf stage` rejects, and the item can only leave `cancelled` with --force.
  */
 const LEGACY_REOPEN_STAGE: Record<LegacyStageName, Stage> = { dones: "done", shipping: "review" };
+
+/** Retry advice of a gate refusal; exported so a caller that takes no --force (kf approve) can leave it out. */
+export const FORCE_RETRY_HINT = "Or re-run with --force.";
+export const stageRetryHint = (name: string, to: Stage): string => `Re-run: kf stage ${name} ${to}`;
 
 const refuse = (reason: RefusalReason, stderrTag: string, stdout: string): TransitionOutcome => ({ kind: "refused", reason, stdout, stderrTag });
 
@@ -133,7 +144,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
     : validateFeature(f, false, true, harness);
   if (!check.valid) {
     if (!force) {
-      return refuse("gate", "gate failed", `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`);
+      return refuse("gate", "gate failed", `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\n${FORCE_RETRY_HINT}`);
     }
     forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
   }
@@ -143,7 +154,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   if (direction.length > 0) {
     if (!force) {
       const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-      return refuse("direction", "direction gate failed", `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\nOr re-run with --force.`);
+      return refuse("direction", "direction gate failed", `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\n${FORCE_RETRY_HINT}`);
     }
     forcedCodes.push(...direction.map((i) => i.code));
   }
@@ -208,21 +219,25 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   }
 
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
-  const removeNewWorktree = async (): Promise<void> => {
+  /** Roll back a worktree this transition created; returns the cleanup failure so the caller reports it. */
+  const removeNewWorktree = async (): Promise<unknown> => {
     if (worktree && !f.meta!.worktree) {
       try {
         await forceRemoveWorktree(root, { ...f, meta: { ...f.meta!, worktree } }, wtCfg);
-      } catch {
-        /* best-effort rollback — the failed move is the error that matters */
+      } catch (cleanupError) {
+        return cleanupError;
       }
     }
+    return undefined;
   };
+  const cleanupNote = (cleanupError: unknown): string =>
+    `\n\n⚠ The new worktree ${worktree!.path} could not be removed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}. Remove it by hand: git worktree remove --force ${worktree!.path}`;
   try {
     // Only the re-read, the write and the rename hold the lock — gates, hooks and the worktree stay outside.
     const refused = await withLock(root, f.name, async (): Promise<TransitionOutcome | null> => {
       const cur = findFeature(root, f.name);
       if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
-        return refuse("changed-concurrently", "changed concurrently", `Cannot move '${name}': it changed while the transition was running. Re-run: kf stage ${name} ${to}`);
+        return refuse("changed-concurrently", "changed concurrently", `Cannot move '${name}': it changed while the transition was running. ${stageRetryHint(name, to)}`);
       }
       if (existsSync(target)) return refuse("target-exists", "target exists", `Target already exists: ${target}`);
       let metadataUpdated = false;
@@ -258,11 +273,15 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
       return null;
     });
     if (refused) {
-      await removeNewWorktree();
-      return refused;
+      const cleanupError = await removeNewWorktree();
+      if (cleanupError === undefined || refused.kind !== "refused") return refused;
+      return { ...refused, stdout: `${refused.stdout}${cleanupNote(cleanupError)}`, cleanupError };
     }
   } catch (err) {
-    await removeNewWorktree();
+    const cleanupError = await removeNewWorktree();
+    if (cleanupError !== undefined) {
+      throw new AggregateError([err, cleanupError], `Transition of '${name}' failed and its new worktree ${worktree!.path} could not be removed.`);
+    }
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";

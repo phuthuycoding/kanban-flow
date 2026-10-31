@@ -46,20 +46,36 @@ export function detectReviewer(root = process.cwd()): string {
   return process.env.USER || process.env.USERNAME || "human";
 }
 
-/** True when .git exists and .works/ is not already ignored. */
+/** Local-only kanban-flow state: work items, item worktrees and the travel ledger. */
+const IGNORED_ENTRIES = [".works/", ".worktrees/", ".kf/travel/"];
+
+function missingIgnoreEntries(content: string): string[] {
+  const lines = content.split("\n").map((l) => l.trim());
+  return IGNORED_ENTRIES.filter((entry) => {
+    const bare = entry.replace(/\/$/, "");
+    // `.works` keeps its old lenient match (any line naming it) so a hand-written pattern such as
+    // `/.works/*` still counts as ignored and is never appended a second time.
+    if (entry === ".works/") return !lines.some((l) => l.includes(".works"));
+    return !lines.some((l) => l === entry || l === bare || l === `/${entry}` || l === `/${bare}`);
+  });
+}
+
+/** True when .git exists and any kanban-flow entry is not already ignored. */
 export function shouldSuggestIgnoreWorks(root: string): boolean {
   if (!existsSync(join(root, ".git"))) return false;
   const gi = join(root, ".gitignore");
   if (!existsSync(gi)) return true;
-  const content = readFileSync(gi, "utf8");
-  return !/^\s*\.works\/?\s*$/m.test(content) && !content.split("\n").some((l) => l.includes(".works"));
+  return missingIgnoreEntries(readFileSync(gi, "utf8")).length > 0;
 }
 
-export function appendIgnoreWorks(root: string): void {
+/** Appends only the entries .gitignore lacks, so a re-run never duplicates a line. Returns what it added. */
+export function appendIgnoreWorks(root: string): string[] {
   const gi = join(root, ".gitignore");
-  const add = "\n# kanban-flow\n.works/\n.worktrees/\n";
-  if (!existsSync(gi)) writeFileSync(gi, add, "utf8");
-  else writeFileSync(gi, readFileSync(gi, "utf8") + add, "utf8");
+  const content = existsSync(gi) ? readFileSync(gi, "utf8") : "";
+  const missing = missingIgnoreEntries(content);
+  if (missing.length === 0) return [];
+  writeFileSync(gi, `${content}\n# kanban-flow\n${missing.join("\n")}\n`, "utf8");
+  return missing;
 }
 
 async function confirm(rl: ReturnType<typeof createInterface>, q: string, def: boolean): Promise<boolean> {
@@ -267,7 +283,7 @@ export async function askAll(
 
   let ignoreWorks = d.ignoreWorks;
   if (d.ignoreWorks) {
-    ignoreWorks = await confirm(rl, "Add .works/ + .worktrees/ to .gitignore?", true);
+    ignoreWorks = await confirm(rl, "Add .works/, .worktrees/ and .kf/travel/ to .gitignore?", true);
   }
 
   const seedFeature = await confirm(rl, "Seed a demo feature to show the structure?", false);
@@ -412,7 +428,7 @@ Detect anything else by reading the repository, never by guessing.
 ## Workflow (kanban-flow)
 
 - Start a feature with one command: \`kanban <context> <feature>\` (bug: \`kanban <context> <name> --type bug\`).
-- Human gates: confirm the requirement (Phase 1), approve the plan (Phase 2: \`kf approve\` starts implementation, \`--backlog\` parks it), and merge the PR after a PASS review (\`kf status\` closes the item). Do not ask "continue?" between other phases.
+- Human gates: confirm the requirement (Phase 1), approve the plan (Phase 2: \`kf approve\` starts implementation, \`--backlog\` parks it), and merge the PR after a PASS review (\`kf status --change <feature>\` closes the item). Do not ask "continue?" between other phases.
 - Work item state lives in \`.works/\`; move items only with \`kf stage\` / \`kf archive\`, never by moving folders.
 - Never use \`--force\` or \`--skip-hooks\` without explicit user approval; every bypass is recorded in the work item's metadata.
 - Run \`kf autoconfig\` for the setup checklist and the review rules to apply as coding conventions.

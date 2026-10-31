@@ -88,6 +88,17 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
     expect(pr.readMeta()!.drive).toBeUndefined();
   });
 
+  it("refuses an approved item still in planning, naming kf approve as the start", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["a.txt"] }], { implementation: false });
+    const approval = pr.readMeta()!.approval!;
+    await pr.stage("planning");
+    await updateFeatureMeta(pr.root, "demo", (meta) => ({ ...meta, approval }));
+    const res = await cmdDrive(args(["demo"]), pr.root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("Start it first: kf approve demo");
+    expect(pr.readMeta()!.drive).toBeUndefined();
+  });
+
   it("refuses after the approved plan is edited (TC-004)", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }]);
     await pr.writePlan([{ id: "TASK-001", role: "tester", files: ["a.txt"] }]);
@@ -123,7 +134,7 @@ describe("kf drive to review PASS (TC-014, TC-015, TC-012)", () => {
 
     const out = await drive(pr);
     expect(out.status, out.reason).toBe("ready");
-    expect(out.reason).toBe("ready — review PASS: merge the PR, kf status closes the item");
+    expect(out.reason).toBe("ready — review PASS: merge the PR, kf status --change <feature> closes the item");
     const meta = pr.readMeta()!;
     expect(pr.feature().stage).toBe("review");
     expect(meta.ship).toBeUndefined();
@@ -339,7 +350,7 @@ describe("drive-stop hook (TC-030)", () => {
     reports(pr);
     const out = hook(pr);
     expect((await drive(pr)).status).toBe("ready");
-    expect(readFileSync(out, "utf8")).toContain("ready|ready — review PASS: merge the PR, kf status closes the item");
+    expect(readFileSync(out, "utf8")).toContain("ready|ready — review PASS: merge the PR, kf status --change <feature> closes the item");
     await pr.cleanup();
 
     const pb = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { budget: { maxRuns: 1 } } });

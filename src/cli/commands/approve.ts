@@ -1,12 +1,13 @@
-import { updateFeatureMeta, executionContractHash, findFeature } from "../../workflow/features.js";
+import { updateFeatureMeta, executionContractHash, findFeature, type FeatureMeta } from "../../workflow/features.js";
 import { validateFeature, renderValidateText } from "../../workflow/validate.js";
-import { transitionItem, type TransitionOutcome } from "../../workflow/transition.js";
-import { driveConfigured } from "../../workflow/status.js";
-import { readProjectConfig } from "../../project/config.js";
+import { FORCE_RETRY_HINT, stageRetryHint, transitionItem, type TransitionOutcome } from "../../workflow/transition.js";
+import { driveConfigReady } from "../../harness/drive/claim.js";
+import { ProjectConfigError, readProjectConfig, resolveDriveConfig } from "../../project/config.js";
 import { worktreeConfig } from "../../worktree/config.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { resolveItem } from "./helpers.js";
 import { taskHarnessNeedsWorktreeMessage } from "./inspect.js";
+import type { Stage } from "../../workflow/schema.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -40,9 +41,20 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const by = typeof args.options.by === "string" ? args.options.by : (cfg.reviewer ?? "human");
   if (!by.trim()) return { code: 1, stdout: "Approver name must not be empty.", stderr: "missing approver" };
   const to = args.options.backlog ? "backlog" : "implementation";
-  const warning = !worktreeConfig(root.root, cfg.worktree).enabled && (cfg.harness?.verify?.stage?.length ?? 0) > 0
-    ? `⚠ ${taskHarnessNeedsWorktreeMessage(f.name)} (task_harness_needs_worktree)\n`
-    : "";
+  // The drive reads the resolved config (no item worktree yet: origin/<default>, else the primary), but the worktree
+  // itself is provisioned from the primary's worktree.enabled, so the drive needs both on.
+  let warning = "";
+  try {
+    const driveCfg = resolveDriveConfig(root.root, f).cfg;
+    const worktreesOn = worktreeConfig(root.root, cfg.worktree).enabled && worktreeConfig(root.root, driveCfg.worktree).enabled;
+    if (!worktreesOn && (driveCfg.harness?.verify?.stage?.length ?? 0) > 0) {
+      warning = `⚠ ${taskHarnessNeedsWorktreeMessage(f.name)} (task_harness_needs_worktree)\n`;
+    }
+  } catch (err) {
+    // A drive config that does not parse does not block the approval; it is reported, and kf drive refuses on it.
+    if (!(err instanceof ProjectConfigError)) throw err;
+    warning = `⚠ The drive config of '${f.name}' does not parse: ${err.message}\n`;
+  }
 
   const previous = { approval: f.meta.approval, executionId: f.meta.executionId };
   const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash };
@@ -50,18 +62,19 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const outcome = await transitionItem(root.root, f.name, to, { cwd });
   if (outcome.kind !== "moved") {
     // A failed move leaves the item in planning; an `approved` item there would read as started to every skill.
+    let notRestored = "";
     try {
-      await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval: previous.approval, executionId: previous.executionId }));
+      notRestored = await restoreApproval(root.root, f.name, approval, previous);
     } catch (restoreError) {
-      const cause = outcome.kind === "error" ? outcome.error : new Error(failureDetail(outcome, to));
+      const cause = outcome.kind === "error" ? outcome.error : new Error(failureDetail(outcome, name, to));
       throw new AggregateError([cause, restoreError], `The move of '${name}' to ${to} failed and its previous approval could not be restored; .kfw.json still records the new approval.`);
     }
     if (outcome.kind === "error") {
-      throw new Error(`Approval of '${name}' was not kept: the move to ${to} failed: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}`, { cause: outcome.error });
+      throw new Error(`Approval of '${name}' was not kept: the move to ${to} failed: ${outcome.error instanceof Error ? outcome.error.message : String(outcome.error)}${notRestored ? ` (${notRestored})` : ""}`, { cause: outcome.error });
     }
     return {
       code: 1,
-      stdout: `${warning}✗ Approval of '${name}' was not kept: the move planning → ${to} was refused.\n\n${failureDetail(outcome, to)}\n\nFix that, then re-run: kf approve ${name}${to === "backlog" ? " --backlog" : ""}`,
+      stdout: `${warning}✗ Approval of '${name}' was not kept: the move planning → ${to} was refused.\n\n${failureDetail(outcome, name, to)}${notRestored ? `\n\n⚠ ${notRestored}` : ""}\n\nFix that, then re-run: kf approve ${name}${to === "backlog" ? " --backlog" : ""}`,
       stderr: outcome.stderrTag,
     };
   }
@@ -69,16 +82,47 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const moved = findFeature(root.root, f.name);
   const next = to === "backlog"
     ? `kf stage ${name} implementation`
-    : moved && driveConfigured(moved, cfg.harness) ? `kf drive ${name}` : `load the kanban-implement skill for '${name}'`;
+    : moved && driveConfigReady(root.root, moved) ? `kf drive ${name}` : `load the kanban-implement skill for '${name}'`;
   return {
     code: 0,
     stdout: `${warning}✓ Approved '${name}' (by ${by} at ${approval.at}) → ${to}\n  Execution contract is now the binding scope for autonomous phases.\n${outcome.stdout}\nNext: ${next}`,
   };
 }
 
-/** Why the move failed, without the `--skip-hooks` / `--force` advice `kf stage` gives: `kf approve` takes neither flag. */
-function failureDetail(outcome: Exclude<TransitionOutcome, { kind: "moved" } | { kind: "error" }>, to: string): string {
-  if (outcome.kind === "refused") return outcome.stdout;
+/**
+ * Put the approval back as it was before this run, but only while the item is still in planning and still carries
+ * the approval this run wrote; anything else means someone moved or re-approved it meanwhile, and their state wins.
+ * Returns why nothing was restored, or "" when it was.
+ */
+async function restoreApproval(
+  root: string,
+  name: string,
+  ours: NonNullable<FeatureMeta["approval"]>,
+  previous: Pick<FeatureMeta, "approval" | "executionId">,
+): Promise<string> {
+  const current = findFeature(root, name);
+  if (!current) return `the previous approval was not restored: '${name}' is gone; nothing was changed`;
+  if (current.stage !== "planning") return `the previous approval was not restored: '${name}' is in ${current.stage} now; its metadata is left as it is`;
+  let changed = false;
+  await updateFeatureMeta(root, name, (meta) => {
+    const a = meta.approval;
+    if (a?.status !== ours.status || a.at !== ours.at || a.by !== ours.by || a.contractHash !== ours.contractHash) {
+      changed = true;
+      return meta;
+    }
+    return { ...meta, approval: previous.approval, executionId: previous.executionId };
+  });
+  return changed ? `the previous approval was not restored: '${name}' was approved again meanwhile; its metadata is left as it is` : "";
+}
+
+/**
+ * Why the move failed, with the retry advice of `kf stage` (--force, --skip-hooks, kf stage <feature> <stage>)
+ * left out: `kf approve` takes no bypass flag, and the caller prints the approve retry instead.
+ */
+function failureDetail(outcome: Exclude<TransitionOutcome, { kind: "moved" } | { kind: "error" }>, name: string, to: Stage): string {
+  if (outcome.kind === "refused") {
+    return outcome.stdout.replace(`\n\n${FORCE_RETRY_HINT}`, "").replace(` ${stageRetryHint(name, to)}`, "");
+  }
   const { hook } = outcome;
   return `Hook '${to}' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\n\n${hook.output}`;
 }

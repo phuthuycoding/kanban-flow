@@ -200,7 +200,7 @@ describe("requirement and approval gates", () => {
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(1);
   });
 
-  it("approve --backlog parks the item; kf stage implementation starts it later (TC-007)", async () => {
+  it("approve --backlog parks the item; kf stage implementation starts it later", async () => {
     await planning();
     const approved = await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
     expect(approved.code).toBe(0);

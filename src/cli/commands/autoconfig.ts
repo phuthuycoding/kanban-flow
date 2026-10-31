@@ -169,7 +169,7 @@ Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> revi
 Human gates (only places the agent must stop for the user):
 1. brainstorm: confirm the requirement before planning
 2. planning: kf approve the contract; it moves the item to implementation (--backlog parks it)
-3. review PASS: merge the PR on GitHub; kf status, kf sync or kf archive closes the item into done
+3. review PASS: merge the PR on GitHub; kf status --change <feature>, kf sync or kf archive closes the item into done
 
 With a task harness configured (harness.verify.stage set, worktrees on), the step
 after approve is kf drive: it runs the plan's tasks, testing and review on its own
@@ -184,7 +184,7 @@ Commands the agent will use (run \`kf help <command>\` for every option):
 ${commands}
 
 Skills installed per agent: kanban-flow (orchestrator), kanban-brainstorm, kanban-bug,
-kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-archive.
+kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-archive, travel.
 Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
 with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
 Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;

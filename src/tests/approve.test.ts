@@ -67,8 +67,8 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-describe("kf approve starts the item (FR-002, UC-001)", () => {
-  it("moves the item to implementation and provisions its worktree (TC-005)", async () => {
+describe("kf approve starts the item", () => {
+  it("moves the item to implementation and provisions its worktree", async () => {
     await plannedItem();
     const res = await cmdApprove(args("approve", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
@@ -87,7 +87,7 @@ describe("kf approve starts the item (FR-002, UC-001)", () => {
     expect(res.stdout).not.toMatch(/backlog/i);
   });
 
-  it("--backlog parks the item with a valid approval and no worktree (TC-007)", async () => {
+  it("--backlog parks the item with a valid approval and no worktree", async () => {
     await plannedItem();
     const res = await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
     expect(res.code, res.stdout).toBe(0);
@@ -102,7 +102,7 @@ describe("kf approve starts the item (FR-002, UC-001)", () => {
     expect(existsSync(feature().meta!.worktree!.path)).toBe(true);
   });
 
-  it("a failing implementation hook keeps the item in planning and restores the approval (TC-006)", async () => {
+  it("a failing implementation hook keeps the item in planning and restores the approval", async () => {
     await plannedItem();
     await mkdir(join(root, ".kf", "hooks"), { recursive: true });
     const hook = join(root, ".kf", "hooks", "implementation.sh");
@@ -164,7 +164,7 @@ describe("kf approve starts the item (FR-002, UC-001)", () => {
   });
 });
 
-describe("kf status Next after approve (FR-002, TC-008)", () => {
+describe("kf status Next after approve", () => {
   let pr: GitDriveProject | undefined;
   afterEach(async () => {
     await pr?.cleanup();
@@ -187,6 +187,29 @@ describe("kf status Next after approve (FR-002, TC-008)", () => {
     const status = await cmdStatus(args("status", [], { change: "demo" }), root);
     expect(status.stdout).toContain('Next: load the kanban-implement skill for "demo"');
     for (const re of NO_DECISION_TEXT) expect(status.stdout).not.toMatch(re);
+  });
+
+  it("names kf drive from the worktree copy of the config when the primary has no harness", async () => {
+    pr = await gitDriveProject({ tasks: [{ id: "TASK-001" }], implementation: false, commitConfig: true });
+    await pr.stage("planning");
+    const cfgFile = join(pr.root, ".kf", "config.json");
+    const cfg = JSON.parse(readFileSync(cfgFile, "utf8"));
+    delete cfg.harness;
+    await writeFile(cfgFile, JSON.stringify(cfg));
+    const res = await cmdApprove(args("approve", ["demo"]), pr.root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).not.toContain("task_harness_needs_worktree");
+    expect(res.stdout).toContain("Next: kf drive demo");
+    const status = await cmdStatus(args("status", [], { change: "demo" }), pr.root);
+    expect(status.stdout).toContain('Next: kf drive "demo"');
+  });
+
+  it("names kf drive --status while a drive is live", async () => {
+    await plannedItem();
+    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
+    const f = feature();
+    const live = { ...f, meta: { ...f.meta!, drive: { id: "d1", status: "running" as const, step: "implementation", loops: 0, runs: 0, configHash: "h", supervisorPid: process.pid, startedAt: "x", updatedAt: "x" } } };
+    expect(renderStatusText(computeStatus(live, undefined, true))).toContain('Next: kf drive "demo" --status');
   });
 
   it("help lists --backlog and no CLI surface asks start-vs-backlog or ship-vs-archive", () => {

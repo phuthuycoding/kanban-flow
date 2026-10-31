@@ -118,8 +118,8 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   out.push(`  AGENTS.md: ${seedAgentsFile(target, answers.stacks) === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}`);
 
   if (answers.ignoreWorks) {
-    appendIgnoreWorks(target);
-    out.push(`  .gitignore: added .works/`);
+    const added = appendIgnoreWorks(target);
+    if (added.length > 0) out.push(`  .gitignore: added ${added.join(", ")}`);
   }
   if (answers.seedFeature) {
     const seed = await cmdNew(

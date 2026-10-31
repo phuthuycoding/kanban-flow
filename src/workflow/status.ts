@@ -11,7 +11,7 @@ import {
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
-import { executionContractHash } from "./features.js";
+import { driveLive, executionContractHash } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
@@ -52,16 +52,11 @@ export interface FeatureStatus {
   assignedRoles: Array<{ role: string; runner: string }>;
   /** Why a review PASS item did not close on this run; set by the command that attempted it. */
   close?: CloseState;
-  /** `kf drive` can take the item: see driveConfigured. */
+  /**
+   * `kf drive` can take the item, as the drive resolves its config (driveConfigReady). Computed by the command layer,
+   * which can read the worktree and origin copies; false when the caller did not compute it.
+   */
   driveConfigured: boolean;
-}
-
-/**
- * The item has what `kf drive` needs from config: a pinned `harness.verify.stage` and an item worktree, which
- * implementation provisions only when `worktree.enabled` is on. Read off the item so the renderer stays pure.
- */
-export function driveConfigured(feature: Feature, harness: HarnessConfig | undefined): boolean {
-  return (harness?.verify?.stage?.length ?? 0) > 0 && Boolean(feature.meta?.worktree);
 }
 
 /**
@@ -119,7 +114,7 @@ function assignedFor(feature: Feature, harness: HarnessConfig | undefined): Arra
 }
 
 /** Compute artifact completion status for a feature at its current stage. */
-export function computeStatus(feature: Feature, harness?: HarnessConfig): FeatureStatus {
+export function computeStatus(feature: Feature, harness?: HarnessConfig, driveReady = false): FeatureStatus {
   const stageIndex = STAGE_INDEX[feature.stage];
   const artifacts: ArtifactState[] = [];
   let doneCount = 0;
@@ -179,7 +174,7 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
     blockers,
     taskProgress,
     assignedRoles: assignedFor(feature, harness),
-    driveConfigured: driveConfigured(feature, harness),
+    driveConfigured: driveReady,
   };
 }
 
@@ -240,7 +235,7 @@ export function renderStatusText(s: FeatureStatus): string {
 
   if (s.close?.kind === "awaiting-merge" && !s.next && s.blockers.length === 0) {
     lines.push("");
-    lines.push(`Next: merge ${s.close.pr} on GitHub, then kf status`);
+    lines.push(`Next: merge ${s.close.pr} on GitHub, then kf status --change ${s.feature.name}`);
   } else if (s.close?.kind === "pr-closed" && !s.next && s.blockers.length === 0) {
     lines.push("");
     lines.push(`Next: human decision — ${s.close.pr} was closed without merging: reopen and merge it, or kf stage "${s.feature.name}" implementation, or kf cancel "${s.feature.name}"`);
@@ -250,7 +245,7 @@ export function renderStatusText(s: FeatureStatus): string {
   } else if (s.blockers.length > 0) {
     // Naming a next step that is going to be refused is the whole bug. Say what to fix instead.
     lines.push("");
-    lines.push(`Next: clear the blocking findings above, then re-run kf status.`);
+    lines.push(`Next: clear the blocking findings above, then re-run kf status --change ${s.feature.name}.`);
   } else if (s.feature.stage === "planning" && approval !== "approved") {
     lines.push(`Next: human approval, then kf approve "${s.feature.name}"`);
   } else if (s.feature.stage === "planning" && approval === "approved") {
@@ -260,7 +255,8 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`Next: kf stage "${s.feature.name}" implementation`);
   } else if (s.feature.stage === "implementation") {
     lines.push("");
-    lines.push(s.driveConfigured ? `Next: kf drive "${s.feature.name}"` : `Next: load the kanban-implement skill for "${s.feature.name}"`);
+    lines.push(driveLive(s.feature.meta?.drive) ? `Next: kf drive "${s.feature.name}" --status`
+      : s.driveConfigured ? `Next: kf drive "${s.feature.name}"` : `Next: load the kanban-implement skill for "${s.feature.name}"`);
   }
   return lines.join("\n");
 }

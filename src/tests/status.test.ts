@@ -134,8 +134,14 @@ describe("kf status tells the truth about what is blocking", () => {
 
     const text = renderStatusText(s);
     expect(text).toContain("fr_ref_missing");
-    expect(text).toContain("Next: clear the blocking findings");
+    expect(text).toContain("Next: clear the blocking findings above, then re-run kf status --change todo-list.");
     expect(text, "must not send anyone at a command that will refuse").not.toContain('kf approve "todo-list"');
+  });
+
+  it("names kf status --change <feature> after the merge, since a bare kf status exits 1", async () => {
+    await makeFeature("todo-list", "planning");
+    const s = { ...computeStatus(findFeature(root, "todo-list")!), close: { kind: "awaiting-merge" as const, pr: "https://github.com/o/r/pull/7" } };
+    expect(renderStatusText({ ...s, blockers: [] })).toContain("Next: merge https://github.com/o/r/pull/7 on GitHub, then kf status --change todo-list");
   });
 
   it("leaves a correctly prepared item exactly as it was", async () => {

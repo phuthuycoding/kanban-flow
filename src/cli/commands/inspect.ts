@@ -21,6 +21,7 @@ import { readProjectConfig } from "../../project/config.js";
 import { findRoot, resolveItem } from "./helpers.js";
 import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
+import { driveConfigReady } from "../../harness/drive/claim.js";
 import type { Finding } from "../../workflow/findings.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -162,7 +163,7 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   }
   const harness = readProjectConfig(root.root).harness;
   const statuses = features.map((f) => {
-    const s = computeStatus(f, harness);
+    const s = computeStatus(f, harness, f.stage === "implementation" && driveConfigReady(root.root, f));
     const close = closed.states.get(f.name);
     return close ? { ...s, close } : s;
   });
