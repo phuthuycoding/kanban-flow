@@ -9,6 +9,7 @@ import {
   STAGE_GATES,
   STAGE_INDEX,
   TRANSITIONS,
+  PHASE_NAMES,
   type Stage,
 } from "../workflow/schema.js";
 import { splitFrontmatter, applyFrontmatter, hasUnresolvedPlaceholders, isFilledFile } from "../shared/frontmatter.js";
@@ -24,8 +25,7 @@ describe("schema", () => {
       "implementation",
       "testing",
       "review",
-      "shipping",
-      "dones",
+      "done",
       "cancelled",
     ]);
   });
@@ -67,9 +67,14 @@ describe("schema", () => {
     expect(TRANSITIONS.planning).toEqual(["implementation", "backlog"]);
     expect(TRANSITIONS.backlog).toEqual(["implementation", "planning"]);
     expect(TRANSITIONS.testing).toEqual(["review", "implementation", "planning"]);
-    expect(TRANSITIONS.review).toEqual(["shipping", "dones", "implementation", "planning"]);
-    expect(TRANSITIONS.shipping).toEqual(["dones"]);
-    expect(TRANSITIONS.dones).toEqual([]);
+    expect(TRANSITIONS.review).toEqual(["done", "implementation", "planning"]);
+    expect(TRANSITIONS.done).toEqual([]);
+  });
+
+  it("done closes the linear pipeline at index 6 and names Phase 6", () => {
+    expect(STAGE_INDEX.done).toBe(6);
+    expect(PHASE_NAMES.done).toBe("Phase 6 — Done");
+    expect(STAGE_GATES.done).toEqual([]);
   });
 
   it("stage indexes are monotonic along the pipeline, and cancelled sits off it", () => {

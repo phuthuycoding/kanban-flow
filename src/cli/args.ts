@@ -138,11 +138,11 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   sync: {
-    help: "Usage: kf sync  — delivery sweep: archives every review/dones item whose recorded PR has merged (uses gh; run by hand or from cron)",
+    help: "Usage: kf sync  — delivery sweep: archives every review/done item whose recorded PR has merged (uses gh; run by hand or from cron)",
     options: {},
   },
   archive: {
-    help: "Usage: kf archive <feature> [--skip-hooks]  — the delivery gate: finalizes a work item into dones (canonical docs, issue close, board Done, delivered flag) once its PR merged or the human confirms",
+    help: "Usage: kf archive <feature> [--skip-hooks]  — the delivery gate: finalizes a work item into done (canonical docs, issue close, board Done, delivered flag) once its PR merged or the human confirms",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },

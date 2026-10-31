@@ -130,7 +130,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
     }
   }
 
-  const docs = f.stage === "dones" ? canonicalDocPaths(root, f) : [];
+  const docs = f.stage === "done" ? canonicalDocPaths(root, f) : [];
   let purgeApproved = false;
   if (opts.purgeDocs && docs.length > 0) {
     if (force) {

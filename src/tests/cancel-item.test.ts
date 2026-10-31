@@ -95,7 +95,7 @@ describe("cancelItem returns a typed outcome", () => {
     const doc = join(root, "docs", "requirement", "app", "arch.md");
     await mkdir(join(doc, ".."), { recursive: true });
     await writeFile(doc, "x");
-    await addItem("arch", "dones", { status: "archived" });
+    await addItem("arch", "done", { status: "archived" });
 
     expect(await cancelItem(root, "arch", { reason: "superseded", purgeDocs: true })).toMatchObject({ kind: "refused", reason: "purge-unconfirmed" });
     let asked: string[] = [];
@@ -106,12 +106,12 @@ describe("cancelItem returns a typed outcome", () => {
     });
     expect(asked).toEqual([doc]);
     expect(kept.kind).toBe("kept");
-    expect(findFeature(root, "arch")!.stage).toBe("dones");
+    expect(findFeature(root, "arch")!.stage).toBe("done");
     expect(existsSync(doc)).toBe(true);
   });
 
   it("returns a failed move as an error instead of throwing", async () => {
-    await addItem("demo", "dones", { status: "archived" });
+    await addItem("demo", "done", { status: "archived" });
     await writeFile(join(root, ".works", "cancelled", "demo_20260919_1200"), "in the way");
     const outcome = await cancelItem(root, "demo", { reason: "superseded" });
     expect(outcome.kind).toBe("error");
@@ -163,12 +163,12 @@ describe("kf cancel output is unchanged", () => {
     await mkdir(docDir, { recursive: true });
     await writeFile(join(docDir, "arch.md"), "x");
     await writeFile(join(docDir, "gone.md"), "x");
-    await addItem("arch", "dones", { status: "archived" });
-    await addItem("gone", "dones", { status: "archived" });
+    await addItem("arch", "done", { status: "archived" });
+    await addItem("gone", "done", { status: "archived" });
 
     const kept = await cmdCancel(args(["arch"], { reason: "superseded" }), root);
-    expect(render(kept.stdout)).toBe("✓ Cancelled 'arch' (was dones) by human\n  Reason: superseded\n  <root>/.works/cancelled/arch_20260919_1200\n  Canonical docs left in place (use --purge-docs to delete them):\n    docs/requirement/app/arch.md\n  Reopen with: kf stage arch dones");
+    expect(render(kept.stdout)).toBe("✓ Cancelled 'arch' (was done) by human\n  Reason: superseded\n  <root>/.works/cancelled/arch_20260919_1200\n  Canonical docs left in place (use --purge-docs to delete them):\n    docs/requirement/app/arch.md\n  Reopen with: kf stage arch done");
     const purged = await cmdCancel(args(["gone"], { reason: "superseded", "purge-docs": true, force: true }), root);
-    expect(render(purged.stdout)).toBe("✓ Cancelled 'gone' (was dones) by human\n  Reason: superseded\n  <root>/.works/cancelled/gone_20260919_1200\n  Deleted canonical docs:\n    docs/requirement/app/gone.md\n  Reopen with: kf stage gone dones");
+    expect(render(purged.stdout)).toBe("✓ Cancelled 'gone' (was done) by human\n  Reason: superseded\n  <root>/.works/cancelled/gone_20260919_1200\n  Deleted canonical docs:\n    docs/requirement/app/gone.md\n  Reopen with: kf stage gone done");
   });
 });

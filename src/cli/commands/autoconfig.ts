@@ -164,12 +164,12 @@ export function workflowGuide(): string {
   }).join("\n");
   return `## Workflow guide
 
-Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> review -> [shipping] -> dones
+Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> review -> done
 
 Human gates (only places the agent must stop for the user):
 1. brainstorm: confirm the requirement before planning
 2. planning: kf approve the contract + choose start-now vs backlog
-3. review PASS: ship (kf stage <f> shipping, kf ship) or archive directly
+3. review PASS: merge the PR on GitHub; kf status, kf sync or kf archive closes the item into done
 
 With a task harness configured (harness.verify.stage set, worktrees on), starting
 means kf drive: it runs the plan's tasks, testing and review on its own and stops

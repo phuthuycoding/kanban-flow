@@ -51,7 +51,7 @@ export type ArchiveOutcome =
       worktreePath: string | null;
     }
   | {
-      /** The item was already in dones: canonical docs re-synced and delivery re-stamped. */
+      /** The item was already in done: canonical docs re-synced and delivery re-stamped. */
       kind: "reconciled";
       name: string;
       dir: string;
@@ -85,13 +85,13 @@ function refuseMerge(name: string, failure: MergeGateFailure): ArchiveOutcome {
 const hookFailed = (hook: HookResult): ArchiveOutcome => ({
   kind: "hook-failed",
   hook,
-  stdout: `Hook 'dones' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\nArchive refused.\n\n${hook.output}\n\nRe-run with --skip-hooks to bypass.`,
+  stdout: `Hook 'done' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\nArchive refused.\n\n${hook.output}\n\nRe-run with --skip-hooks to bypass.`,
   stderrTag: "hook failed",
 });
 
 /**
- * Archive a work item: review/shipping → dones, or an idempotent reconcile of an item already in
- * dones. Pure of CLI concerns — callers render the outcome. Anything that used to propagate as a
+ * Archive a work item: review → done, or an idempotent reconcile of an item already in
+ * done. Pure of CLI concerns — callers render the outcome. Anything that used to propagate as a
  * throw comes back as `{ kind: "error" }`.
  */
 export async function archiveItem(root: string, name: string, opts: ArchiveOptions = {}): Promise<ArchiveOutcome> {
@@ -111,12 +111,12 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
 
   // Delivery gate: a recorded PR must be verifiably merged — archive is the post-delivery
   // step, so an unmerged/unverifiable PR refuses before any side effect, on both the
-  // review → dones move and the dones reconcile path. No --force escape.
+  // review → done move and the done reconcile path. No --force escape.
   const merge = checkMergeGate(f, readProjectConfig(root).repository);
   if (merge) return refuseMerge(f.name, merge);
 
-  // Only review → dones transition is archive-able. If already dones, refresh canonical docs idempotently.
-  if (f.stage === "dones") {
+  // Only review → done transition is archive-able. If already done, refresh canonical docs idempotently.
+  if (f.stage === "done") {
     const check = validateFeature(f, false, true, readProjectConfig(root).harness);
     if (!check.valid && !opts.force) return refuse("gate", "gate failed", renderValidateText(check));
     const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);
@@ -130,28 +130,28 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     }
     // --force here skips either the validation gate or the changed-docs refusal above;
     // reaching this point with either failing means force was given. Record it like the
-    // review → dones path does, or a forced refresh would leave no trail.
+    // review → done path does, or a forced refresh would leave no trail.
     const forcedCodes = [
       ...(check.valid ? [] : check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code)),
       ...(changedDocs.length > 0 ? ["canonical_docs_changed"] : []),
     ];
-    // Reconcile also re-runs the dones hook: the AC gate re-checks, the board re-syncs and
+    // Reconcile also re-runs the done hook: the AC gate re-checks, the board re-syncs and
     // the issue close is a no-op on an already-closed issue. --skip-hooks records a bypass.
     const skipHooks = Boolean(opts.skipHooks);
-    const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "dones") : null;
+    const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "done") : null;
     if (!skipHooks) {
       const hook = runHook(root, {
         feature: f.name,
         context: f.context,
         dir: f.dir,
         root,
-        from: "dones",
-        to: "dones",
+        from: "done",
+        to: "done",
         approval: f.meta?.approval?.status ?? "pending",
       });
       if (hook.ran && !hook.ok) return hookFailed(hook);
     }
-    const recorded = recordBypasses(f.stage, "dones", forcedCodes, skippedHook);
+    const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
     const metaPath = join(f.dir, METADATA_FILE);
     const originalMeta = f.meta && existsSync(metaPath) ? readFileSync(metaPath, "utf8") : null;
     try {
@@ -171,7 +171,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       ]);
       const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
       if (failures.length > 0) throw new AggregateError([err, ...failures], `Canonical docs sync failed and rollback was incomplete for '${name}'.`);
-      throw new Error(`Canonical docs sync failed for '${name}'; feature remains in dones.`, { cause: err });
+      throw new Error(`Canonical docs sync failed for '${name}'; feature remains in done.`, { cause: err });
     }
     return {
       kind: "reconciled",
@@ -184,13 +184,13 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       bypasses: recorded,
     };
   }
-  if (f.stage !== "review" && f.stage !== "shipping") {
-    return refuse("wrong-stage", "wrong stage", `Cannot archive '${name}': feature is in stage "${f.stage}". Archive only from review or shipping (run: kf stage ${name} review first).`);
+  if (f.stage !== "review") {
+    return refuse("wrong-stage", "wrong stage", `Cannot archive '${name}': feature is in stage "${f.stage}". Archive only from review (run: kf stage ${name} review first).`);
   }
 
   const force = Boolean(opts.force);
   const forcedCodes: string[] = [];
-  const check = validateFeature({ ...f, stage: "dones" }, false, true, readProjectConfig(root).harness);
+  const check = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
   if (!check.valid) {
     if (!force) {
       return refuse("gate", "gate failed", `Gate failed for '${name}'. Fix validation before archiving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`);
@@ -198,25 +198,25 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
   }
 
-  // Directional gate: only a PASS review-report may enter dones.
-  const direction = checkDirectionGate(f, "dones");
+  // Directional gate: only a PASS review-report may enter done.
+  const direction = checkDirectionGate(f, "done");
   if (direction.length > 0) {
     if (!force) {
       const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-      return refuse("direction", "direction gate failed", `Cannot archive '${name}' — review result does not allow dones:\n\n${lines}\n\nOr re-run with --force.`);
+      return refuse("direction", "direction gate failed", `Cannot archive '${name}' — review result does not allow done:\n\n${lines}\n\nOr re-run with --force.`);
     }
     forcedCodes.push(...direction.map((i) => i.code));
   }
 
-  const dest = stageDir(root, "dones");
+  const dest = stageDir(root, "done");
   const target = join(dest, f.folder);
   if (existsSync(target)) {
     return refuse("target-exists", "target exists", `Target already exists: ${target}`);
   }
 
-  // Phase hook: run the 'dones' hook before archiving (unless --skip-hooks).
+  // Phase hook: run the 'done' hook before archiving (unless --skip-hooks).
   const skipHooks = Boolean(opts.skipHooks);
-  const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "dones") : null;
+  const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "done") : null;
   if (!skipHooks) {
     const hook = runHook(root, {
       feature: f.name,
@@ -224,13 +224,13 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       dir: f.dir,
       root,
       from: f.stage,
-      to: "dones",
+      to: "done",
       approval: f.meta?.approval?.status ?? "pending",
     });
     if (hook.ran && !hook.ok) return hookFailed(hook);
   }
 
-  const afterHook = validateFeature({ ...f, stage: "dones" }, false, true, readProjectConfig(root).harness);
+  const afterHook = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
   if (!afterHook.valid && !force) return refuse("gate", "gate failed", renderValidateText(afterHook));
   if (!f.meta) return refuse("metadata-missing", "metadata missing", "Feature metadata is missing.");
 
@@ -247,7 +247,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     }
   }
 
-  const recorded = recordBypasses(f.stage, "dones", forcedCodes, skippedHook);
+  const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
   if (f.context) assertPathName(f.context, "context");
   assertPathName(f.name, "feature");
   const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);

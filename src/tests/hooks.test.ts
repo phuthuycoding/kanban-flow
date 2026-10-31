@@ -61,12 +61,12 @@ describe("runHook", () => {
       schema: "kanban-flow",
       created: "x",
       repository: "o/r",
-      project: { owner: "me", number: 3, acGate: false, statusMap: { dones: "Done", implementation: "In progress" } },
+      project: { owner: "me", number: 3, acGate: false, statusMap: { done: "Done", implementation: "In progress" } },
     }));
-    const dir = join(root, ".works", "dones", "f_x");
+    const dir = join(root, ".works", "done", "f_x");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(root, ".kf", "hooks", "dones.sh"), "#!/usr/bin/env bash\necho \"${KFW_PROJECT_OWNER}:${KFW_PROJECT_NUMBER}:${KFW_PROJECT_AC_GATE}:${KFW_PROJECT_STATUS_DONES}:${KFW_PROJECT_STATUS_IMPLEMENTATION}:${KFW_PROJECT_STATUS_TESTING}\" > \"$KFW_FEATURE_DIR/env.out\"\n");
-    const res = runHook(root, { feature: "f", context: "app", dir, root, from: "review", to: "dones", approval: "pending" });
+    await writeFile(join(root, ".kf", "hooks", "done.sh"), "#!/usr/bin/env bash\necho \"${KFW_PROJECT_OWNER}:${KFW_PROJECT_NUMBER}:${KFW_PROJECT_AC_GATE}:${KFW_PROJECT_STATUS_DONE}:${KFW_PROJECT_STATUS_IMPLEMENTATION}:${KFW_PROJECT_STATUS_TESTING}\" > \"$KFW_FEATURE_DIR/env.out\"\n");
+    const res = runHook(root, { feature: "f", context: "app", dir, root, from: "review", to: "done", approval: "pending" });
     expect(res.ok).toBe(true);
     await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("me:3:0:Done:In progress:\n");
   });

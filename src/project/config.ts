@@ -5,7 +5,7 @@ import { parseAgentIds, type SkillScope } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
 import { normalizeContext } from "./contexts.js";
 import { normalizeRepository } from "./repository.js";
-import { STAGES, type Stage } from "../workflow/schema.js";
+import { STAGES, LEGACY_STAGE_NAMES, type Stage, type LegacyStageName } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 
 export interface ProjectConfig {
@@ -69,8 +69,13 @@ export interface GitHubProject {
   number: number;
   /** kf stage → the board's Status option name. Option names, never IDs — a recreated board keeps working. */
   statusMap?: Partial<Record<string, string>>;
-  /** The dones hook gates on ticked acceptance criteria unless explicitly false. Default true. */
+  /** The done hook gates on ticked acceptance criteria unless explicitly false. Default true. */
   acGate?: boolean;
+  /**
+   * Set on read when the file still keys `statusMap` by the legacy `dones` (read as `done`) or
+   * `shipping` (dropped) names. The file itself is untouched; `kf doctor --fix` rewrites it.
+   */
+  statusMapLegacy?: boolean;
 }
 
 export const CONFIG_FILE = "config.json";
@@ -97,11 +102,23 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
     || (p.acGate !== undefined && typeof p.acGate !== "boolean")) throw bad();
   if (p.statusMap !== undefined) {
     if (typeof p.statusMap !== "object" || p.statusMap === null || Array.isArray(p.statusMap)) throw bad();
+    const statusMap: Partial<Record<string, string>> = {};
+    let legacy = false;
     for (const [stage, option] of Object.entries(p.statusMap)) {
       // `delivered` used to be a pseudo-stage (kf issues done, ≤0.8.0). It stays parseable
       // so old configs don't break — the key is inert: archive owns delivery now.
-      if ((!STAGES.includes(stage as Stage) && stage !== "delivered") || typeof option !== "string") throw bad();
+      const known = STAGES.includes(stage as Stage) || LEGACY_STAGE_NAMES.includes(stage as LegacyStageName) || stage === "delivered";
+      if (!known || typeof option !== "string") throw bad();
+      if (LEGACY_STAGE_NAMES.includes(stage as LegacyStageName)) {
+        legacy = true;
+        // `dones` is the old spelling of `done`; an explicit `done` beside it wins. `shipping` has no
+        // stage left to map to, so the board option is dropped.
+        if (stage === "dones" && p.statusMap.done === undefined) statusMap.done = option;
+        continue;
+      }
+      statusMap[stage] = option;
     }
+    return { ...p, statusMap, ...(legacy ? { statusMapLegacy: true } : {}) } as GitHubProject;
   }
   return p as GitHubProject;
 }

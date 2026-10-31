@@ -364,7 +364,7 @@ describe("teardown (FR-007, FR-008)", () => {
     expect(readRoutes(join(scratch, "routes.json")).routes["demo.repo.test"]).toBeUndefined();
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(res.stdout).toMatch(/unmerged|not merged/);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(feature().meta!.worktree).toBeUndefined();
   });
 

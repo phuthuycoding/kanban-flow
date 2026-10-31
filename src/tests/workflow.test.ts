@@ -163,7 +163,7 @@ describe("requirement and approval gates", () => {
     await mkdir(join(root, "docs", "requirement", "app"), { recursive: true });
     await writeFile(canonical, "Existing feature documentation");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(validateFeature(feature()).valid).toBe(true);
     expect(await readFile(canonical, "utf8")).toBe("Existing feature documentation");
     expect(await readdir(join(root, "docs", "use-cases"))).toEqual([]);
@@ -356,7 +356,7 @@ describe("testing and review cycles", () => {
   it("stops all review transitions on REQUIREMENT_BUG", async () => {
     await review();
     await report("review-report", "REQUIREMENT_BUG");
-    for (const next of ["dones", "implementation", "planning"]) {
+    for (const next of ["done", "implementation", "planning"]) {
       expect((await cmdStage(args("stage", ["demo", next]), root)).code).toBe(1);
     }
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(1);
@@ -373,16 +373,16 @@ describe("testing and review cycles", () => {
 });
 
 describe("archive consistency", () => {
-  it("runs the dones hook from a subdirectory and preserves review on failure", async () => {
+  it("runs the done hook from a subdirectory and preserves review on failure", async () => {
     await review();
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Closure\nVerified");
     await mkdir(join(root, ".kf", "hooks"), { recursive: true });
-    await writeFile(join(root, ".kf", "hooks", "dones.sh"), "exit 9\n");
+    await writeFile(join(root, ".kf", "hooks", "done.sh"), "exit 9\n");
     await mkdir(join(root, "src"));
     expect((await cmdArchive(args("archive", ["demo"]), join(root, "src"))).stderr).toBe("hook failed");
     expect(feature().stage).toBe("review");
   });
-  it("requires the feature report before moving to dones", async () => {
+  it("requires the feature report before moving to done", async () => {
     await review();
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(1);
     expect(feature().stage).toBe("review");
@@ -416,9 +416,9 @@ describe("archive consistency", () => {
     const canonical = join(root, "docs", "use-cases", "app", "demo.md");
     await writeFile(canonical, spec);
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified scope and tests");
-    const result = command === "archive" ? await cmdArchive(args(command, ["demo"]), root) : await cmdStage(args(command, ["demo", "dones"]), root);
+    const result = command === "archive" ? await cmdArchive(args(command, ["demo"]), root) : await cmdStage(args(command, ["demo", "done"]), root);
     expect(result.code, result.stdout).toBe(0);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(feature().meta?.status).toBe("archived");
     expect(await readFile(canonical, "utf8")).toContain("status: archived");
     expect(validateFeature(feature()).valid).toBe(true);
@@ -438,7 +438,7 @@ describe("archive consistency", () => {
     expect(forced.stdout).toContain("Bypass recorded: --force");
     const bypasses = feature().meta!.bypasses!;
     expect(bypasses).toHaveLength(1);
-    expect(bypasses[0]).toMatchObject({ from: "dones", to: "dones", flag: "force" });
+    expect(bypasses[0]).toMatchObject({ from: "done", to: "done", flag: "force" });
     expect(bypasses[0].codes).toContain("canonical_docs_changed");
     expect(await readFile(canonical, "utf8")).toContain("status: archived");
   });
@@ -539,7 +539,7 @@ describe("CLI output and persisted data", () => {
     }
     await cmdApprove(args("approve", ["demo"]), root);
     expect((await cmdValidate(args("validate", [], { change: "demo", json: true }), root)).code).toBe(0);
-    expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).stages).toHaveLength(9);
+    expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).stages).toHaveLength(8);
   });
 
   it("reports corrupt metadata and config instead of silently falling back", async () => {

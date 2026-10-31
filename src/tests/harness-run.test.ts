@@ -103,7 +103,7 @@ describe("kf run hands a stage to the assigned worker", () => {
     expect(unassigned.stdout).toContain("main role (architect) does it");
     expect((await cmdRun(args("run", ["free"], { role: "reviewer" }), p.root)).code).toBe(0);
     expect(p.cli.prompt("codex")).toContain("kanban-review");
-    await p.addFeature("old", "dones");
+    await p.addFeature("old", "done");
     expect((await cmdRun(args("run", ["old"]), p.root)).code).toBe(1);
     expect((await cmdRun(args("run", ["nope"]), p.root)).code).toBe(1);
     expect((await cmdRun(args("run", ["demo"], { stage: "nowhere" }), p.root)).code).toBe(1);

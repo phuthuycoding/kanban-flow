@@ -185,8 +185,8 @@ describe("cancelling something already archived", () => {
   it("lists its canonical docs and only deletes them when told twice", async () => {
     const kept = await addCanonicalDocs("demo");
     const other = await addCanonicalDocs("sibling");
-    await addItem("demo", "dones", { status: "archived" });
-    await addItem("sibling", "dones", { status: "archived" });
+    await addItem("demo", "done", { status: "archived" });
+    await addItem("sibling", "done", { status: "archived" });
 
     const listed = await cmdCancel(args("cancel", ["demo"], { reason: "superseded" }), root);
     expect(listed.code).toBe(0);
@@ -202,11 +202,11 @@ describe("cancelling something already archived", () => {
 
   it("refuses to purge without confirmation when there is no TTY", async () => {
     const docs = await addCanonicalDocs("demo");
-    await addItem("demo", "dones", { status: "archived" });
+    await addItem("demo", "done", { status: "archived" });
     const res = await cmdCancel(args("cancel", ["demo"], { reason: "superseded", "purge-docs": true }), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("--force");
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     for (const p of docs) expect(existsSync(p)).toBe(true);
   });
 
@@ -241,9 +241,9 @@ describe("a cancelled item is asked for nothing but its reason", () => {
   });
 
   it("keeps cancelled off the linear pipeline", () => {
-    expect(STAGES).toHaveLength(9);
-    expect(STAGES[7]).toBe("dones");
-    expect(STAGES[8]).toBe("cancelled");
+    expect(STAGES).toHaveLength(8);
+    expect(STAGES[6]).toBe("done");
+    expect(STAGES[7]).toBe("cancelled");
     expect(STAGE_INDEX.cancelled).toBe(-1);
   });
 
@@ -287,19 +287,19 @@ describe("reopening a cancelled item", () => {
 describe("failure paths of cancelling", () => {
   it("keeps the docs when the move fails, and reports both errors", async () => {
     const docs = await addCanonicalDocs("demo");
-    await addItem("demo", "dones", { status: "archived" });
+    await addItem("demo", "done", { status: "archived" });
     // A plain file where the folder would land makes rename fail; listFeatures skips non-directories.
     await writeFile(join(root, ".works", "cancelled", "demo_20260919_1200"), "in the way");
 
     await expect(cmdCancel(args("cancel", ["demo"], { reason: "superseded", "purge-docs": true, force: true }), root)).rejects.toThrow();
     for (const p of docs) expect(existsSync(p), p).toBe(true);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(feature().meta!.cancellation).toBeUndefined();
     expect(feature().meta!.status).toBe("archived");
   });
 
   it("wraps a failed rollback together with the original error", async () => {
-    await addItem("demo", "dones", { status: "archived" });
+    await addItem("demo", "done", { status: "archived" });
     await writeFile(join(root, ".works", "cancelled", "demo_20260919_1200"), "in the way");
     const writer = paths.writeFileAtomic;
     let calls = 0;
@@ -320,7 +320,7 @@ describe("the requirement-confirmed gate belongs to brainstorm only", () => {
   it("does not demand confirmation from stages whose spec has moved on", async () => {
     // Unguarded it told an archived item its requirement must be confirmed "before leaving
     // brainstorm". A later edit to a confirmed spec is the approval fingerprint's business.
-    for (const [stage, status] of [["dones", "archived"], ["review", "approved"], ["backlog", "draft"]] as const) {
+    for (const [stage, status] of [["done", "archived"], ["review", "approved"], ["backlog", "draft"]] as const) {
       const dir = join(root, ".works", stage, `spec-${stage}_20260919_1200`);
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, "phase-1-spec-requirement.md"), `---\nstatus: ${status}\n---\n# Spec\n### FR-001\nReal content.`);
@@ -517,7 +517,7 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
   });
 
   it("reopens into every stage it could have been cancelled from", async () => {
-    for (const from of ["brainstorm", "planning", "backlog", "implementation", "testing", "review", "dones"] as Stage[]) {
+    for (const from of ["brainstorm", "planning", "backlog", "implementation", "testing", "review", "done"] as Stage[]) {
       const name = `back-${from}`;
       await addItem(name, from);
       expect((await cmdCancel(args("cancel", [name], { reason: "dropped" }), root)).code, from).toBe(0);
@@ -528,39 +528,39 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
     }
   });
 
-  it("refuses --force straight into dones for an item cancelled from elsewhere", async () => {
+  it("refuses --force straight into done for an item cancelled from elsewhere", async () => {
     // isReopen must mean "back where it came from". If it were true for any target, --force
-    // would land an item in dones with no archive, no canonical docs and no validation.
+    // would land an item in done with no archive, no canonical docs and no validation.
     await addItem("elsewhere", "review");
     await cmdCancel(args("cancel", ["elsewhere"], { reason: "dropped" }), root);
-    const res = await cmdStage(args("stage", ["elsewhere", "dones"], { force: true }), root);
-    expect(res.code, "dones is not where it was cancelled from").toBe(1);
+    const res = await cmdStage(args("stage", ["elsewhere", "done"], { force: true }), root);
+    expect(res.code, "done is not where it was cancelled from").toBe(1);
     expect(feature("elsewhere").stage).toBe("cancelled");
   });
 
-  it("still sends a live review item to dones through archive, not the plain move", async () => {
+  it("still sends a live review item to done through archive, not the plain move", async () => {
     // isReopen must be false for an item that was never cancelled, or --force would skip archive.
     await addItem("live", "review");
-    // Archive is what handles review → dones; here it refuses because the fixture has no
+    // Archive is what handles review → done; here it refuses because the fixture has no
     // planning artifacts to copy. The point is that the plain move never runs.
-    await expect(cmdStage(args("stage", ["live", "dones"], { force: true }), root)).rejects.toThrow(/canonical docs/i);
+    await expect(cmdStage(args("stage", ["live", "done"], { force: true }), root)).rejects.toThrow(/canonical docs/i);
     expect(feature("live").stage).toBe("review");
   });
 
-  it("restores the archived state when reopened into dones", async () => {
-    await addItem("archived-then-dropped", "dones");
+  it("restores the archived state when reopened into done", async () => {
+    await addItem("archived-then-dropped", "done");
     await cmdCancel(args("cancel", ["archived-then-dropped"], { reason: "superseded" }), root);
-    const res = await cmdStage(args("stage", ["archived-then-dropped", "dones"]), root);
+    const res = await cmdStage(args("stage", ["archived-then-dropped", "done"]), root);
     expect(res.code).toBe(0);
-    // Reaching dones by reopening must leave the same state as reaching it by archiving.
+    // Reaching done by reopening must leave the same state as reaching it by archiving.
     expect(feature("archived-then-dropped").meta?.status).toBe("archived");
   });
 
-  it("asks archive to re-sync the canonical docs when reopened into dones", async () => {
+  it("asks archive to re-sync the canonical docs when reopened into done", async () => {
     // kf cancel --purge-docs can delete them; the move alone would leave them gone and silent.
-    await addItem("resync", "dones");
+    await addItem("resync", "done");
     await cmdCancel(args("cancel", ["resync"], { reason: "superseded" }), root);
-    const res = await cmdStage(args("stage", ["resync", "dones"]), root);
+    const res = await cmdStage(args("stage", ["resync", "done"]), root);
     expect(res.code).toBe(0);
     // This fixture is too thin for archive to succeed, so the hand-off must say so rather than
     // leave the docs silently missing.
@@ -576,7 +576,7 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
     await cmdCancel(args("cancel", ["edited"], { reason: "superseded" }), root);
     await writeFile(doc, "hand edited after archive\n");
 
-    const res = await cmdStage(args("stage", ["edited", "dones"], { force: true }), root);
+    const res = await cmdStage(args("stage", ["edited", "done"], { force: true }), root);
     expect(res.code).toBe(0);
     expect(await readFile(doc, "utf8"), "the edit must survive the reopen").toBe("hand edited after archive\n");
     // And the refusal has to be visible, or the stale doc looks re-synced.
@@ -593,12 +593,12 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
     await rm(doc);
     await mkdir(doc, { recursive: true });
 
-    const res = await cmdStage(args("stage", ["thrower", "dones"]), root);
+    const res = await cmdStage(args("stage", ["thrower", "done"]), root);
     expect(res.code, "the reopen itself succeeded").toBe(0);
-    expect(res.stdout).toContain("✓ Moved 'thrower' cancelled → dones");
+    expect(res.stdout).toContain("✓ Moved 'thrower' cancelled → done");
     expect(res.stdout, "and it says what is left undone").toContain("Canonical docs were not re-synced");
     expect(res.stdout).toContain("kf archive thrower");
-    expect(feature("thrower").stage).toBe("dones");
+    expect(feature("thrower").stage).toBe("done");
   });
 
   it("clears cancellation metadata even when forced into a stage it did not come from", async () => {
@@ -633,8 +633,8 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
 
 describe("cancelled work stays visible without skewing the numbers", () => {
   it("shows up in list and status, and drops out of the completion rate", async () => {
-    await addItem("done-a", "dones", { status: "archived" });
-    await addItem("done-b", "dones", { status: "archived" });
+    await addItem("done-a", "done", { status: "archived" });
+    await addItem("done-b", "done", { status: "archived" });
     await addItem("busy", "testing");
     await addItem("dropped", "cancelled", {
       status: "cancelled",
@@ -653,7 +653,7 @@ describe("cancelled work stays visible without skewing the numbers", () => {
 
     const metrics = dashboardData(root).metrics;
     expect(metrics).toMatchObject({ total: 4, completed: 2, cancelled: 1, completionRate: 67 });
-    expect(dashboardData(root).stages).toHaveLength(9);
+    expect(dashboardData(root).stages).toHaveLength(8);
     expect((await cmdView(args("view"), root)).stdout).toContain("Cancelled: 1");
     // Runs of dropped work are history: out of the default list, still visible by name.
     await writeFeatureMeta(feature("dropped").dir, {

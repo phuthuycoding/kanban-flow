@@ -122,17 +122,19 @@ describe("work item issue link", () => {
 
 describe("project config block", () => {
   it("reads a valid project block and rejects malformed ones", async () => {
-    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { dones: "Done" }, acGate: false } });
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { done: "Done" }, acGate: false } });
     const cfgPath = join(dir, ".kf", "config.json");
     const base = { schema: "kanban-flow", created: "x", repository: "o/r" };
     const cfg = readProjectConfig(dir);
     expect(cfg.project).toMatchObject({ owner: "me", number: 3, acGate: false });
-    expect(cfg.project!.statusMap!.dones).toBe("Done");
+    expect(cfg.project!.statusMap!.done).toBe("Done");
+    expect(cfg.project!.statusMapLegacy).toBeUndefined();
 
     for (const bad of [
       { owner: "", number: 3 },
       { owner: "me", number: 0 },
       { owner: "me", number: 3, statusMap: { "not-a-stage": "X" } },
+      { owner: "me", number: 3, statusMap: { done: 5 } },
       { owner: "me", number: 3, statusMap: { dones: 5 } },
       { owner: "me", number: 3, acGate: "yes" },
       "string",
@@ -141,6 +143,20 @@ describe("project config block", () => {
       await writeFile(cfgPath, JSON.stringify({ ...base, project: bad }));
       expect(() => readProjectConfig(dir)).toThrow(/Invalid project config/);
     }
+  });
+
+  it("reads the legacy dones key as done, drops shipping, and flags both", async () => {
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Shipping", review: "In review" } } });
+    const cfg = readProjectConfig(dir);
+    expect(cfg.project!.statusMap).toEqual({ done: "Done", review: "In review" });
+    expect(cfg.project!.statusMapLegacy).toBe(true);
+  });
+
+  it("keeps an explicit done over the legacy dones beside it", async () => {
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { dones: "Old", done: "New" } } });
+    const cfg = readProjectConfig(dir);
+    expect(cfg.project!.statusMap).toEqual({ done: "New" });
+    expect(cfg.project!.statusMapLegacy).toBe(true);
   });
 });
 

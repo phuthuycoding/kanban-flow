@@ -184,7 +184,7 @@ export async function cmdRuns(args: ParsedArgs, cwd: string): Promise<CmdResult>
     features = [f];
   } else {
     // Runs of finished or dropped work are history: only show them when asked by name.
-    features = listFeatures(root.root).filter((f) => f.stage !== "dones" && f.stage !== "cancelled");
+    features = listFeatures(root.root).filter((f) => f.stage !== "done" && f.stage !== "cancelled");
   }
   const views = runViews(features);
   if (args.options.json) return { code: 0, stdout: JSON.stringify(views, null, 2) };

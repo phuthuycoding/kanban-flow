@@ -7,7 +7,7 @@ import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
 /**
- * `kf ship <feature>` — resumable shipping pipeline for items in the `shipping` stage.
+ * `kf ship <feature>` — resumable shipping pipeline for items awaiting merge in the `review` stage.
  * Steps: publish (push + PR + record meta.pr) → merge gate → release → changelog.
  * Each enabled step runs once and is stamped into `meta.ship`, so re-runs resume at
  * the first unfinished step. Disabled steps are recorded as "skipped" — manual territory.
@@ -20,10 +20,10 @@ export async function cmdShip(args: ParsedArgs, cwd: string): Promise<CmdResult>
   const f = root.item;
   if (!f.meta) return { code: 1, stdout: "Feature metadata is missing.", stderr: "metadata missing" };
 
-  if (f.stage !== "shipping") {
+  if (f.stage !== "review") {
     return {
       code: 1,
-      stdout: `'${name}' is in ${f.stage} — ship runs in the shipping stage.\n  PASS review → kf stage ${name} shipping first. Nothing to ship? kf archive ${name} works straight from review.`,
+      stdout: `'${name}' is in ${f.stage} — ship runs in the review stage after a PASS review. Nothing to ship? kf archive ${name} works straight from review.`,
       stderr: "wrong stage",
     };
   }

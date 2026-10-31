@@ -1,4 +1,4 @@
-import { STAGES, type Stage } from "../../workflow/schema.js";
+import { STAGES, type Stage, type LegacyStageName } from "../../workflow/schema.js";
 import { renderArchive } from "./archive.js";
 import { archiveItem } from "../../workflow/archive.js";
 import { findRoot } from "./helpers.js";
@@ -6,14 +6,23 @@ import { transitionItem } from "../../workflow/transition.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
+/** The stages of earlier releases, each answered with where that work went instead of "unknown stage". */
+const LEGACY_STAGE_HINTS: Record<LegacyStageName, string> = {
+  shipping: "shipping is gone: open the PR at review, merge on GitHub, kf status closes the item",
+  dones: "the stage is now done: a review PASS item closes on merge via kf status, kf sync or kf archive",
+};
+
 export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const [name, toRaw] = args.positionals;
   if (!name || !toRaw) {
     return {
       code: 1,
-      stdout: "Usage: kf stage <feature> <next-stage>\nStages: brainstorm → planning → backlog → implementation → testing → review → shipping → dones",
+      stdout: "Usage: kf stage <feature> <next-stage>\nStages: brainstorm → planning → backlog → implementation → testing → review → done",
       stderr: "missing args",
     };
+  }
+  if (toRaw in LEGACY_STAGE_HINTS) {
+    return { code: 1, stdout: LEGACY_STAGE_HINTS[toRaw as LegacyStageName], stderr: "legacy stage" };
   }
   const to = toRaw as Stage;
   if (!STAGES.includes(to)) {
@@ -46,10 +55,10 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
   }
   const moved = outcome.stdout;
 
-  // An item reopened into `dones` must end up as archived as it was: `status: "archived"` back,
+  // An item reopened into `done` must end up as archived as it was: `status: "archived"` back,
   // and canonical docs re-synced, since `kf cancel --purge-docs` may have deleted them. Archive
-  // is idempotent once the item is in `dones`, so hand off rather than duplicate its logic.
-  if (outcome.reopened && to === "dones") {
+  // is idempotent once the item is in `done`, so hand off rather than duplicate its logic.
+  if (outcome.reopened && to === "done") {
     // The caller's flags are deliberately NOT forwarded. `--force` on `kf stage` means "skip a
     // gate"; inside archive it also means "overwrite canonical docs that changed since the
     // snapshot", which would destroy hand edits on a command that never offered to. A re-sync

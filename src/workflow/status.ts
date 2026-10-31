@@ -171,7 +171,7 @@ export function renderStatusText(s: FeatureStatus): string {
   if (s.feature.stage === "review" && s.feature.meta?.issue && reportStatus(s.feature.dir, "review-report") === "PASS") {
     lines.push(`Awaiting merge — run: kf archive ${s.feature.name} once the change has landed`);
   }
-  if (s.feature.meta?.issue && s.feature.stage === "dones") {
+  if (s.feature.meta?.issue && s.feature.stage === "done") {
     lines.push(`Delivered: ${s.feature.meta.delivered ? `yes${s.feature.meta.deliveredAt ? ` at ${s.feature.meta.deliveredAt}` : ""}` : "no — run: kf archive " + s.feature.name + " to finalize delivery"}`);
   }
   const wt = s.feature.meta?.worktree;

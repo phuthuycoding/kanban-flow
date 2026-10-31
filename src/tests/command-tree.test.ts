@@ -91,7 +91,7 @@ describe("kind mismatch refuses clearly (UC-004)", () => {
   it("bug verbs refuse feature items; feature verbs refuse bug items", async () => {
     await item("ui", "feature");
     await item("leak", "bug");
-    const wrongBug = nounKindGate(gate(["bug", "move", "ui", "dones"]), root);
+    const wrongBug = nounKindGate(gate(["bug", "move", "ui", "done"]), root);
     expect(wrongBug?.code).toBe(1);
     expect(wrongBug?.stdout).toContain("is a feature");
     const wrongFeat = nounKindGate(gate(["feature", "ship", "leak"]), root);
@@ -99,7 +99,7 @@ describe("kind mismatch refuses clearly (UC-004)", () => {
     expect(wrongFeat?.stdout).toContain("is a bug");
     // matching kinds pass the gate
     expect(nounKindGate(gate(["feature", "ship", "ui"]), root)).toBeNull();
-    expect(nounKindGate(gate(["bug", "move", "leak", "dones"]), root)).toBeNull();
+    expect(nounKindGate(gate(["bug", "move", "leak", "done"]), root)).toBeNull();
   });
 
   it("start with a conflicting --type refuses; unknown items pass through", async () => {

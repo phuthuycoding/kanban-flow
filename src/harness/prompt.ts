@@ -15,8 +15,7 @@ export const STAGE_SKILL: Record<Stage, string | null> = {
   implementation: "kanban-implement",
   testing: "kanban-test",
   review: "kanban-review",
-  shipping: "kanban-ship",
-  dones: "kanban-archive",
+  done: "kanban-archive",
   cancelled: null,
 };
 
@@ -66,7 +65,7 @@ export function resolveChain(
 ): ChainResult {
   if (!harness) return { ok: false, reason: "No harness configured in .kf/config.json — run: kf init (seeds roles and runner presets)." };
   const stage = overrides.stage ?? feature.stage;
-  if (feature.stage === "dones" && !overrides.stage) return { ok: false, reason: `'${feature.name}' is archived (dones); nothing to run.` };
+  if (feature.stage === "done" && !overrides.stage) return { ok: false, reason: `'${feature.name}' is archived (done); nothing to run.` };
   const skillName = feature.meta?.kind === "bug" && stage === "brainstorm" ? "kanban-bug" : STAGE_SKILL[stage];
   if (!skillName) return { ok: false, reason: `Stage "${stage}" has no work to hand off.` };
 

@@ -93,10 +93,10 @@ describe("archive stamps canonical docs", () => {
     expect(await readFile(docs.result(), "utf8")).toContain("status: PASS");
   });
 
-  it("creates a missing dones directory before the move", async () => {
-    await archived(ucFile, () => rmSync(join(root, ".works", "dones"), { recursive: true, force: true }));
-    expect(feature().stage).toBe("dones");
-    expect(existsSync(join(root, ".works", "dones", feature().folder))).toBe(true);
+  it("creates a missing done directory before the move", async () => {
+    await archived(ucFile, () => rmSync(join(root, ".works", "done"), { recursive: true, force: true }));
+    expect(feature().stage).toBe("done");
+    expect(existsSync(join(root, ".works", "done", feature().folder))).toBe(true);
   });
 
   it("copies a source without frontmatter unchanged", async () => {

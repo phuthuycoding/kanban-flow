@@ -23,11 +23,11 @@ export interface TransitionOptions {
 /**
  * Why a transition was refused. Each reason maps 1:1 to the short stderr tag `kf stage` has always
  * printed (see REFUSAL_TAGS), so the CLI wrapper loses nothing. `archive-required` is the one reason
- * with no tag: moving into `dones` is archive's job, and the caller decides what to do about it.
+ * with no tag: moving into `done` is archive's job, and the caller decides what to do about it.
  */
 export type RefusalReason =
   | "unknown-item"
-  | "already-dones"
+  | "already-done"
   | "cancellation-missing"
   | "wrong-reopen-stage"
   | "invalid-transition"
@@ -76,7 +76,7 @@ export const transitionItem: Transition = async (root, name, to, opts) => {
 async function runTransition(root: string, name: string, to: Stage, opts: TransitionOptions): Promise<TransitionOutcome> {
   const f = findFeature(root, name);
   if (!f) return refuse("unknown-item", "unknown feature", `Unknown feature '${name}'. Run: kf list`);
-  if (f.stage === "dones") return refuse("already-dones", "already dones", `Feature '${name}' is already archived (dones).`);
+  if (f.stage === "done") return refuse("already-done", "already done", `Feature '${name}' is already archived (done).`);
 
   // A cancelled item has exactly one way back: the stage it was cancelled from.
   let isReopen = false;
@@ -96,11 +96,11 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
     const desc = allowed.join(", ");
     return refuse("invalid-transition", "not allowed transition", `Cannot move '${name}' ${f.stage} → ${to}. Allowed: ${desc}.`);
   }
-  // Reopening into `dones` is putting an item back where it was, not archiving it again. Routing
+  // Reopening into `done` is putting an item back where it was, not archiving it again. Routing
   // it through archive made `kf cancel`'s own advertised reopen command refuse itself, with no
   // escape: archive rejects a cancelled item before it ever looks at --force. The move happens
   // below, and the archive state it had is restored right after by the caller — see `reopened`.
-  if (to === "dones" && !isReopen) return refuse("archive-required", "", "");
+  if (to === "done" && !isReopen) return refuse("archive-required", "", "");
 
   // Gate: feature must be valid for its CURRENT stage before leaving it.
   const force = Boolean(opts.force);
@@ -211,10 +211,10 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
       try {
         let meta = recorded.length > 0 ? { ...cur.meta, bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : cur.meta;
         if (worktree) meta = { ...meta, worktree };
-        // Putting an item back in `dones` means putting back the state it had there. `status` does
+        // Putting an item back in `done` means putting back the state it had there. `status` does
         // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
         // which can legitimately refuse on an item that was never fully valid.
-        if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "dones" ? "archived" : undefined };
+        if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "done" ? "archived" : undefined };
         if (to === "planning") {
           await writeFeatureMeta(cur.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
           metadataUpdated = true;

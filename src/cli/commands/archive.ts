@@ -27,14 +27,14 @@ function worktreeNote(teardown: TeardownResult, path: string | null): string {
 
 function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
   const removed = outcome.teardown ? worktreeNote(outcome.teardown, outcome.worktreePath) : "";
-  return `✓ Archived '${outcome.name}'  review → dones\n  ${outcome.dir}\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "  ")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${removed}${bypassNote(outcome.bypasses)}`;
+  return `✓ Archived '${outcome.name}'  review → done\n  ${outcome.dir}\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "  ")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${removed}${bypassNote(outcome.bypasses)}`;
 }
 
 function renderReconciled(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>): string {
   const delivered = outcome.alreadyDelivered
     ? "\n  Delivery finalized — item was already marked delivered; side effects re-checked."
     : "\n  Delivery finalized — `delivered` stamped in .kfw.json.";
-  return `Feature '${outcome.name}' is already in dones.\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "")}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
+  return `Feature '${outcome.name}' is already in done.\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "")}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
 }
 
 /** Render an archive outcome the way `kf archive` prints it. An `error` outcome is rethrown. */

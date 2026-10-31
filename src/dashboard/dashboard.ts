@@ -72,9 +72,9 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
   };
   const items = snapshot.stages.flatMap((stage) => stage.features);
   const executing = items.filter((item) => ["implementation", "testing", "review"].includes(item.stage));
-  const completed = items.filter((item) => item.stage === "dones").length;
+  const completed = items.filter((item) => item.stage === "done").length;
   const cancelled = items.filter((item) => item.stage === "cancelled").length;
-  const approvals = items.filter((item) => item.stage !== "brainstorm" && item.stage !== "dones");
+  const approvals = items.filter((item) => item.stage !== "brainstorm" && item.stage !== "done");
   const taskDone = executing.reduce((sum, item) => sum + item.taskProgress.done, 0);
   const taskTotal = executing.reduce((sum, item) => sum + item.taskProgress.total, 0);
   const itemsTracked = executing.filter((item) => item.taskProgress.total > 0).length;

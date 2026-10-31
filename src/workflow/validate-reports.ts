@@ -32,7 +32,7 @@ export function commandExitCodes(body: string): string[] | null {
   return codes;
 }
 
-/** tasks.md checkbox presence: without checkboxes progress cannot be tracked; unfinished tasks block dones. */
+/** tasks.md checkbox presence: without checkboxes progress cannot be tracked; unfinished tasks block done. */
 export function checkTasks(feature: Feature): Finding[] {
   const issues: Finding[] = [];
   const tasksPath = join(feature.dir, "tasks.md");
@@ -42,7 +42,7 @@ export function checkTasks(feature: Feature): Finding[] {
     issues.push(finding(feature, "WARNING", "tasks.md", "no_tasks",
       'tasks.md has no task checkboxes ("- [ ] 1. Task description"); progress cannot be tracked'));
   }
-  if (feature.stage === "dones" && done < total) {
+  if (feature.stage === "done" && done < total) {
     issues.push(finding(feature, "ERROR", "tasks.md", "tasks_incomplete_archived", `Feature has unfinished tasks (${done}/${total} done)`));
   }
   return issues;
@@ -75,7 +75,7 @@ export function checkTestingResult(feature: Feature): Finding[] {
     issues.push(finding(feature, "ERROR", file, "testing_stale", "Testing report must reference the current execution id from kf status/instruct."));
   }
   if (stageIndex >= STAGE_INDEX.review && status !== "PASS") {
-    issues.push(finding(feature, "ERROR", file, "testing_not_pass", "Only a current PASS testing report may enter review or dones."));
+    issues.push(finding(feature, "ERROR", file, "testing_not_pass", "Only a current PASS testing report may enter review or done."));
   }
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "testing") {
     issues.push(finding(feature, "WARNING", file, "testing_loops_back",
@@ -99,8 +99,8 @@ export function checkReviewReport(feature: Feature): Finding[] {
   if (!feature.meta?.executionId || fm.execution !== feature.meta.executionId) {
     issues.push(finding(feature, "ERROR", file, "review_stale", "Review report must reference the current execution id from kf status/instruct."));
   }
-  if (feature.stage === "dones" && status !== "PASS") {
-    issues.push(finding(feature, "ERROR", file, "review_not_pass", "Only a current PASS review report may enter dones."));
+  if (feature.stage === "done" && status !== "PASS") {
+    issues.push(finding(feature, "ERROR", file, "review_not_pass", "Only a current PASS review report may enter done."));
   }
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
@@ -113,9 +113,9 @@ export function checkReviewReport(feature: Feature): Finding[] {
   return issues;
 }
 
-/** A feature in dones without its reports (and feature report) is incomplete. */
+/** A feature in done without its reports (and feature report) is incomplete. */
 export function checkDonesArtifacts(feature: Feature): Finding[] {
-  if (feature.stage !== "dones") return [];
+  if (feature.stage !== "done") return [];
   const isBug = feature.meta?.kind === "bug";
   const required: ArtifactId[] = isBug
     ? ["testing-result", "review-report"]

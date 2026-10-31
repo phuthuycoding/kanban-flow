@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { writeFileSync, existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,7 +58,7 @@ async function writeCfg(ship?: Record<string, unknown>): Promise<void> {
 
 const SPEC = "---\nstatus: confirmed\n---\n# Requirement\n## Objective\nShip the thing.\n## FR-001\nUser ships.\n## Affected surfaces\nN/A";
 
-/** Drive an item to review with a PASS pair, then (optionally) into shipping. */
+/** Drive an item to review with a PASS pair — the stage that now awaits the merge. */
 async function shipReadyItem(name = "demo"): Promise<void> {
   expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), SPEC);
@@ -105,50 +105,50 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-describe("schema: shipping stage (TC-001)", () => {
-  it("sits between review and dones with correct maps", () => {
-    expect(STAGES).toEqual(["brainstorm", "planning", "backlog", "implementation", "testing", "review", "shipping", "dones", "cancelled"]);
-    expect(TRANSITIONS.review).toContain("shipping");
-    expect(TRANSITIONS.review).toContain("dones");
-    expect(TRANSITIONS.shipping).toEqual(["dones"]);
-    expect(STAGE_GATES.shipping).toEqual([]);
-    expect(STAGE_INDEX.shipping).toBe(6);
-    expect(STAGE_INDEX.dones).toBe(7);
+describe("schema: no shipping stage (TC-001)", () => {
+  it("review hands straight to done with correct maps", () => {
+    expect(STAGES).toEqual(["brainstorm", "planning", "backlog", "implementation", "testing", "review", "done", "cancelled"]);
+    expect(TRANSITIONS.review).toEqual(["done", "implementation", "planning"]);
+    expect(STAGE_GATES.done).toEqual([]);
+    expect(STAGE_INDEX.review).toBe(5);
+    expect(STAGE_INDEX.done).toBe(6);
   });
 });
 
-describe("stage gate into shipping (TC-002, TC-003)", () => {
-  it("review + PASS enters shipping", async () => {
+describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
+  it("kf stage <x> shipping exits 1 with the shipping hint and moves nothing", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
     const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(feature().stage).toBe("shipping");
+    expect(res.code).toBe(1);
+    expect(res.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status closes the item");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(join(root, ".works", "shipping"))).toBe(false);
   });
 
-  it("creates a missing shipping directory before the move", async () => {
+  it("kf stage <x> dones exits 1 with the dones hint and moves nothing", async () => {
     await writeCfg({ enabled: false });
     await shipReadyItem();
-    rmSync(join(root, ".works", "shipping"), { recursive: true, force: true });
-    const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(feature().stage).toBe("shipping");
-    expect(existsSync(join(root, ".works", "shipping", feature().folder))).toBe(true);
+    const res = await cmdStage(args("stage", ["demo", "dones"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status, kf sync or kf archive");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(join(root, ".works", "dones"))).toBe(false);
   });
 
-  it("refuses without a PASS report and from other stages", async () => {
+  it("refuses done without a PASS report and from other stages", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
     // FAIL review blocks entry
     await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
       `---\nstatus: FAIL\nexecution: ${feature().meta?.executionId}\n---\n# Review\nNo.`);
-    const fail = await cmdStage(args("stage", ["demo", "shipping"]), root);
+    const fail = await cmdStage(args("stage", ["demo", "done"]), root);
     expect(fail.code).toBe(1);
     expect(feature().stage).toBe("review");
     // non-review stages have no edge at all
     const early = await cmdNew(args("new", ["early"], { context: "app" }), root);
     expect(early.code).toBe(0);
-    const res = await cmdStage(args("stage", ["early", "shipping"]), root);
+    const res = await cmdStage(args("stage", ["early", "done"]), root);
     expect(res.code).toBe(1);
     expect(feature("early").stage).toBe("brainstorm");
   });
@@ -166,13 +166,13 @@ describe("ship config parse (TC-004)", () => {
 });
 
 describe("kf ship pipeline (TC-005..TC-007)", () => {
-  it("refuses outside shipping and prints the manual checklist when disabled", async () => {
+  it("refuses outside review and prints the manual checklist when disabled", async () => {
     await writeCfg(); // no ship block
     await shipReadyItem();
-    const wrong = await cmdShip(args("ship", ["demo"]), root);
+    expect((await cmdNew(args("new", ["early"], { context: "app" }), root)).code).toBe(0);
+    const wrong = await cmdShip(args("ship", ["early"]), root);
     expect(wrong.code).toBe(1);
-    expect(wrong.stdout).toContain("shipping");
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
+    expect(wrong.stdout).toContain("review");
     const off = await cmdShip(args("ship", ["demo"]), root);
     expect(off.code).toBe(1);
     expect(off.stdout).toContain("Manual ship checklist");
@@ -182,7 +182,6 @@ describe("kf ship pipeline (TC-005..TC-007)", () => {
   it("publishes once, waits on manual merge, resumes to release+changelog after merge", async () => {
     await writeCfg({ enabled: true, merge: "manual", release: true, changelog: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
 
     const first = await cmdShip(args("ship", ["demo"]), root);
     expect(first.code, first.stdout).toBe(0);
@@ -211,7 +210,6 @@ describe("kf ship pipeline (TC-005..TC-007)", () => {
   it("auto merge schedules once; flags skip release/changelog", async () => {
     await writeCfg({ enabled: true, merge: "auto", release: true, changelog: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
     const r1 = await cmdShip(args("ship", ["demo"]), root);
     expect(r1.code).toBe(0);
     expect(ghLog()).toContain("pr merge https://github.com/o/r/pull/7 -R o/r --auto --squash");
@@ -227,36 +225,34 @@ describe("kf ship pipeline (TC-005..TC-007)", () => {
   });
 });
 
-describe("archive + sync cover shipping (TC-008, TC-009)", () => {
-  it("archive accepts shipping; unmerged recorded PR still refuses; review→dones direct works", async () => {
+describe("archive + sync from review (TC-008, TC-009)", () => {
+  it("unmerged recorded PR refuses at review; merged archives; review→done direct works", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem("a");
     await shipReadyItem("b");
-    await cmdStage(args("stage", ["a", "shipping"]), root);
-    // recorded PR still open → refuse from shipping
+    // recorded PR still open → refuse from review
     const { writeFeatureMeta } = await import("../workflow/features.js");
     await writeFeatureMeta(feature("a").dir, { ...feature("a").meta!, pr: "https://github.com/o/r/pull/7" });
     process.env.GH_STATE = "OPEN";
     const refuse = await cmdArchive(args("archive", ["a"]), root);
     expect(refuse.code).toBe(1);
-    expect(feature("a").stage).toBe("shipping");
-    // merged → archives from shipping
+    expect(feature("a").stage).toBe("review");
+    // merged → archives from review
     process.env.GH_STATE = "MERGED";
     await writeFile(join(feature("a").dir, ARTIFACTS["feature-report"].file), "# Report\nShipped.");
     const ok = await cmdArchive(args("archive", ["a"]), root);
     expect(ok.code, ok.stdout).toBe(0);
-    expect(feature("a").stage).toBe("dones");
-    // review → dones direct still works (non-code path)
+    expect(feature("a").stage).toBe("done");
+    // review → done direct still works (non-code path)
     await writeFile(join(feature("b").dir, ARTIFACTS["feature-report"].file), "# Report\nDone.");
     const direct = await cmdArchive(args("archive", ["b"]), root);
     expect(direct.code, direct.stdout).toBe(0);
-    expect(feature("b").stage).toBe("dones");
+    expect(feature("b").stage).toBe("done");
   });
 
-  it("kf sync sweeps shipping items with merged PRs", async () => {
+  it("kf sync sweeps review items with merged PRs", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
     const { writeFeatureMeta } = await import("../workflow/features.js");
     await writeFeatureMeta(feature().dir, { ...feature().meta!, pr: "https://github.com/o/r/pull/7" });
     process.env.GH_STATE = "MERGED";
@@ -264,16 +260,15 @@ describe("archive + sync cover shipping (TC-008, TC-009)", () => {
     const res = await cmdSync(args("sync"), root);
     expect(res.code, res.stdout).toBe(0);
     expect(res.stdout).toContain("archived");
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
   });
 
-  it("cancel from shipping returns via its recorded stage", async () => {
+  it("cancel from review returns via its recorded stage", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
     const res = await cmdCancel(args("cancel", ["demo"], { reason: "no longer needed" }), root);
     expect(res.code, res.stdout).toBe(0);
     expect(feature().stage).toBe("cancelled");
-    expect(feature().meta!.cancellation!.fromStage).toBe("shipping");
+    expect(feature().meta!.cancellation!.fromStage).toBe("review");
   });
 });

@@ -3,7 +3,7 @@ import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
+import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
@@ -326,11 +326,13 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
   return meta;
 }
 
+// History written by earlier releases names `dones` and `shipping`; an item must still load so
+// the one-time migration can rewrite it, so these readers accept the legacy names alongside STAGES.
 function isBypass(value: unknown): value is Bypass {
   if (!value || typeof value !== "object") return false;
   const b = value as Partial<Bypass>;
-  return typeof b.at === "string" && (b.from === null || (typeof b.from === "string" && STAGES.includes(b.from)))
-    && typeof b.to === "string" && STAGES.includes(b.to)
+  return typeof b.at === "string" && (b.from === null || (typeof b.from === "string" && isStageOrLegacy(b.from)))
+    && typeof b.to === "string" && isStageOrLegacy(b.to)
     && (b.flag === "force" || b.flag === "skip-hooks")
     && Array.isArray(b.codes) && b.codes.every((c) => typeof c === "string");
 }
@@ -339,7 +341,7 @@ function isCancellation(value: unknown): value is Cancellation {
   if (!value || typeof value !== "object") return false;
   const c = value as Partial<Cancellation>;
   return typeof c.at === "string" && typeof c.by === "string" && typeof c.reason === "string"
-    && typeof c.fromStage === "string" && STAGES.includes(c.fromStage);
+    && typeof c.fromStage === "string" && isStageOrLegacy(c.fromStage);
 }
 
 const RUN_STATUSES = ["running", "done", "failed", "timeout", "reset"];
@@ -351,7 +353,7 @@ function isRunRecord(value: unknown): value is RunRecord {
     || typeof r.chain.id !== "string" || typeof r.chain.index !== "number" || typeof r.chain.total !== "number")) return false;
   if (r.task !== undefined && typeof r.task !== "string") return false;
   return typeof r.id === "string" && typeof r.role === "string" && typeof r.runner === "string"
-    && typeof r.stage === "string" && STAGES.includes(r.stage)
+    && typeof r.stage === "string" && isStageOrLegacy(r.stage)
     && (r.mode === "start" || r.mode === "resume") && typeof r.at === "string" && typeof r.log === "string"
     && typeof r.status === "string" && RUN_STATUSES.includes(r.status);
 }
@@ -415,7 +417,7 @@ function isDirectory(path: string): boolean {
   return stats !== undefined && stats.isDirectory();
 }
 
-/** List all features found under a `.works` root, in stage order (brainstorm → dones). */
+/** List all features found under a `.works` root, in stage order (brainstorm → done). */
 export function listFeatures(root: string): Feature[] {
   const out: Feature[] = [];
   // Within a stage, sort by folder name desc — the trailing timestamp approximates newest first.

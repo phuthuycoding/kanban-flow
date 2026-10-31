@@ -99,7 +99,7 @@ describe("install/uninstall (project scope)", () => {
   it("uninstall --purge --force removes skills plus .works/, .kf/ and kanban doc dirs", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     await cmdInstall([], { cwd: dir, scope: "project" });
-    await mkdir(join(dir, ".works", "dones", "x"), { recursive: true });
+    await mkdir(join(dir, ".works", "done", "x"), { recursive: true });
     await mkdir(join(dir, ".kf", "review", "rules"), { recursive: true });
     await mkdir(join(dir, "docs", "requirement"), { recursive: true });
     await mkdir(join(dir, "docs", "notes"), { recursive: true });

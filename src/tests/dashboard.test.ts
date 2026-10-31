@@ -80,7 +80,7 @@ describe("dashboardData", () => {
       approval: { status: "approved", contractHash: executionContractHash(bug, "bug")! },
     });
     await item("feature-e", "brainstorm", "feature", "app");
-    await item("feature-f", "dones", "feature", "app", "- [x] Archived task");
+    await item("feature-f", "done", "feature", "app", "- [x] Archived task");
     const data = dashboardData(dir);
     expect(data.metrics).toEqual({
       total: 6, features: 4, bugs: 2, executing: 3, backlog: 1, completed: 1, cancelled: 0, completionRate: 17, bypassed: 0, runs: { byRole: {}, usage: {} },
@@ -152,7 +152,7 @@ describe("dashboardData", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     const flow = elements["#flow-chart"].innerHTML;
-    for (const stage of ["brainstorm", "planning", "implementation", "testing", "review", "shipping", "dones"]) {
+    for (const stage of ["brainstorm", "planning", "implementation", "testing", "review", "done"]) {
       expect(flow, stage).toContain(">" + stage + "<");
     }
     expect(flow, "backlog branches off and is not a node on the line").not.toContain(">backlog<");

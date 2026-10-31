@@ -208,7 +208,7 @@ describe("what kf doctor promises about itself", () => {
 
   it("gives --json the same findings and the same verdict as the text", async () => {
     await project();
-    await rm(join(root, ".works", "dones"), { recursive: true });
+    await rm(join(root, ".works", "done"), { recursive: true });
     const text = await cmdDoctor(args("doctor"), root);
     const json = await cmdDoctor(args("doctor", [], { json: true }), root);
     const parsed = JSON.parse(json.stdout) as { ok: boolean; findings: Array<{ message: string }> };
@@ -310,16 +310,34 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
 
     // Opted in via one file — the rest are missing and the one present is stale.
-    await writeFile(join(hooks, "dones.sh"), "#!/usr/bin/env bash\n# edited\n");
+    await writeFile(join(hooks, "review.sh"), "#!/usr/bin/env bash\n# edited\n");
     const report = runDoctor(root);
     expect(report.findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
-    expect(report.findings.some((f) => f.message.includes("dones.sh differs"))).toBe(true);
+    expect(report.findings.some((f) => f.message.includes("review.sh differs"))).toBe(true);
 
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain("restored .kf/hooks/lib-github.sh");
     expect(existsSync(join(hooks, "brainstorm.sh"))).toBe(true);
     // The project-edited file is never clobbered.
-    await expect(readFile(join(hooks, "dones.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
+    await expect(readFile(join(hooks, "review.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
+  });
+
+  it("reports a legacy statusMap once and --fix rewrites it to the new stage keys", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.project = { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Shipping", review: "In review" } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("statusmap_legacy"));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].level).toBe("WARNING");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("rewrote project.statusMap legacy keys");
+    const after = JSON.parse(await readFile(path, "utf8")) as { project: { statusMap: Record<string, string> } };
+    expect(after.project.statusMap).toEqual({ review: "In review", done: "Done" });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
   });
 
   it("drops legacy config fields but leaves judgment calls alone", async () => {

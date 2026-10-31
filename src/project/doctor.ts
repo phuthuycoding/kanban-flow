@@ -114,12 +114,12 @@ function checkItemMetadata(root: string): DoctorFinding[] {
 /** An archived item with a linked issue but no `delivered` flag is pending the human's delivery step. */
 function checkUndelivered(root: string): DoctorFinding[] {
   return listFeatures(root)
-    .filter((f) => f.stage === "dones" && f.meta?.issue && !f.meta.delivered)
+    .filter((f) => f.stage === "done" && f.meta?.issue && !f.meta.delivered)
     .map((f) => ({
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
       message: `archived with a linked issue but not marked delivered.`,
-      action: `kf archive ${f.name} (finalizes delivery — closes the issue, board → dones status)`,
+      action: `kf archive ${f.name} (finalizes delivery — closes the issue, board → done status)`,
     }));
 }
 
@@ -141,8 +141,19 @@ function checkStatusMap(cfg: ReturnType<typeof readProjectConfig> | null): Docto
   return [{
     level: "WARNING" as const,
     area: ".kf/config.json",
-    message: `statusMap.delivered is dead config — archive owns delivery now (recommended: map dones to "Done").`,
+    message: `statusMap.delivered is dead config — archive owns delivery now (recommended: map done to "Done").`,
     action: `remove the "delivered" key from project.statusMap`,
+  }];
+}
+
+/** A statusMap still keyed by `dones`/`shipping` is read under the new names; the file says otherwise until --fix rewrites it. */
+function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+  if (!cfg?.project?.statusMapLegacy) return [];
+  return [{
+    level: "WARNING" as const,
+    area: ".kf/config.json",
+    message: `statusmap_legacy: project.statusMap uses the legacy stage keys "dones" (now "done") or "shipping" (removed).`,
+    action: "kf doctor --fix (renames dones to done and drops shipping)",
   }];
 }
 
@@ -304,7 +315,7 @@ function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): 
 /** Roles an open item's plan names that `harness.roles` does not declare. */
 function plannedRolesMissing(root: string, roles: Record<string, unknown>): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
-  for (const f of listFeatures(root).filter((x) => x.stage !== "dones")) {
+  for (const f of listFeatures(root).filter((x) => x.stage !== "done")) {
     const planFile = join(f.dir, ARTIFACTS["implementation-plan"].file);
     if (!existsSync(planFile)) continue;
     const missing = new Map<string, string[]>();
@@ -341,7 +352,7 @@ function staleTaskWorktrees(root: string, cfg: ReturnType<typeof readProjectConf
   const findings: DoctorFinding[] = [];
   for (const dir of dirs) {
     const feature = dir.slice(0, -".tasks".length);
-    const item = items.find((i) => i.name === feature && i.stage !== "dones");
+    const item = items.find((i) => i.name === feature && i.stage !== "done");
     if (item && hasLiveRunOrDrive(item.meta)) continue;
     for (const entry of taskWorktreeEntries(root, wt, feature)) {
       findings.push({
@@ -425,6 +436,7 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkUndelivered(root));
   findings.push(...checkAwaitingMerge(root));
   findings.push(...checkStatusMap(config.cfg));
+  findings.push(...checkStatusMapLegacy(config.cfg));
   findings.push(...checkHarness(root, config.cfg));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
@@ -475,6 +487,16 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
       if (raw.defaultContext !== undefined && cfg?.contexts && cfg.contexts.length > 0) {
         delete raw.defaultContext;
         fixed.push(`removed "defaultContext" (ignored; contexts[0] is "${cfg.contexts[0]}")`);
+        changed = true;
+      }
+      const project = raw.project as Record<string, unknown> | undefined;
+      const statusMap = project?.statusMap as Record<string, unknown> | undefined;
+      if (cfg?.project?.statusMapLegacy && statusMap) {
+        // An explicit `done` beside the legacy `dones` wins, the same choice the reader makes.
+        if (statusMap.dones !== undefined && statusMap.done === undefined) statusMap.done = statusMap.dones;
+        delete statusMap.dones;
+        delete statusMap.shipping;
+        fixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
         changed = true;
       }
       if (raw.repository === undefined && cfg) {

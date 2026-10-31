@@ -96,7 +96,7 @@ const DOCS = [
 const RECORDED = {
   success: {
     code: 0,
-    stdout: `✓ Archived 'shipit'  review → dones\n  <root>/.works/dones/<folder>\n  Canonical docs synced:\n${DOCS.map((d) => `    <root>/${d}`).join("\n")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.`,
+    stdout: `✓ Archived 'shipit'  review → done\n  <root>/.works/done/<folder>\n  Canonical docs synced:\n${DOCS.map((d) => `    <root>/${d}`).join("\n")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.`,
   },
   unmerged: {
     code: 1,
@@ -105,12 +105,12 @@ const RECORDED = {
   },
   wrongStage: {
     code: 1,
-    stdout: "Cannot archive 'shipit': feature is in stage \"implementation\". Archive only from review or shipping (run: kf stage shipit review first).",
+    stdout: "Cannot archive 'shipit': feature is in stage \"implementation\". Archive only from review (run: kf stage shipit review first).",
     stderr: "wrong stage",
   },
   reconcile: {
     code: 0,
-    stdout: `Feature 'shipit' is already in dones.\nCanonical docs synced:\n${DOCS.map((d) => `  <root>/${d}`).join("\n")}\n  Delivery finalized — item was already marked delivered; side effects re-checked.`,
+    stdout: `Feature 'shipit' is already in done.\nCanonical docs synced:\n${DOCS.map((d) => `  <root>/${d}`).join("\n")}\n  Delivery finalized — item was already marked delivered; side effects re-checked.`,
   },
 };
 
@@ -125,13 +125,13 @@ describe("archiveItem — typed outcome", () => {
     expect(outcome.kind).toBe("archived");
     if (outcome.kind !== "archived") return;
     expect(outcome.from).toBe("review");
-    expect(outcome.dir).toBe(join(root, ".works", "dones", folder));
+    expect(outcome.dir).toBe(join(root, ".works", "done", folder));
     expect(outcome.docs.map((d) => normalize(d))).toEqual(DOCS.map((d) => `<root>/${d}`));
     expect(outcome.bypasses).toEqual([]);
     expect(outcome.teardown).toBeNull();
     expect(outcome).not.toHaveProperty("stdout");
     expect(render(renderArchive(outcome), folder)).toEqual(RECORDED.success);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
   });
 
@@ -144,14 +144,14 @@ describe("archiveItem — typed outcome", () => {
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });
 
-  it("refuses an item outside review/shipping", async () => {
+  it("refuses an item outside review", async () => {
     await implementationStage();
     const outcome = await archiveItem(root, "shipit");
     expect(outcome).toEqual({ kind: "refused", reason: "wrong-stage", stderrTag: RECORDED.wrongStage.stderr, stdout: RECORDED.wrongStage.stdout });
     expect(feature().stage).toBe("implementation");
   });
 
-  it("reconciles an item already in dones", async () => {
+  it("reconciles an item already in done", async () => {
     await reviewStage();
     expect((await archiveItem(root, "shipit")).kind).toBe("archived");
     const outcome = await archiveItem(root, "shipit");
@@ -183,7 +183,7 @@ describe("kf archive renders byte-identically to the recorded output", () => {
     expect(await cmdArchive(args("archive", ["shipit"]), root)).toEqual(RECORDED.wrongStage);
   });
 
-  it("reconcile of an already-dones item", async () => {
+  it("reconcile of an already-done item", async () => {
     await reviewStage();
     expect((await cmdArchive(args("archive", ["shipit"]), root)).code).toBe(0);
     const res = await cmdArchive(args("archive", ["shipit"]), root);

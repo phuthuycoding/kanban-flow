@@ -106,14 +106,14 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("mergedbug: archived");
     expect(res.stdout).toContain("openitem: skipped");
-    expect(feature("mergedbug").stage).toBe("dones");
+    expect(feature("mergedbug").stage).toBe("done");
     expect(readFeatureMeta(feature("mergedbug").dir)!.delivered).toBe(true);
     expect(feature("openitem").stage).toBe("review");
     expect(feature("nopritem").stage).toBe("review");
   });
 
-  it("leaves delivered dones items alone so later doc edits do not fail the sweep", async () => {
-    await seedItem("dones", "shipped", { pr: "https://github.com/o/r/pull/14", delivered: true });
+  it("leaves delivered done items alone so later doc edits do not fail the sweep", async () => {
+    await seedItem("done", "shipped", { pr: "https://github.com/o/r/pull/14", delivered: true });
     process.env.GH_FAIL = "1";
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(0);
@@ -154,7 +154,7 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("✗ baditem");
     expect(res.stdout).toContain("goodbug: archived");
-    expect(feature("goodbug").stage).toBe("dones");
+    expect(feature("goodbug").stage).toBe("done");
     expect(feature("baditem").stage).toBe("review");
   });
 });
