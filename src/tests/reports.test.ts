@@ -96,12 +96,12 @@ async function reviewBug(fm: string, opts: { pr?: string; stage?: "review" | "do
   await writeFile(join(dir, "phase-5-review-report.md"), `---\nexecution: run-1\n${fm}\n---\n# Review Report\nReviewed.\n`);
 }
 
-const DELIVERY = ["review_ci_red", "review_pr_missing", "review_landing_missing"];
+const DELIVERY = ["review_ci_red", "review_ci_missing", "review_pr_missing", "review_landing_missing"];
 const delivery = () => validateFeature(findFeature(root, "demo")!).issues
   .filter((i) => DELIVERY.includes(i.code)).map((i) => `${i.severity} ${i.code}`);
 
-describe("review report delivery: ci and landing (FR-003, FR-004, UC-002)", () => {
-  it("TC-009: PASS with ci: red is review_ci_red; ci: green clears it", async () => {
+describe("review report delivery: ci and landing", () => {
+  it("PASS with ci: red is review_ci_red; ci: green clears it", async () => {
     await reviewBug("status: PASS\nci: red\nlanding: pr", { pr: PR });
     expect(delivery()).toEqual(["ERROR review_ci_red"]);
     await reviewBug("status: PASS\nci: green\nlanding: pr", { pr: PR });
@@ -109,13 +109,31 @@ describe("review report delivery: ci and landing (FR-003, FR-004, UC-002)", () =
     expect(validateFeature(findFeature(root, "demo")!).valid).toBe(true);
   });
 
-  it("TC-010: landing: pr without meta.pr is review_pr_missing; landing: none is clean; no landing is review_landing_missing", async () => {
+  it("landing: pr without meta.pr is review_pr_missing; landing: none is clean; no landing is review_landing_missing", async () => {
     await reviewBug("status: PASS\nci: green\nlanding: pr");
     expect(delivery()).toEqual(["ERROR review_pr_missing"]);
     await reviewBug("status: PASS\nci: green\nlanding: none");
     expect(delivery()).toEqual([]);
     await reviewBug("status: PASS\nci: green");
     expect(delivery()).toEqual(["ERROR review_landing_missing"]);
+  });
+
+  it("PASS with ci: pending or no ci at all is review_ci_missing; ci: green and ci: none are clean", async () => {
+    await reviewBug("status: PASS\nci: pending\nlanding: none");
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+    await reviewBug("status: PASS\nlanding: none");
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+    await reviewBug("status: PASS\nci: green\nlanding: none");
+    expect(delivery()).toEqual([]);
+    await reviewBug("status: PASS\nci: none\nlanding: none");
+    expect(delivery()).toEqual([]);
+  });
+
+  it("treats a ci value that is not exactly green, red or none as missing", async () => {
+    await reviewBug("status: PASS\nci: RED\nlanding: none");
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+    await reviewBug('status: PASS\nci: "{ci}"\nlanding: none');
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
   });
 
   it("treats a landing value other than pr or none as missing", async () => {

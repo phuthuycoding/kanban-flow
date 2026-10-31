@@ -582,13 +582,13 @@ describe("CLI output and persisted data", () => {
   });
 });
 
-describe("review → done delivery gate (FR-003, FR-004, UC-002)", () => {
+describe("review → done delivery gate", () => {
   const reviewReport = (fm: string) => writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
     `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${fm}\n---\n# Review\nReviewed.\n`);
   const gateCodes = () => checkDirectionGate(feature(), "done").map((i) => i.code);
   const recordPr = () => writeFeatureMeta(feature().dir, { ...readFeatureMeta(feature().dir)!, pr: "https://github.com/acme/app/pull/7" });
 
-  it("TC-009: refuses done on a PASS report with ci: red, through the gate and kf archive", async () => {
+  it("refuses done on a PASS report with ci: red, through the gate and kf archive", async () => {
     await review();
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nCurrent summary");
     await reviewReport("ci: red\nlanding: none");
@@ -603,7 +603,7 @@ describe("review → done delivery gate (FR-003, FR-004, UC-002)", () => {
     expect(feature().stage).toBe("done");
   });
 
-  it("TC-010: the gate needs a recorded PR for landing: pr and a landing value at all", async () => {
+  it("the gate needs a recorded PR for landing: pr and a landing value at all", async () => {
     await review();
     await reviewReport("ci: green\nlanding: pr");
     expect(gateCodes()).toEqual(["review_pr_missing"]);
@@ -611,6 +611,16 @@ describe("review → done delivery gate (FR-003, FR-004, UC-002)", () => {
     expect(gateCodes()).toEqual([]);
     await reviewReport("ci: green");
     expect(gateCodes()).toEqual(["review_landing_missing"]);
+  });
+
+  it("the gate refuses done on a PASS report with ci: pending or no ci", async () => {
+    await review();
+    await reviewReport("ci: pending\nlanding: none");
+    expect(gateCodes()).toEqual(["review_ci_missing"]);
+    await reviewReport("landing: none");
+    expect(gateCodes()).toEqual(["review_ci_missing"]);
+    await reviewReport("ci: none\nlanding: none");
+    expect(gateCodes()).toEqual([]);
   });
 
   it("kf validate names the delivery code for an item in review", async () => {
@@ -627,6 +637,6 @@ describe("review → done delivery gate (FR-003, FR-004, UC-002)", () => {
     expect(out).toMatch(/^landing: "\{landing\}"$/m);
     for (const value of ["`green`", "`red`", "`none`", "`pr`"]) expect(out).toContain(value);
     expect(out).toContain("kf issues link <feature> <url> --pr");
-    expect(out).toContain("PASS requires `ci` other than `red`, and either `landing: pr` with the PR recorded or `landing: none`.");
+    expect(out).toContain("PASS requires `ci: green` or `ci: none` (any other or missing value is refused), and either `landing: pr` with the PR recorded or `landing: none`.");
   });
 });

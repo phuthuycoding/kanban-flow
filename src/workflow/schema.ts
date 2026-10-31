@@ -27,6 +27,9 @@ export type WorkItemKind = "feature" | "bug";
 /** Review report frontmatter `landing:` — `pr` lands through the recorded `meta.pr`; `none` means nothing to land. */
 export const REVIEW_LANDING_VALUES = ["pr", "none"] as const;
 
+/** Review report frontmatter `ci:` — `green` passed, `red` failed, `none` means no CI runs on the PR. */
+export const REVIEW_CI_VALUES = ["green", "red", "none"] as const;
+
 export const ARTIFACT_IDS = [
   "spec-requirement",
   "implementation-plan",

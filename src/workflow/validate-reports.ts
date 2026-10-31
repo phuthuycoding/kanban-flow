@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { ARTIFACTS, STAGE_INDEX, REVIEW_LANDING_VALUES, type ArtifactId } from "./schema.js";
+import { ARTIFACTS, STAGE_INDEX, REVIEW_CI_VALUES, REVIEW_LANDING_VALUES, type ArtifactId } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
@@ -85,7 +85,7 @@ export function checkTestingResult(feature: Feature): Finding[] {
 }
 
 /**
- * Delivery half of a PASS review report: CI is not red, and the code either lands through a
+ * Delivery half of a PASS review report: CI is green or absent (`ci: none`), and the code either lands through a
  * recorded PR (`landing: pr` + `meta.pr`) or there is nothing to land (`landing: none`).
  * Empty for any status other than PASS. Shared by `kf validate` and the review → done gate.
  */
@@ -93,7 +93,11 @@ export function checkReviewDelivery(feature: Feature, fm: Record<string, string>
   if (fm.status !== "PASS") return [];
   const issues: Finding[] = [];
   const file = ARTIFACTS["review-report"].file;
-  if (fm.ci === "red") {
+  const ci = fm.ci ?? "";
+  if (!(REVIEW_CI_VALUES as readonly string[]).includes(ci)) {
+    issues.push(finding(feature, "ERROR", file, "review_ci_missing",
+      `PASS needs ci: green or ci: none in the frontmatter (ci: red cannot pass; found "${ci}").`));
+  } else if (ci === "red") {
     issues.push(finding(feature, "ERROR", file, "review_ci_red",
       "PASS with ci: red — a red CI run cannot pass review; write FAIL and return to implementation."));
   }
