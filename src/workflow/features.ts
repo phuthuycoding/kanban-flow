@@ -3,7 +3,7 @@ import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
+import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type LegacyStageName, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
@@ -18,8 +18,8 @@ export interface Approval {
 /** One deliberate gate/hook bypass (`--force` / `--skip-hooks`), appended by the CLI and never removed by it. */
 export interface Bypass {
   at: string;
-  from: Stage | null;
-  to: Stage;
+  from: Stage | LegacyStageName | null;
+  to: Stage | LegacyStageName;
   flag: "force" | "skip-hooks";
   /** Validation codes that were ignored, or `hook:<path>` for a skipped hook. */
   codes: string[];
@@ -30,7 +30,7 @@ export interface Cancellation {
   at: string;
   by: string;
   reason: string;
-  fromStage: Stage;
+  fromStage: Stage | LegacyStageName;
 }
 
 export type RunStatus = "running" | "done" | "failed" | "timeout" | "reset";
@@ -42,7 +42,7 @@ export interface RunRecord {
   role: string;
   /** Runner that actually executed the role, kept so a role can change model later. */
   runner: string;
-  stage: Stage;
+  stage: Stage | LegacyStageName;
   mode: "start" | "resume";
   session?: string;
   at: string;

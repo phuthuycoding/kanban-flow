@@ -204,6 +204,25 @@ describe("kf status tells the truth about what is blocking", () => {
     });
     expect(computeStatus(findFeature(root, "todo-list")!).blockers).toEqual([]);
   });
+
+  it("prints a legacy stage in a cancellation or bypass as the stage that replaced it", async () => {
+    await makeFeature("todo-list", "planning");
+    const src = findFeature(root, "todo-list")!.dir;
+    const dest = join(root, ".works", "cancelled", "todo-list_20260916_1800");
+    await mkdir(join(root, ".works", "cancelled"), { recursive: true });
+    await rename(src, dest);
+    await writeFeatureMeta(dest, {
+      schema: "kanban-flow", feature: "todo-list", context: "app", created: "20260916_1800",
+      status: "cancelled",
+      cancellation: { at: "20260916_1900", by: "human", reason: "dropped", fromStage: "shipping" },
+      bypasses: [{ at: "20260916_1850", from: "review", to: "dones", flag: "force", codes: ["x"] }],
+    });
+    const text = renderStatusText(computeStatus(findFeature(root, "todo-list")!));
+    expect(text).toContain("(was review)");
+    expect(text).toContain("--force → done");
+    expect(text).not.toContain("shipping");
+    expect(text).not.toContain("dones");
+  });
 });
 
 describe("validateFeature", () => {

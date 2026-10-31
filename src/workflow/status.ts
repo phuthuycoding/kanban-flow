@@ -11,6 +11,8 @@ import {
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
+import { LEGACY_REOPEN_STAGE } from "./transition.js";
+import type { LegacyStageName, Stage } from "./schema.js";
 import { driveLive, executionContractHash } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
 import { validateFeature } from "./validate.js";
@@ -67,6 +69,11 @@ export type CloseState =
   | { kind: "awaiting-merge"; pr: string }
   | { kind: "pr-closed"; pr: string }
   | { kind: "refused"; detail: string };
+
+/** History written by earlier releases names removed stages; show the stage `kf stage` accepts today. */
+function currentStageName(stage: Stage | LegacyStageName): Stage {
+  return Object.hasOwn(LEGACY_REOPEN_STAGE, stage) ? LEGACY_REOPEN_STAGE[stage as LegacyStageName] : stage as Stage;
+}
 
 function readArtifactContent(dir: string, file: string): string {
   const p = join(dir, file);
@@ -206,10 +213,10 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`);
   }
   const bypasses = s.feature.meta?.bypasses ?? [];
-  if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${b.to}`).join(", ")})`);
+  if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);
   const cancellation = s.feature.meta?.cancellation;
   if (cancellation) {
-    lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${cancellation.fromStage}) — ${cancellation.reason.split("\n")[0]}`);
+    lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${currentStageName(cancellation.fromStage)}) — ${cancellation.reason.split("\n")[0]}`);
   }
   if (s.assignedRoles.length > 0) lines.push(`Assigned: ${s.assignedRoles.map((a) => `${a.role} (${a.runner})`).join(" → ")} (kf run)`);
   const runs = s.feature.meta?.runs ?? [];

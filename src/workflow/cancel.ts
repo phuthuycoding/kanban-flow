@@ -1,5 +1,5 @@
 import { rename, rm } from "node:fs/promises";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { findFeature, stageDir, writeFeatureMeta, type Bypass, type Cancellation } from "./features.js";
@@ -7,6 +7,7 @@ import { withLock } from "../shared/lock.js";
 import { findSecretLike } from "./validate.js";
 import { runningRun } from "../harness/run.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
+import { WorktreeDirtyError } from "../worktree/manager.js";
 import { readProjectConfig } from "../project/config.js";
 import { nowTimestamp } from "../shared/time.js";
 import { canonicalDocPaths } from "./canonical-docs.js";
@@ -39,6 +40,7 @@ export type CancelRefusalReason =
   | "run-in-progress"
   | "purge-unconfirmed"
   | "worktree-dirty"
+  | "teardown-failed"
   | "changed-concurrently";
 
 export type CancelOutcome =
@@ -161,7 +163,13 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
     try {
       teardown = await teardownWorktree(root, f, wtCfg);
     } catch (err) {
-      return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err instanceof Error ? err.message : String(err)}`);
+      if (err instanceof WorktreeDirtyError) {
+        return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err.message}`);
+      }
+      // Teardown checks dirtiness first; any other failure may come after `git worktree remove`.
+      const where = f.meta.worktree.path;
+      const left = existsSync(where) ? `The worktree ${where} is still on disk.` : `The worktree ${where} was already removed.`;
+      return refuse("teardown-failed", "teardown failed", `Cannot cancel '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}. ${left} The item was not cancelled. Fix the cause, then re-run: kf cancel ${name}`);
     }
   }
 

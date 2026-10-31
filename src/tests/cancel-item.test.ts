@@ -91,6 +91,21 @@ describe("cancelItem returns a typed outcome", () => {
     expect(forced.bypasses[0]).toMatchObject({ flag: "force", to: "cancelled", codes: ["run_in_progress"] });
   });
 
+  it("reports a teardown failure that is not a dirty worktree as its own refusal", async () => {
+    const routesFile = join(root, "routes.json");
+    await writeFile(routesFile, "{");
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: true, routesFile } }));
+    const path = join(root, "gone-worktree");
+    await addItem("wt", "implementation", { worktree: { path, branch: "t/wt", domain: "wt.test", port: 4000, createdAt: "20260919_1200" } });
+
+    const outcome = await cancelItem(root, "wt", { reason: "stop" });
+    expect(outcome.kind === "refused" && outcome.reason).toBe("teardown-failed");
+    const text = outcome.kind === "refused" ? outcome.stdout : "";
+    expect(text).toContain("Cannot cancel 'wt': worktree teardown failed:");
+    expect(text).toContain(`The worktree ${path} was already removed. The item was not cancelled.`);
+    expect(findFeature(root, "wt")!.stage).toBe("implementation");
+  });
+
   it("asks the caller before purging, and keeps everything when declined", async () => {
     const doc = join(root, "docs", "requirement", "app", "arch.md");
     await mkdir(join(doc, ".."), { recursive: true });
