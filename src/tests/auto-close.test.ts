@@ -35,7 +35,7 @@ const status = (options: Record<string, unknown> = { change: "demo" }) => cmdSta
 /**
  * gh stub: logs argv; `pr view` answers $GH_PR_STATE (default MERGED) with head $GH_PR_HEAD_NAME
  * (default t/demo) at $GH_PR_HEAD_OID (default: that branch's tip on the bare origin, a fixed
- * oid once it is gone there);
+ * oid once it is gone there); `pr list` answers $GH_PR_LIST (default []);
  * $GH_FAIL makes every call fail.
  */
 const GH_STUB = `#!/usr/bin/env bash
@@ -48,17 +48,19 @@ case "$1" in
       oid="\${GH_PR_HEAD_OID:-$(git -C "$GH_ORIGIN" rev-parse -q --verify "refs/heads/$head")}"
       oid="\${oid:-0123456789abcdef0123456789abcdef01234567}"
       printf '{"state":"%s","headRefName":"%s","headRefOid":"%s"}\\n' "\${GH_PR_STATE:-MERGED}" "$head" "$oid"
-    fi; exit 0 ;;
+    fi
+    if [ "$2" = list ]; then echo "\${GH_PR_LIST:-[]}"; fi
+    exit 0 ;;
 esac
 exit 0
 `;
 
-/** done hook: records the env it got and whether the item branch still existed when it ran. */
+/** done hook: appends the env it got and whether the item branch still existed when it ran, once per run. */
 const DONE_HOOK = `#!/bin/sh
 {
   echo "status_done=$KFW_PROJECT_STATUS_DONE"
   echo "branch_at_hook=$(git -C "$KFW_WORK_ROOT" branch --list t/demo | tr -d ' *+')"
-} > "$KFW_WORK_ROOT/../hook.out"
+} >> "$KFW_WORK_ROOT/../hook.out"
 exit \${DONE_HOOK_EXIT:-0}
 `;
 
@@ -101,7 +103,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.env.PATH = prevPath;
-  for (const v of ["GH_CALLS", "GH_ORIGIN", "GH_FAIL", "GH_PR_STATE", "GH_PR_HEAD_NAME", "GH_PR_HEAD_OID", "DONE_HOOK_EXIT"]) delete process.env[v];
+  for (const v of ["GH_CALLS", "GH_ORIGIN", "GH_FAIL", "GH_PR_STATE", "GH_PR_HEAD_NAME", "GH_PR_HEAD_OID", "GH_PR_LIST", "DONE_HOOK_EXIT", "REAL_GIT", "RACE_REPO", "RACE_SHA"]) delete process.env[v];
   await rm(scratch, { recursive: true, force: true });
 });
 
@@ -232,11 +234,12 @@ describe("auto-close on merge", () => {
     await reviewItem("demo", { landing: "none" });
     const wt = feature().meta!.worktree!;
     process.env.GH_FAIL = "1";
+    const before = ghCalls();
     const res = await status();
     expect(res.code, res.stdout).toBe(0);
     expect(res.stdout).toContain("✓ done demo (nothing to land)");
     expect(res.stdout).toContain("Branch t/demo: deleted locally, not on origin");
-    expect(ghCalls()).not.toContain("pr view");
+    expect(ghCalls()).toBe(before);
     expect(feature().stage).toBe("done");
     expect(existsSync(wt.path)).toBe(false);
     expect(git(root, "branch", "--list", "t/demo")).toBe("");
@@ -400,16 +403,27 @@ describe("auto-close on merge", () => {
     expect(onOrigin("t/demo")).toContain("t/demo");
   }, 15_000);
 
-  it("a stale lease makes the remote refuse the branch delete and leaves the branch on origin", () => {
+  it("a branch that moves on origin between the probe and the delete is refused by the lease and stays on origin", async () => {
     git(root, "push", "-q", "origin", "HEAD:refs/heads/t/lease");
-    const stale = git(origin, "rev-parse", "refs/heads/t/lease");
-    git(root, "commit", "-q", "--allow-empty", "-m", "moved after the check");
-    git(root, "push", "-q", "origin", "HEAD:refs/heads/t/lease");
+    const probed = git(origin, "rev-parse", "refs/heads/t/lease");
+    git(root, "commit", "-q", "--allow-empty", "-m", "pushed by someone else mid-delete");
+    const moved = git(root, "rev-parse", "HEAD");
+    // git wrapper: right after the ls-remote probe answers, another client moves the branch on origin.
+    const raceBin = join(scratch, "racebin");
+    await mkdir(raceBin, { recursive: true });
+    await writeFile(join(raceBin, "git"), `#!/bin/sh
+"$REAL_GIT" "$@"; rc=$?
+case " $* " in *" ls-remote "*) "$REAL_GIT" -C "$RACE_REPO" push -q origin "$RACE_SHA:refs/heads/t/lease" ;; esac
+exit $rc
+`, { mode: 0o755 });
+    process.env.REAL_GIT = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    process.env.RACE_REPO = root;
+    process.env.RACE_SHA = moved;
+    process.env.PATH = `${raceBin}:${process.env.PATH}`;
 
-    expect(() => git(root, "push", "--quiet", `--force-with-lease=refs/heads/t/lease:${stale}`, "origin", "--delete", "t/lease")).toThrow();
-    expect(onOrigin("t/lease")).toContain("t/lease");
-    expect(deleteRemoteBranch(root, "origin", "t/lease", stale)).toEqual({ kind: "moved", sha: git(origin, "rev-parse", "refs/heads/t/lease") });
-    expect(onOrigin("t/lease")).toContain("t/lease");
+    const res = deleteRemoteBranch(root, "origin", "t/lease", probed);
+    expect(res.kind).toBe("refused");
+    expect(git(origin, "rev-parse", "refs/heads/t/lease")).toBe(moved);
   });
 
   it("a branch behind the merged head is reported as safe to delete by hand", async () => {
@@ -461,6 +475,8 @@ describe("auto-close on merge", () => {
     await reviewItem();
     const outcomes = await Promise.all([archiveItem(root, "demo"), archiveItem(root, "demo")]);
     expect(outcomes.map((o) => o.kind).sort()).toEqual(["archived", "refused"]);
+    // The hook appends once per run: exactly one run means the refused close never reached it.
+    expect(readFileSync(join(scratch, "hook.out"), "utf8").match(/^status_done=/gm)).toHaveLength(1);
     const refused = outcomes.find((o) => o.kind === "refused");
     expect(refused?.kind === "refused" && refused.reason).toBe("close-in-progress");
     expect(feature().stage).toBe("done");
@@ -512,15 +528,57 @@ describe("canonical docs when the primary checkout is behind origin", () => {
     expect(unpushed[0].action).toContain("git push -u origin docs/app-demo");
 
     const all = await status({ all: true });
-    expect(all.stdout).toContain("demo — docs/app-demo awaiting push: git push -u origin docs/app-demo");
+    expect(all.stdout).toMatch(/demo — docs\/app-demo not proven merged \(.+\): git push -u origin docs\/app-demo/);
 
     git(root, "push", "-q", "origin", "docs/app-demo");
     expect(runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"))).toHaveLength(0);
 
+    const docsUnpushed = () => runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+    const awaiting = async () => (await status({ all: true })).stdout.includes("docs/app-demo not proven merged");
+
+    // Deleted on origin without a merge (a PR closed unmerged): a pruned upstream proves nothing.
     git(root, "push", "-q", "-u", "origin", "docs/app-demo");
     git(root, "push", "-q", "origin", "--delete", "docs/app-demo");
     git(root, "fetch", "-q", "--prune", "origin");
-    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo awaiting push");
+    expect(docsUnpushed()).toHaveLength(1);
+    expect(await awaiting()).toBe(true);
+
+    // Merged into origin's default branch, then pruned: the tip is in origin/<default>.
+    git(root, "push", "-q", "origin", `docs/app-demo:${base}`);
+    git(root, "fetch", "-q", "--prune", "origin");
+    expect(docsUnpushed()).toHaveLength(0);
+    expect(await awaiting()).toBe(false);
+  }, 15_000);
+
+  it("a squash-merged and pruned docs branch is landed only on a merged PR for that head; gh failing proves nothing", async () => {
+    await reviewItem();
+    const base = git(root, "symbolic-ref", "--short", "HEAD");
+    writeFileSync(join(root, "upstream.txt"), "x");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "upstream");
+    git(root, "push", "-q", "origin", base);
+    git(root, "reset", "-q", "--hard", "HEAD~1");
+    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    git(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    git(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    git(root, "fetch", "-q", "--prune", "origin");
+    const tip = git(root, "rev-parse", "docs/app-demo");
+    // Only now point origin at GitHub, so the merged-PR check has a repository to ask; nothing fetches after this.
+    git(root, "remote", "set-url", "origin", "https://github.com/o/r.git");
+    const docsUnpushed = () => runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+
+    expect(docsUnpushed()).toHaveLength(1);
+    expect(ghCalls()).toContain("gh pr list -R o/r --head docs/app-demo --state merged --json number,headRefOid");
+
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: "0123456789abcdef0123456789abcdef01234567" }]);
+    expect(docsUnpushed()).toHaveLength(1);
+
+    process.env.GH_PR_LIST = JSON.stringify([{ number: 9, headRefOid: tip }]);
+    expect(docsUnpushed()).toHaveLength(0);
+    expect((await status({ all: true })).stdout).not.toContain("docs/app-demo not proven merged");
+
+    process.env.GH_FAIL = "1";
+    expect(docsUnpushed()).toHaveLength(1);
   }, 15_000);
 });
 
@@ -590,8 +648,8 @@ describe("a close that fails after the done hook says what is already gone", () 
     expect(outcome.kind === "refused" && outcome.reason).toBe("teardown-failed");
     const text = outcome.kind === "refused" ? outcome.stdout : "";
     expect(text).toContain("Cannot archive 'demo': worktree teardown failed:");
-    expect(text).toContain("The done hook already ran (issue closed, board moved).");
-    expect(text).toContain(`The worktree ${wt.path} was already removed. The branch was not deleted.`);
+    expect(text).toContain(`The done hook already ran (${join(root, ".kf", "hooks", "done.sh")}).`);
+    expect(text).toContain(`The worktree ${wt.path} was removed. The branch was not deleted.`);
     expect(feature().stage).toBe("review");
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(onOrigin("t/demo")).toContain("t/demo");
@@ -643,7 +701,7 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
       "  b — approve plan (or --backlog)",
       "Waiting to merge",
       `  c — ${PR}: gh pr merge 7`,
-      "  d — docs/app-d awaiting push: git push -u origin docs/app-d",
+      "  d — docs/app-d not proven merged (origin is not a GitHub repository, so a merged PR cannot be checked): git push -u origin docs/app-d",
       "Running: 1",
     ].join("\n"));
 

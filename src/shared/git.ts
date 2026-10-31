@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { gh } from "../integrations/github.js";
+import { detectRepository } from "../project/repository.js";
+
 export interface GitResult {
   code: number;
   stdout: string;
@@ -213,18 +216,42 @@ export function originDefaultRef(dir: string): string | null {
   throw new Error(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${res.code}) in ${dir}: ${res.stderr.trim()}`);
 }
 
+export type LandedProof =
+  | { landed: true; by: "ancestor" | "merged-pr" }
+  /** Not landed, or a check could not run (no GitHub origin, gh missing or failing): unproven is not landed. */
+  | { landed: false; reason: string };
+
 /**
- * A local branch whose work already reached origin even though origin no longer has the branch:
- * its tip is in origin's default branch, or it still tracks origin/<branch> as `git push -u` set
- * it, with that ref gone (the PR merged, GitHub deleted the branch and fetch --prune dropped the
- * ref — the case a squash merge leaves, where the tip is not an ancestor). The docs branch is cut
- * with --no-track, so that upstream exists only after the push.
+ * Whether a local branch's work reached origin's default branch: its tip is an ancestor of
+ * origin/<default>, or GitHub has a merged PR whose head is this branch at this tip (the squash
+ * merge case, where the tip is never an ancestor). A deleted or pruned upstream proves nothing —
+ * a PR closed unmerged leaves the same trace.
  */
-export function landedAndPruned(root: string, branch: string): boolean {
+export function landedProof(root: string, branch: string): LandedProof {
+  assertSafeArg("branch", branch);
+  const tip = revParse(root, `refs/heads/${branch}`);
+  if (!tip) return { landed: false, reason: `local branch ${branch} not found` };
   const base = originDefaultRef(root);
-  if (base && runGit(root, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, base]).code === 0) return true;
-  const upstream = (key: string) => runGit(root, ["config", "--get", `branch.${branch}.${key}`]).stdout.trim();
-  return upstream("remote") === "origin" && upstream("merge") === `refs/heads/${branch}`;
+  if (base && runGit(root, ["merge-base", "--is-ancestor", tip, base]).code === 0) return { landed: true, by: "ancestor" };
+  const repo = detectRepository(root);
+  if (!repo) return { landed: false, reason: "origin is not a GitHub repository, so a merged PR cannot be checked" };
+  const res = gh(["pr", "list", "-R", repo, "--head", branch, "--state", "merged", "--json", "number,headRefOid"]);
+  if (res.missing) return { landed: false, reason: "gh CLI not found, so a merged PR cannot be checked" };
+  if (!res.ok) return { landed: false, reason: `gh pr list failed: ${res.stderr.trim() || res.stdout.trim()}` };
+  let prs: unknown;
+  try {
+    prs = JSON.parse(res.stdout);
+  } catch (err) {
+    return { landed: false, reason: `gh pr list returned unparseable output (${(err as Error).message}): ${res.stdout.trim()}` };
+  }
+  if (!Array.isArray(prs)) return { landed: false, reason: `gh pr list returned unexpected output: ${res.stdout.trim()}` };
+  if (prs.some((pr) => (pr as { headRefOid?: unknown } | null)?.headRefOid === tip)) return { landed: true, by: "merged-pr" };
+  return { landed: false, reason: `no merged PR has ${branch} at ${tip.slice(0, 12)} as its head` };
+}
+
+/** A local branch whose work is proven to have reached origin's default branch; see landedProof. */
+export function landedAndPruned(root: string, branch: string): boolean {
+  return landedProof(root, branch).landed;
 }
 
 /** Fetch one branch of a remote so its remote-tracking ref is current; returns git's result. */
