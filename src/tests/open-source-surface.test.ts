@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderDashboardHtml, dashboardData } from "../dashboard/dashboard.js";
 import { PHASE_NAMES, STAGES } from "../workflow/schema.js";
+import { cmdStage } from "../cli/commands/stage.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -105,6 +107,70 @@ describe("the phase skills follow the merge-closes flow", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(review).toContain("kf issues link {feature_name} <PR URL> --pr");
     expect(existsSync(join(ROOT, "skills", "kanban-review", "references", "ci-watch.md"))).toBe(true);
+  });
+});
+
+describe("the review skill keeps the close possible", () => {
+  const review = readFileSync(join(ROOT, "skills", "kanban-review", "SKILL.md"), "utf8");
+
+  it("logs the landing gate inside the ignored item folder, never in a tracked tree", () => {
+    expect(review).toContain("Append one line per board to `<item>/reviews/review-gate.tsv`");
+    expect(review).toContain("every `.works/*/*/reviews/review-gate.tsv`");
+    expect(review).not.toContain("`.kf/review-gate.tsv`");
+  });
+
+  it("allows landing: none only with no commit ahead of the default branch, the reconcile commit included", () => {
+    expect(review).toContain("`git rev-list --count origin/<default>..HEAD` in the item worktree is `0`");
+    expect(review).toContain("the step 2b reconcile commit included — is something to land");
+  });
+});
+
+describe("the CI watcher", () => {
+  const watchDoc = readFileSync(join(ROOT, "skills", "kanban-review", "references", "ci-watch.md"), "utf8");
+  const start = watchDoc.indexOf("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;");
+  const loop = watchDoc.slice(start, watchDoc.indexOf("\n```", start)).replace("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;", "REPO=o/r; SHA=abc123; WATCH=30;");
+
+  /** Runs the documented loop against a stub `gh` that lists one run per conclusion. */
+  async function watch(conclusions: string[]): Promise<number | null> {
+    const dir = await mkdtemp(join(tmpdir(), "kf-ci-watch-"));
+    try {
+      await writeFile(join(dir, "runs.tsv"), conclusions.map((c, i) => `${i + 1}\tcompleted\t${c}\tCI\thttps://example.test/${i + 1}\n`).join(""));
+      await writeFile(join(dir, "gh"), `#!/bin/sh\ncat '${join(dir, "runs.tsv")}'\n`, { mode: 0o755 });
+      const res = spawnSync("bash", ["-c", loop], { env: { ...process.env, PATH: `${dir}:${process.env.PATH}` }, encoding: "utf8", timeout: 20_000 });
+      return res.status;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("is extracted from the reference", () => {
+    expect(start).toBeGreaterThanOrEqual(0);
+  });
+
+  it("calls a failed run red", async () => {
+    expect(await watch(["success", "failure"])).toBe(1);
+    expect(await watch(["cancelled", "timed_out"])).toBe(1);
+  });
+
+  it("gives no CI result, not red, when the only non-success runs were cancelled", async () => {
+    expect(await watch(["success", "cancelled"])).toBe(5);
+    expect(watchDoc).toContain("| 2, 3, 4, 5 | — | no CI result: **write no report**, stop without `PASS` (below) |");
+  });
+});
+
+describe("the workflow docs quote the CLI as it prints", () => {
+  it("copies the legacy stage hints from kf stage", async () => {
+    const reference = readFileSync(join(ROOT, "docs", "workflow", "cli-reference.md"), "utf8");
+    for (const stage of ["shipping", "dones"]) {
+      const res = await cmdStage({ command: "stage", positionals: ["<feature>", stage], options: {} }, ROOT);
+      expect(reference, stage).toContain(`\`${res.stdout}\``);
+    }
+  });
+
+  it("shows the claude runner streaming its log, as the preset does", () => {
+    const harness = readFileSync(join(ROOT, "docs", "workflow", "harness.md"), "utf8");
+    expect(harness).not.toContain('"--output-format", "json"');
+    expect(harness.match(/"--output-format", "stream-json", "--verbose"\]/g)?.length).toBe(2);
   });
 });
 

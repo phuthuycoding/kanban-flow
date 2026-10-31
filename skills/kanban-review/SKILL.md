@@ -143,13 +143,13 @@ Landable: YES only if every line above is ✅ at the current fingerprint
 
 A ❌ means the item does not leave review forward: the report is `FAIL` (or stays unwritten until the check is green), and the failing line says where the item goes back to. Once a PR exists and CI has answered, append `✅/❌ CI (<sha>) <workflows>` to the same board; step 10b appends `Mergeable (<PR>) <mergeStateStatus>` as information, never a ❌.
 
-**Gate log.** Append one line per board to `.kf/review-gate.tsv` (`<UTC time>\t<feature>\t<FP>\tLANDABLE|BLOCKED\t<the check that blocked, or ->`), then print `blocked <N> of the last <M>` from it. A gate that has blocked nothing in a long run is not a gate; the number stays visible so the question stays answerable.
+**Gate log.** Append one line per board to `<item>/reviews/review-gate.tsv` (`<UTC time>\t<feature>\t<FP>\tLANDABLE|BLOCKED\t<the check that blocked, or ->`), then print `blocked <N> of the last <M>` twice: for this item from that file, and for the project from every `.works/*/*/reviews/review-gate.tsv` under the primary checkout. The log lives in the item folder because `.works/` is ignored by every kf-initialised repository; never write it inside the item worktree (`.kf/` is tracked there, an untracked file dirties the tree and the close refuses `worktree-dirty`) or the primary checkout (a dirty primary sends every close's canonical docs to a docs branch). A gate that has blocked nothing in a long run is not a gate; the number stays visible so the question stays answerable.
 
 ## 8. Push and open the PR — after the reviewer PASS only
 
 Only a `PASS` verdict on a `Landable: YES` board reaches this step.
 
-**Nothing to land** — the item changed no tracked code (docs kept inside `.works`, research, a decision made elsewhere): open no PR, set `landing: none` and `ci: none` with the reason, skip step 9. kf closes it on the next `kf status` only when the item branch has 0 commits ahead of its base.
+**Nothing to land** — `git rev-list --count origin/<default>..HEAD` in the item worktree is `0` (docs kept inside `.works`, research, a decision made elsewhere): open no PR, set `landing: none` and `ci: none` with the reason, skip step 9. kf closes it on the next `kf status`. Any commit ahead — the step 2b reconcile commit included — is something to land: take **Code to land** and set `landing: pr`; `landing: none` with commits ahead makes every close refuse `landing: none but the branch has N commits`.
 
 **Code to land** — in the item worktree:
 
@@ -174,7 +174,7 @@ Follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run
 | all runs green | `green` | append the `CI` line to the board; write the report now (step 10) |
 | a run failed | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. A second red round → hand back to the human with both rounds' failed runs |
 | no `.github/workflows` | `none` | nothing to watch; the report says "no CI" |
-| `gh` kept failing, no run appeared while workflows exist, or runs still pending at the deadline | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line (`CI still running at <time>; re-run the review to watch again` for the deadline); a worker ends `STATUS: BLOCKED`. Not `FAIL` — the code is not failing (the reference says why no report is written) |
+| `gh` kept failing, no run appeared while workflows exist, runs still pending at the deadline, or the only non-success runs were `cancelled` | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line (`CI still running at <time>; re-run the review to watch again` for the deadline); a worker ends `STATUS: BLOCKED`. Not `FAIL` — the code is not failing (the reference says why no report is written) |
 
 Never re-run, cancel or approve a workflow, never resolve a review thread, never update the branch from its base and never merge the PR.
 
