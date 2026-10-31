@@ -1,6 +1,6 @@
 ---
 name: kanban-archive
-description: 'Close a PASS-reviewed feature or bug: kf status / kf sync close it once its PR is merged, kf archive is the explicit idempotent form. Features require a completion report (written at review PASS) and canonical docs; bugs update related docs only when needed. Use at review PASS for the feature report, or when completing closure in done.'
+description: 'Close a PASS-reviewed feature or bug: kf status / kf sync close it once its PR is merged, kf archive is the explicit idempotent form. Features require a completion report (written at review PASS) and canonical docs; bug docs are updated in review and the close changes none. Use at review PASS for the feature report, or when completing closure in done.'
 ---
 
 # Kanban Phase 6 — Artifact (Autonomous)

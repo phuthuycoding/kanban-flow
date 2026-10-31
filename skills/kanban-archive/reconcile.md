@@ -44,6 +44,10 @@ For a partial contradiction, name only the replaced part: `> **Partly superseded
 
 When it is unclear whether the old behavior still exists, do not guess: an in-session agent asks the human; a `kf run` / `kf drive` worker writes no review report and ends `STATUS: NEEDS_CONTEXT`, naming the doc and the open question in `Summary:`.
 
+- Before ending `NEEDS_CONTEXT`, the worker reverts its uncommitted reconcile edits (`git restore` the touched doc paths, named in `Summary:`), so the tree is clean for the next run.
+- The human settles the question by committing the banner, or by writing the decision into `<item>/reviews/<id>/docs-reconciled.md`, then re-runs the review / `kf drive`.
+- The next worker reads that file first and does not re-ask a doc already settled there.
+
 A banner changes that feature's canonical docs, so a later `kf archive` of the older feature reports them as changed — re-archive it with `--skip-specs` to keep the banner.
 
 ## 4. Record

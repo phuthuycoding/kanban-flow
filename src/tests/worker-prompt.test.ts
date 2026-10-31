@@ -46,15 +46,16 @@ describe("the stage worker contract", () => {
   });
 
   it("states the run's time budget in minutes, 0 meaning no limit, and omits it when unknown", () => {
-    expect(buildWorkerPrompt({ runId: "run-2", feature, root, assignment, timeoutMs: 30 * 60_000 })).toContain("Time budget: 30 min (0 = no limit)");
-    expect(buildWorkerPrompt({ runId: "run-3", feature, root, assignment, timeoutMs: 0 })).toContain("Time budget: 0 min (0 = no limit)");
-    expect(buildWorkerPrompt({ runId: "run-4", feature, root, assignment, timeoutMs: 90_000 })).toContain("Time budget: 1.5 min (0 = no limit)");
+    expect(buildWorkerPrompt({ runId: "run-2", feature, root, assignment, timeoutMs: 30 * 60_000 })).toContain("Time budget: 30 min");
+    expect(buildWorkerPrompt({ runId: "run-3", feature, root, assignment, timeoutMs: 0 })).toContain("Time budget: no limit");
+    expect(buildWorkerPrompt({ runId: "run-4", feature, root, assignment, timeoutMs: 90_000 })).toContain("Time budget: 1.5 min");
+    expect(buildWorkerPrompt({ runId: "run-6", feature, root, assignment, timeoutMs: 1 })).toContain("Time budget: 0.01 min");
     expect(buildWorkerPrompt({ runId: "run-5", feature, root, assignment })).not.toContain("Time budget:");
   });
 
   it("a run plan hands the worker the same timeout the harness enforces", () => {
     const plan = createRunPlan(root, feature, assignment, { fresh: true, timeoutMs: 45 * 60_000, failReport: null });
     expect(plan.timeoutMs).toBe(45 * 60_000);
-    expect(plan.prompt).toContain("Time budget: 45 min (0 = no limit)");
+    expect(plan.prompt).toContain("Time budget: 45 min");
   });
 });

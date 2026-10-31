@@ -146,7 +146,8 @@ export function buildWorkerPrompt(input: PromptInput): string {
     "Read the artifacts in the work item folder before acting; run `kf status --change " + feature.name + "` for the checklist and `kf instruct <artifact> --change " + feature.name + "` for the exact template and output path of anything you must write.",
   );
   if (input.timeoutMs !== undefined) {
-    lines.push(`Time budget: ${Number((input.timeoutMs / 60_000).toFixed(2))} min (0 = no limit)`);
+    const minutes = input.timeoutMs === 0 ? "no limit" : `${Math.ceil((input.timeoutMs / 60_000) * 100) / 100} min`;
+    lines.push(`Time budget: ${minutes}`);
   }
   if (input.previous) {
     const parts = [`The "${input.previous.role}" role ran before you in this stage.`];
