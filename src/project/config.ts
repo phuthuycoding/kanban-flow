@@ -80,7 +80,7 @@ export function configPath(root: string): string {
 
 function parseProjectBlock(value: unknown, file: string): GitHubProject | undefined {
   if (value === undefined) return undefined;
-  const bad = () => new Error(`Invalid project config: ${file} — project must be {owner, number, statusMap?, acGate?}`);
+  const bad = (detail?: string) => new Error(`Invalid project config: ${file} — project must be {owner, number, statusMap?, acGate?}${detail ? ` (${detail})` : ""}`);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
   const p = value as Partial<GitHubProject>;
   if (typeof p.owner !== "string" || p.owner === ""
@@ -94,7 +94,8 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
       // `delivered` used to be a pseudo-stage (kf issues done, ≤0.8.0). It stays parseable
       // so old configs don't break — the key is inert: archive owns delivery now.
       const known = STAGES.includes(stage as Stage) || LEGACY_STAGE_NAMES.includes(stage as LegacyStageName) || stage === "delivered";
-      if (!known || typeof option !== "string") throw bad();
+      if (!known) throw bad(`unknown statusMap key "${stage}"`);
+      if (typeof option !== "string") throw bad(`statusMap.${stage} must be a string`);
       if (LEGACY_STAGE_NAMES.includes(stage as LegacyStageName)) {
         legacy = true;
         // `dones` is the old spelling of `done`; an explicit `done` beside it wins. `shipping` has no

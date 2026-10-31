@@ -24,7 +24,7 @@ import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type LandedProof, type TeardownResult } from "../worktree/lifecycle.js";
 import { branchExists } from "../worktree/manager.js";
-import { countCommits, deleteBranch, originDefaultRef, revParse } from "../shared/git.js";
+import { countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
@@ -140,6 +140,10 @@ function commitsAhead(root: string, branch: string): { count: number; tip: strin
   if (!tip) throw new Error(`branch ${branch} has no commit to count`);
   const base = originDefaultRef(root);
   if (base) return { count: countCommits(root, base, tip), tip, note: null, againstHead: false };
+  // A local-only repo has no origin, so no default branch exists to be unknown: the checkout's
+  // HEAD is the base, and 0 commits ahead of it means no commit is lost by deleting the branch.
+  // The "no proof" rule is for a repo whose origin exists but has no origin/HEAD.
+  if (!hasRemote(root, "origin")) return { count: countCommits(root, "HEAD", tip), tip, note: null, againstHead: false };
   return {
     count: countCommits(root, "HEAD", tip),
     tip,

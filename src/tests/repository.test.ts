@@ -152,6 +152,12 @@ describe("project config block", () => {
     expect(cfg.project!.statusMapLegacy).toBe(true);
   });
 
+  it("rejects an unknown statusMap key with an error that names the key", async () => {
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { bogus: "X" } } });
+    expect(() => readProjectConfig(dir)).toThrow(/Invalid project config/);
+    expect(() => readProjectConfig(dir)).toThrow(/bogus/);
+  });
+
   it("keeps an explicit done over the legacy dones beside it", async () => {
     await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { dones: "Old", done: "New" } } });
     const cfg = readProjectConfig(dir);
