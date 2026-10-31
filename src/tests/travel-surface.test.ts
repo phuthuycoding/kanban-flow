@@ -113,3 +113,15 @@ describe("the travel skill", () => {
     for (const state of ["queued", "driving", "waiting-to-merge", "blocked", "done", "carry-over"]) expect(ledger, state).toContain(`\`${state}\``);
   });
 });
+
+describe("the travel refill pre-start check", () => {
+  it("treats a never-driven item as not started, and leaves a human-stopped drive alone", () => {
+    expect(skill).toContain("has no drive");
+    expect(skill).toContain("not started, dispatch it");
+    expect(skill).toMatch(/`state` `stopped` with `stopCode` `stopped_by_user`, or with any code §4 maps to `blocked`: do not run `kf drive`/);
+  });
+
+  it("keeps a sequential partner blocking until its line is done", () => {
+    expect(skill).toMatch(/sequential` partners \(if any\) are all `done`/);
+  });
+});

@@ -189,6 +189,8 @@ async function cmdMeasure(args) {
   const review = number("--review", f.review, false);
   const files = number("--files", f.files, true);
   const rounds = number("--rounds", f.rounds, true);
+  const kind = cell("kind", f.kind);
+  if (!["feature", "bug", "pr"].includes(kind)) fail(`--kind must be feature|bug|pr: ${kind}`);
   const date = f.date === undefined ? today() : f.date;
   if (!realDate(date)) fail(`--date must be YYYY-MM-DD: ${date}`);
   // Parsed only to refuse appending to a malformed file.
@@ -200,12 +202,12 @@ async function cmdMeasure(args) {
     const d = SIZES.indexOf(actual) - SIZES.indexOf(est);
     gap = d > 0 ? `+${d}` : String(d);
   }
-  const line = [date, cell("id", f.id), cell("feature", f.feature), cell("kind", f.kind), est, actual,
+  const line = [date, cell("id", f.id), cell("feature", f.feature), kind, est, actual,
     String(work), String(review), String(files), String(rounds), cell("path", f.path), cell("tier", f.tier), gap,
     ...(estmin === undefined ? [] : [String(estmin)])].join(SEP);
   const { existsSync, readFileSync, appendFileSync, writeFileSync, mkdirSync } = await import("node:fs");
   const { dirname } = await import("node:path");
-  if (!existsSync(file)) {
+  if (!existsSync(file) || readFileSync(file, "utf8").trim() === "") {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, `# Travel estimates\n\n${HEADER}\n`);
   }

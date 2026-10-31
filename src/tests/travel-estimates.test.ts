@@ -321,3 +321,31 @@ describe("estimates overlap", () => {
     expect(run("overlap", "src/a.ts").code).toBe(1);
   });
 });
+
+describe("estimates measure input checks", () => {
+  const flags = (file: string, kind: string) => ["--file", file, "--id", "t1", "--feature", "demo", "--kind", kind, "--est", "M", "--work", "10", "--review", "0", "--files", "2", "--rounds", "1", "--path", "a→b", "--tier", "T1"];
+
+  it("rejects a kind outside feature|bug|pr", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "travel-kind-"));
+    try {
+      const file = join(dir, "estimates.md");
+      const r = run("measure", ...flags(file, "featur"));
+      expect(r.code).toBe(1);
+      expect(r.err).toContain("--kind must be feature|bug|pr");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes the header when the file exists but is empty", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "travel-empty-"));
+    try {
+      const file = join(dir, "estimates.md");
+      await writeFile(file, "");
+      expect(run("measure", ...flags(file, "bug")).code).toBe(0);
+      expect(await readFile(file, "utf8")).toContain(`${HEADER}\n`);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

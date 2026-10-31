@@ -69,13 +69,13 @@ Each **tick**:
 
 1. **Poll** every `driving` line: `kf drive <f> --status --json`. Act on `state` and `stopCode` (§4).
 2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done`, then measure (§6).
-3. **Refill**: while live drives < N, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and that has no `sequential` partner already `driving`. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once.
+3. **Refill**: while live drives < N, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once.
 
    ```bash
    kf drive <feature>
    ```
 
-   Before each start, `kf drive <f> --status --json`: `state` `running` → no line of today's section started it (travel's own overnight drives were re-adopted in §1), so it is driven elsewhere: the line stays `queued` with note `driven elsewhere`, is never dispatched by travel again, and is checked every tick; travel never retries, resumes or stops that drive. When it stops reporting `running`: `ready` → poll it as in §4; any stop code → the line goes to Needs you with kf's `nextCommand`, for the human or the session that started it. Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
+   Before each start, `kf drive <f> --status --json`. Exit 1 with the plain text `'<f>' has no drive. Start one: kf drive <f>` (not JSON) means the item was never driven: not started, dispatch it. `state` `stopped` with `stopCode` `stopped_by_user`, or with any code §4 maps to `blocked`: do not run `kf drive`; the line goes to Needs you with kf's `nextCommand` (the human owns it). `state` `running` → no line of today's section started it (travel's own overnight drives were re-adopted in §1), so it is driven elsewhere: the line stays `queued` with note `driven elsewhere`, is never dispatched by travel again, and is checked every tick; travel never retries, resumes or stops that drive. When it stops reporting `running`: `ready` → poll it as in §4; any stop code → the line goes to Needs you with kf's `nextCommand`, for the human or the session that started it. Started or Resumed → line `driving`. Refused → line `blocked` with kf's reason and next command (Needs you).
 4. **Print the progress block** (below) — every tick, even when every slot is full.
 5. **Wait** 2–5 minutes (a background `sleep`, or the runtime's wait/monitor tool), then tick again. Never `--watch`.
 
