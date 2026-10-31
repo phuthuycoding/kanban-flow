@@ -2,7 +2,7 @@
 
 kanban-flow is driven by an agent, so setting a project up means teaching the agent, not only creating directories. Three pieces do that:
 
-- `kf init` installs the nine kanban skills into the agent's project-level skills dir (`--agent` picks which, `claude` is the default; several agents also read each other's directories, which `kf install` reports), installs the three kanban agents (`code-reviewer`, `scout`, `spec-reviewer`) into the runtime's agents dir when it has one (Claude Code: `.claude/agents/`), and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
+- `kf init` installs the nine skills (eight `kanban-*` plus `travel`) into the agent's project-level skills dir (`--agent` picks which, `claude` is the default; several agents also read each other's directories, which `kf install` reports), installs the three kanban agents (`code-reviewer`, `scout`, `spec-reviewer`) into the runtime's agents dir when it has one (Claude Code: `.claude/agents/`), and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
 - The seeded `AGENTS.md` tells the agent the build, test and lint commands and the kanban conventions: the three human gates, `.works/` discipline, the `--force` policy. It is a starting point — edit it, because the agent reads it on every session.
 - `kf autoconfig` prints the briefing described below. Run it and hand the output to the agent — or tell the agent to run it, because it can work through the checklist itself.
 
@@ -34,14 +34,14 @@ Four sections, in order:
 1. **Project context** — the resolved root, the stacks (configured in `.kf/config.json`, or detected), a one-line config summary (default context, reviewer, agents) and which agents already have the skills at project scope.
 2. **Setup checklist** — every setup item, marked done or missing. Each missing item carries the command that fixes it.
 3. **Review rules to enforce** — the full text of the effective review rules, each labelled with its source. The agent adopts them as coding conventions *now*, not only when the review phase reads them.
-4. **Workflow guide** — the pipeline, the three human gates (requirement, plan + start, ship or archive), what `kf drive` does when a task harness is configured, and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
+4. **Workflow guide** — the pipeline, the three human gates (requirement, plan approval, merging the PR), what `kf drive` does when a task harness is configured, and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
 
 ## The checklist, item by item
 
 | Check | Done means | Fix when missing |
 | --- | --- | --- |
 | Project config | `.kf/config.json` exists | `kf init --defaults` (or `kf init` on a terminal, to answer the onboarding questions) |
-| Skills per configured agent | All 8 `SKILL.md` files in the agent's skills dir, for each id in `config.agents` (or `claude` when unset) | `kf install --agent <id>` |
+| Skills per configured agent | All 9 `SKILL.md` files in the agent's skills dir, for each id in `config.agents` (or `claude` when unset) | `kf install --agent <id>` |
 | Base review rules | `general.md`, `security.md`, `performance.md` in `.kf/review/rules/` | `kf init --defaults` (seeds templates, hooks dir and rules) |
 | Stack rule packs | A `<stack>.md` in `.kf/review/rules/` for every stack — `config.stacks` when set, else detected | `kf rules --stack <id>` (`kf rules --list` shows packs) |
 | `.works/` ignored | `.gitignore` lists `.works/` — only checked when `.git` exists | `echo '.works/' >> .gitignore` |
@@ -50,12 +50,16 @@ Four sections, in order:
 | Harness | a `harness` block in `.kf/config.json` | optional — `kf init --defaults` seeds the runner presets; with no stages assigned the harness stays out of the way |
 | Worktree domain infra | `*.<domainZone>` (default `.test`) resolves to the kf proxy listen address and `kf proxy serve` is running there | one-time, needs sudo — `sudo kf worktree setup` (`--print` shows the plan first). When missing, worktrees still work through the direct `127.0.0.1:<port>` URL and `kf validate`/`kf doctor` surface a `worktree_infra_missing` warning. Set `worktree.enabled: false` to opt a project out |
 | Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — see below |
+| Board status for done | when a project board is linked, `statusMap.done` names the closing Status (usually "Done") | set `statusMap.done` in `.kf/config.json`; a legacy `dones` or `shipping` key still maps, and `kf doctor` flags it as `statusmap_legacy` |
+| Closing hook | the hook pack's `done.sh` is in `.kf/hooks/` (it closes the issue and moves the card when the item reaches `done`) | `kf doctor --fix` restores pack files; delete an orphaned `dones.sh` or `shipping.sh`, which `kf doctor` warns about |
+| No `ship` block | `.kf/config.json` has no `ship` key — `kf ship` is gone and a leftover block is ignored with a `kf doctor` warning | delete the `ship` block |
+| Day files ignored | `.gitignore` lists `.kf/travel/` — only checked when `.git` exists | `echo '.kf/travel/' >> .gitignore` (`kf init` seeds it) |
 
 The checklist reports the current state; it changes nothing itself. Read it as a diff between the project as it is and the project the pipeline expects.
 
 ## Phase hooks
 
-A file named `<stage>.sh` under a hooks directory runs whenever a transition is about to enter that stage: `kf stage` runs the destination's hook, `kf archive` runs `dones.sh`, `kf cancel` runs `cancelled.sh`, and `kf new` runs `brainstorm.sh` — deleting the work item it just created when the hook fails. A hook belongs to a transition, so re-running `kf archive` on an item already in `dones` (a canonical-docs refresh, not a transition) runs no hook. A hook that exits non-zero refuses the transition and prints its output. On `kf stage`, `kf archive` and `kf cancel` a `--skip-hooks` bypass is available and is recorded in `.kfw.json` like any other; `kf new` has no bypass — a failing brainstorm hook simply refuses to create the item.
+A file named `<stage>.sh` under a hooks directory runs whenever a transition is about to enter that stage: `kf stage` runs the destination's hook, `kf archive` (and the automatic close after a merge) runs `done.sh`, `kf cancel` runs `cancelled.sh`, and `kf new` runs `brainstorm.sh` — deleting the work item it just created when the hook fails. A hook belongs to a transition, so re-running `kf archive` on an item already in `done` (a canonical-docs refresh, not a transition) runs no hook. A hook that exits non-zero refuses the transition and prints its output. On `kf stage`, `kf archive` and `kf cancel` a `--skip-hooks` bypass is available and is recorded in `.kfw.json` like any other; `kf new` has no bypass — a failing brainstorm hook simply refuses to create the item.
 
 Resolution order is project `.kf/hooks/`, then the user's `~/.kf/hooks/`, then the package's hooks — the first `<stage>.sh` found wins, so a project hook overrides a user-wide one. The hook runs under `bash` with the work item's directory as its working directory and a 120-second timeout, and receives the transition as environment variables:
 
@@ -79,7 +83,7 @@ Two **event hooks** sit outside stage transitions and only exist under worktrees
 
 They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
 
-A third event hook, `drive-stop.sh`, runs whenever a [`kf drive`](harness.md#task-harness-kf-drive) ends — at the ship decision or at any stop — with `KFW_EVENT=drive-stop`, `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` on top of the standard set; use it to send yourself a notification. It is opt-in: `kf init` does not seed it. A failing `drive-stop.sh` is recorded as a warning on the drive and never changes its result.
+A third event hook, `drive-stop.sh`, runs whenever a [`kf drive`](harness.md#task-harness-kf-drive) ends — at review PASS or at any stop — with `KFW_EVENT=drive-stop`, `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` on top of the standard set; use it to send yourself a notification. It is opt-in: `kf init` does not seed it. A failing `drive-stop.sh` is recorded as a warning on the drive and never changes its result.
 
 ```bash
 #!/usr/bin/env bash
