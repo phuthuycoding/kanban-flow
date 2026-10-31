@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -173,6 +173,22 @@ describe("saveConfig preserves blocks it does not own", () => {
     const cfg = readProjectConfig(dir);
     expect(cfg.worktree).toMatchObject({ enabled: false });
     expect(cfg.project).toMatchObject({ owner: "me", number: 3 });
+  });
+
+  it("writes a legacy status map back without the read-time legacy flag, and reads it clean", async () => {
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Shipping" } } });
+    saveConfig(dir, { ...bootstrapDefaults(dir), contexts: ["app"] });
+    const raw = JSON.parse(await readFile(join(dir, ".kf", "config.json"), "utf8")) as { project: Record<string, unknown> };
+    expect(raw.project).not.toHaveProperty("statusMapLegacy");
+    expect(raw.project.statusMap).toEqual({ done: "Done" });
+    expect(readProjectConfig(dir).project!.statusMapLegacy).toBeUndefined();
+  });
+
+  it("ignores a statusMapLegacy flag stored in the file once the map is clean", async () => {
+    await project({ repository: "o/r", project: { owner: "me", number: 3, statusMap: { done: "Done" }, statusMapLegacy: true } });
+    expect(readProjectConfig(dir).project!.statusMapLegacy).toBeUndefined();
+    await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", project: { owner: "me", number: 3, statusMapLegacy: true } }));
+    expect(readProjectConfig(dir).project!.statusMapLegacy).toBeUndefined();
   });
 });
 

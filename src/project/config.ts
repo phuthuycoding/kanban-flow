@@ -82,7 +82,8 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
   if (value === undefined) return undefined;
   const bad = (detail?: string) => new Error(`Invalid project config: ${file} — project must be {owner, number, statusMap?, acGate?}${detail ? ` (${detail})` : ""}`);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
-  const p = value as Partial<GitHubProject>;
+  // statusMapLegacy is computed on read, never stored: a value in the file is dropped so a cleaned map reads clean.
+  const { statusMapLegacy: _stored, ...p } = value as Partial<GitHubProject>;
   if (typeof p.owner !== "string" || p.owner === ""
     || typeof p.number !== "number" || !Number.isInteger(p.number) || p.number < 1
     || (p.acGate !== undefined && typeof p.acGate !== "boolean")) throw bad();
@@ -278,7 +279,10 @@ export function resolveDriveConfig(root: string, feature: Pick<Feature, "meta">,
 }
 
 export function writeProjectConfig(root: string, cfg: ProjectConfig): void {
-  writeFileSync(configPath(root), `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
+  // Callers write back a block they read; the read-time legacy flag must not land in the file.
+  const { statusMapLegacy: _legacy, ...project } = cfg.project ?? {};
+  const out = cfg.project ? { ...cfg, project } : cfg;
+  writeFileSync(configPath(root), `${JSON.stringify(out, null, 2)}\n`, "utf8");
 }
 
 const STACK_PROBES: Array<[string, string]> = [
