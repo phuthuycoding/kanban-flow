@@ -340,6 +340,26 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
   });
 
+  it("names both legacy statusMap keys and the --fix action, and --fix leaves only done", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.project = { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Ship" } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("statusmap_legacy"));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].message).toContain('"dones"');
+    expect(legacy[0].message).toContain('"shipping"');
+    expect(legacy[0].action).toContain("kf doctor --fix");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("rewrote project.statusMap legacy keys");
+    const after = JSON.parse(await readFile(path, "utf8")) as { project: { statusMap: Record<string, string> } };
+    expect(after.project.statusMap).toEqual({ done: "Done" });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
+  });
+
   it("warns once that a leftover ship block is ignored, and the config still reads", async () => {
     await project();
     const path = join(root, ".kf", "config.json");

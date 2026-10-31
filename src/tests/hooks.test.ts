@@ -75,6 +75,21 @@ describe("runHook", () => {
     await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("me:3:0:Done:In progress:\n");
   });
 
+  it("exports a legacy dones/shipping statusMap as KFW_PROJECT_STATUS_DONE only", async () => {
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+      schema: "kanban-flow",
+      created: "x",
+      repository: "o/r",
+      project: { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Ship" } },
+    }));
+    const dir = join(root, ".works", "done", "f_x");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(root, ".kf", "hooks", "done.sh"), "#!/usr/bin/env bash\nenv | grep '^KFW_PROJECT_STATUS_' | sort > \"$KFW_FEATURE_DIR/env.out\"\n");
+    const res = runHook(root, { feature: "f", context: "app", dir, root, from: "review", to: "done", approval: "pending" });
+    expect(res.ok).toBe(true);
+    await expect((await import("node:fs/promises")).readFile(join(dir, "env.out"), "utf8")).resolves.toBe("KFW_PROJECT_STATUS_DONE=Done\n");
+  });
+
   it("reports failure when hook exits non-zero", async () => {
     await writeFile(join(root, ".kf", "hooks", "planning.sh"), "exit 3\n");
     const res = runHook(root, {

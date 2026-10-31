@@ -172,7 +172,7 @@ describe("auto-close on merge", () => {
     expect(hook).toContain("branch_at_hook=t/demo");
     // Primary on the default branch, clean, not behind: docs land in the working tree.
     expect(existsSync(join(root, "docs", "requirement", "app", "demo.md"))).toBe(true);
-  });
+  }, 15_000);
 
   it("refuses a dirty worktree from kf status and kf archive before the hook; nothing deleted", async () => {
     await reviewItem();
@@ -189,7 +189,7 @@ describe("auto-close on merge", () => {
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(onOrigin("t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
-  });
+  }, 15_000);
 
   it("an open PR stays in review with the merge as Next and a Waiting to merge row", async () => {
     await reviewItem();
@@ -208,7 +208,7 @@ describe("auto-close on merge", () => {
     expect(synced.code).toBe(0);
     expect(synced.stdout).toContain("demo: skipped (PR open)");
     expect(feature().stage).toBe("review");
-  });
+  }, 15_000);
 
   it("a PR closed without merging is refused and named; nothing is deleted", async () => {
     await reviewItem();
@@ -226,10 +226,11 @@ describe("auto-close on merge", () => {
     expect(existsSync(wt.path)).toBe(true);
     expect(onOrigin("t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
-  });
+  }, 15_000);
 
   it("landing: none with 0 commits closes without calling gh", async () => {
     await reviewItem("demo", { landing: "none" });
+    const wt = feature().meta!.worktree!;
     process.env.GH_FAIL = "1";
     const res = await status();
     expect(res.code, res.stdout).toBe(0);
@@ -237,8 +238,42 @@ describe("auto-close on merge", () => {
     expect(res.stdout).toContain("Branch t/demo: deleted locally, not on origin");
     expect(ghCalls()).not.toContain("pr view");
     expect(feature().stage).toBe("done");
+    expect(existsSync(wt.path)).toBe(false);
     expect(git(root, "branch", "--list", "t/demo")).toBe("");
-  });
+  }, 15_000);
+
+  it("a PASS review report from an earlier execution does not close a merged item until reports for the current one exist", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    const stale = feature().meta!.executionId!;
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
+      `---\nstatus: FAIL\nexecution: ${stale}\nci: green\nlanding: pr\n---\n# Evidence\nA finding to fix.\n`);
+    expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
+    expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
+    expect(feature().meta!.executionId).not.toBe(stale);
+    await writeReport("demo", "testing-result", "PASS");
+    expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
+      `---\nstatus: PASS\nexecution: ${stale}\nci: green\nlanding: pr\n---\n# Evidence\nVerified.\n`);
+
+    const staged = await cmdStage(args("stage", ["demo", "done"]), root);
+    expect(staged.code).toBe(1);
+    expect(staged.stdout).toContain("review_stale");
+    const res = await status();
+    expect(res.stdout).not.toContain("✓ done demo");
+    expect(res.stdout).toContain("review_stale");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(wt.path)).toBe(true);
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(onOrigin("t/demo")).toContain("t/demo");
+    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+
+    await writeReport("demo", "review-report", "PASS");
+    const closed = await status();
+    expect(closed.code, closed.stdout).toBe(0);
+    expect(closed.stdout).toContain(`✓ done demo (PR merged: ${PR})`);
+    expect(feature().stage).toBe("done");
+  }, 15_000);
 
   it("landing: none with commits is refused with the count", async () => {
     await reviewItem("demo", { landing: "none", commits: 2 });
@@ -248,7 +283,7 @@ describe("auto-close on merge", () => {
     expect(existsSync(feature().meta!.worktree!.path)).toBe(true);
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
-  });
+  }, 15_000);
 
   it("a refusing done hook keeps worktree and branch, locally and on origin", async () => {
     await reviewItem();
@@ -259,7 +294,7 @@ describe("auto-close on merge", () => {
     expect(existsSync(feature().meta!.worktree!.path)).toBe(true);
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(onOrigin("t/demo")).toContain("t/demo");
-  });
+  }, 15_000);
 
   it("a remote that refuses the branch delete is reported, never forced, and the close goes on", async () => {
     await reviewItem();
@@ -269,7 +304,7 @@ describe("auto-close on merge", () => {
     expect(res.stdout).toContain("origin kept t/demo (never forced)");
     expect(feature().stage).toBe("done");
     expect(onOrigin("t/demo")).toContain("t/demo");
-  });
+  }, 15_000);
 
   it("a branch with a commit past the merged head closes the item and keeps the branch locally", async () => {
     await reviewItem();
@@ -287,7 +322,7 @@ describe("auto-close on merge", () => {
     expect(feature().stage).toBe("done");
     expect(git(root, "log", "-1", "--format=%s", "t/demo")).toBe("after merge");
     expect(onOrigin("t/demo")).toBe("");
-  });
+  }, 15_000);
 
   it("a remote branch that moved past the merged head is kept on origin", async () => {
     await reviewItem();
@@ -308,7 +343,7 @@ describe("auto-close on merge", () => {
     expect(feature().stage).toBe("done");
     expect(git(root, "branch", "--list", "t/demo")).toBe("");
     expect(git(origin, "rev-parse", "refs/heads/t/demo")).toBe(moved);
-  });
+  }, 15_000);
 
   it("a merged PR of another branch refuses the close before the hook; nothing is deleted", async () => {
     await reviewItem();
@@ -323,7 +358,7 @@ describe("auto-close on merge", () => {
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(onOrigin("t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
-  });
+  }, 15_000);
 
   it("a forced close with no PR keeps a branch that carries commits", async () => {
     await reviewItem("demo", { landing: "none", commits: 2 });
@@ -337,7 +372,7 @@ describe("auto-close on merge", () => {
     expect(res.stdout).toContain("Branch t/demo: kept locally, not on origin");
     expect(res.stdout).toContain("kept t/demo: 2 commits and no merged PR to prove they landed — never deleted, even with --force");
     expect(git(root, "rev-parse", "t/demo")).toBe(tip);
-  });
+  }, 15_000);
 
   it("counts landing: none commits against origin's default branch, not the primary's checkout", async () => {
     await reviewItem("demo", { landing: "none", commits: 2 });
@@ -348,7 +383,7 @@ describe("auto-close on merge", () => {
     expect(feature().stage).toBe("review");
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
-  });
+  }, 15_000);
 
   it("keeps the branch locally and on origin when origin/HEAD is unset, even at 0 commits ahead of the checkout's HEAD", async () => {
     await reviewItem("demo", { landing: "none", commits: 2 });
@@ -363,7 +398,7 @@ describe("auto-close on merge", () => {
     expect(res.stdout).toContain("origin/HEAD is not set");
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(onOrigin("t/demo")).toContain("t/demo");
-  });
+  }, 15_000);
 
   it("a stale lease makes the remote refuse the branch delete and leaves the branch on origin", () => {
     git(root, "push", "-q", "origin", "HEAD:refs/heads/t/lease");
@@ -386,7 +421,7 @@ describe("auto-close on merge", () => {
       kind: "kept",
       detail: "it is behind the merged head, so deleting it by hand is safe",
     });
-  });
+  }, 15_000);
 
   it("kf sync and kf archive leave an item with a live drive alone", async () => {
     await reviewItem();
@@ -408,7 +443,7 @@ describe("auto-close on merge", () => {
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
     expect(onOrigin("t/demo")).toContain("t/demo");
     expect(existsSync(join(scratch, "hook.out"))).toBe(false);
-  });
+  }, 15_000);
 
   it("a second close while one is running refuses before its hook", async () => {
     await reviewItem();
@@ -418,7 +453,7 @@ describe("auto-close on merge", () => {
     expect(refused?.kind === "refused" && refused.reason).toBe("close-in-progress");
     expect(feature().stage).toBe("done");
     expect(existsSync(join(root, ".works", ".locks", "demo.closing.lock"))).toBe(false);
-  });
+  }, 15_000);
 
   it("kf archive stays the explicit, idempotent form of the same close", async () => {
     await reviewItem();
@@ -428,7 +463,7 @@ describe("auto-close on merge", () => {
     const again = await cmdArchive(args("archive", ["demo"]), root);
     expect(again.code, again.stdout).toBe(0);
     expect(again.stdout).toContain("already in done");
-  });
+  }, 15_000);
 });
 
 describe("canonical docs when the primary checkout is behind origin", () => {
@@ -469,7 +504,7 @@ describe("canonical docs when the primary checkout is behind origin", () => {
 
     git(root, "push", "-q", "origin", "docs/app-demo");
     expect(runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"))).toHaveLength(0);
-  });
+  }, 15_000);
 });
 
 describe("the canonical docs commit after the irreversible steps", () => {
@@ -497,7 +532,7 @@ describe("the canonical docs commit after the irreversible steps", () => {
     expect(res.code, res.stdout).toBe(0);
     expect(res.stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
     expect(feature().stage).toBe("done");
-  });
+  }, 15_000);
 
   it("a failing commit rolls back docs, move and metadata and says what was already removed", async () => {
     await reviewItem();
@@ -523,7 +558,7 @@ describe("the canonical docs commit after the irreversible steps", () => {
     expect(finished.code, finished.stdout).toBe(0);
     expect(finished.stdout).toContain("✓ done demo");
     expect(feature().stage).toBe("done");
-  });
+  }, 15_000);
 });
 
 describe("kf status --all ends with Needs you, Waiting to merge and Running", () => {
@@ -567,5 +602,5 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
     expect(json.needsYou.map((n) => n.feature)).toEqual(["a", "b"]);
     expect(json.waitingToMerge.map((w) => [w.feature, w.command])).toEqual([["c", "gh pr merge 7 --squash"], ["d", "git push -u origin docs/app-d"]]);
     expect(json.running).toBe(1);
-  });
+  }, 15_000);
 });

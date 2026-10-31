@@ -71,7 +71,6 @@ async function shipReadyItem(name = "demo"): Promise<void> {
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it");
   await writeFile(join(feature(name).dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nShip and verify.\n");
   expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |\n";
   const report = async (id: "testing-result" | "review-report") =>
@@ -120,21 +119,25 @@ describe("legacy stage names refuse with a hint (TC-002, TC-003)", () => {
   it("kf stage <x> shipping exits 1 with the shipping hint and moves nothing", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
+    const meta = readFileSync(join(feature().dir, ".kfw.json"));
     const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status closes the item");
     expect(feature().stage).toBe("review");
     expect(existsSync(join(root, ".works", "shipping"))).toBe(false);
+    expect(readFileSync(join(feature().dir, ".kfw.json")).equals(meta)).toBe(true);
   });
 
   it("kf stage <x> dones exits 1 with the dones hint and moves nothing", async () => {
     await writeCfg({ enabled: false });
     await shipReadyItem();
+    const meta = readFileSync(join(feature().dir, ".kfw.json"));
     const res = await cmdStage(args("stage", ["demo", "dones"]), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status, kf sync or kf archive");
     expect(feature().stage).toBe("review");
     expect(existsSync(join(root, ".works", "dones"))).toBe(false);
+    expect(readFileSync(join(feature().dir, ".kfw.json")).equals(meta)).toBe(true);
   });
 
   it("kf stage <x> constructor is an unknown stage, not a legacy hint", async () => {
