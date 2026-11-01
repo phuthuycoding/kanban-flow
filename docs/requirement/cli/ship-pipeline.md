@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Superseded by `workflow-slim`.** The `shipping` stage, the `kf ship` pipeline, the `ship` config block and the `kanban-ship` skill with its ship-or-archive gate are gone: review opens the PR after the independent code-reviewer passes and watches CI, the human merges on GitHub, and the next `kf status --change <feature>` or `kf sync` closes the item into `done` (`kf ship` is a deprecated alias that exits 1; a release is a manual `gh release create`). Kept for history.
+
 ## Feature
 ship-pipeline
 

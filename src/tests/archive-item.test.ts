@@ -20,7 +20,7 @@ let prevPath: string | undefined;
 
 const GH_STUB = `#!/usr/bin/env bash
 case "$1" in
-  pr) [ "$2" = view ] && printf '{"state":"%s"}\\n' "\${GH_PR_STATE:-MERGED}"; exit 0 ;;
+  pr) [ "$2" = view ] && printf '{"state":"%s","headRefName":"kf/stub","headRefOid":"0123456789abcdef0123456789abcdef01234567"}\\n' "\${GH_PR_STATE:-MERGED}"; exit 0 ;;
 esac
 exit 0
 `;
@@ -35,7 +35,7 @@ const feature = (name = "shipit") => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function implementationStage(name = "shipit"): Promise<void> {
@@ -49,7 +49,6 @@ async function implementationStage(name = "shipit"): Promise<void> {
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it\nUser ships.");
   await writeFile(join(feature(name).dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nShip and verify.\n");
   expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
 }
 
 async function reviewStage(name = "shipit"): Promise<void> {
@@ -96,7 +95,7 @@ const DOCS = [
 const RECORDED = {
   success: {
     code: 0,
-    stdout: `✓ Archived 'shipit'  review → dones\n  <root>/.works/dones/<folder>\n  Canonical docs synced:\n${DOCS.map((d) => `    <root>/${d}`).join("\n")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.`,
+    stdout: `✓ Archived 'shipit'  review → done\n  <root>/.works/done/<folder>\n  Canonical docs synced:\n${DOCS.map((d) => `    <root>/${d}`).join("\n")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.`,
   },
   unmerged: {
     code: 1,
@@ -105,12 +104,12 @@ const RECORDED = {
   },
   wrongStage: {
     code: 1,
-    stdout: "Cannot archive 'shipit': feature is in stage \"implementation\". Archive only from review or shipping (run: kf stage shipit review first).",
+    stdout: "Cannot archive 'shipit': feature is in stage \"implementation\". Archive only from review (run: kf stage shipit review first).",
     stderr: "wrong stage",
   },
   reconcile: {
     code: 0,
-    stdout: `Feature 'shipit' is already in dones.\nCanonical docs synced:\n${DOCS.map((d) => `  <root>/${d}`).join("\n")}\n  Delivery finalized — item was already marked delivered; side effects re-checked.`,
+    stdout: `Feature 'shipit' is already in done.\nCanonical docs synced:\n${DOCS.map((d) => `  <root>/${d}`).join("\n")}\n  Delivery finalized — item was already marked delivered; side effects re-checked.`,
   },
 };
 
@@ -125,13 +124,13 @@ describe("archiveItem — typed outcome", () => {
     expect(outcome.kind).toBe("archived");
     if (outcome.kind !== "archived") return;
     expect(outcome.from).toBe("review");
-    expect(outcome.dir).toBe(join(root, ".works", "dones", folder));
+    expect(outcome.dir).toBe(join(root, ".works", "done", folder));
     expect(outcome.docs.map((d) => normalize(d))).toEqual(DOCS.map((d) => `<root>/${d}`));
     expect(outcome.bypasses).toEqual([]);
     expect(outcome.teardown).toBeNull();
     expect(outcome).not.toHaveProperty("stdout");
     expect(render(renderArchive(outcome), folder)).toEqual(RECORDED.success);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
   });
 
@@ -139,25 +138,55 @@ describe("archiveItem — typed outcome", () => {
     await reviewStage();
     process.env.GH_PR_STATE = "OPEN";
     const outcome = await archiveItem(root, "shipit", { force: true });
-    expect(outcome).toEqual({ kind: "refused", reason: "merge-gate", stderrTag: RECORDED.unmerged.stderr, stdout: RECORDED.unmerged.stdout });
+    expect(outcome).toEqual({
+      kind: "refused", reason: "merge-gate", stderrTag: RECORDED.unmerged.stderr, stdout: RECORDED.unmerged.stdout,
+      merge: { reason: "not-merged", pr: PR, state: "OPEN" },
+    });
     expect(feature().stage).toBe("review");
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });
 
-  it("refuses an item outside review/shipping", async () => {
+  it("carries only the ERROR codes of a gate refusal whose report also lists a WARNING", async () => {
+    await reviewStage();
+    await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec.replace("## Affected surfaces\nN/A\n", "## Affected surfaces\n- billing page\n"));
+    await rm(join(feature().dir, ARTIFACTS["feature-report"].file));
+    const outcome = await archiveItem(root, "shipit");
+    expect(outcome).toMatchObject({ kind: "refused", reason: "gate" });
+    if (outcome.kind !== "refused") return;
+    expect(outcome.stdout).toContain("[WARNING]");
+    expect(outcome.stdout).toContain("(affected_surface_uncovered)");
+    const errors = [...outcome.stdout.matchAll(/\[ERROR\] .*\(([a-z_]+)\)$/gm)].map((m) => m[1]);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(outcome.codes).toEqual([...new Set(errors)]);
+    expect(outcome.codes).not.toContain("affected_surface_uncovered");
+  });
+
+  it("refuses an item outside review", async () => {
     await implementationStage();
     const outcome = await archiveItem(root, "shipit");
     expect(outcome).toEqual({ kind: "refused", reason: "wrong-stage", stderrTag: RECORDED.wrongStage.stderr, stdout: RECORDED.wrongStage.stdout });
     expect(feature().stage).toBe("implementation");
   });
 
-  it("reconciles an item already in dones", async () => {
+  it("reconciles an item already in done", async () => {
     await reviewStage();
     expect((await archiveItem(root, "shipit")).kind).toBe("archived");
     const outcome = await archiveItem(root, "shipit");
     expect(outcome.kind).toBe("reconciled");
     expect(outcome).not.toHaveProperty("stdout");
     expect(normalize(renderArchive(outcome).stdout)).toBe(RECORDED.reconcile.stdout);
+  });
+
+  it("names review, not the removed shipping stage, for an item cancelled from shipping", async () => {
+    const dir = join(root, ".works", "cancelled", "legacy_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, ".kfw.json"), JSON.stringify({
+      schema: "kanban-flow", feature: "legacy", context: "app", created: "x",
+      cancellation: { at: "2026-01-01T00:00:00Z", by: "me", reason: "paused", fromStage: "shipping" },
+    }));
+    const outcome = await archiveItem(root, "legacy");
+    expect(outcome.kind === "refused" && outcome.reason).toBe("cancelled");
+    expect(outcome.kind === "refused" && outcome.stdout).toBe("'legacy' was cancelled (paused). Move it back to review first if you want to finish it.");
   });
 
   it("returns an unknown item as a refusal, not a throw", async () => {
@@ -183,7 +212,7 @@ describe("kf archive renders byte-identically to the recorded output", () => {
     expect(await cmdArchive(args("archive", ["shipit"]), root)).toEqual(RECORDED.wrongStage);
   });
 
-  it("reconcile of an already-dones item", async () => {
+  it("reconcile of an already-done item", async () => {
     await reviewStage();
     expect((await cmdArchive(args("archive", ["shipit"]), root)).code).toBe(0);
     const res = await cmdArchive(args("archive", ["shipit"]), root);

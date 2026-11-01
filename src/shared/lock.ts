@@ -9,6 +9,9 @@ const POLL_MS = 25;
 /** A lock file that never received its pid (holder died between create and write) is stale after this long. */
 const EMPTY_LOCK_GRACE_MS = 2_000;
 
+/** Thrown when a live holder keeps the lock past the timeout. */
+export class LockTimeoutError extends Error {}
+
 export interface LockOptions {
   timeoutMs?: number;
 }
@@ -78,7 +81,7 @@ async function acquire(path: string, timeoutMs: number): Promise<void> {
       continue;
     }
     if (Date.now() >= deadline) {
-      throw new Error(`Timed out after ${timeoutMs}ms waiting for lock ${path} held by pid ${holder || "unknown"}.`);
+      throw new LockTimeoutError(`Timed out after ${timeoutMs}ms waiting for lock ${path} held by pid ${holder || "unknown"}.`);
     }
     await sleep(POLL_MS);
   }

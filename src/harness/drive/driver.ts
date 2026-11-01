@@ -7,7 +7,7 @@ import { findFeature, updateFeatureMeta, type DriveState, type Feature } from ".
 import { resolveStageRoles, taskView, writeTasksMd, type PlannedTask } from "../../workflow/tasks.js";
 import { transitionItem, type Transition } from "../../workflow/transition.js";
 import { validateFeature } from "../../workflow/validate.js";
-import { readProjectConfig } from "../../project/config.js";
+import { ProjectConfigError, resolveDriveConfig, type DriveConfig } from "../../project/config.js";
 import { harnessLimits, type HarnessConfig } from "../config.js";
 import { resolveChain, type Assignment } from "../prompt.js";
 import { executeChain } from "../chain.js";
@@ -16,7 +16,7 @@ import { captureBaseline, executeTaskRun, prepareTaskRun, setTaskState } from ".
 import { recoverItemMerge, resumeTaskMerge, runVerify } from "../task-pipeline.js";
 import { blockedBy, nextToStart, progressState } from "../scheduler.js";
 import { appendDriveEvent } from "../drive-log.js";
-import { READY_REASON, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
+import { brokenConfigStop, configWhere, driveBoundary, message, nextCommandFor, oneLine, patchDrive, readPlannedTasks, readyReason, type DriveDeps, type DriveOutcome, type Step, type Stop } from "./claim.js";
 import { failRuns, finishDrive, orphanRuns, terminate, type DriveEnd } from "./control.js";
 
 interface Verdict {
@@ -46,10 +46,14 @@ class Driver {
     return f;
   }
 
+  private config(): DriveConfig & { harness: HarnessConfig } {
+    const resolved = resolveDriveConfig(this.root, this.feature());
+    if (!resolved.cfg.harness) throw new Error(`No harness configured in ${resolved.file}.`);
+    return { ...resolved, harness: resolved.cfg.harness };
+  }
+
   private harness(): HarnessConfig {
-    const h = readProjectConfig(this.root).harness;
-    if (!h) throw new Error("No harness configured in .kf/config.json.");
-    return h;
+    return this.config().harness;
   }
 
   private log(event: Parameters<typeof appendDriveEvent>[3]): void {
@@ -72,7 +76,8 @@ class Driver {
       this.requestStop(boundary);
       return boundary.reason;
     }
-    const { maxRuns } = harnessLimits(this.harness());
+    const config = this.config();
+    const { maxRuns } = harnessLimits(config.harness);
     let used = 0;
     let granted = false;
     await updateFeatureMeta(this.root, this.name, (meta) => {
@@ -84,9 +89,24 @@ class Driver {
       return { ...meta, drive: { ...d, runs: d.runs + 1, updatedAt: new Date().toISOString() } };
     });
     if (granted) return null;
-    const stop: Stop = { code: "budget", reason: `run budget exhausted: ${used}/${maxRuns} worker runs used (harness.budget.maxRuns); raise it in .kf/config.json to continue` };
+    const stop: Stop = { code: "budget", reason: `run budget exhausted: ${used}/${maxRuns} worker runs used (harness.budget.maxRuns); raise it in ${configWhere(config)} to continue` };
     this.requestStop(stop);
     return stop.reason;
+  }
+
+  /** Give back the run `admit` reserved: a worker that hit the API usage limit did no work and must not use the budget. */
+  private async releaseRun(): Promise<void> {
+    await updateFeatureMeta(this.root, this.name, (meta) => {
+      const d = meta.drive;
+      if (!d || d.id !== this.id || d.runs === 0) return meta;
+      return { ...meta, drive: { ...d, runs: d.runs - 1, updatedAt: new Date().toISOString() } };
+    });
+  }
+
+  private async stopOnUsageLimit(who: string, text: string): Promise<void> {
+    // Stop before the await: a parallel task finishing meanwhile must not get a new run admitted in that window.
+    this.requestStop({ code: "usage_limit", reason: `${who} hit the API usage limit: ${oneLine(text)}; after the reset, resume the same worker session: kf drive ${this.name}` });
+    await this.releaseRun();
   }
 
   private logRun(outcome: RunOutcome | null | undefined, task?: string): void {
@@ -100,7 +120,10 @@ class Driver {
     const drive = first.meta!.drive!;
     // A hand-over from the claiming CLI: from here on this process is the supervisor.
     await patchDrive(this.root, this.name, this.id, { supervisorPid: process.pid });
-    this.log({ event: drive.runs > 0 || drive.loops > 0 || drive.step !== "implementation" ? "resume" : "start", stage: first.stage, step: drive.step, loops: drive.loops, runs: drive.runs });
+    this.log({
+      event: drive.runs > 0 || drive.loops > 0 || drive.step !== "implementation" ? "resume" : "start",
+      stage: first.stage, step: drive.step, loops: drive.loops, runs: drive.runs, config_source: resolveDriveConfig(this.root, first).source,
+    });
 
     if (!(await this.recover())) return;
 
@@ -213,22 +236,36 @@ class Driver {
       return false;
     }
     const inflight = new Map<string, Promise<void>>();
-    for (;;) {
-      if (!this.stop) {
-        const meta = this.feature().meta!;
-        const picks = nextToStart({ tasks, states: meta.tasks ?? {}, running: [...inflight.keys()], parallel: harnessLimits(this.harness()).parallel });
-        for (const id of picks) {
-          if (this.stop) break;
-          const task = tasks.find((t) => t.id === id)!;
-          const work = this.runTask(task).catch((err: unknown) => {
-            this.log({ event: "warning", task: id, warning: `internal error: ${message(err)}`, stack: err instanceof Error ? err.stack : undefined });
-            this.requestStop({ code: "internal_error", reason: `${id}: ${oneLine(message(err))}` });
-          }).finally(() => inflight.delete(id));
-          inflight.set(id, work);
+    try {
+      for (;;) {
+        // A task merge can change or break the item worktree's config: check it before the limits are read again.
+        if (!this.stop) {
+          const boundary = driveBoundary(this.root, this.feature(), this.id);
+          if (boundary) this.requestStop(boundary);
         }
+        if (!this.stop) {
+          const meta = this.feature().meta!;
+          const picks = nextToStart({ tasks, states: meta.tasks ?? {}, running: [...inflight.keys()], parallel: harnessLimits(this.harness()).parallel });
+          for (const id of picks) {
+            if (this.stop) break;
+            const task = tasks.find((t) => t.id === id)!;
+            const work = this.runTask(task).catch((err: unknown) => {
+              this.log({ event: "warning", task: id, warning: `internal error: ${message(err)}`, stack: err instanceof Error ? err.stack : undefined });
+              this.requestStop(err instanceof ProjectConfigError ? brokenConfigStop(this.name, err) : { code: "internal_error", reason: `${id}: ${oneLine(message(err))}` });
+            }).finally(() => inflight.delete(id));
+            inflight.set(id, work);
+          }
+        }
+        if (inflight.size === 0) break;
+        await Promise.race(inflight.values());
       }
-      if (inflight.size === 0) break;
-      await Promise.race(inflight.values());
+    } catch (err) {
+      // Stop first so the tasks still running start no further attempt, then let them record their outcomes: the
+      // drive must not conclude with a task left `running`. Their promises never reject (see the catch above).
+      this.requestStop(err instanceof ProjectConfigError ? brokenConfigStop(this.name, err) : { code: "internal_error", reason: `unexpected error: ${oneLine(message(err))}` });
+      await Promise.all(inflight.values());
+      if (!(err instanceof ProjectConfigError)) throw err;
+      return false;
     }
     if (this.stop) return false;
     const meta = this.feature().meta!;
@@ -278,9 +315,13 @@ class Driver {
       if (result.warning) this.log({ event: "warning", task: task.id, warning: result.warning });
 
       if (result.state === "done") return;
+      if (result.stop === "usage_limit") {
+        await this.stopOnUsageLimit(task.id, result.outcome?.usageLimit ?? result.reason ?? "");
+        return;
+      }
       if (result.stop) {
         this.requestStop({ code: result.stop, reason: result.stop === "plan_change_needed"
-          ? `${task.id}: ${oneLine(result.reason ?? "")}; the plan's Files must change: edit the plan, re-approve it (kf stage ${this.name} planning, kf approve ${this.name}, kf stage ${this.name} implementation), then kf drive ${this.name}`
+          ? `${task.id}: ${oneLine(result.reason ?? "")}; the plan's Files must change: edit the plan, re-approve it (kf stage ${this.name} planning, kf approve ${this.name}), then kf drive ${this.name}`
           : `${task.id}: ${oneLine(result.reason ?? "")}` });
         return;
       }
@@ -329,6 +370,11 @@ class Driver {
     });
     for (const o of summary.outcomes) this.logRun(o);
     if (summary.refused) return false;
+    const limited = summary.outcomes[summary.outcomes.length - 1]?.usageLimit;
+    if (!summary.ok && limited !== undefined) {
+      await this.stopOnUsageLimit(`the ${stage} role ${summary.stoppedAt ?? "?"}`, limited);
+      return false;
+    }
     if (!summary.ok) {
       const last = summary.outcomes[summary.outcomes.length - 1]?.record;
       const detail = last ? (last.summary ?? last.error ?? (last.statusLine ? `STATUS: ${last.statusLine}` : `exit ${last.exitCode ?? "?"}`)) : "it did not start";
@@ -351,7 +397,7 @@ class Driver {
 
   private async move(to: Stage): Promise<boolean> {
     const from = this.feature().stage;
-    const out = await this.transition(this.root, this.name, to, { cwd: this.root });
+    const out = await this.transition(this.root, this.name, to, { cwd: this.root, harness: this.harness() });
     if (out.kind === "moved") {
       this.log({ event: "stage", from, to });
       return true;
@@ -433,14 +479,15 @@ class Driver {
 
   /** FAIL/REJECT: move back to implementation (bounded by maxLoops) so the repair run can fix the report. */
   private async toRepair(v: Verdict): Promise<Step | null> {
-    const limits = harnessLimits(this.harness());
+    const config = this.config();
+    const limits = harnessLimits(config.harness);
     const d = this.feature().meta!.drive!;
     if (d.loops >= limits.maxLoops) {
-      this.requestStop({ code: "loop_limit", reason: `maxLoops reached (${d.loops}/${limits.maxLoops}); ${v.file} still says ${v.status}; fix it by hand or raise harness.maxLoops in .kf/config.json, then resume` });
+      this.requestStop({ code: "loop_limit", reason: `maxLoops reached (${d.loops}/${limits.maxLoops}); ${v.file} still says ${v.status}; fix it by hand or raise harness.maxLoops in ${configWhere(config)}, then resume` });
       return null;
     }
     if (d.runs >= limits.maxRuns) {
-      this.requestStop({ code: "budget", reason: `run budget exhausted: ${d.runs}/${limits.maxRuns} worker runs used (harness.budget.maxRuns); no repair run can start` });
+      this.requestStop({ code: "budget", reason: `run budget exhausted: ${d.runs}/${limits.maxRuns} worker runs used (harness.budget.maxRuns in ${configWhere(config)}); no repair run can start` });
       return null;
     }
     await this.setStep("repair", { repairReport: v.file });
@@ -462,7 +509,7 @@ class Driver {
     const stop = this.stop;
     const drive = (): DriveState => this.feature().meta!.drive!;
     if (!stop) {
-      const end: DriveEnd = { status: "ready", reason: READY_REASON, nextCommand: `kf status --change ${this.name}` };
+      const end: DriveEnd = { status: "ready", reason: readyReason(this.name), nextCommand: `kf status --change ${this.name}` };
       await finishDrive(this.root, this.name, this.id, end);
       return { ...end, loops: drive().loops, runs: drive().runs };
     }
@@ -473,7 +520,7 @@ class Driver {
 }
 
 /**
- * The supervisor: drive the claimed item to the ship gate or to a stop. Everything happens at step boundaries; runs
+ * The supervisor: drive the claimed item to review PASS or to a stop. Everything happens at step boundaries; runs
  * in progress finish and go through the normal pipeline, and no new run starts once a stop condition is seen.
  */
 export async function superviseDrive(root: string, name: string, id: string, deps: DriveDeps = {}): Promise<DriveOutcome> {
@@ -491,7 +538,7 @@ export async function superviseDrive(root: string, name: string, id: string, dep
     } catch (logError) {
       throw new AggregateError([err, logError], `Drive ${id} of '${name}' failed and its log could not be written.`);
     }
-    driver.requestStop({ code: "internal_error", reason: `unexpected error: ${oneLine(message(err))}` });
+    driver.requestStop(err instanceof ProjectConfigError ? brokenConfigStop(name, err) : { code: "internal_error", reason: `unexpected error: ${oneLine(message(err))}` });
   }
   return driver.conclude();
 }

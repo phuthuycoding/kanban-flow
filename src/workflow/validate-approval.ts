@@ -1,4 +1,4 @@
-import { STAGE_INDEX } from "./schema.js";
+import { STAGE_INDEX, currentStageName } from "./schema.js";
 import { executionContractHash, type Feature } from "./features.js";
 import { finding, type Finding } from "./findings.js";
 
@@ -24,5 +24,5 @@ export function checkBypasses(feature: Feature): Finding[] {
   if (bypasses.length === 0) return [];
   const last = bypasses[bypasses.length - 1];
   return [finding(feature, "WARNING", ".kfw.json", "gate_bypassed",
-    `${bypasses.length} gate/hook bypass${bypasses.length > 1 ? "es" : ""} recorded (last: --${last.flag} ${last.from ?? "?"} → ${last.to} at ${last.at}); review them before trusting this item`)];
+    `${bypasses.length} gate/hook bypass${bypasses.length > 1 ? "es" : ""} recorded (last: --${last.flag} ${last.from ? currentStageName(last.from) : "?"} → ${currentStageName(last.to)} at ${last.at}); review them before trusting this item`)];
 }

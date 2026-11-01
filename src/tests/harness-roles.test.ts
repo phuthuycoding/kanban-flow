@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 import { cmdRun, cmdRuns } from "../cli/commands/run.js";
 import { cmdStatus, cmdView } from "../cli/commands/inspect.js";
-import { readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
+import { readFeatureMeta, writeFeatureMeta, type Feature } from "../workflow/features.js";
+import { buildWorkerPrompt, type Assignment } from "../harness/prompt.js";
 import { harnessProject, harnessWith, type HarnessProject } from "./helpers/harness-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -226,5 +227,33 @@ describe("status, view and runs report roles", () => {
     expect(runs).toMatch(/w1\s+demo\s+writer\s+gemini\s+brainstorm/);
     expect(runs).toMatch(/r1\s+demo\s+researcher\s+codex\s+brainstorm/);
     expect(await readFile(join(p.root, ".kf", "config.json"), "utf8")).toContain('"researcher"');
+  });
+});
+
+describe("the review worker opens the PR", () => {
+  const root = "/tmp/kf-review-root";
+  const feature = {
+    name: "demo",
+    context: "cli",
+    stage: "review",
+    dir: join(root, ".works", "review", "demo_20261031_1000"),
+    meta: { schema: "kanban-flow", feature: "demo", created: "20261031_1000", kind: "feature" },
+  } as unknown as Feature;
+  const at = (stage: "review" | "testing"): Assignment => ({
+    role: "reviewer",
+    runnerName: "claude",
+    runner: { start: ["claude", "-p", "{prompt}"] },
+    stage,
+    skill: stage === "review" ? "kanban-review" : "kanban-test",
+    skillPath: join(root, ".claude", "skills", stage === "review" ? "kanban-review" : "kanban-test", "SKILL.md"),
+  });
+
+  it("lets only the review worker push, after the code-reviewer PASS, and never merge", () => {
+    const review = buildWorkerPrompt({ runId: "run-r", feature, root, assignment: at("review") });
+    expect(review).toContain("Push only as the review skill prescribes — the item branch, after the code-reviewer PASS");
+    expect(review).toContain("never merge");
+    expect(review).not.toContain("- Do not push.");
+    const testing = buildWorkerPrompt({ runId: "run-t", feature: { ...feature, stage: "testing" } as Feature, root, assignment: at("testing") });
+    expect(testing).toContain("- Do not push.");
   });
 });

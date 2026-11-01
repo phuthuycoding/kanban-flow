@@ -22,13 +22,11 @@ flowchart TD
     KP --> L{Human approves the execution contract?}
     KB --> L
     L -- Not yet --> K
-    L -- Yes --> M[kf approve: store the contract fingerprint]
-    M --> N{Start implementation now?}
-    N -- Yes --> O[Implementation: tasks.md + code]
-    N -- Not yet --> P[Backlog: hold the approved contract]
-    P --> Q{User chooses to start?}
-    Q -- Not yet --> P
-    Q -- Yes --> O
+    L -- Yes --> M[kf approve: store the contract fingerprint and start]
+    M --> O[Implementation in the item worktree: kf drive, or the task loop - implementer + code-reviewer per task, ledger]
+    L -- "Approved, but later: kf approve --backlog" --> P[Backlog: hold the approved contract]
+    P --> Q[Start it: kf stage item implementation]
+    Q --> O
     O --> R{Build green and tasks done?}
     R -- Not yet --> O
     R -- Yes --> S[kf stage item testing]
@@ -39,29 +37,50 @@ flowchart TD
     W -- FAIL/REJECT --> O
     W -- BLOCKED --> X([Stop and report the blocker])
     W -- PASS --> Y[kf stage item review]
-    Y --> Z[Review changed files against rules: project, then user, then package]
-    Z --> AA[Write review-report carrying the execution id]
+    Y --> Z[Facts and review pack: lint, build, suite counts, rules project then user then package]
+    Z --> Z2[Independent code-reviewer agents, tier from the diff; evidence verified]
+    Z2 --> AA[Write review-report carrying the execution id]
     AA --> AB{Review result?}
     AB -- FAIL/REJECT --> O
     AB -- REQUIREMENT_BUG --> AC([Stop and ask the user to decide])
-    AB -- PASS --> SG{Ship gate: ship now or archive directly?}
-    SG -- Ship --> SH[kf stage item shipping + kf ship: publish, merge gate, release, changelog]
-    SG -- "Nothing to ship (docs/config/research)" --> AD{Work item kind?}
-    SH -->|PR merged / steps complete| AD
-    SH -->|waiting on merge| SG
+    AB -- PASS --> PR[Push the item branch, open the PR, watch CI, record ci and landing in the report]
+    PR -- CI red --> O
+    PR -- "CI green or none" --> MG{PR merged on GitHub, or landing none with nothing ahead of the default branch?}
+    MG -- Not yet --> MG
+    MG -- "Yes: next kf status --change / kf sync / kf archive" --> AD{Work item kind?}
     AD -- Feature --> FC[Write feature-report]
     FC --> AE[kf archive: copy requirement, use-case and testplan docs]
     AD -- Bug --> BC[Update the related feature docs if needed]
     BC --> BA[kf archive: keep the bug record with its test and review]
     BA --> AF
-    AE --> AF([dones: archive complete])
+    AE --> AF([done: item closed])
 ```
 
-There is a second way out of this flow: `kf cancel <feature> --reason "<why>"` stops a work item for good at any stage, `dones` included when something supersedes it. The reason is mandatory and is stored in `.kfw.json` together with the stage it stopped in, so reopening it is `kf stage <feature> <that stage>`. This is the user's decision; the agent only suggests it on a `REQUIREMENT_BUG` or a dead scope.
+There is a second way out of this flow: `kf cancel <feature> --reason "<why>"` stops a work item for good at any stage, `done` included when something supersedes it. The reason is mandatory and is stored in `.kfw.json` together with the stage it stopped in, so reopening it is `kf stage <feature> <that stage>`. This is the user's decision; the agent only suggests it on a `REQUIREMENT_BUG` or a dead scope.
 
-Phase 1, the Phase 2 approval, the start-or-backlog decision and the ship gate after a PASS review are the points where the user decides. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once start is chosen the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
+Phase 1 and the Phase 2 approval are the two points where the user decides; `kf approve` is both the approval and the start (`kf approve --backlog` approves and defers). There is no ship-or-archive decision after a PASS review: the item is closed by the merge on GitHub. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once the item has started the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
 
-When the project configures a task harness (`harness.verify.stage` set, worktrees on), "runs on its own" is `kf drive`: a detached supervisor takes the item from implementation through testing and review and stops at the ship gate, or earlier with a stop code that names what the human must do. See [the task harness](harness.md#task-harness-kf-drive).
+## Two layers
+
+The flow above is the **item** layer: one work item, from brainstorm to `done`. Above it sits the **day** layer: travel (the day orchestrator) decides which items to start, runs several of them side by side, and reports what needs the human and what waits to merge. It only starts and watches `kf drive` runs — it never approves, merges or archives an item. `kf status --all` ends with the same buckets computed from kf state: `Needs you`, `Waiting to merge` (the PR URL and `gh pr merge <n>`, plus any docs branch awaiting push or not proven merged, with its `git push -u origin <branch>`) and `Running: N`. `Needs you` also lists a review PASS item whose close was refused, as `review PASS but not closed: <refusal heading> <failed check codes>`.
+
+When the project configures a task harness (`harness.verify.stage` set, worktrees on), "runs on its own" is `kf drive`: a detached supervisor takes the item from implementation through testing and review, ending in an open PR and a review report with `ci` and `landing`, or earlier with a stop code that names what the human must do. See [the task harness](harness.md#task-harness-kf-drive).
+
+## Review and closing
+
+Review runs in a fixed order. An independent `code-reviewer` reads the branch diff first; FAIL or REJECT returns to implementation before any PR exists. Only after a reviewer PASS is the item branch pushed and a PR opened (when none is recorded). If the repository has CI on the PR, its checks are watched until green or red; red returns the item to implementation, and the fix is re-tested and re-reviewed on the same PR. The review report records `ci: green|red|none` and `landing: pr|none`.
+
+The report is gated at review → done: a PASS needs `ci` green or none (`review_ci_missing`, `review_ci_red`), a `landing` value (`review_landing_missing`), and with `landing: pr` a recorded PR (`review_pr_missing`).
+
+Nobody is asked "archive?". An item with a PASS review closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged on GitHub, or, for `landing: none`, once it has 0 commits ahead of origin's default branch. Until then `kf status` says to merge the PR (its URL) and run `kf status --change <feature>` again. A PR that was closed unmerged is refused.
+
+The close runs in a binding order: gates, refusal while a drive or close is in progress, refusal while the worktree is dirty, the `done` hook, worktree teardown, branch deletion (local, then origin), canonical docs, the move into `.works/done/`, and the metadata stamp.
+
+Branch deletion is conservative. The PR head must be the item branch. The local branch is deleted only when its tip equals the PR head, and the origin branch is deleted with a lease. A branch with commits past the merged head is kept and reported.
+
+Canonical docs are written into the working tree only when the primary checkout is on a clean, current default branch. Otherwise they go to an unpushed `docs/<context>-<feature>` branch, recorded as `meta.docsBranch`; `kf doctor` warns while it is unpushed (`docs_branch_unpushed`).
+
+An older project is migrated once, by `kf status` or `kf sync`: `.works/dones/*` moves to `.works/done/`, and `.works/shipping/*` returns to `review` (a merged PR closes it like any other). `kf stage <item> shipping` and `kf stage <item> dones` are refused with a hint, and `kf ship` is a deprecated alias that exits 1 — review opens the PR and the merge on GitHub closes the item. Publishing to npm is a manual `gh release create v<version>`, which triggers the release workflow.
 
 ## Starting a feature, step by step
 
@@ -82,11 +101,8 @@ sequenceDiagram
     Orchestrator->>CLI: kf stage feature planning
     Orchestrator->>User: Summarise the execution contract
     User-->>Orchestrator: approve
-    Orchestrator->>CLI: kf approve item
-    CLI->>FS: Store the approval contractHash
-    Orchestrator->>User: Start now, or send to backlog?
-    User-->>Orchestrator: start now / defer
-    Orchestrator->>CLI: kf stage item implementation or backlog
+    Orchestrator->>CLI: kf approve item (--backlog to defer)
+    CLI->>FS: Store the approval contractHash, stage to implementation (or backlog)
     CLI->>FS: Provision the git worktree + <feature>.<baseDomain> route (only when worktree.enabled; fails closed when it cannot)
 ```
 

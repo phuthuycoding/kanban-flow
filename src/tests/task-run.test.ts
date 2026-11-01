@@ -188,6 +188,30 @@ describe("kf run --task --dry-run", () => {
   });
 });
 
+describe("kf run --task after the usage limit", () => {
+  it("exits 1 with the reset text, and the dry run then shows the resume the real run makes", async () => {
+    p = await gitDriveProject({ tasks: [{ id: "TASK-001" }] });
+    const limit = "You've hit your 5-hour limit · resets 1:30pm";
+    p.cli.scenario("claude", { stdout: JSON.stringify({ type: "result", is_error: true, api_error_status: 429, result: limit, session_id: "s-1" }), exit: 1 });
+    const paused = await run(p, { task: "TASK-001" });
+    expect(paused.code, paused.stdout).toBe(1);
+    expect(paused.stderr).toBe("task paused by usage limit");
+    expect(paused.stdout).toContain(`Task TASK-001: pending — usage limit: ${limit}`);
+    expect(p.readMeta()!.tasks!["TASK-001"]).toMatchObject({ state: "pending", attempts: 0 });
+    const session = p.readMeta()!.sessions!["task:TASK-001"];
+
+    const dry = await run(p, { task: "TASK-001", "dry-run": true });
+    expect(dry.code, dry.stdout).toBe(0);
+    expect(dry.stdout.split("\n")[0]).toMatch(/— resume$/);
+    expect(dry.stdout).toContain(JSON.stringify(session));
+    expect((await run(p, { task: "TASK-001", "dry-run": true, fresh: true })).stdout.split("\n")[0]).toMatch(/— start$/);
+
+    p.cli.scenario("claude", {});
+    expect((await run(p, { task: "TASK-001" })).code).toBe(0);
+    expect(p.readMeta()!.runs!.map((r) => r.mode)).toEqual(["start", "resume"]);
+  });
+});
+
 describe("concurrency rules (TC-033)", () => {
   it("allows another task, refuses the same task and a stage-level run while a task run is live", async () => {
     p = await gitDriveProject({ tasks: [{ id: "TASK-001", files: ["a.txt"] }, { id: "TASK-002", files: ["b.txt"] }] });

@@ -165,7 +165,7 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
  */
 async function cmdDoneAlias(root: string, name: string | undefined): Promise<CmdResult> {
   if (!name) return { code: 1, stdout: "Missing feature name. Usage: kf issues done <feature> (deprecated — use kf archive <feature>)", stderr: "missing feature" };
-  const res = renderArchive(await archiveItem(root, name));
+  const res = renderArchive(await archiveItem(root, name, { trigger: "issues" }));
   return {
     ...res,
     stdout: `⚠ 'kf issues done' is deprecated — delivery is finalized by 'kf archive' (forwarding).\n${res.stdout}`,

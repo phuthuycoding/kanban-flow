@@ -1,12 +1,14 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertPathName } from "../workflow/features.js";
+import { assertPathName, type Feature } from "../workflow/features.js";
 import { parseAgentIds, type SkillScope } from "../integrations/agents.js";
 import { validateHarness, type HarnessConfig } from "../harness/config.js";
 import { normalizeContext } from "./contexts.js";
 import { normalizeRepository } from "./repository.js";
-import { STAGES, type Stage } from "../workflow/schema.js";
+import { STAGES, LEGACY_STAGE_NAMES, type Stage, type LegacyStageName } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
+import { runGit } from "../shared/git.js";
+import { GitCommandError } from "../worktree/manager.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -27,31 +29,16 @@ export interface ProjectConfig {
   skills?: SkillsConfig;
   harness?: HarnessConfig;
   worktree?: Partial<WorktreeConfig>;
-  ship?: ShipConfig;
   created: string;
 }
 
-/** The `ship` block: per-step automation switches for the shipping stage. */
-export interface ShipConfig {
-  enabled: boolean;
-  /** "manual" = human merges the PR; "auto" = `gh pr merge --auto` schedules it (CI/review still enforced by GitHub). */
-  merge: "manual" | "auto";
-  release: boolean;
-  changelog: boolean;
-}
-
-export const SHIP_DEFAULTS: ShipConfig = { enabled: false, merge: "manual", release: false, changelog: false };
-
-export function parseShipConfig(raw: unknown, file: string): ShipConfig {
-  if (raw === undefined) return { ...SHIP_DEFAULTS };
-  const bad = () => new Error(`Invalid project config: ${file} — ship must be {enabled?, merge?: "manual"|"auto", release?, changelog?}`);
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw bad();
-  const s = raw as Record<string, unknown>;
-  if (s.enabled !== undefined && typeof s.enabled !== "boolean") throw bad();
-  if (s.merge !== undefined && s.merge !== "manual" && s.merge !== "auto") throw bad();
-  if (s.release !== undefined && typeof s.release !== "boolean") throw bad();
-  if (s.changelog !== undefined && typeof s.changelog !== "boolean") throw bad();
-  return { ...SHIP_DEFAULTS, ...s } as ShipConfig;
+/**
+ * The `ship` block configured the removed `kf ship` pipeline. Configs written by earlier releases
+ * still carry it, so any shape is accepted and dropped rather than refused; `kf doctor` reports it.
+ * Returns whether a leftover block was present.
+ */
+export function hasLegacyShipBlock(raw: unknown): boolean {
+  return raw !== undefined;
 }
 
 export interface SkillsConfig {
@@ -69,8 +56,13 @@ export interface GitHubProject {
   number: number;
   /** kf stage → the board's Status option name. Option names, never IDs — a recreated board keeps working. */
   statusMap?: Partial<Record<string, string>>;
-  /** The dones hook gates on ticked acceptance criteria unless explicitly false. Default true. */
+  /** The done hook gates on ticked acceptance criteria unless explicitly false. Default true. */
   acGate?: boolean;
+  /**
+   * Set on read when the file still keys `statusMap` by the legacy `dones` (read as `done`) or
+   * `shipping` (dropped) names. The file itself is untouched; `kf doctor --fix` rewrites it.
+   */
+  statusMapLegacy?: boolean;
 }
 
 export const CONFIG_FILE = "config.json";
@@ -89,19 +81,33 @@ export function configPath(root: string): string {
 
 function parseProjectBlock(value: unknown, file: string): GitHubProject | undefined {
   if (value === undefined) return undefined;
-  const bad = () => new Error(`Invalid project config: ${file} — project must be {owner, number, statusMap?, acGate?}`);
+  const bad = (detail?: string) => new Error(`Invalid project config: ${file} — project must be {owner, number, statusMap?, acGate?}${detail ? ` (${detail})` : ""}`);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
-  const p = value as Partial<GitHubProject>;
+  // statusMapLegacy is computed on read, never stored: a value in the file is dropped so a cleaned map reads clean.
+  const { statusMapLegacy: _stored, ...p } = value as Partial<GitHubProject>;
   if (typeof p.owner !== "string" || p.owner === ""
     || typeof p.number !== "number" || !Number.isInteger(p.number) || p.number < 1
     || (p.acGate !== undefined && typeof p.acGate !== "boolean")) throw bad();
   if (p.statusMap !== undefined) {
     if (typeof p.statusMap !== "object" || p.statusMap === null || Array.isArray(p.statusMap)) throw bad();
+    const statusMap: Partial<Record<string, string>> = {};
+    let legacy = false;
     for (const [stage, option] of Object.entries(p.statusMap)) {
       // `delivered` used to be a pseudo-stage (kf issues done, ≤0.8.0). It stays parseable
       // so old configs don't break — the key is inert: archive owns delivery now.
-      if ((!STAGES.includes(stage as Stage) && stage !== "delivered") || typeof option !== "string") throw bad();
+      const known = STAGES.includes(stage as Stage) || LEGACY_STAGE_NAMES.includes(stage as LegacyStageName) || stage === "delivered";
+      if (!known) throw bad(`unknown statusMap key "${stage}"`);
+      if (typeof option !== "string") throw bad(`statusMap.${stage} must be a string`);
+      if (LEGACY_STAGE_NAMES.includes(stage as LegacyStageName)) {
+        legacy = true;
+        // `dones` is the old spelling of `done`; an explicit `done` beside it wins. `shipping` has no
+        // stage left to map to, so the board option is dropped.
+        if (stage === "dones" && p.statusMap.done === undefined) statusMap.done = option;
+        continue;
+      }
+      statusMap[stage] = option;
     }
+    return { ...p, statusMap, ...(legacy ? { statusMapLegacy: true } : {}) } as GitHubProject;
   }
   return p as GitHubProject;
 }
@@ -119,9 +125,26 @@ function parseSkillsBlock(value: unknown, file: string): SkillsConfig | undefine
 export function readProjectConfig(root: string): Partial<ProjectConfig> {
   const f = configPath(root);
   if (!existsSync(f)) return {};
+  return parseProjectConfig(readFileSync(f, "utf8"), f);
+}
+
+/** The config text is not valid JSON or fails validation; a git or file-system failure is never one of these. */
+export class ProjectConfigError extends Error {}
+
+/** Validate and normalise config text read from anywhere (a file or a git ref); `f` names the source in errors. */
+export function parseProjectConfig(text: string, f: string): Partial<ProjectConfig> {
+  try {
+    return parseConfigText(text, f);
+  } catch (err) {
+    if (err instanceof Error) throw new ProjectConfigError(err.message, { cause: err });
+    throw err;
+  }
+}
+
+function parseConfigText(text: string, f: string): Partial<ProjectConfig> {
   let cfg: Partial<ProjectConfig> | null;
   try {
-    cfg = JSON.parse(readFileSync(f, "utf8")) as Partial<ProjectConfig> | null;
+    cfg = JSON.parse(text) as Partial<ProjectConfig> | null;
   } catch (err) {
     if (err instanceof SyntaxError) throw new Error(`Invalid JSON in project config: ${f}`, { cause: err });
     throw err;
@@ -161,14 +184,115 @@ export function readProjectConfig(root: string): Partial<ProjectConfig> {
   if (cfg.agents) parseAgentIds(cfg.agents);
   if (cfg.harness !== undefined) cfg.harness = validateHarness(cfg.harness, f);
   if (cfg.worktree !== undefined) cfg.worktree = parseWorktreeConfig(cfg.worktree, f);
-  cfg.ship = parseShipConfig(cfg.ship, f);
+  const { ship: _legacyShip, ...current } = cfg as Partial<ProjectConfig> & { ship?: unknown };
+  cfg = current;
   cfg.skills = parseSkillsBlock(cfg.skills, f);
   cfg.project = parseProjectBlock(cfg.project, f);
   return cfg;
 }
 
+export type DriveConfigSource = "worktree" | "origin" | "primary";
+
+export interface DriveConfig {
+  cfg: Partial<ProjectConfig>;
+  source: DriveConfigSource;
+  /** Where the config was read: a file path, or `<ref>:.kf/config.json`. */
+  file: string;
+  /** Every place looked, in resolution order. */
+  looked: string[];
+}
+
+/** `ref` is origin's default branch (null when origin/HEAD is not set); `text` is null when that ref has no config. */
+export interface OriginConfig {
+  ref: string | null;
+  text: string | null;
+}
+
+export type OriginConfigReader = (root: string) => OriginConfig;
+
+const ORIGIN_CONFIG_PATH = "./.kf/config.json";
+
+/**
+ * `git show <origin default>:.kf/config.json` from the primary repo. A missing origin, origin/HEAD, ref or file is
+ * "no config there"; any other git failure throws with git's stderr.
+ */
+function originGit(root: string, args: string[]): ReturnType<typeof runGit> {
+  try {
+    return runGit(root, args);
+  } catch (err) {
+    // runGit throws only when git could not be spawned.
+    throw new GitCommandError(err instanceof Error ? err.message : String(err), { cause: err });
+  }
+}
+
+export function readOriginConfig(root: string): OriginConfig {
+  const head = originGit(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]);
+  if (head.code !== 0) {
+    // -q makes "not a symbolic ref / no such ref" exit 1 silently; a project outside git has no origin either.
+    if (head.code === 1 || /not a git repository/i.test(head.stderr)) return { ref: null, text: null };
+    throw new GitCommandError(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${head.code}) in ${root}: ${head.stderr.trim()}`);
+  }
+  const ref = head.stdout.trim();
+  // `./` resolves the path against `-C root`, so a project in a subdirectory of the repository reads its own config.
+  const show = originGit(root, ["show", `${ref}:${ORIGIN_CONFIG_PATH}`]);
+  if (show.code === 0) return { ref, text: show.stdout };
+  if (/does not exist in|exists on disk, but not in|invalid object name|bad revision/i.test(show.stderr)) return { ref, text: null };
+  throw new GitCommandError(`git show ${ref}:${ORIGIN_CONFIG_PATH} failed (exit ${show.code}) in ${root}: ${show.stderr.trim()}`);
+}
+
+// The driver resolves the config at every step boundary; one rev-parse per call instead of a symbolic-ref + show pair.
+// Keyed on the commit origin/HEAD points at, so a fetch mid-drive is seen (and can raise config_changed).
+const originCache = new Map<string, { sha: string; config: OriginConfig }>();
+// A root without origin/HEAD would spawn rev-parse + symbolic-ref on every resolve, so the miss is remembered for the
+// process. A later `git remote set-head` is seen by the next process only (the next kf drive and its supervisor),
+// which also keeps a running drive from switching its config source mid-drive.
+const noOriginHead = new Set<string>();
+
+function cachedOriginConfig(root: string): OriginConfig {
+  if (noOriginHead.has(root)) return { ref: null, text: null };
+  const head = runGit(root, ["rev-parse", "-q", "--verify", "refs/remotes/origin/HEAD^{commit}"]);
+  // No origin/HEAD, or no repository: readOriginConfig tells "absent" from a real git failure.
+  if (head.code !== 0) {
+    const config = readOriginConfig(root);
+    if (config.ref === null) noOriginHead.add(root);
+    return config;
+  }
+  const sha = head.stdout.trim();
+  const hit = originCache.get(root);
+  if (hit?.sha === sha) return hit.config;
+  const config = readOriginConfig(root);
+  originCache.set(root, { sha, config });
+  return config;
+}
+
+/**
+ * The config a drive or task run of `feature` works with, in a fixed order: the item worktree's `.kf/config.json`,
+ * else the one on origin's default branch, else the primary checkout's. The primary can be a stale local `main`;
+ * the item worktree is where the work happens. `worktree.baseDir` is not taken from here by callers that locate
+ * worktrees: it is read from the primary, which is where the worktrees were created from.
+ */
+export function resolveDriveConfig(root: string, feature: Pick<Feature, "meta">, readOrigin: OriginConfigReader = cachedOriginConfig): DriveConfig {
+  const looked: string[] = [];
+  const worktreePath = feature.meta?.worktree?.path;
+  if (worktreePath) {
+    const file = configPath(worktreePath);
+    looked.push(file);
+    if (existsSync(file)) return { cfg: readProjectConfig(worktreePath), source: "worktree", file, looked };
+  }
+  const origin = readOrigin(root);
+  const originFile = `${origin.ref ?? "origin/<default>"}:.kf/config.json`;
+  looked.push(origin.ref ? originFile : `${originFile} (origin/HEAD is not set)`);
+  if (origin.ref && origin.text !== null) return { cfg: parseProjectConfig(origin.text, originFile), source: "origin", file: originFile, looked };
+  const file = configPath(root);
+  looked.push(file);
+  return { cfg: readProjectConfig(root), source: "primary", file, looked };
+}
+
 export function writeProjectConfig(root: string, cfg: ProjectConfig): void {
-  writeFileSync(configPath(root), `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
+  // Callers write back a block they read; the read-time legacy flag must not land in the file.
+  const { statusMapLegacy: _legacy, ...project } = cfg.project ?? {};
+  const out = cfg.project ? { ...cfg, project } : cfg;
+  writeFileSync(configPath(root), `${JSON.stringify(out, null, 2)}\n`, "utf8");
 }
 
 const STACK_PROBES: Array<[string, string]> = [

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { findFeature, updateFeatureMeta, type RunRecord } from "../workflow/features.js";
 import type { Stage } from "../workflow/schema.js";
-import { readProjectConfig } from "../project/config.js";
+import { resolveDriveConfig } from "../project/config.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import { executeChain, newChainId, type ChainResultSummary } from "./chain.js";
 import { resolveChain, type Assignment } from "./prompt.js";
@@ -69,7 +69,7 @@ export async function superviseRun(root: string, featureName: string, chainId: s
   const path = chainPlanPath(feature.dir, chainId);
   if (!existsSync(path)) throw new Error(`Chain plan not found: ${path}`);
   const plan = JSON.parse(readFileSync(path, "utf8")) as ChainPlan;
-  const harness = readProjectConfig(root).harness;
+  const harness = resolveDriveConfig(root, feature).cfg.harness;
   const chain: Assignment[] = [];
   for (const role of plan.roles) {
     const resolved = resolveChain(harness, feature, root, { stage: plan.stage, role });

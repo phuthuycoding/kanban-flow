@@ -6,6 +6,8 @@ status: archived
 ---
 # Test Plan
 
+> **Partly superseded by `workflow-slim`:** `kf stage <feature> dones` no longer routes through archive — it is refused with a hint, because the stage is now `done` and is reached through the close (`kf status`, `kf sync` or `kf archive` after the merge); a reopen to legacy `dones` targets `done`. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
 

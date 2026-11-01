@@ -5,8 +5,8 @@ import { findWorksRoot } from "../../workflow/features.js";
 import { commandHelp } from "../args.js";
 import { effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, configPath, projectKabanDir, effectiveSkillsScope, type ProjectConfig } from "../../project/config.js";
-import { AGENTS, DEFAULT_AGENT, projectSkillsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
-import { agentSkillsState, hasManagedEntries, skillsAreHealthy } from "../../integrations/install.js";
+import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, foreignSkills, hasOwnedEntries, MANAGED_AGENTS, unhealthySkills } from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
 import type { CmdResult } from "../result.js";
 import type { ParsedArgs } from "../args.js";
@@ -22,7 +22,10 @@ function skillsDirAtScope(a: (typeof AGENTS)[number], root: string, scope: Skill
 }
 
 function installedAgents(root: string, scope: SkillScope): AgentId[] {
-  return AGENTS.filter((a) => skillsAreHealthy(agentSkillsState(skillsDirAtScope(a, root, scope)))).map((a) => a.id);
+  return AGENTS.filter((a) => {
+    const dir = skillsDirAtScope(a, root, scope);
+    return unhealthySkills(dir, foreignSkills(dir)).length === 0;
+  }).map((a) => a.id);
 }
 
 function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Partial<ProjectConfig>): CheckItem[] {
@@ -40,19 +43,31 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
     const dir = skillsDirAtScope(a, root, scope);
-    const state = agentSkillsState(dir);
+    // A user's own skill at a managed name is left alone by kf install, so it is neither stale nor pending.
+    const foreign = foreignSkills(dir);
+    const bad = unhealthySkills(dir, foreign);
+    const state = foreign.length === 0 ? agentSkillsState(dir) : bad.length > 0 ? "incomplete" : "installed";
     items.push({
-      done: skillsAreHealthy(state),
-      label: `Skills for ${a.label} (scope: ${scope}, ${dir}/) — ${state}`,
+      done: bad.length === 0,
+      label: `Skills for ${a.label} (scope: ${scope}, ${dir}/) — ${state}${foreign.length > 0 ? ` (your own ${foreign.join(", ")} kept)` : ""}`,
       action: `kf install --agent ${id} --scope ${scope}`,
     });
+    const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root);
+    if (agentsDir) {
+      const agentsHealth = agentsState(agentsDir);
+      items.push({
+        done: agentsAreHealthy(agentsHealth),
+        label: `Agents for ${a.label} (${MANAGED_AGENTS.join(", ")}; scope: ${scope}, ${agentsDir}/) — ${agentsHealth}`,
+        action: agentsHealth === "foreign" ? "your own file sits at a managed agent name — rename it or keep the substitution" : `kf install --agent ${id} --scope ${scope}`,
+      });
+    }
   }
 
   if (scope === "global") {
     const dupes = agents
       .map((id) => AGENTS.find((x) => x.id === id))
       .filter((a): a is NonNullable<typeof a> => Boolean(a))
-      .filter((a) => hasManagedEntries(projectSkillsDir(a, root)));
+      .filter((a) => hasOwnedEntries(projectSkillsDir(a, root)));
     items.push({
       done: dupes.length === 0,
       label: dupes.length === 0
@@ -145,7 +160,7 @@ function effectiveRules(cwd: string): Array<{ name: string; path: string; source
 }
 
 /** Commands an agent drives the pipeline with, in the order they are used. */
-export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "run", "runs", "tasks", "drive", "harness", "ship", "archive", "rules", "install"] as const;
+export const AGENT_COMMANDS = ["new", "status", "instruct", "approve", "validate", "stage", "run", "runs", "tasks", "drive", "harness", "archive", "rules", "install"] as const;
 
 /** The guide is generated from the registered help strings so it can never drift from the parser. */
 export function workflowGuide(): string {
@@ -155,16 +170,16 @@ export function workflowGuide(): string {
   }).join("\n");
   return `## Workflow guide
 
-Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> review -> [shipping] -> dones
+Pipeline: brainstorm -> planning -> backlog -> implementation -> testing -> review -> done
 
 Human gates (only places the agent must stop for the user):
 1. brainstorm: confirm the requirement before planning
-2. planning: kf approve the contract + choose start-now vs backlog
-3. review PASS: ship (kf stage <f> shipping, kf ship) or archive directly
+2. planning: kf approve the contract; it moves the item to implementation (--backlog parks it)
+3. review PASS: merge the PR on GitHub; kf status --change <feature>, kf sync or kf archive closes the item into done
 
-With a task harness configured (harness.verify.stage set, worktrees on), starting
-means kf drive: it runs the plan's tasks, testing and review on its own and stops
-at the ship decision or with a named stop code and the next command.
+With a task harness configured (harness.verify.stage set, worktrees on), the step
+after approve is kf drive: it runs the plan's tasks, testing and review on its own
+and stops at review PASS or with a named stop code and the next command.
 
 Every transition is also gated on artifacts and report status: files must exist,
 be filled and carry no placeholders or secrets, and testing/review reports must
@@ -175,7 +190,7 @@ Commands the agent will use (run \`kf help <command>\` for every option):
 ${commands}
 
 Skills installed per agent: kanban-flow (orchestrator), kanban-brainstorm, kanban-bug,
-kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-ship, kanban-archive.
+kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-archive, travel.
 Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
 with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
 Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;

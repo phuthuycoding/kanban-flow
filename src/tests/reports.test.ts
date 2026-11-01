@@ -76,3 +76,92 @@ describe("testing_exit_code", () => {
     expect(commandExitCodes("# nothing")).toBeNull();
   });
 });
+
+const PR = "https://github.com/acme/app/pull/7";
+
+/** A bug item in `stage` with a current PASS testing report and a review report carrying `fm` lines. */
+async function reviewBug(fm: string, opts: { pr?: string; stage?: "review" | "done" } = {}): Promise<void> {
+  const stage = opts.stage ?? "review";
+  const itemDir = join(root, ".works", stage, "demo_20260919_1200");
+  await rm(dir, { recursive: true, force: true });
+  await mkdir(itemDir, { recursive: true });
+  dir = itemDir;
+  await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: confirmed\n---\n# Bug\nReproduced.");
+  await writeFeatureMeta(dir, {
+    schema: "kanban-flow", feature: "demo", context: "app", created: "20260919_1200", kind: "bug",
+    approval: { status: "approved", contractHash: executionContractHash(dir, "bug")! }, executionId: "run-1",
+    ...(opts.pr ? { pr: opts.pr } : {}),
+  });
+  await writeFile(join(dir, "phase-4-testing-result.md"), `---\nstatus: PASS\nexecution: run-1\n---\n# Testing Result\n\n${table(["| npm test | 0 | ok |"])}`);
+  await writeFile(join(dir, "phase-5-review-report.md"), `---\nexecution: run-1\n${fm}\n---\n# Review Report\nReviewed.\n`);
+}
+
+const DELIVERY = ["review_ci_red", "review_ci_missing", "review_pr_missing", "review_landing_missing"];
+const delivery = () => validateFeature(findFeature(root, "demo")!).issues
+  .filter((i) => DELIVERY.includes(i.code)).map((i) => `${i.severity} ${i.code}`);
+
+describe("review report delivery: ci and landing", () => {
+  it("PASS with ci: red is review_ci_red; ci: green clears it", async () => {
+    await reviewBug("status: PASS\nci: red\nlanding: pr", { pr: PR });
+    expect(delivery()).toEqual(["ERROR review_ci_red"]);
+    await reviewBug("status: PASS\nci: green\nlanding: pr", { pr: PR });
+    expect(delivery()).toEqual([]);
+    expect(validateFeature(findFeature(root, "demo")!).valid).toBe(true);
+  });
+
+  it("landing: pr without meta.pr is review_pr_missing; landing: none is clean; no landing is review_landing_missing", async () => {
+    await reviewBug("status: PASS\nci: green\nlanding: pr");
+    expect(delivery()).toEqual(["ERROR review_pr_missing"]);
+    await reviewBug("status: PASS\nci: green\nlanding: none");
+    expect(delivery()).toEqual([]);
+    await reviewBug("status: PASS\nci: green");
+    expect(delivery()).toEqual(["ERROR review_landing_missing"]);
+  });
+
+  it("PASS with ci: pending or no ci at all is review_ci_missing; ci: green and ci: none are clean", async () => {
+    await reviewBug("status: PASS\nci: pending\nlanding: none");
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+    await reviewBug("status: PASS\nlanding: none");
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+    await reviewBug("status: PASS\nci: green\nlanding: none");
+    expect(delivery()).toEqual([]);
+    await reviewBug("status: PASS\nci: none\nlanding: none");
+    expect(delivery()).toEqual([]);
+  });
+
+  it("kf validate still names both keys on a PASS report with neither ci nor landing, PR recorded or not", async () => {
+    await reviewBug("status: PASS", { pr: PR });
+    expect(delivery()).toEqual(["ERROR review_ci_missing", "ERROR review_landing_missing"]);
+    await reviewBug("status: PASS");
+    expect(delivery()).toEqual(["ERROR review_ci_missing", "ERROR review_landing_missing"]);
+  });
+
+  it("treats a ci value that is not exactly green, red or none as missing", async () => {
+    await reviewBug("status: PASS\nci: RED\nlanding: none");
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+    await reviewBug('status: PASS\nci: "{ci}"\nlanding: none');
+    expect(delivery()).toEqual(["ERROR review_ci_missing"]);
+  });
+
+  it("treats a landing value other than pr or none as missing", async () => {
+    await reviewBug("status: PASS\nci: none\nlanding: merge", { pr: PR });
+    expect(delivery()).toEqual(["ERROR review_landing_missing"]);
+  });
+
+  it("reports ci: red and a missing PR together", async () => {
+    await reviewBug("status: PASS\nci: red\nlanding: pr");
+    expect(delivery()).toEqual(["ERROR review_ci_red", "ERROR review_pr_missing"]);
+  });
+
+  it("does not constrain a FAIL report that records ci: red", async () => {
+    await reviewBug("status: FAIL\nci: red\nlanding: pr");
+    expect(delivery()).toEqual([]);
+  });
+
+  it("does not flag an item archived before ci/landing existed", async () => {
+    await reviewBug("status: PASS", { stage: "done" });
+    await writeFile(join(dir, "phase-6-feature-report.md"), "# Feature report\nDone.");
+    expect(findFeature(root, "demo")!.stage).toBe("done");
+    expect(delivery()).toEqual([]);
+  });
+});

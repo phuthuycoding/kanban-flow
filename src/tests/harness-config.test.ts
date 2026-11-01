@@ -3,10 +3,11 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { readProjectConfig } from "../project/config.js";
-import { harnessPresets, harnessLimits, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
+import { readOriginConfig, readProjectConfig, resolveDriveConfig, type OriginConfigReader } from "../project/config.js";
+import { harnessPresets, harnessLimits, legacyHarnessStageKeys, validateHarness, ROLE_BRIEFS, seedHarness } from "../harness/config.js";
 import { provisionSession } from "../harness/session.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdHarness } from "../cli/commands/harness.js";
@@ -114,6 +115,24 @@ describe("harness config validation", () => {
     expect(() => readProjectConfig(dir)).toThrow("harness.stages.backlog");
   });
 
+  it("reads the 0.13 stage keys: dones as done, shipping dropped", async () => {
+    await write({ ...base(), stages: { dones: "writer", shipping: ["architect"], testing: "writer" } });
+    expect(readProjectConfig(dir).harness!.stages).toEqual({ done: ["writer"], testing: ["writer"] });
+    await write({ ...base(), stages: { shipping: "architect" } });
+    expect(readProjectConfig(dir).harness!.stages).toEqual({});
+  });
+
+  it("keeps an explicit done over the legacy dones", async () => {
+    await write({ ...base(), stages: { done: "architect", dones: "writer" } });
+    expect(readProjectConfig(dir).harness!.stages).toEqual({ done: ["architect"] });
+  });
+
+  it("names the legacy stage keys a raw harness block still has", () => {
+    expect(legacyHarnessStageKeys({ ...base(), stages: { dones: "writer", shipping: "architect", testing: "writer" } })).toEqual(["shipping", "dones"]);
+    expect(legacyHarnessStageKeys({ ...base(), stages: { done: "writer" } })).toEqual([]);
+    expect(legacyHarnessStageKeys(undefined)).toEqual([]);
+  });
+
   it("normalizes the short role form and a single-role stage", async () => {
     await write({ ...base(), stages: { testing: "writer" } });
     const harness = readProjectConfig(dir).harness!;
@@ -147,6 +166,144 @@ describe("migrating a stage that points straight at a runner", () => {
     const unknown = { ...harness, stages: { testing: "nobody" } };
     await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", harness: unknown }));
     expect(() => readProjectConfig(dir)).toThrow("Known roles: architect");
+  });
+});
+
+describe("resolveDriveConfig: worktree → origin → primary", () => {
+  let dir: string;
+  let primary: string;
+  let worktree: string;
+  const config = (harness?: unknown) => JSON.stringify({ schema: "kanban-flow", created: "x", ...(harness ? { harness } : {}) });
+  const harness = (main: string) => ({ main, roles: { [main]: "claude" }, stages: {}, runners: harnessPresets() });
+  const item = () => ({ meta: { worktree: { path: worktree } } }) as never;
+  const noOrigin: OriginConfigReader = () => ({ ref: null, text: null });
+  const gitIn = (cwd: string, ...a: string[]) => execFileSync("git", ["-C", cwd, "-c", "user.email=t@t", "-c", "user.name=t", ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-hres-"));
+    primary = join(dir, "repo");
+    worktree = join(dir, "wt");
+    await mkdir(join(primary, ".kf"), { recursive: true });
+    await mkdir(worktree, { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("(a) prefers the item worktree's copy", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config());
+    await mkdir(join(worktree, ".kf"), { recursive: true });
+    await writeFile(join(worktree, ".kf", "config.json"), config(harness("wt")));
+    const origin: OriginConfigReader = () => { throw new Error("origin must not be read when the worktree has a copy"); };
+    const r = resolveDriveConfig(primary, item(), origin);
+    expect(r.source).toBe("worktree");
+    expect(r.file).toBe(join(worktree, ".kf", "config.json"));
+    expect(r.cfg.harness?.main).toBe("wt");
+  });
+
+  it("(b) falls back to origin's default branch when the worktree has none", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config());
+    const r = resolveDriveConfig(primary, item(), () => ({ ref: "origin/trunk", text: config(harness("origin")) }));
+    expect(r.source).toBe("origin");
+    expect(r.file).toBe("origin/trunk:.kf/config.json");
+    expect(r.cfg.harness?.main).toBe("origin");
+  });
+
+  it("(c) falls back to the primary when neither has one", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("primary")));
+    for (const origin of [noOrigin, (() => ({ ref: "origin/main", text: null })) as OriginConfigReader]) {
+      const r = resolveDriveConfig(primary, item(), origin);
+      expect(r.source).toBe("primary");
+      expect(r.cfg.harness?.main).toBe("primary");
+    }
+    expect(resolveDriveConfig(primary, { meta: {} } as never, noOrigin).looked).toHaveLength(2);
+  });
+
+  it("(d) with no config anywhere, resolves an empty primary and names the three places looked", () => {
+    const r = resolveDriveConfig(primary, item(), noOrigin);
+    expect(r.source).toBe("primary");
+    expect(r.cfg).toEqual({});
+    expect(r.looked).toEqual([
+      join(worktree, ".kf", "config.json"),
+      "origin/<default>:.kf/config.json (origin/HEAD is not set)",
+      join(primary, ".kf", "config.json"),
+    ]);
+  });
+
+  it("refuses an unparsable source instead of skipping it", async () => {
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("primary")));
+    await mkdir(join(worktree, ".kf"), { recursive: true });
+    await writeFile(join(worktree, ".kf", "config.json"), "{ nope");
+    expect(() => resolveDriveConfig(primary, item(), noOrigin)).toThrow("Invalid JSON in project config");
+    await rm(join(worktree, ".kf"), { recursive: true });
+    expect(() => resolveDriveConfig(primary, item(), () => ({ ref: "origin/main", text: "{ nope" }))).toThrow("origin/main:.kf/config.json");
+  });
+
+  it("sees a fetch that moves origin's default branch within the same process", async () => {
+    gitIn(primary, "init", "-q");
+    const bare = join(dir, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    const branch = gitIn(primary, "symbolic-ref", "--short", "HEAD");
+    gitIn(primary, "remote", "add", "origin", bare);
+    const publish = async (main: string) => {
+      await writeFile(join(primary, ".kf", "config.json"), config(harness(main)));
+      gitIn(primary, "add", ".kf/config.json");
+      gitIn(primary, "commit", "-qm", main);
+      gitIn(primary, "push", "-q", "origin", branch);
+      gitIn(primary, "fetch", "-q", "origin");
+    };
+    await publish("first");
+    gitIn(primary, "remote", "set-head", "origin", branch);
+    const noWorktree = { meta: {} } as never;
+    expect(resolveDriveConfig(primary, noWorktree).cfg.harness?.main).toBe("first");
+    await publish("second");
+    const r = resolveDriveConfig(primary, noWorktree);
+    expect(r.source).toBe("origin");
+    expect(r.cfg.harness?.main).toBe("second");
+  });
+
+  it("remembers a missing origin/HEAD for the process instead of asking git on every resolve", async () => {
+    gitIn(primary, "init", "-q");
+    const bare = join(dir, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    const branch = gitIn(primary, "symbolic-ref", "--short", "HEAD");
+    gitIn(primary, "remote", "add", "origin", bare);
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("published")));
+    gitIn(primary, "add", ".kf/config.json");
+    gitIn(primary, "commit", "-qm", "config");
+    gitIn(primary, "push", "-q", "origin", branch);
+    const noWorktree = { meta: {} } as never;
+    expect(resolveDriveConfig(primary, noWorktree).looked).toContain("origin/<default>:.kf/config.json (origin/HEAD is not set)");
+    // origin/HEAD set later in the same process is not seen: the miss is cached; a new process sees it.
+    gitIn(primary, "remote", "set-head", "origin", branch);
+    expect(readOriginConfig(primary).ref).toBe(`origin/${branch}`);
+    const again = resolveDriveConfig(primary, noWorktree);
+    expect(again.source).toBe("primary");
+    expect(again.looked).toContain("origin/<default>:.kf/config.json (origin/HEAD is not set)");
+  });
+
+  it("reads origin's default branch with git show, and treats a missing origin, ref or file as absent", async () => {
+    expect(readOriginConfig(dir)).toEqual({ ref: null, text: null });
+    gitIn(primary, "init", "-q");
+    gitIn(primary, "commit", "-q", "--allow-empty", "-m", "init");
+    expect(readOriginConfig(primary)).toEqual({ ref: null, text: null });
+
+    const bare = join(dir, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", bare]);
+    const branch = gitIn(primary, "symbolic-ref", "--short", "HEAD");
+    gitIn(primary, "remote", "add", "origin", bare);
+    gitIn(primary, "push", "-q", "origin", branch);
+    gitIn(primary, "remote", "set-head", "origin", branch);
+    expect(readOriginConfig(primary)).toEqual({ ref: `origin/${branch}`, text: null });
+
+    await writeFile(join(primary, ".kf", "config.json"), config(harness("origin")));
+    gitIn(primary, "add", ".kf/config.json");
+    gitIn(primary, "commit", "-qm", "config");
+    gitIn(primary, "push", "-q", "origin", branch);
+    gitIn(primary, "fetch", "-q", "origin");
+    const read = readOriginConfig(primary);
+    expect(read.ref).toBe(`origin/${branch}`);
+    expect(JSON.parse(read.text!).harness.main).toBe("origin");
   });
 });
 

@@ -15,6 +15,7 @@ import { assertPathName } from "../workflow/features.js";
 import { seedHarness } from "../harness/config.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
 import { readProjectConfig, effectiveSkillsScope } from "./config.js";
+import { runGit } from "../shared/git.js";
 
 export interface BootstrapAnswers {
   /** Declared contexts; the first is the default. Empty means "leave the project unrestricted". */
@@ -46,20 +47,82 @@ export function detectReviewer(root = process.cwd()): string {
   return process.env.USER || process.env.USERNAME || "human";
 }
 
-/** True when .git exists and .works/ is not already ignored. */
+/** Local-only kanban-flow state: work items, item worktrees and the travel ledger. */
+const IGNORED_ENTRIES = [".works/", ".worktrees/", ".kf/travel/"];
+
+/** The travel ledger entry: only a fresh kf init seeds it, so doctor checks it on upgraded projects. */
+export const TRAVEL_IGNORE_ENTRY = ".kf/travel/";
+
+/** The entries .gitignore lacks; `gitError` is set when git could not answer and the line match decided instead. */
+export interface IgnoreCheck {
+  missing: string[];
+  gitError: string | null;
+}
+
+/**
+ * Inside a git repository git decides whether the travel ledger is ignored, so a broader pattern such
+ * as `.kf/` or `/.kf/*` counts. Exit 1 is "not ignored"; anything else (dubious ownership exits 128,
+ * a .git pointing at a pruned worktree, git not installed) is no answer, so the caller falls back to
+ * the line match and reports the error instead of failing doctor or init over an advisory check.
+ */
+function gitIgnoresTravel(root: string): { ignored: boolean } | { error: string } {
+  let res: ReturnType<typeof runGit>;
+  try {
+    res = runGit(root, ["check-ignore", "-q", `${TRAVEL_IGNORE_ENTRY}x`], { timeoutMs: 10_000 });
+  } catch (err) {
+    // runGit throws only when git cannot be spawned or times out.
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  if (res.code === 0) return { ignored: true };
+  if (res.code === 1) return { ignored: false };
+  return { error: `git check-ignore failed (exit ${res.code}): ${res.stderr.trim() || "no output"}` };
+}
+
+function missingIgnoreEntries(root: string, content: string): IgnoreCheck {
+  const lines = content.split("\n").map((l) => l.trim());
+  const inGit = existsSync(join(root, ".git"));
+  let gitError: string | null = null;
+  const missing = IGNORED_ENTRIES.filter((entry) => {
+    const bare = entry.replace(/\/$/, "");
+    // `.works` keeps its old lenient match (any line naming it) so a hand-written pattern such as
+    // `/.works/*` still counts as ignored and is never appended a second time.
+    if (entry === ".works/") return !lines.some((l) => l.includes(".works"));
+    if (entry === TRAVEL_IGNORE_ENTRY && inGit) {
+      const res = gitIgnoresTravel(root);
+      if ("ignored" in res) return !res.ignored;
+      gitError = res.error;
+    }
+    return !lines.some((l) => l === entry || l === bare || l === `/${entry}` || l === `/${bare}`);
+  });
+  return { missing, gitError };
+}
+
+/** True when .git exists and any kanban-flow entry is not already ignored. */
 export function shouldSuggestIgnoreWorks(root: string): boolean {
   if (!existsSync(join(root, ".git"))) return false;
   const gi = join(root, ".gitignore");
   if (!existsSync(gi)) return true;
-  const content = readFileSync(gi, "utf8");
-  return !/^\s*\.works\/?\s*$/m.test(content) && !content.split("\n").some((l) => l.includes(".works"));
+  return missingIgnoreEntries(root, readFileSync(gi, "utf8")).missing.length > 0;
 }
 
-export function appendIgnoreWorks(root: string): void {
+/** The kanban-flow entries .gitignore lacks; none outside a git repository. */
+export function ignoreEntriesMissing(root: string): IgnoreCheck {
+  if (!existsSync(join(root, ".git"))) return { missing: [], gitError: null };
   const gi = join(root, ".gitignore");
-  const add = "\n# kanban-flow\n.works/\n.worktrees/\n";
-  if (!existsSync(gi)) writeFileSync(gi, add, "utf8");
-  else writeFileSync(gi, readFileSync(gi, "utf8") + add, "utf8");
+  return missingIgnoreEntries(root, existsSync(gi) ? readFileSync(gi, "utf8") : "");
+}
+
+/**
+ * Appends only the entries .gitignore lacks, so a re-run never duplicates a line. Returns what it added,
+ * and the git error when the line match stood in for git. `only` limits it to some of the entries.
+ */
+export function appendIgnoreWorks(root: string, only?: readonly string[]): { added: string[]; gitError: string | null } {
+  const gi = join(root, ".gitignore");
+  const content = existsSync(gi) ? readFileSync(gi, "utf8") : "";
+  const check = missingIgnoreEntries(root, content);
+  const missing = check.missing.filter((entry) => !only || only.includes(entry));
+  if (missing.length > 0) writeFileSync(gi, `${content}\n# kanban-flow\n${missing.join("\n")}\n`, "utf8");
+  return { added: missing, gitError: check.gitError };
 }
 
 async function confirm(rl: ReturnType<typeof createInterface>, q: string, def: boolean): Promise<boolean> {
@@ -267,7 +330,7 @@ export async function askAll(
 
   let ignoreWorks = d.ignoreWorks;
   if (d.ignoreWorks) {
-    ignoreWorks = await confirm(rl, "Add .works/ + .worktrees/ to .gitignore?", true);
+    ignoreWorks = await confirm(rl, "Add .works/, .worktrees/ and .kf/travel/ to .gitignore?", true);
   }
 
   const seedFeature = await confirm(rl, "Seed a demo feature to show the structure?", false);
@@ -412,7 +475,7 @@ Detect anything else by reading the repository, never by guessing.
 ## Workflow (kanban-flow)
 
 - Start a feature with one command: \`kanban <context> <feature>\` (bug: \`kanban <context> <name> --type bug\`).
-- Human gates: confirm the requirement (Phase 1), approve the plan + choose start-now vs backlog (Phase 2), and after a PASS review choose ship or archive. Do not ask "continue?" between other phases.
+- Human gates: confirm the requirement (Phase 1), approve the plan (Phase 2: \`kf approve\` starts implementation, \`--backlog\` parks it), and merge the PR after a PASS review (\`kf status --change <feature>\` closes the item). Do not ask "continue?" between other phases.
 - Work item state lives in \`.works/\`; move items only with \`kf stage\` / \`kf archive\`, never by moving folders.
 - Never use \`--force\` or \`--skip-hooks\` without explicit user approval; every bypass is recorded in the work item's metadata.
 - Run \`kf autoconfig\` for the setup checklist and the review rules to apply as coding conventions.

@@ -37,27 +37,27 @@ async function makeFeature(name = "todo-list", stage: Stage = "brainstorm", ctx 
   if (stage !== "brainstorm" && stage !== "planning" || (stage === "planning")) {
     await writeFile(join(dir, "phase-1-spec-requirement.md"), "---\nstatus: confirmed\n---\n# Spec\nreal content\nFR-001");
   }
-  if (stage === "planning" || stage === "backlog" || stage === "implementation" || stage === "testing" || stage === "review" || stage === "shipping" || stage === "dones") {
+  if (stage === "planning" || stage === "backlog" || stage === "implementation" || stage === "testing" || stage === "review" || stage === "done") {
     for (const f of ["phase-2-implementation-plan.md", "phase-2-use-case-specification.md", "phase-2-use-case-diagram.md", "phase-2-test-case.md"]) {
       await writeFile(join(dir, f), `# ${f}\nreal content\n## TC-001\nFR-001 UC-001`);
     }
     await mkdir(join(dir, "use-cases"), { recursive: true });
     await writeFile(join(dir, "use-cases", "UC-001.md"), "# UC-001\nreal content");
   }
-  if (stage === "testing" || stage === "review" || stage === "shipping" || stage === "dones") {
+  if (stage === "testing" || stage === "review" || stage === "done") {
     await writeFile(join(dir, "phase-4-testing-result.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Test\nreal content\nOverall: 85%\n## Commands and Evidence\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |");
   }
-  if (stage === "review" || stage === "shipping" || stage === "dones") {
+  if (stage === "review" || stage === "done") {
     await writeFile(join(dir, "phase-5-review-report.md"), "---\nstatus: PASS\nexecution: test-run\n---\n# Review\nreal content");
   }
-  if (stage === "dones") {
+  if (stage === "done") {
     await writeFile(join(dir, "phase-6-feature-report.md"), "# Feature Report\nreal content");
   }
   await writeFeatureMeta(dir, {
     schema: "kanban-flow", feature: name, context: ctx, created: ts,
-    approval: approved || ["backlog", "implementation", "testing", "review", "shipping", "dones"].includes(stage)
+    approval: approved || ["backlog", "implementation", "testing", "review", "done"].includes(stage)
       ? { status: "approved", by: "human", at: ts, contractHash: executionContractHash(dir)! } : undefined,
-    executionId: ["testing", "review", "shipping", "dones"].includes(stage) ? "test-run" : undefined,
+    executionId: ["testing", "review", "done"].includes(stage) ? "test-run" : undefined,
   });
 }
 
@@ -83,8 +83,8 @@ describe("listFeatures / findFeature", () => {
   });
 
   it("searches across stages", async () => {
-    await makeFeature("archived", "dones");
-    expect(findFeature(root, "archived")!.stage).toBe("dones");
+    await makeFeature("archived", "done");
+    expect(findFeature(root, "archived")!.stage).toBe("done");
   });
 });
 
@@ -100,10 +100,10 @@ describe("computeStatus", () => {
     expect(s.next).toBe("spec-requirement");
   });
 
-  it("marks dones feature in MYSTERY-complete state as missing", async () => {
-    // A feature that landed in dones without required reports must be flagged.
+  it("marks done feature in MYSTERY-complete state as missing", async () => {
+    // A feature that landed in done without required reports must be flagged.
     const ts = "20260916_1800";
-    const dir = join(root, ".works", "dones", `broken_${ts}`);
+    const dir = join(root, ".works", "done", `broken_${ts}`);
     await mkdir(dir, { recursive: true });
     await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "broken", context: "app", created: ts });
     await writeFile(join(dir, "phase-1-spec-requirement.md"), "# Spec\nreal");
@@ -111,7 +111,7 @@ describe("computeStatus", () => {
 
     const f = findFeature(root, "broken")!;
     const s = computeStatus(f);
-    // testing-result + review-report + feature-report are due at dones
+    // testing-result + review-report + feature-report are due at done
     for (const id of ["testing-result", "review-report", "feature-report"]) {
       expect(s.artifacts.filter((a) => a.id === id)[0].status).toBe("missing");
     }
@@ -134,8 +134,14 @@ describe("kf status tells the truth about what is blocking", () => {
 
     const text = renderStatusText(s);
     expect(text).toContain("fr_ref_missing");
-    expect(text).toContain("Next: clear the blocking findings");
+    expect(text).toContain("Next: clear the blocking findings above, then re-run kf status --change todo-list.");
     expect(text, "must not send anyone at a command that will refuse").not.toContain('kf approve "todo-list"');
+  });
+
+  it("names kf status --change <feature> after the merge, since a bare kf status exits 1", async () => {
+    await makeFeature("todo-list", "planning");
+    const s = { ...computeStatus(findFeature(root, "todo-list")!), close: { kind: "awaiting-merge" as const, pr: "https://github.com/o/r/pull/7" } };
+    expect(renderStatusText({ ...s, blockers: [] })).toContain("Next: merge https://github.com/o/r/pull/7 on GitHub, then kf status --change todo-list");
   });
 
   it("leaves a correctly prepared item exactly as it was", async () => {
@@ -198,6 +204,25 @@ describe("kf status tells the truth about what is blocking", () => {
     });
     expect(computeStatus(findFeature(root, "todo-list")!).blockers).toEqual([]);
   });
+
+  it("prints a legacy stage in a cancellation or bypass as the stage that replaced it", async () => {
+    await makeFeature("todo-list", "planning");
+    const src = findFeature(root, "todo-list")!.dir;
+    const dest = join(root, ".works", "cancelled", "todo-list_20260916_1800");
+    await mkdir(join(root, ".works", "cancelled"), { recursive: true });
+    await rename(src, dest);
+    await writeFeatureMeta(dest, {
+      schema: "kanban-flow", feature: "todo-list", context: "app", created: "20260916_1800",
+      status: "cancelled",
+      cancellation: { at: "20260916_1900", by: "human", reason: "dropped", fromStage: "shipping" },
+      bypasses: [{ at: "20260916_1850", from: "review", to: "dones", flag: "force", codes: ["x"] }],
+    });
+    const text = renderStatusText(computeStatus(findFeature(root, "todo-list")!));
+    expect(text).toContain("(was review)");
+    expect(text).toContain("--force → done");
+    expect(text).not.toContain("shipping");
+    expect(text).not.toContain("dones");
+  });
 });
 
 describe("validateFeature", () => {
@@ -242,9 +267,9 @@ describe("validateFeature", () => {
 });
 
 describe("seatbelt against the original incident", () => {
-  it("a dones feature missing reports fails validation", async () => {
+  it("a done feature missing reports fails validation", async () => {
     const ts = "20260916_1800";
-    const dir = join(root, ".works", "dones", `todo-list_${ts}`);
+    const dir = join(root, ".works", "done", `todo-list_${ts}`);
     await mkdir(dir, { recursive: true });
     await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "todo-list", context: "app", created: ts });
     // invent spec-link.md (the incident artifact) but NO real artifacts
@@ -285,6 +310,6 @@ describe("statusToJson", () => {
 
 describe("stage movement contract", () => {
   it("all workflow stages exist as folders", async () => {
-    expect(STAGES.length).toBe(9);
+    expect(STAGES.length).toBe(8);
   });
 });

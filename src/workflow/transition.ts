@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { TRANSITIONS, type Stage } from "./schema.js";
+import { TRANSITIONS, currentStageName, type Stage, type LegacyStageName } from "./schema.js";
 import { findFeature, stageDir, writeFeatureMeta, type Bypass, type WorktreeRegistration } from "./features.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { withLock } from "../shared/lock.js";
@@ -13,21 +13,27 @@ import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
+import type { HarnessConfig } from "../harness/config.js";
 
 export interface TransitionOptions {
   force?: boolean;
   skipHooks?: boolean;
   cwd: string;
+  /**
+   * The harness the gate validates the task graph against. `kf drive` passes the one it resolved (the item worktree's
+   * copy first), so a stale primary cannot refuse a move the drive itself accepts; omitted, the primary's is read.
+   */
+  harness?: HarnessConfig;
 }
 
 /**
  * Why a transition was refused. Each reason maps 1:1 to the short stderr tag `kf stage` has always
  * printed (see REFUSAL_TAGS), so the CLI wrapper loses nothing. `archive-required` is the one reason
- * with no tag: moving into `dones` is archive's job, and the caller decides what to do about it.
+ * with no tag: moving into `done` is archive's job, and the caller decides what to do about it.
  */
 export type RefusalReason =
   | "unknown-item"
-  | "already-dones"
+  | "already-done"
   | "cancellation-missing"
   | "wrong-reopen-stage"
   | "invalid-transition"
@@ -52,11 +58,22 @@ export type TransitionOutcome =
       reopened: boolean;
       stdout: string;
     }
-  | { kind: "refused"; reason: RefusalReason; stdout: string; stderrTag: string }
+  | {
+      kind: "refused";
+      reason: RefusalReason;
+      stdout: string;
+      stderrTag: string;
+      /** A worktree this transition created could not be removed after the refusal; stdout carries the warning. */
+      cleanupError?: unknown;
+    }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
 
 export type Transition = (root: string, name: string, to: Stage, opts: TransitionOptions) => Promise<TransitionOutcome>;
+
+/** Retry advice of a gate refusal; exported so a caller that takes no --force (kf approve) can leave it out. */
+export const FORCE_RETRY_HINT = "Or re-run with --force.";
+export const stageRetryHint = (name: string, to: Stage): string => `Re-run: kf stage ${name} ${to}`;
 
 const refuse = (reason: RefusalReason, stderrTag: string, stdout: string): TransitionOutcome => ({ kind: "refused", reason, stdout, stderrTag });
 
@@ -76,12 +93,14 @@ export const transitionItem: Transition = async (root, name, to, opts) => {
 async function runTransition(root: string, name: string, to: Stage, opts: TransitionOptions): Promise<TransitionOutcome> {
   const f = findFeature(root, name);
   if (!f) return refuse("unknown-item", "unknown feature", `Unknown feature '${name}'. Run: kf list`);
-  if (f.stage === "dones") return refuse("already-dones", "already dones", `Feature '${name}' is already archived (dones).`);
+  if (f.stage === "done") return refuse("already-done", "already done", `Feature '${name}' is already archived (done).`);
 
   // A cancelled item has exactly one way back: the stage it was cancelled from.
   let isReopen = false;
   if (f.stage === "cancelled") {
-    const from = f.meta?.cancellation?.fromStage;
+    // The type says Stage, but features.ts accepts legacy names in old history.
+    const recorded: string | undefined = f.meta?.cancellation?.fromStage;
+    const from: Stage | undefined = recorded !== undefined ? currentStageName(recorded as Stage | LegacyStageName) : undefined;
     if (!from) {
       return refuse("cancellation-missing", "cancellation missing", `'${name}' is cancelled but its metadata has no fromStage, so kf cannot tell where it belongs. Re-run with --force to place it anywhere.`);
     }
@@ -96,11 +115,11 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
     const desc = allowed.join(", ");
     return refuse("invalid-transition", "not allowed transition", `Cannot move '${name}' ${f.stage} → ${to}. Allowed: ${desc}.`);
   }
-  // Reopening into `dones` is putting an item back where it was, not archiving it again. Routing
+  // Reopening into `done` is putting an item back where it was, not archiving it again. Routing
   // it through archive made `kf cancel`'s own advertised reopen command refuse itself, with no
   // escape: archive rejects a cancelled item before it ever looks at --force. The move happens
   // below, and the archive state it had is restored right after by the caller — see `reopened`.
-  if (to === "dones" && !isReopen) return refuse("archive-required", "", "");
+  if (to === "done" && !isReopen) return refuse("archive-required", "", "");
 
   // Gate: feature must be valid for its CURRENT stage before leaving it.
   const force = Boolean(opts.force);
@@ -110,12 +129,13 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   // the `cancelled` shortcut inside validateFeature, so `kf validate` called the item valid while
   // `kf stage` refused the very reopen `kf cancel` prints, and blamed a stage it was not in. The
   // only way through was --force, which stamps a permanent bypass for a gate that should not hold.
+  const harness = opts.harness ?? readProjectConfig(root).harness;
   const check = to === "planning" && f.stage !== "brainstorm" && f.stage !== "cancelled"
-    ? validateFeature({ ...f, stage: "brainstorm" }, false, false, readProjectConfig(root).harness)
-    : validateFeature(f, false, true, readProjectConfig(root).harness);
+    ? validateFeature({ ...f, stage: "brainstorm" }, false, false, harness)
+    : validateFeature(f, false, true, harness);
   if (!check.valid) {
     if (!force) {
-      return refuse("gate", "gate failed", `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`);
+      return refuse("gate", "gate failed", `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\n${FORCE_RETRY_HINT}`);
     }
     forcedCodes.push(...check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code));
   }
@@ -125,7 +145,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   if (direction.length > 0) {
     if (!force) {
       const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");
-      return refuse("direction", "direction gate failed", `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\nOr re-run with --force.`);
+      return refuse("direction", "direction gate failed", `Cannot move '${name}' ${f.stage} → ${to} — report status blocks this direction:\n\n${lines}\n\n${FORCE_RETRY_HINT}`);
     }
     forcedCodes.push(...direction.map((i) => i.code));
   }
@@ -190,31 +210,35 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   }
 
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
-  const removeNewWorktree = async (): Promise<void> => {
+  /** Roll back a worktree this transition created; returns the cleanup failure so the caller reports it. */
+  const removeNewWorktree = async (): Promise<unknown> => {
     if (worktree && !f.meta!.worktree) {
       try {
         await forceRemoveWorktree(root, { ...f, meta: { ...f.meta!, worktree } }, wtCfg);
-      } catch {
-        /* best-effort rollback — the failed move is the error that matters */
+      } catch (cleanupError) {
+        return cleanupError;
       }
     }
+    return undefined;
   };
+  const cleanupNote = (cleanupError: unknown): string =>
+    `\n\n⚠ The new worktree ${worktree!.path} could not be removed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}. Remove it by hand: git worktree remove --force ${worktree!.path}`;
   try {
     // Only the re-read, the write and the rename hold the lock — gates, hooks and the worktree stay outside.
     const refused = await withLock(root, f.name, async (): Promise<TransitionOutcome | null> => {
       const cur = findFeature(root, f.name);
       if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
-        return refuse("changed-concurrently", "changed concurrently", `Cannot move '${name}': it changed while the transition was running. Re-run: kf stage ${name} ${to}`);
+        return refuse("changed-concurrently", "changed concurrently", `Cannot move '${name}': it changed while the transition was running. ${stageRetryHint(name, to)}`);
       }
       if (existsSync(target)) return refuse("target-exists", "target exists", `Target already exists: ${target}`);
       let metadataUpdated = false;
       try {
         let meta = recorded.length > 0 ? { ...cur.meta, bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : cur.meta;
         if (worktree) meta = { ...meta, worktree };
-        // Putting an item back in `dones` means putting back the state it had there. `status` does
+        // Putting an item back in `done` means putting back the state it had there. `status` does
         // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
         // which can legitimately refuse on an item that was never fully valid.
-        if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "dones" ? "archived" : undefined };
+        if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "done" ? "archived" : undefined };
         if (to === "planning") {
           await writeFeatureMeta(cur.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
           metadataUpdated = true;
@@ -240,11 +264,15 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
       return null;
     });
     if (refused) {
-      await removeNewWorktree();
-      return refused;
+      const cleanupError = await removeNewWorktree();
+      if (cleanupError === undefined || refused.kind !== "refused") return refused;
+      return { ...refused, stdout: `${refused.stdout}${cleanupNote(cleanupError)}`, cleanupError };
     }
   } catch (err) {
-    await removeNewWorktree();
+    const cleanupError = await removeNewWorktree();
+    if (cleanupError !== undefined) {
+      throw new AggregateError([err, cleanupError], `Transition of '${name}' failed and its new worktree ${worktree!.path} could not be removed.`);
+    }
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";

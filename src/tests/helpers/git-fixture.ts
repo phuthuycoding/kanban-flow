@@ -32,7 +32,7 @@ export interface DriveTask {
 export interface GitDriveOptions {
   kind?: WorkItemKind;
   tasks: DriveTask[];
-  /** Move the approved item to implementation (creates the item worktree). Default true. */
+  /** `kf approve` moves the item to implementation (creates the item worktree); false approves with --backlog. Default true. */
   implementation?: boolean;
   /** Replaces the default `{ stage: [["true"]] }`. Written verbatim, so it works before `harness.verify` is validated. */
   verify?: Record<string, unknown>;
@@ -40,6 +40,10 @@ export interface GitDriveOptions {
   roles?: Record<string, RoleConfig>;
   stages?: Record<string, string[]>;
   agents?: string[];
+  /** Commit `.kf/config.json` before the item worktree is cut, so the worktree carries its own copy. Default false. */
+  commitConfig?: boolean;
+  /** Add a bare `origin` (pushed, origin/HEAD set) before the item worktree is cut. Default false. */
+  origin?: boolean;
 }
 
 export interface GitDriveProject {
@@ -47,6 +51,8 @@ export interface GitDriveProject {
   root: string;
   /** Temp dir holding the repo, worktrees and routes file. */
   scratch: string;
+  /** The bare origin repository; null unless `origin` was asked for. */
+  originDir: string | null;
   cli: FakeCli;
   /** Environment for spawning the CLI with the fakes first on PATH and a git identity. */
   env: NodeJS.ProcessEnv;
@@ -114,6 +120,21 @@ export async function gitDriveProject(opts: GitDriveOptions): Promise<GitDrivePr
     worktree: { enabled: true, baseDir: join(scratch, "wt"), routesFile: join(scratch, "routes.json") },
     harness,
   }, null, 2));
+  if (opts.commitConfig) {
+    git("add", ".kf/config.json");
+    git("commit", "-qm", "config");
+  }
+  let originDir: string | null = null;
+  if (opts.origin) {
+    originDir = join(scratch, "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", originDir]);
+    const branch = git("symbolic-ref", "--short", "HEAD");
+    git("remote", "add", "origin", originDir);
+    git("push", "-q", "-u", "origin", branch);
+    // The bare repo's HEAD follows init.defaultBranch, which can differ from the branch pushed; clones must check out this one.
+    gitIn(originDir, "symbolic-ref", "HEAD", `refs/heads/${branch}`);
+    git("remote", "set-head", "origin", branch);
+  }
   for (const agent of agents) {
     for (const skill of Object.values(STAGE_SKILL)) {
       if (!skill) continue;
@@ -144,9 +165,8 @@ export async function gitDriveProject(opts: GitDriveOptions): Promise<GitDrivePr
     await writeFile(join(feature().dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
     await writeArtifact("test-cases", "# Cases\n## TC-001\nFR-001 UC-001\nCreate a task and verify it exists.\n");
   }
-  const approved = await cmdApprove(args("approve", [name]), root);
+  const approved = await cmdApprove(args("approve", [name], opts.implementation ?? true ? {} : { backlog: true }), root);
   if (approved.code !== 0) throw new Error(`kf approve failed: ${approved.stdout}${approved.stderr ?? ""}`);
-  if (opts.implementation ?? true) await stage("implementation");
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -154,7 +174,7 @@ export async function gitDriveProject(opts: GitDriveOptions): Promise<GitDrivePr
     GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t",
   };
   return {
-    root, scratch, cli, env, feature,
+    root, scratch, originDir, cli, env, feature,
     itemDir: () => feature().dir,
     worktreePath: () => feature().meta?.worktree?.path ?? null,
     readMeta: () => readFeatureMeta(feature().dir),

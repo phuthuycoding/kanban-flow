@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `workflow-slim`:** `feature ship` / `bug ship` map to `kf ship`, which is now a deprecated alias that changes nothing and exits 1; review opens the PR and the merge closes the item. Kept for history.
+
 ## Feature
 command-tree
 

@@ -21,7 +21,7 @@ src/
 │       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
 │       ├── run.ts        # kf run / kf runs (hand a stage to a worker agent)
 │       ├── harness.ts    # kf harness (effective harness config)
-│       ├── ship.ts       # kf ship — resumable publish/merge/release/changelog pipeline
+│       ├── ship.ts       # kf ship — deprecated alias, prints a pointer and exits 1
 │       ├── cancel.ts     # kf cancel (argument parsing and output over workflow/cancel)
 │       └── archive.ts    # kf archive (argument parsing and output over workflow/archive)
 ├── workflow/             # domain state, artifacts and validation
@@ -31,6 +31,7 @@ src/
 │   ├── canonical-docs.ts # canonical docs sync: content, paths, prepare/write/rollback copies
 │   ├── archive.ts        # archive transaction (archiveItem) behind kf archive
 │   ├── cancel.ts         # cancel transaction (cancelItem) behind kf cancel
+│   ├── migrate.ts        # one-time move of legacy dones/shipping items to done/review
 │   ├── status.ts         # artifact checklist rendering
 │   ├── findings.ts       # Finding/ValidationResult types
 │   ├── secrets.ts        # secret-like content scan
@@ -48,7 +49,6 @@ src/
 │       ├── driver.ts     # supervisor loop: tasks, verify, testing/review repair loops
 │       ├── progress.ts   # live-run labels and elapsed time for status and watch
 │       └── watch.ts      # kf drive --watch: tail the drive log until it stops
-├── ship/                 # ship pipeline steps: publish, merge gate, release, changelog
 ├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation, hooks
 │   └── github.ts         # gh CLI wrapper and PR merge gate (checkMergeGate); domain result, no CLI type

@@ -29,7 +29,7 @@ case "$1" in
     if [ "$2" = view ]; then
       num="\${3##*/}"
       state=$(printenv "GH_PR_STATE_$num"); state="\${state:-\${GH_PR_STATE:-MERGED}}"
-      printf '{"state":"%s"}\\n' "$state"
+      printf '{"state":"%s","headRefName":"kf/stub","headRefOid":"0123456789abcdef0123456789abcdef01234567"}\\n' "$state"
     fi; exit 0 ;;
 esac
 exit 0
@@ -42,7 +42,7 @@ const feature = (name: string) => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** A bug work item driven to a review-stage PASS state — archive-ready when merged. */
@@ -51,7 +51,6 @@ async function reviewBug(name: string): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), bugSpec);
   expect((await cmdStage({ command: "stage", positionals: [name, "planning"], options: {} }, root)).code).toBe(0);
   expect((await cmdApprove({ command: "approve", positionals: [name], options: {} }, root)).code).toBe(0);
-  expect((await cmdStage({ command: "stage", positionals: [name, "implementation"], options: {} }, root)).code).toBe(0);
   expect((await cmdStage({ command: "stage", positionals: [name, "testing"], options: {} }, root)).code).toBe(0);
   await report(name, "testing-result");
   expect((await cmdStage({ command: "stage", positionals: [name, "review"], options: {} }, root)).code).toBe(0);
@@ -106,14 +105,23 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("mergedbug: archived");
     expect(res.stdout).toContain("openitem: skipped");
-    expect(feature("mergedbug").stage).toBe("dones");
+    expect(feature("mergedbug").stage).toBe("done");
     expect(readFeatureMeta(feature("mergedbug").dir)!.delivered).toBe(true);
     expect(feature("openitem").stage).toBe("review");
     expect(feature("nopritem").stage).toBe("review");
   });
 
-  it("leaves delivered dones items alone so later doc edits do not fail the sweep", async () => {
-    await seedItem("dones", "shipped", { pr: "https://github.com/o/r/pull/14", delivered: true });
+  it("closes a review PASS item with landing: none and no PR (nothing to land)", async () => {
+    await reviewBug("nothingbug");
+    const res = await cmdSync(args(), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("✓ nothingbug: archived (nothing to land)");
+    expect(feature("nothingbug").stage).toBe("done");
+    expect(readFeatureMeta(feature("nothingbug").dir)!.delivered).toBe(true);
+  });
+
+  it("leaves delivered done items alone so later doc edits do not fail the sweep", async () => {
+    await seedItem("done", "shipped", { pr: "https://github.com/o/r/pull/14", delivered: true });
     process.env.GH_FAIL = "1";
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(0);
@@ -132,6 +140,17 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("repository");
+  });
+
+  it("exits 1 without a repository when a legacy folder could not be migrated", async () => {
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: false } }));
+    const dir = join(root, ".works", "dones", "broken_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, ".kfw.json"), "{ not json");
+    const res = await cmdSync(args(), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("repair or remove .works/dones/broken_20260101_0000");
+    expect(res.stdout).toContain("No repository configured");
   });
 
   it("skips unverifiable items with a warning and keeps sweeping (TC-020b)", async () => {
@@ -153,8 +172,10 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("✗ baditem");
+    // The gate's heading alone does not say which checks blocked the close; the codes on the same line do.
+    expect(res.stdout).toContain("✗ baditem: Gate failed for 'baditem'. Fix validation before archiving: artifact_missing, approval_required");
     expect(res.stdout).toContain("goodbug: archived");
-    expect(feature("goodbug").stage).toBe("dones");
+    expect(feature("goodbug").stage).toBe("done");
     expect(feature("baditem").stage).toBe("review");
   });
 });

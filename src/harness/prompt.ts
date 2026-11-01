@@ -15,8 +15,7 @@ export const STAGE_SKILL: Record<Stage, string | null> = {
   implementation: "kanban-implement",
   testing: "kanban-test",
   review: "kanban-review",
-  shipping: "kanban-ship",
-  dones: "kanban-archive",
+  done: "kanban-archive",
   cancelled: null,
 };
 
@@ -66,7 +65,7 @@ export function resolveChain(
 ): ChainResult {
   if (!harness) return { ok: false, reason: "No harness configured in .kf/config.json — run: kf init (seeds roles and runner presets)." };
   const stage = overrides.stage ?? feature.stage;
-  if (feature.stage === "dones" && !overrides.stage) return { ok: false, reason: `'${feature.name}' is archived (dones); nothing to run.` };
+  if (feature.stage === "done" && !overrides.stage) return { ok: false, reason: `'${feature.name}' is archived (done); nothing to run.` };
   const skillName = feature.meta?.kind === "bug" && stage === "brainstorm" ? "kanban-bug" : STAGE_SKILL[stage];
   if (!skillName) return { ok: false, reason: `Stage "${stage}" has no work to hand off.` };
 
@@ -112,6 +111,8 @@ export interface PromptInput {
   previous?: PreviousStep | null;
   /** The worker runs outside the project root (the item worktree), so paths are given absolute. */
   absolutePaths?: boolean;
+  /** The harness kills the worker after this long (0 = no limit); a worker that waits (the review's CI watch) budgets against it. */
+  timeoutMs?: number;
 }
 
 /** Marker placed first in every worker prompt so sessions can be traced back to a run. */
@@ -144,6 +145,10 @@ export function buildWorkerPrompt(input: PromptInput): string {
     `Load and follow the skill: ${skill} (${assignment.skill}). Skip its "move to stage" step — the stage is already set.`,
     "Read the artifacts in the work item folder before acting; run `kf status --change " + feature.name + "` for the checklist and `kf instruct <artifact> --change " + feature.name + "` for the exact template and output path of anything you must write.",
   );
+  if (input.timeoutMs !== undefined) {
+    const minutes = input.timeoutMs === 0 ? "no limit" : `${Math.ceil((input.timeoutMs / 60_000) * 100) / 100} min`;
+    lines.push(`Time budget: ${minutes}`);
+  }
   if (input.previous) {
     const parts = [`The "${input.previous.role}" role ran before you in this stage.`];
     if (input.previous.output) parts.push(`Read its output first: ${join(dir, input.previous.output)}.`);
@@ -161,7 +166,10 @@ export function buildWorkerPrompt(input: PromptInput): string {
     "- Do only this stage's work and write its artifacts into the work item folder.",
     "- Never run `kf stage`, `kf approve`, `kf archive`, or `kf run`; the main agent decides transitions.",
     "- Never edit approved contract artifacts (requirement, plan, use cases, test cases); track progress in tasks.md.",
-    "- Do not commit or push.",
+    assignment.stage === "review"
+      // Review is where the PR is opened: a PASS with landing: pr needs a recorded PR, so the review worker must push.
+      ? "- Push only as the review skill prescribes — the item branch, after the code-reviewer PASS, to open or update its PR; never merge. Commit only the docs reconcile the review skill prescribes before the code-reviewer dispatch (one docs commit on the item branch); nothing else."
+      : "- Do not push. Commit only as the implementation task loop prescribes — one commit per task on the item branch, made by the implementer it dispatches; outside that loop, commit nothing.",
     "- Finish with two final lines exactly in this form:",
     "STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT",
     "Summary: <one or two sentences>",

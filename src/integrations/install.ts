@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync } from "node:fs";
-import { cp, lstat, mkdir, rm, symlink, unlink } from "node:fs/promises";
+import { cp, lstat, mkdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 
 import { findWorksRoot } from "../workflow/features.js";
@@ -9,7 +10,9 @@ import { PKG_ROOT } from "../shared/paths.js";
 import {
   AGENTS,
   DEFAULT_AGENT,
+  projectAgentsDir,
   projectSkillsDir,
+  userAgentsDir,
   userSkillsDir,
   type AgentId,
   type SkillScope,
@@ -23,11 +26,49 @@ export const MANAGED_SKILLS = [
   "kanban-implement",
   "kanban-test",
   "kanban-review",
-  "kanban-ship",
   "kanban-archive",
+  "travel",
 ];
 
+/**
+ * Skills earlier releases installed that no longer ship. An install removes the leftover entry,
+ * but only when kanban-flow demonstrably owns it — a stale skill the agent still loads would keep
+ * steering work through a stage that no longer exists.
+ */
+export const RETIRED_SKILLS = ["kanban-ship"];
+
+/**
+ * sha256 of every file each retired skill ever carried (git history of skills/<name>; the
+ * released version is the SKILL.md-only one). Project installs copy skills and leave no sidecar,
+ * so a directory made only of these files, SKILL.md included, is a leftover copy of ours.
+ */
+const RETIRED_SKILL_FILES: Record<string, ReadonlySet<string>> = {
+  "kanban-ship": new Set([
+    "d6b2209dbb677918932c8e1b44cf2ab3c7bbb87875d404f14e2065f8096d6e2c",
+    "41cd96b62db45976c1730d7db004dce3a281f9bd80e9b1f55eb9a653db6f3d40",
+    "03c9e16efba58a5738f3b95356446d7a5616267790ffcd8cbf5d3ce7eb5b8430",
+    "49543bff46f7d245accfce6ed3a42a833e9155dca143be29d47d226bc6dd6fd0",
+    "7bad938eb23be4fcfdc3c2f1857352b1f3bd5727b5f448d1ade7285f2dc5cb94",
+    "9362ede9d0811015e22882f7016266d23cf7cd2f3038236ed19a4f0939636017",
+  ]),
+};
+
+/**
+ * Managed skills without the kanban- prefix. A user may well have their own skill under such a
+ * name, so only an entry kanban-flow put there is replaced or removed: a link into a kanban-flow
+ * package, a byte-equal copy of the packaged skill, or a copy whose digest the sidecar recorded.
+ */
+const UNPREFIXED_SKILLS: ReadonlySet<string> = new Set(["travel"]);
+
+/** Sidecar in the skills dir: the digest of each unprefixed skill copy kanban-flow wrote, so an upgrade still recognises the older copy as ours. */
+const SKILLS_MANIFEST = ".kanban-flow-skills.json";
+
+/** Subagent definitions the phase skills dispatch by name; installed only for runtimes with an agent registry. */
+export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer"];
+
 const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
+/** The agent bodies live inside the kanban-flow skill, so every runtime that has the skill can read them. */
+export const PKG_AGENTS_DIR = join(PKG_SKILLS_DIR, "kanban-flow", "agents");
 
 /** Text a caller prints. This module does not depend on the CLI result type. */
 export interface InstallReport {
@@ -57,19 +98,80 @@ function assertPackageSkills(): InstallReport | null {
   return null;
 }
 
-/** Copy the managed skills from the package into the given skill dir. */
+function readSkillsManifest(skillsDir: string): Record<string, string> {
+  const path = join(skillsDir, SKILLS_MANIFEST);
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
+  } catch (err) {
+    // A corrupt sidecar only means no copy is recognised by digest; the byte-equal check still applies.
+    if (err instanceof SyntaxError) return {};
+    throw err;
+  }
+}
+
+async function writeSkillsManifest(skillsDir: string, entries: Record<string, string>): Promise<void> {
+  const path = join(skillsDir, SKILLS_MANIFEST);
+  if (Object.keys(entries).length === 0) await rm(path, { force: true });
+  else await writeFile(path, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+}
+
+/** Digest of a skill dir's file contents, keyed by relative path. */
+function dirDigest(dir: string): string {
+  const snap = dirSnapshot(dir);
+  const hash = createHash("sha256");
+  for (const name of [...snap.keys()].sort()) hash.update(`${name.split(sep).join("/")}\0${sha256(snap.get(name)!)}\n`);
+  return hash.digest("hex");
+}
+
+/** True when kanban-flow may replace or remove the entry at <skillsDir>/<name> (absent counts). Kanban-prefixed names are always ours. */
+export function ownsSkillEntry(skillsDir: string, name: string, manifest: Record<string, string>): boolean {
+  if (!UNPREFIXED_SKILLS.has(name)) return true;
+  const target = join(skillsDir, name);
+  let st;
+  try {
+    st = lstatSync(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw err;
+  }
+  if (st.isSymbolicLink()) return isKanbanFlowSkillLink(skillsDir, name, readlinkSync(target));
+  if (!st.isDirectory()) return false;
+  if (dirsEqual(target, join(PKG_SKILLS_DIR, name))) return true;
+  return manifest[name] !== undefined && manifest[name] === dirDigest(target);
+}
+
+function untouchedNote(skillsDir: string, skipped: string[]): string {
+  return skipped.length > 0
+    ? `\n  ⚠ left untouched (not kanban-flow's): ${skipped.join(", ")} in ${skillsDir}/ — move it aside and re-run to install kanban-flow's`
+    : "";
+}
+
+/** Copy the managed skills from the package into the given skill dir; an unprefixed skill the user owns is skipped and named. */
 export async function copySkillsTo(skillsDir: string): Promise<InstallReport> {
   const missing = assertPackageSkills();
   if (missing) return missing;
   await mkdir(skillsDir, { recursive: true });
   const copied: string[] = [];
+  const skipped: string[] = [];
+  const manifest = readSkillsManifest(skillsDir);
   for (const name of MANAGED_SKILLS) {
+    if (!ownsSkillEntry(skillsDir, name, manifest)) {
+      skipped.push(name);
+      continue;
+    }
     const from = join(PKG_SKILLS_DIR, name);
-    await cp(from, join(skillsDir, name), { recursive: true, force: true });
+    const to = join(skillsDir, name);
+    // A link of ours must go first: cp onto it would write through into the package it points at.
+    if (UNPREFIXED_SKILLS.has(name) && lstatSync(to, { throwIfNoEntry: false })?.isSymbolicLink()) await unlink(to);
+    await cp(from, to, { recursive: true, force: true });
+    if (UNPREFIXED_SKILLS.has(name)) manifest[name] = dirDigest(to);
     copied.push(name);
   }
+  await writeSkillsManifest(skillsDir, manifest);
 
-  return { code: 0, stdout: `${copied.join(", ")} → ${skillsDir}/` };
+  return { code: 0, stdout: `${copied.join(", ")} → ${skillsDir}/${untouchedNote(skillsDir, skipped)}` };
 }
 
 export type InstallMode = "link" | "copy";
@@ -94,27 +196,195 @@ export async function linkOrCopySkillsTo(skillsDir: string): Promise<SkillInstal
   }
   await mkdir(skillsDir, { recursive: true });
   const installed: string[] = [];
+  const skipped: string[] = [];
+  const manifest = readSkillsManifest(skillsDir);
   let mode: InstallMode = "link";
   for (const name of MANAGED_SKILLS) {
+    if (!ownsSkillEntry(skillsDir, name, manifest)) {
+      skipped.push(name);
+      continue;
+    }
     const from = join(PKG_SKILLS_DIR, name);
     const to = join(skillsDir, name);
     await rm(to, { recursive: true, force: true });
+    delete manifest[name];
     try {
       await symlink(from, to, process.platform === "win32" ? "junction" : "dir");
     } catch {
       // Symlinks are denied in some environments (Windows without Developer Mode,
       // restricted filesystems); the copy keeps the install correct either way.
       await cp(from, to, { recursive: true, force: true });
+      if (UNPREFIXED_SKILLS.has(name)) manifest[name] = dirDigest(to);
       mode = "copy";
     }
     installed.push(name);
   }
-  return { code: 0, stdout: `${installed.join(", ")} → ${skillsDir}/`, mode };
+  await writeSkillsManifest(skillsDir, manifest);
+  return { code: 0, stdout: `${installed.join(", ")} → ${skillsDir}/${untouchedNote(skillsDir, skipped)}`, mode };
 }
 
-/** Remove the managed skills from the given skill dir (leaves others intact). */
-export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: string[] }> {
+function assertPackageAgents(): InstallReport | null {
+  for (const name of MANAGED_AGENTS) {
+    const from = join(PKG_AGENTS_DIR, `${name}.md`);
+    if (!existsSync(from)) {
+      return { code: 1, stdout: `Package agent missing: ${from}`, stderr: "agent missing" };
+    }
+  }
+  return null;
+}
+
+export type AgentEntryState = "absent" | "linked" | "copied" | "stale" | "foreign" | "not-file";
+
+/**
+ * Sidecar next to the agent files: the sha256 of every copy kanban-flow wrote there. A copy that
+ * still hashes to what we wrote is ours even when the package has since moved on ("stale" — the
+ * upgrade case); a file that hashes to anything else was edited or created by the user.
+ */
+const AGENTS_MANIFEST = ".kanban-flow-agents.json";
+
+function sha256(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function readAgentsManifest(agentsDir: string): Record<string, string> {
+  const path = join(agentsDir, AGENTS_MANIFEST);
+  if (!existsSync(path)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
+  } catch (err) {
+    if (err instanceof SyntaxError) return {};
+    throw err;
+  }
+}
+
+async function writeAgentsManifest(agentsDir: string, entries: Record<string, string>): Promise<void> {
+  await writeFile(join(agentsDir, AGENTS_MANIFEST), `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+}
+
+/**
+ * What sits at a managed agent path. The agent names are deliberately unprefixed, so a user's
+ * own `code-reviewer.md` is a real possibility: only an entry kanban-flow put there — a symlink
+ * into the package, a byte-equal copy of the packaged file, or a copy whose hash the manifest
+ * recorded — is ours to replace or remove.
+ */
+export function agentEntryState(agentsDir: string, name: string): AgentEntryState {
+  const target = join(agentsDir, `${name}.md`);
+  let st;
+  try {
+    st = lstatSync(target);
+  } catch {
+    return "absent";
+  }
+  const packaged = join(PKG_AGENTS_DIR, `${name}.md`);
+  if (st.isSymbolicLink()) {
+    const resolved = resolve(agentsDir, readlinkSync(target));
+    if (resolved === packaged) return "linked";
+    // A link kf made from another install of this package — a different Node version, an
+    // npm-link checkout, or a dir that no longer exists — is ours to replace, not the user's.
+    const ours = resolved.endsWith(join("kanban-flow", "agents", `${name}.md`));
+    return ours || !existsSync(resolved) ? "stale" : "foreign";
+  }
+  if (!st.isFile()) return "not-file";
+  const bytes = readFileSync(target);
+  if (existsSync(packaged) && bytes.equals(readFileSync(packaged))) return "copied";
+  return readAgentsManifest(agentsDir)[name] === sha256(bytes) ? "stale" : "foreign";
+}
+
+export type AgentsState = "linked" | "copied" | "mixed" | "stale" | "partial" | "missing" | "foreign";
+
+/** Aggregate state of the managed agents in one dir. "linked"/"copied"/"mixed" are healthy; "stale" is an outdated copy of ours; "foreign" means a user's file sits at one of the names. */
+export function agentsState(agentsDir: string): AgentsState {
+  const states = MANAGED_AGENTS.map((a) => agentEntryState(agentsDir, a));
+  if (states.some((s) => s === "foreign" || s === "not-file")) return "foreign";
+  if (states.every((s) => s === "absent")) return "missing";
+  if (states.some((s) => s === "stale")) return "stale";
+  if (states.some((s) => s === "absent")) return "partial";
+  if (states.every((s) => s === "linked")) return "linked";
+  if (states.every((s) => s === "copied")) return "copied";
+  return "mixed";
+}
+
+export function agentsAreHealthy(state: AgentsState): boolean {
+  return state === "linked" || state === "copied" || state === "mixed";
+}
+
+const SYMLINK_DENIED = new Set(["EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"]);
+
+/**
+ * Link each managed agent file to the package (global), or copy it (project / link denied /
+ * ephemeral package). A file kanban-flow does not own is left untouched and named in the result.
+ */
+export async function installAgentsTo(agentsDir: string, mode: InstallMode): Promise<SkillInstallResult> {
+  const missing = assertPackageAgents();
+  if (missing) return missing;
+  await mkdir(agentsDir, { recursive: true });
+  const link = mode === "link" && !packageIsEphemeral();
+  let landed: InstallMode = link ? "link" : "copy";
+  const installed: string[] = [];
+  const skipped: string[] = [];
+  const manifest = readAgentsManifest(agentsDir);
+  for (const name of MANAGED_AGENTS) {
+    const state = agentEntryState(agentsDir, name);
+    if (state === "foreign" || state === "not-file") {
+      skipped.push(name);
+      continue;
+    }
+    const from = join(PKG_AGENTS_DIR, `${name}.md`);
+    const to = join(agentsDir, `${name}.md`);
+    await rm(to, { force: true });
+    delete manifest[name];
+    if (link) {
+      try {
+        await symlink(from, to, "file");
+        installed.push(name);
+        continue;
+      } catch (err) {
+        // A denied symlink (Windows without Developer Mode, restricted filesystems) still gets
+        // a correct install by copying; any other error is a real failure and must surface.
+        if (!SYMLINK_DENIED.has((err as NodeJS.ErrnoException).code ?? "")) throw err;
+        landed = "copy";
+      }
+    }
+    await cp(from, to, { force: true });
+    manifest[name] = sha256(readFileSync(from));
+    installed.push(name);
+  }
+  await writeAgentsManifest(agentsDir, manifest);
+  const skippedNote = skipped.length > 0
+    ? `\n  ⚠ left untouched (not kanban-flow's): ${skipped.map((s) => `${s}.md`).join(", ")} in ${agentsDir}/ — the skills will dispatch your file under that name`
+    : "";
+  return { code: 0, stdout: `${installed.join(", ") || "nothing"} → ${agentsDir}/${skippedNote}`, mode: landed };
+}
+
+/** Remove the managed agent files kanban-flow owns from the given dir; a user's own file under a managed name is kept and named. */
+export async function removeAgentsFrom(agentsDir: string): Promise<{ removed: string[]; kept: string[] }> {
   const removed: string[] = [];
+  const kept: string[] = [];
+  const manifest = readAgentsManifest(agentsDir);
+  for (const name of MANAGED_AGENTS) {
+    const state = agentEntryState(agentsDir, name);
+    if (state === "absent") continue;
+    if (state === "foreign" || state === "not-file") {
+      kept.push(name);
+      continue;
+    }
+    await unlink(join(agentsDir, `${name}.md`));
+    delete manifest[name];
+    removed.push(name);
+  }
+  if (removed.length > 0) {
+    if (Object.keys(manifest).length > 0) await writeAgentsManifest(agentsDir, manifest);
+    else await rm(join(agentsDir, AGENTS_MANIFEST), { force: true });
+  }
+  return { removed, kept };
+}
+
+/** Remove the managed skills from the given skill dir (leaves others intact); an unprefixed skill the user owns is kept and named. */
+export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: string[]; kept: string[] }> {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const manifest = readSkillsManifest(skillsDir);
   for (const name of MANAGED_SKILLS) {
     const target = join(skillsDir, name);
     let st;
@@ -126,12 +396,66 @@ export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: st
       if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw err;
     }
+    if (!ownsSkillEntry(skillsDir, name, manifest)) {
+      kept.push(name);
+      continue;
+    }
     // Unlink a symlink itself — rm -rf on the link would risk the packaged target.
     if (st.isSymbolicLink()) await unlink(target);
     else await rm(target, { recursive: true, force: true });
+    delete manifest[name];
     removed.push(name);
   }
-  return { removed };
+  if (removed.length > 0) await writeSkillsManifest(skillsDir, manifest);
+  return { removed, kept };
+}
+
+/** Packaged skills dirs are laid out as <package>/skills/<name>; a link into one is kanban-flow's. */
+function isKanbanFlowSkillLink(skillsDir: string, name: string, target: string): boolean {
+  const resolved = resolve(skillsDir, target);
+  if (resolved === join(PKG_SKILLS_DIR, name)) return true;
+  return resolved.split(sep).join("/").endsWith(`/kanban-flow/skills/${name}`);
+}
+
+/** True when every entry under dir is a regular file whose sha256 is in `known`, SKILL.md among them. */
+function isRetiredSkillCopy(dir: string, known: ReadonlySet<string> | undefined): boolean {
+  if (!known || !existsSync(join(dir, "SKILL.md"))) return false;
+  const walk = (d: string): boolean => readdirSync(d, { withFileTypes: true }).every((e) => {
+    const p = join(d, e.name);
+    if (e.isDirectory()) return walk(p);
+    return e.isFile() && known.has(sha256(readFileSync(p)));
+  });
+  return walk(dir);
+}
+
+/**
+ * Remove retired skills from a skills dir. A symlink into a kanban-flow package is ours (dangling
+ * included), and so is a directory made only of files the retired skill shipped; anything else
+ * is reported in `kept` and left alone.
+ */
+export async function removeRetiredSkills(skillsDir: string): Promise<{ removed: string[]; kept: string[] }> {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  for (const name of RETIRED_SKILLS) {
+    const target = join(skillsDir, name);
+    let st;
+    try {
+      st = await lstat(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (st.isSymbolicLink() && isKanbanFlowSkillLink(skillsDir, name, readlinkSync(target))) {
+      await unlink(target);
+      removed.push(name);
+    } else if (st.isDirectory() && isRetiredSkillCopy(target, RETIRED_SKILL_FILES[name])) {
+      await rm(target, { recursive: true, force: true });
+      removed.push(name);
+    } else {
+      kept.push(name);
+    }
+  }
+  return { removed, kept };
 }
 
 export type SkillEntryState = "linked" | "copied" | "stale" | "broken-link" | "missing";
@@ -174,20 +498,24 @@ export function agentSkillsState(dir: string): AgentSkillsState {
   return "mixed";
 }
 
-export function skillsAreHealthy(state: AgentSkillsState): boolean {
-  return state === "linked" || state === "copied" || state === "mixed";
+/**
+ * Managed skill names in `dir` held by an entry kanban-flow does not own (a user's own `travel`).
+ * The install leaves those alone, so they are neither stale nor something a reinstall repairs.
+ */
+export function foreignSkills(dir: string): string[] {
+  const manifest = readSkillsManifest(dir);
+  return MANAGED_SKILLS.filter((s) => !ownsSkillEntry(dir, s, manifest));
 }
 
-/** True when at least one managed skill exists (or links) in the dir — catches dangling links too. */
-export function hasManagedEntries(dir: string): boolean {
-  return MANAGED_SKILLS.some((s) => {
-    try {
-      lstatSync(join(dir, s));
-      return true;
-    } catch {
-      return false;
-    }
-  });
+/** Managed skills in `dir` that are not a healthy link or copy, leaving out the ones the user owns. */
+export function unhealthySkills(dir: string, foreign: string[]): string[] {
+  return MANAGED_SKILLS.filter((s) => !foreign.includes(s) && !["linked", "copied"].includes(skillEntryState(dir, s)));
+}
+
+/** True when at least one managed skill kanban-flow owns exists (or dangles) in the dir. */
+export function hasOwnedEntries(dir: string): boolean {
+  const foreign = foreignSkills(dir);
+  return MANAGED_SKILLS.some((s) => !foreign.includes(s) && lstatSync(join(dir, s), { throwIfNoEntry: false }) !== undefined);
 }
 
 function dirSnapshot(dir: string, base = dir, out = new Map<string, Buffer>()): Map<string, Buffer> {
@@ -261,14 +589,36 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root!);
     const res: SkillInstallResult = scope === "global" ? await linkOrCopySkillsTo(dir) : await copySkillsTo(dir);
     failed ||= res.code !== 0;
+    if (res.code === 0) {
+      const retired = await removeRetiredSkills(dir);
+      if (retired.removed.length > 0) cleaned.push(`  ${a.label}: removed retired ${retired.removed.join(", ")} from ${dir}/`);
+      for (const name of retired.kept) lines.push(`⚠ ${a.label}: ${name} in ${dir}/ is not kanban-flow's — left untouched; remove it yourself if unwanted`);
+    }
     const note = scope === "global" && res.code === 0 ? ` (${res.mode === "link" ? "linked" : "copied"})` : "";
     lines.push(res.code === 0 ? `✓ ${a.label}: ${res.stdout}${note}` : `⚠ ${a.label}: ${res.stdout}`);
     // Only clean project copies when the global install actually landed — removing them
     // after a failed install would leave the agent with no skills anywhere.
     if (res.code === 0 && scope === "global" && root && opts.declaredScope !== "project") {
       const projectDir = projectSkillsDir(a, root);
-      const { removed } = await removeSkillsFrom(projectDir);
+      const { removed, kept } = await removeSkillsFrom(projectDir);
       if (removed.length > 0) cleaned.push(`  ${a.label}: removed ${removed.length} project copies from ${projectDir}/`);
+      if (kept.length > 0) cleaned.push(`  ${a.label}: kept ${kept.join(", ")} in ${projectDir}/ — not kanban-flow's`);
+      const retired = await removeRetiredSkills(projectDir);
+      if (retired.removed.length > 0) cleaned.push(`  ${a.label}: removed retired ${retired.removed.join(", ")} from ${projectDir}/`);
+      for (const name of retired.kept) lines.push(`⚠ ${a.label}: ${name} in ${projectDir}/ is not kanban-flow's — left untouched; remove it yourself if unwanted`);
+    }
+    // Subagent definitions ride along with the skills, at the same scope, for runtimes that have a registry.
+    const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root!);
+    if (res.code === 0 && agentsDir) {
+      const agents = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy");
+      failed ||= agents.code !== 0;
+      const agentsNote = scope === "global" && agents.code === 0 ? ` (${agents.mode === "link" ? "linked" : "copied"})` : "";
+      lines.push(agents.code === 0 ? `✓ ${a.label} agents: ${agents.stdout}${agentsNote}` : `⚠ ${a.label} agents: ${agents.stdout}`);
+      const projectAgents = root ? projectAgentsDir(a, root) : null;
+      if (agents.code === 0 && scope === "global" && projectAgents && opts.declaredScope !== "project") {
+        const { removed } = await removeAgentsFrom(projectAgents);
+        if (removed.length > 0) cleaned.push(`  ${a.label}: removed ${removed.length} project agent copies from ${projectAgents}/`);
+      }
     }
   }
   if (lines.length === 0) {
@@ -346,8 +696,15 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root);
-    const { removed } = await removeSkillsFrom(dir);
+    const { removed, kept } = await removeSkillsFrom(dir);
     lines.push(removed.length > 0 ? `✗ ${a.label}: removed ${removed.length} skills from ${dir}/` : `· ${a.label}: already clean in ${dir}/`);
+    if (kept.length > 0) lines.push(`· ${a.label}: kept ${kept.join(", ")} in ${dir}/ — not kanban-flow's`);
+    const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root);
+    if (agentsDir) {
+      const agents = await removeAgentsFrom(agentsDir);
+      if (agents.removed.length > 0) lines.push(`✗ ${a.label}: removed ${agents.removed.length} agents from ${agentsDir}/`);
+      if (agents.kept.length > 0) lines.push(`· ${a.label}: kept ${agents.kept.map((k) => `${k}.md`).join(", ")} in ${agentsDir}/ — not kanban-flow's`);
+    }
   }
   if (lines.length === 0) {
     return { code: 1, stdout: "No valid agents given for uninstall.", stderr: "no agent" };

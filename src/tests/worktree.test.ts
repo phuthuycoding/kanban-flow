@@ -63,7 +63,7 @@ const feature = (name = "demo") => findFeature(root, name)!;
 
 const spec = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A";
 
-/** Drive an item to approved planning, ready for the implementation transition. */
+/** Drive an item to approved backlog (`kf approve --backlog`), ready for the implementation transition. */
 async function approvedItem(name = "demo"): Promise<void> {
   expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), spec);
@@ -74,7 +74,7 @@ async function approvedItem(name = "demo"): Promise<void> {
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
   await writeFile(join(feature(name).dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nCreate a task and verify it exists.\n");
-  expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
+  expect((await cmdApprove(args("approve", [name], { backlog: true }), root)).code).toBe(0);
 }
 
 /** A full lifecycle fixture: item in review with a PASS pair, worktree present. */
@@ -85,7 +85,7 @@ async function reviewReadyItem(name = "demo"): Promise<void> {
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 1 passed |\n";
   const report = async (id: "testing-result" | "review-report") =>
     writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report("review-report");
@@ -195,11 +195,11 @@ describe("stage → implementation provisions the worktree (FR-001, FR-002)", ()
     await mkdir(join(findFeature(plain, "demo")!.dir, "use-cases"), { recursive: true });
     await writeFile(join(findFeature(plain, "demo")!.dir, "use-cases", "UC-001.md"), "# UC-001 x");
     await writeFile(join(findFeature(plain, "demo")!.dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nx\n");
-    await cmdApprove(args("approve", ["demo"]), plain);
-    const res = await cmdStage(args("stage", ["demo", "implementation"]), plain);
+    const res = await cmdApprove(args("approve", ["demo"]), plain);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("worktree.enabled");
     expect(findFeature(plain, "demo")!.stage).toBe("planning");
+    expect(findFeature(plain, "demo")!.meta!.approval).toEqual({ status: "pending" });
   });
 
   it("opt-out config leaves the transition untouched", async () => {
@@ -254,7 +254,6 @@ describe("reuse on re-entry (FR-001, FR-002, UC-006)", () => {
     // loop back and forward again — same registration survives
     await cmdStage(args("stage", ["demo", "planning"], { force: true }), root);
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(feature().meta!.worktree).toMatchObject({ path: first.path, port: first.port, domain: first.domain });
 
     // delete the worktree by hand → next create rebuilds it from its kept branch
@@ -271,7 +270,7 @@ describe("reuse on re-entry (FR-001, FR-002, UC-006)", () => {
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("not managed");
-    expect(feature().stage).toBe("planning");
+    expect(feature().stage).toBe("backlog");
   });
 });
 
@@ -314,8 +313,8 @@ describe("worktree lifecycle hooks", () => {
     // re-entry reuses the worktree — the hook does not re-fire
     await rm(join(root, "create.out"));
     await cmdStage(args("stage", ["demo", "planning"], { force: true }), root);
-    await cmdApprove(args("approve", ["demo"]), root);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
+    expect(feature().stage).toBe("implementation");
     expect(existsSync(join(root, "create.out"))).toBe(false);
   });
 
@@ -326,7 +325,7 @@ describe("worktree lifecycle hooks", () => {
     const res = await cmdStage(args("stage", ["demo", "implementation"]), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("worktree-create");
-    expect(feature().stage).toBe("planning");
+    expect(feature().stage).toBe("backlog");
     expect(existsSync(join(scratch, "wts", "demo"))).toBe(false);
     // branch must be rolled back too — a retry must not trip the unmanaged-branch refusal
     expect(git(root, "branch", "--list", "t/demo")).toBe("");
@@ -348,24 +347,35 @@ describe("worktree lifecycle hooks", () => {
 });
 
 describe("teardown (FR-007, FR-008)", () => {
-  it("archive removes worktree + route, keeps branch, warns on unmerged commits", async () => {
+  it("archive with nothing to land removes worktree + route and deletes the empty branch", async () => {
     await reviewReadyItem();
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature Report\nShipped.");
     const wt = feature().meta!.worktree!;
-    git(wt.path, "config", "user.email", "t@t");
-    git(wt.path, "config", "user.name", "t");
-    writeFileSync(join(wt.path, "new-file.txt"), "work");
-    git(wt.path, "add", ".");
-    git(wt.path, "commit", "-qm", "wip");
 
     const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
     expect(existsSync(wt.path)).toBe(false);
     expect(readRoutes(join(scratch, "routes.json")).routes["demo.repo.test"]).toBeUndefined();
-    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
-    expect(res.stdout).toMatch(/unmerged|not merged/);
-    expect(feature().stage).toBe("dones");
+    expect(git(root, "branch", "--list", "t/demo")).toBe("");
+    expect(res.stdout).toContain("Branch t/demo: deleted locally");
+    expect(feature().stage).toBe("done");
     expect(feature().meta!.worktree).toBeUndefined();
+  });
+
+  it("archive refuses landing: none on a branch with commits and keeps worktree + branch", async () => {
+    await reviewReadyItem();
+    await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature Report\nShipped.");
+    const wt = feature().meta!.worktree!;
+    writeFileSync(join(wt.path, "new-file.txt"), "work");
+    git(wt.path, "add", ".");
+    git(wt.path, "commit", "-qm", "wip");
+
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("landing: none but the branch has 1 commits — open a PR or cancel");
+    expect(existsSync(wt.path)).toBe(true);
+    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
+    expect(feature().stage).toBe("review");
   });
 
   it("archive refuses a dirty worktree; worktree remove --force cleans it", async () => {

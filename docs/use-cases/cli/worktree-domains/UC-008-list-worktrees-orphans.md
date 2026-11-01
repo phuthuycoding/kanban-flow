@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `workflow-slim`:** the stage `dones` is now `done`; read every `dones` here as `done`. Kept for history.
+
 ## Overview
 
 | Field | Value |

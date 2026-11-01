@@ -10,8 +10,9 @@ import { parseArgsCli } from "../cli/args.js";
 import { cmdDrive } from "../cli/commands/drive.js";
 import { followDrive } from "../harness/drive.js";
 import { DRIVE_HEARTBEAT_MS } from "../harness/drive/watch.js";
-import { formatElapsed, liveRunLabel } from "../harness/drive/progress.js";
+import { activityLines, activitySuffix, formatElapsed, liveRunLabel, workerActivity } from "../harness/drive/progress.js";
 import { driveLogPath } from "../harness/drive-log.js";
+import { readyReason } from "../harness/drive/claim.js";
 import { ensureWorksStructure, findFeature, writeFeatureMeta } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import { gitDriveProject, type GitDriveProject } from "./helpers/git-fixture.js";
@@ -43,6 +44,67 @@ describe("drive progress labels", () => {
   it("parses --watch, --follow and --tail", () => {
     expect(parseArgsCli(["drive", "demo", "--follow", "--tail", "--json"]).options).toMatchObject({ follow: true, tail: true, json: true });
     expect(parseArgsCli(["drive", "demo", "--watch"]).options.watch).toBe(true);
+  });
+});
+
+describe("worker activity from a streamed log", () => {
+  let dir: string;
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  it("names the last tool call, else the last text, and ignores a half-written last line", async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-activity-"));
+    const log = join(dir, "run.log");
+    expect(workerActivity(log)).toBeNull();
+    const assistant = (content: unknown[]) => JSON.stringify({ type: "assistant", message: { content } });
+    await writeFile(log, `${JSON.stringify({ type: "system", subtype: "init" })}\n${assistant([{ type: "text", text: "Reading the plan first.\nThen code." }])}\n`);
+    expect(workerActivity(log)?.activity).toBe("Reading the plan first.");
+    await appendFile(log, `${assistant([{ type: "text", text: "Running tests" }, { type: "tool_use", name: "Bash", input: { command: "npm test -- --run\necho done" } }])}\n`);
+    await appendFile(log, `${JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: "ok" }] } })}\n`);
+    await appendFile(log, '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","in');
+    const seen = workerActivity(log)!;
+    expect(seen.activity).toBe("Bash npm test -- --run");
+    expect(Number.isNaN(Date.parse(seen.at))).toBe(false);
+    expect(activityLines(log, 5)).toEqual(["Reading the plan first.", "Bash npm test -- --run"]);
+    await appendFile(log, `put":{"file_path":"src/a.ts"}}]}}\nplain stderr line\n${JSON.stringify({ type: "result", is_error: true, result: "boom" })}\n`);
+    expect(workerActivity(log)?.activity).toBe("Edit src/a.ts");
+    expect(activityLines(log, 3)).toEqual(["Edit src/a.ts", "plain stderr line", "error: boom"]);
+    expect(activitySuffix({ activity: "Edit src/a.ts", activityAgo: "4s" })).toBe(" — Edit src/a.ts (4s ago)");
+    expect(activitySuffix({})).toBe("");
+  });
+
+  it("tails a codex --json log as one compact line per event", async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-activity-"));
+    const log = join(dir, "run.log");
+    const message = `Looked at the plan. ${"x".repeat(300)}`;
+    await writeFile(log, [
+      JSON.stringify({ type: "thread.started", thread_id: "t-1" }),
+      JSON.stringify({ type: "turn.started" }),
+      JSON.stringify({ type: "item.completed", item: { id: "item_0", type: "agent_message", text: message } }),
+      JSON.stringify({ id: "0", msg: { type: "task_started" } }),
+      "",
+    ].join("\n"));
+    const tail = activityLines(log, 10);
+    expect(tail[0]).toBe('thread.started {"thread_id":"t-1"}');
+    expect(tail[1]).toBe("turn.started");
+    expect(tail[2].startsWith('item.completed {"item":{"id":"item_0","type":"agent_message","text":"Looked at the plan. x')).toBe(true);
+    expect(tail[2].endsWith("…")).toBe(true);
+    expect(tail[2].length).toBeLessThanOrEqual("item.completed ".length + 120);
+    expect(tail[3]).toBe('id {"id":"0","msg":{"type":"task_started"}}');
+    expect(tail).toHaveLength(4);
+  });
+
+  it("finds the last tool call behind a tool_result line larger than the tail window, within a bound", async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-activity-"));
+    const log = join(dir, "run.log");
+    const toolUse = JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: "big.json" } }] } });
+    const toolResult = (bytes: number) => JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", content: "y".repeat(bytes) }] } });
+    await writeFile(log, `${toolUse}\n${toolResult(100 * 1024)}\n`);
+    expect(workerActivity(log)?.activity).toBe("Read big.json");
+    // Bounded: four tail windows (256 KiB) at most, so a line larger than that hides the tool call.
+    await writeFile(log, `${toolUse}\n${toolResult(300 * 1024)}\n`);
+    expect(workerActivity(log)).toBeNull();
   });
 });
 
@@ -93,11 +155,12 @@ describe("followDrive", () => {
     const feature = findFeature(root, "demo")!;
     await writeFeatureMeta(feature.dir, {
       ...feature.meta!,
-      drive: { ...feature.meta!.drive!, status: "ready", reason: "ready for ship decision", nextCommand: "kf ship demo" },
+      drive: { ...feature.meta!.drive!, status: "ready", reason: readyReason("demo"), nextCommand: "kf status --change demo" },
     });
     const result = await followed;
     expect(result).toEqual({ code: 0, detached: false });
-    expect(lines.some((l) => l.includes("ready for ship decision") && l.includes("kf ship demo"))).toBe(true);
+    expect(lines.some((l) => l.includes("merge the PR, kf status --change demo closes the item"))).toBe(true);
+    expect(lines.some((l) => l.includes("<feature>"))).toBe(false);
   });
 
   it("streams JSON lines and detaches on abort without stopping the drive", async () => {

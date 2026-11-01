@@ -16,6 +16,10 @@ export interface AgentAdapter {
   userRel: string;
   /** Other agents that also discover this agent's directory (open standard). */
   alsoReads: AgentId[];
+  /** Project-relative dir for subagent definitions; only runtimes with an agent registry declare one. */
+  agentsRel?: string;
+  /** Home-relative dir for user-level subagent definitions. */
+  userAgentsRel?: string;
 }
 
 export const AGENTS: AgentAdapter[] = [
@@ -25,6 +29,8 @@ export const AGENTS: AgentAdapter[] = [
     projectRel: ".claude/skills",
     userRel: ".claude/skills",
     alsoReads: ["cursor", "opencode", "devin"],
+    agentsRel: ".claude/agents",
+    userAgentsRel: ".claude/agents",
   },
   {
     id: "codex",
@@ -86,6 +92,16 @@ export function projectSkillsDir(agent: AgentAdapter, root: string): string {
 /** The agent's user-level (global) skills dir under `home` — homedir() by default. */
 export function userSkillsDir(agent: AgentAdapter, home: string = homedir()): string {
   return join(home, agent.userRel);
+}
+
+/** The agent's project-level subagent dir, or null when the runtime has no agent registry. */
+export function projectAgentsDir(agent: AgentAdapter, root: string): string | null {
+  return agent.agentsRel ? join(root, agent.agentsRel) : null;
+}
+
+/** The agent's user-level subagent dir under `home`, or null when the runtime has none. */
+export function userAgentsDir(agent: AgentAdapter, home: string = homedir()): string | null {
+  return agent.userAgentsRel ? join(home, agent.userAgentsRel) : null;
 }
 
 /** Normalize raw CLI option values into a de-duped list of known agent ids. */

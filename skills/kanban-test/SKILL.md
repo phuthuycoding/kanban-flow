@@ -33,6 +33,8 @@ Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests
 
 Track TC-by-TC: Status / Actual / Expected / Tool / Evidence.
 
+**"It builds" is not "it works".** For every changed behaviour the plan or the diff names that no automated test exercises, run the real code path once and record the command and its real output as a fact: the CLI command with its arguments and exit code, the HTTP request against `http://<domain>` (or the `127.0.0.1:<port>` fallback) with the response, the script with its output. Put each under a `## Behaviour run` heading in the report, next to the TC it stands in for, and name the behaviours you could not run and why. A suite that ran nothing, or a suite that never touches the changed path, is not PASS on its own — the review stage reads the "changed behaviour no test touches" line from this report into the reviewer's pack.
+
 For `kind: bug`, use the bug report's reproduction, expected result, acceptance criteria and regression strategy instead of a phase-2 test plan. Verify the defect is fixed and run the affected regression suite; use descriptive test IDs or actual test names in the results table. Do not require FR/UC/TC artifacts for a bug.
 
 ## 3. Write testing-result
@@ -48,7 +50,7 @@ Fill `phase-4-testing-result.md`, set frontmatter `status:` to exactly one of:
 - `REJECT` — feature does not meet acceptance criteria
 - `BLOCKED` — cannot test (env/tooling)
 
-Always write the report, including `execution:` from the current template. Include per-TC results, actual commands, evidence and coverage against the approved target. In the "Commands and Evidence" table the Exit code column must be the real numeric exit code of each command you ran; `kf validate` rejects a `PASS` report that has no command row or any exit code other than `0` (`testing_exit_code`). Keep status and conclusion consistent. Missing tooling, skipped required tests or unmeasured required coverage cannot count as PASS. Write outcomes here; keep phase-2-test-case.md unchanged.
+Always write the report, including `execution:` from the current template. Include per-TC results, actual commands, evidence and coverage against the approved target. Record **counts, not verdicts**: the number of tests each command ran and passed, the test files by name, and — in its own line — the changed behaviour that no test touches. A suite that ran nothing is not a pass. The review stage copies these facts into the reviewer's pack as data; a "✅ all green" there invites agreement where numbers let the reviewer judge adequacy. In the "Commands and Evidence" table the Exit code column must be the real numeric exit code of each command you ran; `kf validate` rejects a `PASS` report that has no command row or any exit code other than `0` (`testing_exit_code`). Keep status and conclusion consistent. Missing tooling, skipped required tests or unmeasured required coverage cannot count as PASS. Write outcomes here; keep phase-2-test-case.md unchanged.
 
 ## 4. The directional gate decides
 
@@ -72,7 +74,7 @@ Still failing after one fix cycle → STOP, show failing tests, ask: fix deeper 
 Report written with a decisive status. Hand off:
 
 ```text
-If PASS: load the kanban-review skill.
+If PASS: kf stage {feature_name} review, then load the kanban-review skill (independent reviewer, then the PR and the CI watch).
 If FAIL/REJECT: kanban-implement first, then testing with a new execution id.
 If BLOCKED: stop and report the blocker.
 ```

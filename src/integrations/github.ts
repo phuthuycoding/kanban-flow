@@ -3,19 +3,30 @@ import { spawnSync } from "node:child_process";
 export interface GhResult {
   ok: boolean;
   missing: boolean;
+  /** The call outlived `timeoutMs` and was killed. */
+  timedOut: boolean;
   stdout: string;
   stderr: string;
 }
 
-/** `gh` is an optional dependency — surfaces only when a repository is configured and used. */
-export function gh(args: string[]): GhResult {
-  const res = spawnSync("gh", args, { encoding: "utf8" });
-  const missing = res.error !== undefined && "code" in res.error && res.error.code === "ENOENT";
+/** How long a gh lookup that kf status, kf sync or doctor waits on may run before it counts as failed. */
+export const GH_LOOKUP_TIMEOUT_MS = 15_000;
+
+/**
+ * `gh` is an optional dependency — surfaces only when a repository is configured and used.
+ * With `timeoutMs`, a call still running then is killed and reported as a failure.
+ */
+export function gh(args: string[], options: { timeoutMs?: number } = {}): GhResult {
+  const res = spawnSync("gh", args, { encoding: "utf8", timeout: options.timeoutMs });
+  const code = res.error !== undefined && "code" in res.error ? res.error.code : undefined;
+  const missing = code === "ENOENT";
+  const timedOut = code === "ETIMEDOUT";
   return {
-    ok: res.status === 0,
+    ok: res.status === 0 && !timedOut,
     missing,
+    timedOut,
     stdout: res.stdout ?? "",
-    stderr: res.stderr ?? "",
+    stderr: timedOut ? `gh ${args.slice(0, 2).join(" ")} timed out after ${options.timeoutMs} ms` : res.stderr ?? "",
   };
 }
 
@@ -26,34 +37,55 @@ export type MergeGateFailure =
   | { reason: "parse"; pr: string; output: string }
   | { reason: "not-merged"; pr: string; state: string };
 
+/** A recorded PR that is verifiably MERGED, with the head it merged — what a branch delete proves against. */
+export interface MergedPr {
+  pr: string;
+  headRefName: string;
+  headRefOid: string;
+}
+
+export type MergeGateResult =
+  | { kind: "no-pr" }
+  | ({ kind: "merged" } & MergedPr)
+  | { kind: "failed"; failure: MergeGateFailure };
+
 /**
  * The merge gate shared by `kf archive` and `kf sync`: a recorded PR must be verifiably
  * MERGED. Anything else — OPEN, CLOSED, a gh failure, a missing repository, unparseable
  * output — is unverifiable, and unverifiable is not merged: refuse before any side effect.
  * There is deliberately no --force escape (unlike the AC gate's force semantics).
- * Returns null when the gate passes or no PR is recorded.
+ * A merged PR comes back with its head branch and head commit: deleting the item branch is
+ * safe only for the commits that PR merged. A MERGED answer without them is a parse failure.
  */
 export function checkMergeGate(
   feature: { meta?: { pr?: string } | null },
   repo: string | undefined,
-): MergeGateFailure | null {
+  timeoutMs = GH_LOOKUP_TIMEOUT_MS,
+): MergeGateResult {
   const pr = feature.meta?.pr;
-  if (!pr) return null;
-  if (!repo) return { reason: "no-repository", pr };
-  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state"]);
+  if (!pr) return { kind: "no-pr" };
+  if (!repo) return { kind: "failed", failure: { reason: "no-repository", pr } };
+  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName,headRefOid"], { timeoutMs });
   if (!res.ok) {
     return {
-      reason: "unverifiable",
-      pr,
-      detail: res.missing ? "gh CLI not found — install it and run gh auth login." : res.stderr.trim() || res.stdout.trim(),
+      kind: "failed",
+      failure: {
+        reason: "unverifiable",
+        pr,
+        detail: res.missing ? "gh CLI not found — install it and run gh auth login." : res.stderr.trim() || res.stdout.trim(),
+      },
     };
   }
-  let state = "UNKNOWN";
+  let view: { state?: string; headRefName?: unknown; headRefOid?: unknown };
   try {
-    state = ((JSON.parse(res.stdout) as { state?: string }).state ?? "UNKNOWN").toUpperCase();
+    view = JSON.parse(res.stdout) as typeof view;
   } catch {
-    return { reason: "parse", pr, output: res.stdout.trim() };
+    return { kind: "failed", failure: { reason: "parse", pr, output: res.stdout.trim() } };
   }
-  if (state !== "MERGED") return { reason: "not-merged", pr, state };
-  return null;
+  const state = (view.state ?? "UNKNOWN").toUpperCase();
+  if (state !== "MERGED") return { kind: "failed", failure: { reason: "not-merged", pr, state } };
+  if (typeof view.headRefName !== "string" || !view.headRefName || typeof view.headRefOid !== "string" || !view.headRefOid) {
+    return { kind: "failed", failure: { reason: "parse", pr, output: res.stdout.trim() } };
+  }
+  return { kind: "merged", pr, headRefName: view.headRefName, headRefOid: view.headRefOid };
 }

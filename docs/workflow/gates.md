@@ -14,15 +14,14 @@ One group is not shared: the *direction* gate, which decides where a PASS or FAI
 | 2 — Planning (feature) | `phase-2-use-case-diagram.md` | A valid actor and use case diagram | Traceability |
 | 2 — Planning (feature) | `phase-2-test-case.md` | TC-XXX entries linked to FR-XXX and UC-XXX | The testing contract |
 | 4 — Testing | `phase-4-testing-result.md` | The current execution id, a PASS/FAIL/REJECT/BLOCKED verdict, the evidence | Review, or the repair loop |
-| 5 — Review | `phase-5-review-report.md` | The current execution id, a PASS/FAIL/REJECT/REQUIREMENT_BUG verdict, the findings | Shipping or archive, or the repair loop |
-| 5.5 — Shipping | — (no artifact; `meta.ship` in `.kfw.json` tracks pipeline steps) | — | Archive via `kf archive` |
+| 5 — Review | `phase-5-review-report.md` | The current execution id, a PASS/FAIL/REJECT/REQUIREMENT_BUG verdict, the findings; on PASS also `ci: green\|none` and `landing: pr\|none` (with `landing: pr`, a recorded PR) | Closing the item, or the repair loop |
 | 6 — Artifact (feature) | `phase-6-feature-report.md` | The summary, what changed, the tests, the docs, the known limits | A finished feature |
 
 Implementation has no required artifact of its own in the schema, but the implement skill must finish the tasks in the plan and leave the code in a state that can be tested.
 
-## Canonical output on entering `dones`
+## Canonical output on entering `done`
 
-`kf archive` copies from the work item folder to stable paths under the context. Only a feature gets its canonical docs copied automatically:
+Closing the item (`kf archive`, or the automatic close on a merged PR) copies from the work item folder to stable paths under the context. Only a feature gets its canonical docs copied automatically:
 
 | Source | Destination |
 | --- | --- |
@@ -35,9 +34,9 @@ Implementation has no required artifact of its own in the schema, but the implem
 
 The canonical requirement is marked `archived`; the other artifacts keep their frontmatter and evidence so they can be traced later. Inside the index, links of the form `use-cases/UC-....md` are rewritten to plain `UC-....md` so the canonical `README.md` points at the sibling copies rather than back into `.works/`. `phase-6-feature-report.md` is deliberately not copied — it stays in the work item folder for audit.
 
-Two overwrite rules matter. On a **first** archive (review → dones) the work item's copies win unconditionally — a canonical path already holding a hand-edited file, including the requirement mirror written in Phase 1, is overwritten without a refusal. The changed-docs refusal applies only to a **re-archive** of an item already in `dones`: there the CLI lists the canonical docs that changed since the snapshot and requires `--skip-specs` (keep them) or `--force` (restore the snapshot, and the bypass is recorded). For history: an old-style requirement mirror at `docs/use-cases/{context}/{feature}.md` is also stamped `status: archived` when one exists.
+Two overwrite rules matter. On a **first** archive (review → done) the work item's copies win unconditionally — a canonical path already holding a hand-edited file, including the requirement mirror written in Phase 1, is overwritten without a refusal. The changed-docs refusal applies only to a **re-archive** of an item already in `done`: there the CLI lists the canonical docs that changed since the snapshot and requires `--skip-specs` (keep them) or `--force` (restore the snapshot, and the bypass is recorded). For history: an old-style requirement mirror at `docs/use-cases/{context}/{feature}.md` is also stamped `status: archived` when one exists.
 
-For a bug, archive only moves the work item into `dones`; the related feature's docs change only when the bug report states a docs impact. `--skip-specs` skips this whole table.
+For a bug, archive only moves the work item into `done`; the related feature's docs change only when the bug report states a docs impact. `--skip-specs` skips this whole table.
 
 ## What each direction requires
 
@@ -48,9 +47,7 @@ flowchart LR
     I -->|implementation complete + tasks done| T[testing]
     T -->|PASS + current execution| R[review]
     T -->|FAIL/REJECT| I
-    R -->|PASS + current execution + ship decision| SH[shipping]
-    R -->|PASS + current execution + merged/confirmed delivery<br/>feature additionally requires feature report| D[dones]
-    SH -->|merged recorded PR / human archive| D
+    R -->|PASS + current execution + ci green or none + landing<br/>PR merged or nothing to land<br/>feature additionally requires feature report| D[done]
     R -->|FAIL/REJECT| I
     T -->|scope change| P
     R -->|scope change| P
@@ -59,6 +56,8 @@ flowchart LR
     BL -->|scope change| P
     I -->|scope change| P
 ```
+
+The review → done direction gate adds the delivery checks on a PASS report: `review_ci_missing` (no `ci: green` or `ci: none`), `review_ci_red` (`ci: red` cannot pass; write FAIL and return to implementation), `review_landing_missing` (no `landing: pr` or `landing: none`) and `review_pr_missing` (`landing: pr` without a recorded PR). Merging on GitHub then closes the item; see [Review and closing](lifecycle.md#review-and-closing) for the close order and the branch-deletion safety.
 
 `implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply. Under the task harness kf renders `tasks.md` from the task states, ticking a task only once it is merged and verified.
 
@@ -86,11 +85,11 @@ The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four plann
 
 `cancelled` is the one stage with **no artifact gate**. Its `STAGE_INDEX` is `-1`, so every "is this artifact due yet" and "are we past planning" comparison comes out false, and the validator skips artifacts, approval, traceability and report semantics entirely. In exchange it has exactly one requirement of its own: `cancellation.reason` must not be empty, and a missing one is `cancellation_missing`.
 
-`kf cancel` runs the `cancelled.sh` hook like any other transition, refuses while a worker run is live unless `--force`, and for an item in `dones` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
+`kf cancel` runs the `cancelled.sh` hook like any other transition, refuses while a worker run is live unless `--force`, and for an item in `done` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
 
-An item cancelled *out of* `dones` reopens into `dones`: `kf stage` restores its `archived` status and re-syncs the canonical docs through the archive path. When that sync is refused — changed docs included — the item still lands in `dones` and the output says to finish with `kf archive`.
+An item cancelled *out of* `done` reopens into `done`: `kf stage` restores its `archived` status and re-syncs the canonical docs through the archive path. When that sync is refused — changed docs included — the item still lands in `done` and the output says to finish with `kf archive`.
 
-On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate, and `kf runs` leaves out the runs of a dropped item unless you name it directly with `kf runs <feature>`, exactly as it treats an item in `dones`.
+On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate, and `kf runs` leaves out the runs of a dropped item unless you name it directly with `kf runs <feature>`, exactly as it treats an item in `done`.
 
 ## Force and recovery
 

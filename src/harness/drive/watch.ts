@@ -3,7 +3,7 @@ import { existsSync, openSync, readSync, closeSync, fstatSync } from "node:fs";
 import { findFeature } from "../../workflow/features.js";
 import { driveLogPath, driveLogSize } from "../drive-log.js";
 import { driveView, type DriveView } from "./control.js";
-import { describeEvent, liveRunLabel, tailLines } from "./progress.js";
+import { activityLines, activitySuffix, describeEvent, liveRunLabel } from "./progress.js";
 
 export const DRIVE_HEARTBEAT_MS = 15_000;
 const DEFAULT_POLL_MS = 250;
@@ -67,7 +67,8 @@ function heartbeat(view: DriveView, tail: boolean, json: boolean, nowMs: number,
       stage: run.stage,
       elapsed: run.elapsed,
       log: run.log,
-      ...(tail ? { tail: tailLines(run.log, TAIL_LINES) } : {}),
+      ...(run.activity ? { activity: run.activity, activityAgo: run.activityAgo } : {}),
+      ...(tail ? { tail: activityLines(run.log, TAIL_LINES) } : {}),
     }));
     write(JSON.stringify({ event: "heartbeat", at: new Date(nowMs).toISOString(), runs }));
     return;
@@ -77,9 +78,9 @@ function heartbeat(view: DriveView, tail: boolean, json: boolean, nowMs: number,
     return;
   }
   for (const run of view.liveRuns) {
-    write(`♥ ${liveRunLabel(run)}`);
+    write(`♥ ${liveRunLabel(run)}${activitySuffix(run)}`);
     if (tail) {
-      for (const line of tailLines(run.log, TAIL_LINES)) write(`    ${line}`);
+      for (const line of activityLines(run.log, TAIL_LINES)) write(`    ${line}`);
     }
   }
 }

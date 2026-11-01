@@ -131,18 +131,19 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   approve: {
-    help: "Usage: kf approve <feature> [--by <name>]  — approve Phase 2 execution contract (Human gate)",
+    help: "Usage: kf approve <feature> [--backlog] [--by <name>]  — approve Phase 2 execution contract (Human gate) and move the item to implementation; --backlog parks it in backlog instead",
     allowPositionals: true,
     options: {
+      backlog: { type: "boolean" },
       by: { type: "string" },
     },
   },
   sync: {
-    help: "Usage: kf sync  — delivery sweep: archives every review/dones item whose recorded PR has merged (uses gh; run by hand or from cron)",
+    help: "Usage: kf sync  — close sweep: needs repository in .kf/config.json (exits 1 without it); closes into done every review item whose recorded PR has merged (uses gh) or whose PASS report says landing: none with nothing to land, and finalizes undelivered done items; run by hand or from cron",
     options: {},
   },
   archive: {
-    help: "Usage: kf archive <feature> [--skip-hooks]  — the delivery gate: finalizes a work item into dones (canonical docs, issue close, board Done, delivered flag) once its PR merged or the human confirms",
+    help: "Usage: kf archive <feature> [--skip-hooks]  — the manual close: moves a review PASS item into done (done hook, worktree and branch teardown, canonical docs, delivered flag) once its recorded PR merged, or with landing: none and nothing ahead of origin/<default>; kf status and kf sync run the same close on their own",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
@@ -170,7 +171,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 9 kanban skills for agent skill dirs (default agent: claude). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
+    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 9 skills (8 kanban phase skills and travel) for agent skill dirs (default agent: claude), plus the 3 kanban agents (code-reviewer, scout, spec-reviewer) into the agents dir of runtimes that have one (Claude Code: .claude/agents). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },
@@ -179,7 +180,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 8 kanban skills at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 9 skills (8 kanban phase skills and travel) and the 3 kanban agents at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },
@@ -230,7 +231,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   drive: {
-    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at the ship decision or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees",
+    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--accept-config] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at review PASS or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) starts the drive when none is running, then streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees; --accept-config resumes a drive whose runner or verify commands changed since it was pinned (or that stopped config_changed), printing the new argv first",
     allowPositionals: true,
     options: {
       status: { type: "boolean" },
@@ -238,6 +239,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       watch: { type: "boolean" },
       follow: { type: "boolean" },
       tail: { type: "boolean" },
+      "accept-config": { type: "boolean" },
       json: { type: "boolean" },
       supervise: { type: "string" },
     },
@@ -261,7 +263,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   ship: {
-    help: "Usage: kf ship <feature> [--draft] [--skip-release] [--skip-changelog]  — resumable shipping pipeline for items in the `shipping` stage: publish (push + gh pr create + record meta.pr) → merge gate → release → changelog; each step can be disabled in config or per run, and re-runs resume where the last run stopped. Requires \"ship.enabled\": true in .kf/config.json; without it, prints the manual ship checklist instead",
+    help: "Usage: kf ship <feature>  — deprecated: exits 1 and changes nothing. Review opens the PR; merge on GitHub; kf status --change <feature> closes the item",
     allowPositionals: true,
     options: {
       draft: { type: "boolean" },

@@ -8,10 +8,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
-import { writeFeatureMeta } from "../workflow/features.js";
+import { readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { createTaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { gitDriveProject } from "./helpers/git-fixture.js";
+import { seedHarness } from "../harness/config.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
@@ -196,6 +197,77 @@ describe("kf doctor on config that parses but misleads", () => {
   });
 });
 
+describe("kf doctor on a docs branch left at close", () => {
+  const sh = (cwd: string, ...a: string[]) => execFileSync("git", a, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const unpushed = () => runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
+
+  /** A project with an origin, a done item whose meta names docs/app-demo, and that branch one commit past main. */
+  async function docsBranchProject(): Promise<void> {
+    await project();
+    const origin = join(root, "origin.git");
+    sh(root, "init", "-q", "-b", "main");
+    sh(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base");
+    sh(root, "init", "-q", "--bare", origin);
+    sh(root, "remote", "add", "origin", origin);
+    sh(root, "push", "-q", "origin", "main");
+    sh(root, "remote", "set-head", "origin", "main");
+    sh(root, "branch", "--no-track", "docs/app-demo", "origin/main");
+    sh(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "docs");
+    // The docs commit went onto main locally; move it onto the docs branch and reset main.
+    sh(root, "branch", "-f", "docs/app-demo", "HEAD");
+    sh(root, "reset", "-q", "--hard", "origin/main");
+    const dir = join(root, ".works", "done", "demo_20260101_0000");
+    await mkdir(dir, { recursive: true });
+    await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "demo", context: "app", created: "20260101_0000", docsBranch: "docs/app-demo" });
+  }
+
+  const unproven = "docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin and not proven merged "
+    + "(origin is not a GitHub repository, so a merged PR cannot be checked).";
+
+  it("warns while the branch never reached origin, naming it without a merge reason", async () => {
+    await docsBranchProject();
+    expect(unpushed().map((f) => f.message)).toEqual(["docs_branch_unpushed: canonical docs for demo sit on docs/app-demo, which is not on origin."]);
+  });
+
+  it("keeps warning when the pushed branch was deleted from origin without being merged", async () => {
+    await docsBranchProject();
+    sh(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    sh(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    expect(sh(root, "branch", "-r")).not.toContain("docs/app-demo");
+    expect(unpushed().map((f) => f.message)).toEqual([unproven]);
+  });
+
+  it("does not call a branch gone locally the docs that never landed when no merged PR could be looked up", async () => {
+    await docsBranchProject();
+    const dir = join(root, ".works", "done", "demo_20260101_0000");
+    await writeFeatureMeta(dir, { ...readFeatureMeta(dir)!, docsCommit: sh(root, "rev-parse", "docs/app-demo") });
+    sh(root, "branch", "-D", "docs/app-demo");
+    const found = unpushed();
+    expect(found.map((f) => f.message)).toEqual([
+      "docs_branch_unpushed: canonical docs for demo were committed to docs/app-demo, which is gone here and not proven merged "
+        + "(local branch docs/app-demo is gone and there is no remote-tracking ref for it here, so there is nothing to push; origin is not a GitHub repository, so a merged PR cannot be checked).",
+    ]);
+    expect(found[0].action).toBe("nothing to push; re-run kf doctor once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive demo");
+  });
+
+  it("stays quiet once the branch merged into the default branch and was pruned from origin", async () => {
+    await docsBranchProject();
+    sh(root, "push", "-q", "-u", "origin", "docs/app-demo");
+    sh(root, "push", "-q", "origin", "docs/app-demo:main");
+    sh(root, "push", "-q", "origin", "--delete", "docs/app-demo");
+    sh(root, "fetch", "-q", "--prune", "origin");
+    expect(sh(root, "branch", "-r")).not.toContain("docs/app-demo");
+    expect(unpushed()).toEqual([]);
+  });
+
+  it("stays quiet once the branch tip is in origin's default branch", async () => {
+    await docsBranchProject();
+    sh(root, "push", "-q", "origin", "docs/app-demo:main");
+    sh(root, "fetch", "-q", "origin");
+    expect(unpushed()).toEqual([]);
+  });
+});
+
 describe("what kf doctor promises about itself", () => {
   it("changes nothing on disk", async () => {
     await project();
@@ -208,7 +280,7 @@ describe("what kf doctor promises about itself", () => {
 
   it("gives --json the same findings and the same verdict as the text", async () => {
     await project();
-    await rm(join(root, ".works", "dones"), { recursive: true });
+    await rm(join(root, ".works", "done"), { recursive: true });
     const text = await cmdDoctor(args("doctor"), root);
     const json = await cmdDoctor(args("doctor", [], { json: true }), root);
     const parsed = JSON.parse(json.stdout) as { ok: boolean; findings: Array<{ message: string }> };
@@ -234,6 +306,71 @@ describe("kf doctor --fix", () => {
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain("installed kanban skills for claude");
     expect(runDoctor(root).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
+  });
+
+  it("treats a user's own travel skill as theirs: a warning, not stale, and --fix does not reinstall over it", async () => {
+    await project();
+    const skills = join(process.env.HOME!, ".claude", "skills");
+    await rm(join(skills, "travel"), { recursive: true, force: true });
+    await mkdir(join(skills, "travel"), { recursive: true });
+    await writeFile(join(skills, "travel", "SKILL.md"), "# My own travel planner\n");
+
+    const findings = runDoctor(root).findings.filter((f) => f.area === skills);
+    expect(findings.map((f) => f.level)).toEqual(["WARNING"]);
+    expect(findings[0].message).toContain("your own skill sits at a managed skill name: travel");
+    expect(runDoctor(root).ok).toBe(true);
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).not.toContain("installed kanban skills");
+    expect(readFileSync(join(skills, "travel", "SKILL.md"), "utf8")).toBe("# My own travel planner\n");
+
+    // A kanban-flow skill missing beside it is still an ERROR, and the user's skill is not listed in it.
+    await rm(join(skills, "kanban-plan"), { recursive: true, force: true });
+    const broken = runDoctor(root).findings.find((f) => f.area === skills && f.level === "ERROR");
+    expect(broken?.message).toBe("skills incomplete (scope: global): kanban-plan");
+  });
+
+  it("reports agents that went missing while the skills stayed, and --fix reinstalls them", async () => {
+    await project();
+    const agentsDir = join(process.env.HOME!, ".claude", "agents");
+    await rm(join(agentsDir, "code-reviewer.md"));
+    const before = runDoctor(root).findings.find((f) => f.area === agentsDir);
+    expect(before?.level).toBe("ERROR");
+    expect(before?.message).toContain("agents partial");
+    expect(before?.message).toContain("code-reviewer");
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("installed kanban agents for claude");
+    expect(runDoctor(root).findings.filter((f) => f.area === agentsDir)).toEqual([]);
+  });
+
+  it("warns about a user's own file under a managed agent name and never replaces it", async () => {
+    await project();
+    const agentsDir = join(process.env.HOME!, ".claude", "agents");
+    const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
+    await rm(join(agentsDir, "scout.md"));
+    await writeFile(join(agentsDir, "scout.md"), mine);
+    const finding = runDoctor(root).findings.find((f) => f.area === agentsDir);
+    expect(finding?.level).toBe("WARNING");
+    expect(finding?.message).toContain("scout.md");
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(await readFile(join(agentsDir, "scout.md"), "utf8")).toBe(mine);
+  });
+
+  it("a user's file under one agent name does not hide the agent missing beside it", async () => {
+    await project();
+    const agentsDir = join(process.env.HOME!, ".claude", "agents");
+    const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
+    await rm(join(agentsDir, "scout.md"));
+    await writeFile(join(agentsDir, "scout.md"), mine);
+    await rm(join(agentsDir, "code-reviewer.md"));
+    const findings = runDoctor(root).findings.filter((f) => f.area === agentsDir);
+    expect(findings.map((f) => f.level).sort()).toEqual(["ERROR", "WARNING"]);
+    expect(findings.find((f) => f.level === "ERROR")?.message).toContain("code-reviewer");
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("installed kanban agents for claude");
+    expect(existsSync(join(agentsDir, "code-reviewer.md"))).toBe(true);
+    expect(await readFile(join(agentsDir, "scout.md"), "utf8")).toBe(mine);
+    expect(runDoctor(root).findings.filter((f) => f.area === agentsDir && f.level === "ERROR")).toEqual([]);
   });
 
   it("writes the repository link the origin remote implies", async () => {
@@ -266,17 +403,143 @@ describe("kf doctor --fix", () => {
     // Not opted in — no pack files: doctor stays silent.
     expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
 
-    // Opted in via one file — the rest are missing and the one present is stale.
-    await writeFile(join(hooks, "dones.sh"), "#!/usr/bin/env bash\n# edited\n");
+    // A stage-named hook of the project's own is not the pack: still silent.
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n# our own gate\n");
+    expect(runDoctor(root).findings.filter((f) => f.area === ".kf/hooks")).toEqual([]);
+
+    // Opted in via one pack file that sources the lib — the rest are missing and the one present is stale.
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\nsource \"$(dirname \"$0\")/lib-github.sh\"\n# edited\n");
     const report = runDoctor(root);
     expect(report.findings.some((f) => f.message.includes("GitHub hook pack incomplete"))).toBe(true);
-    expect(report.findings.some((f) => f.message.includes("dones.sh differs"))).toBe(true);
+    expect(report.findings.some((f) => f.message.includes("done.sh differs"))).toBe(true);
 
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain("restored .kf/hooks/lib-github.sh");
     expect(existsSync(join(hooks, "brainstorm.sh"))).toBe(true);
     // The project-edited file is never clobbered.
-    await expect(readFile(join(hooks, "dones.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\n# edited\n");
+    await expect(readFile(join(hooks, "done.sh"), "utf8")).resolves.toBe("#!/usr/bin/env bash\nsource \"$(dirname \"$0\")/lib-github.sh\"\n# edited\n");
+  });
+
+  it("reports a legacy statusMap once and --fix rewrites it to the new stage keys", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.project = { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Shipping", review: "In review" } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("statusmap_legacy"));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].level).toBe("WARNING");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("rewrote project.statusMap legacy keys");
+    const after = JSON.parse(await readFile(path, "utf8")) as { project: { statusMap: Record<string, string> } };
+    expect(after.project.statusMap).toEqual({ review: "In review", done: "Done" });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
+  });
+
+  it("reports legacy harness.stages keys and --fix renames dones to done and drops shipping", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const harness = seedHarness(["claude"]);
+    const role = Object.keys(harness.roles)[0];
+    cfg.harness = { ...harness, stages: { dones: [role], shipping: [role], testing: [role] } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("harness_stages_legacy"));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].level).toBe("WARNING");
+    expect(legacy[0].message).toContain('"shipping", "dones"');
+    expect(legacy[0].action).toBe("kf doctor --fix (renames dones to done and drops shipping)");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("rewrote harness.stages legacy keys");
+    const after = JSON.parse(await readFile(path, "utf8")) as { harness: { stages: Record<string, unknown> } };
+    expect(after.harness.stages).toEqual({ testing: [role], done: [role] });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("harness_stages_legacy"))).toBe(false);
+  });
+
+  it("keeps an explicit harness.stages.done over the legacy dones on --fix", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const harness = seedHarness(["claude"]);
+    const [first, second] = Object.keys(harness.roles);
+    cfg.harness = { ...harness, stages: { done: [first], dones: [second] } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    const after = JSON.parse(await readFile(path, "utf8")) as { harness: { stages: Record<string, unknown> } };
+    expect(after.harness.stages).toEqual({ done: [first] });
+  });
+
+  it("names both legacy statusMap keys and the --fix action, and --fix leaves only done", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.project = { owner: "me", number: 3, statusMap: { dones: "Done", shipping: "Ship" } };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("statusmap_legacy"));
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].message).toContain('"dones"');
+    expect(legacy[0].message).toContain('"shipping"');
+    expect(legacy[0].action).toContain("kf doctor --fix");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("rewrote project.statusMap legacy keys");
+    const after = JSON.parse(await readFile(path, "utf8")) as { project: { statusMap: Record<string, string> } };
+    expect(after.project.statusMap).toEqual({ done: "Done" });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
+  });
+
+  it("warns once that a leftover ship block is ignored, and the config still reads", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    cfg.ship = { enabled: true, merge: "now" };
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+
+    const report = runDoctor(root);
+    expect(report.findings.some((f) => f.message.startsWith("Cannot read the project config"))).toBe(false);
+    const ship = report.findings.filter((f) => f.message.includes("ship block is ignored"));
+    expect(ship).toHaveLength(1);
+    expect(ship[0].level).toBe("WARNING");
+    expect(ship[0].action).toContain('remove the "ship" block');
+    expect(report.ok).toBe(true);
+
+    delete cfg.ship;
+    await writeFile(path, JSON.stringify(cfg, null, 2));
+    expect(runDoctor(root).findings.some((f) => f.message.includes("ship block"))).toBe(false);
+  });
+
+  it("warns about orphaned legacy stage hooks, naming each file and its fix", async () => {
+    await project();
+    const hooks = join(root, ".kf", "hooks");
+    await mkdir(hooks, { recursive: true });
+    expect(runDoctor(root).findings.some((f) => f.message.includes("orphaned"))).toBe(false);
+
+    await writeFile(join(hooks, "dones.sh"), "#!/usr/bin/env bash\n");
+    await writeFile(join(hooks, "shipping.sh"), "#!/usr/bin/env bash\n");
+    // Without done.sh, dones.sh still runs as the done hook — the message says so.
+    expect(runDoctor(root).findings.find((f) => f.message.includes(".kf/hooks/dones.sh"))?.message)
+      .toBe(".kf/hooks/dones.sh is a legacy hook: it runs for done only because done.sh is missing.");
+    expect(runDoctor(root).findings.find((f) => f.message.includes(".kf/hooks/dones.sh"))?.action)
+      .toBe("kf doctor --fix (renames dones.sh to done.sh, keeping its content), or rename it by hand");
+    await writeFile(join(hooks, "done.sh"), "#!/usr/bin/env bash\n");
+    const orphans = runDoctor(root).findings.filter((f) => f.message.includes("orphaned legacy hook"));
+    expect(orphans).toHaveLength(2);
+    const dones = orphans.find((f) => f.message.includes(".kf/hooks/dones.sh"));
+    const shipping = orphans.find((f) => f.message.includes(".kf/hooks/shipping.sh"));
+    expect(dones?.level).toBe("WARNING");
+    expect(dones?.action).toBe("port any local edits from .kf/hooks/dones.sh into done.sh, then delete dones.sh");
+    expect(shipping?.level).toBe("WARNING");
+    expect(shipping?.action).toContain("delete .kf/hooks/shipping.sh");
+
+    // Doctor is read-only: the orphans stay where they are until the user acts.
+    expect(existsSync(join(hooks, "dones.sh"))).toBe(true);
+    expect(existsSync(join(hooks, "shipping.sh"))).toBe(true);
   });
 
   it("drops legacy config fields but leaves judgment calls alone", async () => {

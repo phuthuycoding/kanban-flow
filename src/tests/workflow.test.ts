@@ -12,7 +12,7 @@ import { cmdContexts } from "../cli/commands/contexts.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdArchive } from "../cli/commands/archive.js";
-import { validateFeature } from "../workflow/validate.js";
+import { validateFeature, checkDirectionGate } from "../workflow/validate.js";
 import { computeStatus, renderStatusText } from "../workflow/status.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import { bootstrapDefaults } from "../project/bootstrap.js";
@@ -41,13 +41,12 @@ async function planning(): Promise<void> {
 async function implementation(): Promise<void> {
   await planning();
   expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
 }
 
 const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
 
 async function report(id: "testing-result" | "review-report", status = "PASS", execution = feature().meta?.executionId): Promise<void> {
-  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function review(): Promise<void> {
@@ -152,8 +151,7 @@ describe("requirement and approval gates", () => {
       "---\nstatus: confirmed\nkind: bug\n---\n# Bug Report\nReproduce: submit twice. Actual: duplicate task. Expected: one task. Severity: medium. Regression: repeat-submit unit test. Docs: unchanged behavior.");
     expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
     expect(computeStatus(feature()).totalCount).toBe(3);
-    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    expect((await cmdStage(args("stage", ["demo", "backlog"]), root)).code).toBe(0);
+    expect((await cmdApprove(args("approve", ["demo"], { backlog: true }), root)).code).toBe(0);
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
     await report("testing-result");
@@ -163,7 +161,7 @@ describe("requirement and approval gates", () => {
     await mkdir(join(root, "docs", "requirement", "app"), { recursive: true });
     await writeFile(canonical, "Existing feature documentation");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(validateFeature(feature()).valid).toBe(true);
     expect(await readFile(canonical, "utf8")).toBe("Existing feature documentation");
     expect(await readdir(join(root, "docs", "use-cases"))).toEqual([]);
@@ -174,14 +172,14 @@ describe("requirement and approval gates", () => {
     await cmdNew(args("new", ["demo"], { type: "bug" }), root);
     await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec);
     await cmdStage(args("stage", ["demo", "planning"]), root);
-    await cmdApprove(args("approve", ["demo"]), root);
+    await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
     await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec + "\nChanged fix scope");
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(1);
   });
 
   it.each(["edit", "add", "remove"])("invalidates feature approval after a use-case file %s", async (change) => {
     await planning();
-    await cmdApprove(args("approve", ["demo"]), root);
+    await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
     if (change === "remove") await rm(join(feature().dir, "use-cases", "UC-001.md"));
     else await writeFile(join(feature().dir, "use-cases", change === "add" ? "UC-002.md" : "UC-001.md"), "# UC-001 UC-002\nChanged acceptance behavior");
     expect(JSON.parse((await cmdStatus(args("status", [], { change: "demo", json: true }), root)).stdout).approval).toBe("changed");
@@ -202,12 +200,16 @@ describe("requirement and approval gates", () => {
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(1);
   });
 
-  it("supports the planning start-or-backlog decision", async () => {
+  it("approve --backlog parks the item; kf stage implementation starts it later", async () => {
     await planning();
-    await cmdApprove(args("approve", ["demo"]), root);
-    expect((await cmdStage(args("stage", ["demo", "backlog"]), root)).code).toBe(0);
+    const approved = await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
+    expect(approved.code).toBe(0);
+    expect(approved.stdout).toContain("→ backlog");
+    expect(approved.stdout).toContain("Next: kf stage demo implementation");
     expect(feature().stage).toBe("backlog");
-    expect(renderStatusText(computeStatus(feature()))).toContain("implementation (start) or planning (revise)");
+    expect(feature().meta?.approval?.status).toBe("approved");
+    expect(feature().meta?.worktree).toBeUndefined();
+    expect(renderStatusText(computeStatus(feature()))).toContain(`Next: kf stage "demo" implementation`);
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect(feature().stage).toBe("implementation");
   });
@@ -253,7 +255,6 @@ describe("requirement and approval gates", () => {
     expect(instruction.template).toContain("| ID | UC-002 |");
     expect((await cmdInstruct(args("instruct", ["use-case"], { change: "demo", id: "UC-002-" }), root)).stderr).toBe("invalid use-case id");
     await cmdApprove(args("approve", ["demo"]), root);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result");
     await cmdStage(args("stage", ["demo", "review"]), root);
@@ -273,13 +274,14 @@ describe("requirement and approval gates", () => {
 
   it.each(["spec-requirement", "implementation-plan", "use-case-specification", "use-case-diagram", "test-cases"] as const)("invalidates approval when %s changes", async (id) => {
     await planning();
-    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
+    expect((await cmdApprove(args("approve", ["demo"], { backlog: true }), root)).code).toBe(0);
     const file = join(feature().dir, ARTIFACTS[id].file);
     await writeFile(file, (await readFile(file, "utf8")) + "\nNew scope");
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(1);
     expect(JSON.parse((await cmdStatus(args("status", [], { change: "demo", json: true }), root)).stdout).approval).toBe("changed");
+    expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
+    expect(feature().stage).toBe("implementation");
   });
 
   it("checks approval throughout autonomous execution and supports returning to planning", async () => {
@@ -356,7 +358,7 @@ describe("testing and review cycles", () => {
   it("stops all review transitions on REQUIREMENT_BUG", async () => {
     await review();
     await report("review-report", "REQUIREMENT_BUG");
-    for (const next of ["dones", "implementation", "planning"]) {
+    for (const next of ["done", "implementation", "planning"]) {
       expect((await cmdStage(args("stage", ["demo", next]), root)).code).toBe(1);
     }
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(1);
@@ -373,16 +375,16 @@ describe("testing and review cycles", () => {
 });
 
 describe("archive consistency", () => {
-  it("runs the dones hook from a subdirectory and preserves review on failure", async () => {
+  it("runs the done hook from a subdirectory and preserves review on failure", async () => {
     await review();
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Closure\nVerified");
     await mkdir(join(root, ".kf", "hooks"), { recursive: true });
-    await writeFile(join(root, ".kf", "hooks", "dones.sh"), "exit 9\n");
+    await writeFile(join(root, ".kf", "hooks", "done.sh"), "exit 9\n");
     await mkdir(join(root, "src"));
     expect((await cmdArchive(args("archive", ["demo"]), join(root, "src"))).stderr).toBe("hook failed");
     expect(feature().stage).toBe("review");
   });
-  it("requires the feature report before moving to dones", async () => {
+  it("requires the feature report before moving to done", async () => {
     await review();
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(1);
     expect(feature().stage).toBe("review");
@@ -392,7 +394,6 @@ describe("archive consistency", () => {
     await planning();
     await writeFile(join(feature().dir, ARTIFACTS["use-case-specification"].file), "# Index\n[UC-001](use-cases/UC-001.md)");
     await cmdApprove(args("approve", ["demo"]), root);
-    await cmdStage(args("stage", ["demo", "implementation"]), root);
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result");
     await cmdStage(args("stage", ["demo", "review"]), root);
@@ -416,9 +417,9 @@ describe("archive consistency", () => {
     const canonical = join(root, "docs", "use-cases", "app", "demo.md");
     await writeFile(canonical, spec);
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified scope and tests");
-    const result = command === "archive" ? await cmdArchive(args(command, ["demo"]), root) : await cmdStage(args(command, ["demo", "dones"]), root);
+    const result = command === "archive" ? await cmdArchive(args(command, ["demo"]), root) : await cmdStage(args(command, ["demo", "done"]), root);
     expect(result.code, result.stdout).toBe(0);
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
     expect(feature().meta?.status).toBe("archived");
     expect(await readFile(canonical, "utf8")).toContain("status: archived");
     expect(validateFeature(feature()).valid).toBe(true);
@@ -438,7 +439,7 @@ describe("archive consistency", () => {
     expect(forced.stdout).toContain("Bypass recorded: --force");
     const bypasses = feature().meta!.bypasses!;
     expect(bypasses).toHaveLength(1);
-    expect(bypasses[0]).toMatchObject({ from: "dones", to: "dones", flag: "force" });
+    expect(bypasses[0]).toMatchObject({ from: "done", to: "done", flag: "force" });
     expect(bypasses[0].codes).toContain("canonical_docs_changed");
     expect(await readFile(canonical, "utf8")).toContain("status: archived");
   });
@@ -539,7 +540,7 @@ describe("CLI output and persisted data", () => {
     }
     await cmdApprove(args("approve", ["demo"]), root);
     expect((await cmdValidate(args("validate", [], { change: "demo", json: true }), root)).code).toBe(0);
-    expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).stages).toHaveLength(9);
+    expect(JSON.parse((await cmdView(args("view", [], { json: true }), root)).stdout).stages).toHaveLength(8);
   });
 
   it("reports corrupt metadata and config instead of silently falling back", async () => {
@@ -579,5 +580,64 @@ describe("CLI output and persisted data", () => {
     expect(findFeature(root, "demo_20200101_0000")?.dir).toBe(secondDir);
     expect(readFeatureMeta(secondDir)?.feature).toBe("demo");
     expect(executionContractHash(secondDir)).toBeNull();
+  });
+});
+
+describe("review → done delivery gate", () => {
+  const reviewReport = (fm: string) => writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
+    `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${fm}\n---\n# Review\nReviewed.\n`);
+  const gateCodes = () => checkDirectionGate(feature(), "done").map((i) => i.code);
+  const recordPr = () => writeFeatureMeta(feature().dir, { ...readFeatureMeta(feature().dir)!, pr: "https://github.com/acme/app/pull/7" });
+
+  it("refuses done on a PASS report with ci: red, through the gate and kf archive", async () => {
+    await review();
+    await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nCurrent summary");
+    await reviewReport("ci: red\nlanding: none");
+    expect(gateCodes()).toEqual(["review_ci_red"]);
+    const refused = await cmdArchive(args("archive", ["demo"]), root);
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toContain("(review_ci_red)");
+    expect(feature().stage).toBe("review");
+    await reviewReport("ci: green\nlanding: none");
+    expect(gateCodes()).toEqual([]);
+    expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
+    expect(feature().stage).toBe("done");
+  });
+
+  it("the gate needs a recorded PR for landing: pr and a landing value at all", async () => {
+    await review();
+    await reviewReport("ci: green\nlanding: pr");
+    expect(gateCodes()).toEqual(["review_pr_missing"]);
+    await recordPr();
+    expect(gateCodes()).toEqual([]);
+    await reviewReport("ci: green");
+    expect(gateCodes()).toEqual(["review_landing_missing"]);
+  });
+
+  it("the gate refuses done on a PASS report with ci: pending or no ci", async () => {
+    await review();
+    await reviewReport("ci: pending\nlanding: none");
+    expect(gateCodes()).toEqual(["review_ci_missing"]);
+    await reviewReport("landing: none");
+    expect(gateCodes()).toEqual(["review_ci_missing"]);
+    await reviewReport("ci: none\nlanding: none");
+    expect(gateCodes()).toEqual([]);
+  });
+
+  it("kf validate names the delivery code for an item in review", async () => {
+    await review();
+    await reviewReport("ci: red\nlanding: none");
+    const result = await cmdValidate(args("validate", [], { change: "demo" }), root);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("(review_ci_red)");
+  });
+
+  it("kf instruct review-report prints ci and landing with their meaning", async () => {
+    const out = (await cmdInstruct(args("instruct", ["review-report"]), root)).stdout;
+    expect(out).toMatch(/^ci: "\{ci\}"$/m);
+    expect(out).toMatch(/^landing: "\{landing\}"$/m);
+    for (const value of ["`green`", "`red`", "`none`", "`pr`"]) expect(out).toContain(value);
+    expect(out).toContain("kf issues link <feature> <url> --pr");
+    expect(out).toContain("PASS requires `ci: green` or `ci: none` (any other or missing value is refused), and either `landing: pr` with the PR recorded or `landing: none`.");
   });
 });

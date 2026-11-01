@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `workflow-slim`:** the stage `dones` is now `done` (`STAGES[6] === "done"`; a legacy `dones` reopen target maps to `done`), so the rules here about cancelling, reopening or counting a `dones` item refer to `done`. Kept for history.
+
 ## Feature
 cancel-work-item
 

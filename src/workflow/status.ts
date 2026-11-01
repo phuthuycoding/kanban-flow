@@ -7,11 +7,12 @@ import {
   FEATURE_ONLY_ARTIFACTS,
   STAGE_INDEX,
   PHASE_NAMES,
+  currentStageName,
   type ArtifactId,
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
-import { executionContractHash } from "./features.js";
+import { driveLive, executionContractHash } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
@@ -50,7 +51,23 @@ export interface FeatureStatus {
   taskProgress: { done: number; total: number };
   /** Roles assigned to the current stage, in run order; empty when the main role does it. */
   assignedRoles: Array<{ role: string; runner: string }>;
+  /** Why a review PASS item did not close on this run; set by the command that attempted it. */
+  close?: CloseState;
+  /**
+   * `kf drive` can take the item, as the drive resolves its config (driveConfigReady). Computed by the command layer,
+   * which can read the worktree and origin copies; false when the caller did not compute it.
+   */
+  driveConfigured: boolean;
 }
+
+/**
+ * The result of a close attempt on a review PASS item that stayed in review. Computed by the
+ * command layer (it calls gh through archiveItem); rendering here stays pure.
+ */
+export type CloseState =
+  | { kind: "awaiting-merge"; pr: string }
+  | { kind: "pr-closed"; pr: string }
+  | { kind: "refused"; detail: string };
 
 function readArtifactContent(dir: string, file: string): string {
   const p = join(dir, file);
@@ -67,6 +84,14 @@ export function reportStatus(dir: string, artifact: ArtifactId): string | null {
   } catch {
     return null;
   }
+}
+
+/** Report status of the current execution only; a report left over from an earlier execution is null. */
+export function currentReportStatus(feature: Feature, artifact: "testing-result" | "review-report"): string | null {
+  const p = join(feature.dir, ARTIFACTS[artifact].file);
+  if (!existsSync(p) || !feature.meta?.executionId) return null;
+  const { fm } = splitFrontmatter(readFileSync(p, "utf8"));
+  return fm.execution === feature.meta.executionId ? fm.status ?? null : null;
 }
 
 export function countTasks(content: string): { done: number; total: number } {
@@ -90,7 +115,7 @@ function assignedFor(feature: Feature, harness: HarnessConfig | undefined): Arra
 }
 
 /** Compute artifact completion status for a feature at its current stage. */
-export function computeStatus(feature: Feature, harness?: HarnessConfig): FeatureStatus {
+export function computeStatus(feature: Feature, harness?: HarnessConfig, driveReady = false): FeatureStatus {
   const stageIndex = STAGE_INDEX[feature.stage];
   const artifacts: ArtifactState[] = [];
   let doneCount = 0;
@@ -150,6 +175,7 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
     blockers,
     taskProgress,
     assignedRoles: assignedFor(feature, harness),
+    driveConfigured: driveReady,
   };
 }
 
@@ -168,10 +194,11 @@ export function renderStatusText(s: FeatureStatus): string {
   lines.push(`Stage: ${s.feature.stage} (${PHASE_NAMES[s.feature.stage]})   Approval: ${approval}   Artifacts: ${done}/${ready.length}${taskStr}`);
   if (s.feature.meta?.executionId) lines.push(`Execution: ${s.feature.meta.executionId}`);
   if (s.feature.meta?.issue) lines.push(`Issue: ${s.feature.meta.issue}`);
-  if (s.feature.stage === "review" && s.feature.meta?.issue && reportStatus(s.feature.dir, "review-report") === "PASS") {
-    lines.push(`Awaiting merge — run: kf archive ${s.feature.name} once the change has landed`);
-  }
-  if (s.feature.meta?.issue && s.feature.stage === "dones") {
+  if (s.close?.kind === "awaiting-merge") lines.push(`Awaiting merge: ${s.close.pr}`);
+  if (s.close?.kind === "pr-closed") lines.push(`PR closed without merging: ${s.close.pr}`);
+  if (s.close?.kind === "refused") lines.push(`Not closed: ${s.close.detail}`);
+  if (s.feature.meta?.docsBranch) lines.push(`Docs branch: ${s.feature.meta.docsBranch}`);
+  if (s.feature.meta?.issue && s.feature.stage === "done") {
     lines.push(`Delivered: ${s.feature.meta.delivered ? `yes${s.feature.meta.deliveredAt ? ` at ${s.feature.meta.deliveredAt}` : ""}` : "no — run: kf archive " + s.feature.name + " to finalize delivery"}`);
   }
   const wt = s.feature.meta?.worktree;
@@ -180,10 +207,10 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`);
   }
   const bypasses = s.feature.meta?.bypasses ?? [];
-  if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${b.to}`).join(", ")})`);
+  if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);
   const cancellation = s.feature.meta?.cancellation;
   if (cancellation) {
-    lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${cancellation.fromStage}) — ${cancellation.reason.split("\n")[0]}`);
+    lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${currentStageName(cancellation.fromStage)}) — ${cancellation.reason.split("\n")[0]}`);
   }
   if (s.assignedRoles.length > 0) lines.push(`Assigned: ${s.assignedRoles.map((a) => `${a.role} (${a.runner})`).join(" → ")} (kf run)`);
   const runs = s.feature.meta?.runs ?? [];
@@ -207,19 +234,30 @@ export function renderStatusText(s: FeatureStatus): string {
     for (const b of s.blockers) lines.push(`  [ERROR] ${b.file}: ${b.message} (${b.code})`);
   }
 
-  if (s.next) {
+  if (s.close?.kind === "awaiting-merge" && !s.next && s.blockers.length === 0) {
+    lines.push("");
+    lines.push(`Next: merge ${s.close.pr} on GitHub, then kf status --change ${s.feature.name}`);
+  } else if (s.close?.kind === "pr-closed" && !s.next && s.blockers.length === 0) {
+    lines.push("");
+    lines.push(`Next: human decision — ${s.close.pr} was closed without merging: reopen and merge it, or kf stage "${s.feature.name}" implementation, or kf cancel "${s.feature.name}"`);
+  } else if (s.next) {
     lines.push("");
     lines.push(`Next: kf instruct ${s.next} --change "${s.feature.name}"`);
   } else if (s.blockers.length > 0) {
     // Naming a next step that is going to be refused is the whole bug. Say what to fix instead.
     lines.push("");
-    lines.push(`Next: clear the blocking findings above, then re-run kf status.`);
+    lines.push(`Next: clear the blocking findings above, then re-run kf status --change ${s.feature.name}.`);
   } else if (s.feature.stage === "planning" && approval !== "approved") {
     lines.push(`Next: human approval, then kf approve "${s.feature.name}"`);
   } else if (s.feature.stage === "planning" && approval === "approved") {
-    lines.push(`Next: human decision — kf stage "${s.feature.name}" implementation (start) or backlog (defer)`);
+    // Approve moves the item, so an approved planning item predates that; re-running approve moves it.
+    lines.push(`Next: kf approve "${s.feature.name}"`);
   } else if (s.feature.stage === "backlog") {
-    lines.push(`Next: human decision — kf stage "${s.feature.name}" implementation (start) or planning (revise)`);
+    lines.push(`Next: kf stage "${s.feature.name}" implementation`);
+  } else if (s.feature.stage === "implementation") {
+    lines.push("");
+    lines.push(driveLive(s.feature.meta?.drive) ? `Next: kf drive "${s.feature.name}" --status`
+      : s.driveConfigured ? `Next: kf drive "${s.feature.name}"` : `Next: load the kanban-implement skill for "${s.feature.name}"`);
   }
   return lines.join("\n");
 }
@@ -234,6 +272,9 @@ export function statusToJson(s: FeatureStatus) {
     approval: approvalState(s.feature),
     executionId: s.feature.meta?.executionId ?? null,
     issue: s.feature.meta?.issue ?? null,
+    pr: s.feature.meta?.pr ?? null,
+    docsBranch: s.feature.meta?.docsBranch ?? null,
+    close: s.close ?? null,
     worktree: s.feature.meta?.worktree ?? null,
     bypasses: s.feature.meta?.bypasses ?? [],
     cancellation: s.feature.meta?.cancellation ?? null,
@@ -260,4 +301,94 @@ export function approvalState(feature: Feature): "pending" | "approved" | "chang
   const approval = feature.meta?.approval;
   if (approval?.status !== "approved") return "pending";
   return approval.contractHash && approval.contractHash === executionContractHash(feature.dir, feature.meta?.kind === "bug" ? "bug" : "feature") ? "approved" : "changed";
+}
+
+export interface Buckets {
+  /** Items waiting on a human decision. */
+  needsYou: Array<{ feature: string; decision: string }>;
+  /** Things the human does outside kf: merge a PR, push a docs branch. */
+  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string; reason?: string; kind?: "lookup-rerun"; next?: string }>;
+  /** Live `kf drive` supervisors. */
+  running: number;
+}
+
+/**
+ * The two buckets `kf status --all` ends with. `docsBranchesUnpushed` and `running` come from
+ * git and process state the caller read; everything else is read off the statuses.
+ */
+export function computeBuckets(
+  statuses: FeatureStatus[],
+  docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; kind?: "lookup-rerun"; remedy?: string; gone?: true }>,
+  running: number,
+): Buckets {
+  const needsYou: Buckets["needsYou"] = [];
+  const waitingToMerge: Buckets["waitingToMerge"] = [];
+  for (const s of statuses) {
+    const f = s.feature;
+    if (f.stage === "brainstorm" && splitFrontmatter(readArtifactContent(f.dir, ARTIFACTS["spec-requirement"].file)).fm.status !== "confirmed") {
+      needsYou.push({ feature: f.name, decision: "confirm spec" });
+    } else if (f.stage === "planning" && approvalState(f) !== "approved") {
+      needsYou.push({ feature: f.name, decision: "approve plan (or --backlog)" });
+    } else if (f.stage === "testing" && currentReportStatus(f, "testing-result") === "BLOCKED") {
+      needsYou.push({ feature: f.name, decision: "testing BLOCKED — unblock it or revise the plan" });
+    } else if (f.stage === "review") {
+      const review = currentReportStatus(f, "review-report");
+      if (review === "FAIL" || review === "REJECT" || review === "REQUIREMENT_BUG") {
+        needsYou.push({ feature: f.name, decision: `review ${review} — repair (kf stage ${f.name} implementation) or revise the plan` });
+      } else if (s.close?.kind === "pr-closed") {
+        needsYou.push({ feature: f.name, decision: `${s.close.pr} was closed without merging — reopen and merge it, or move the item back` });
+      } else if (s.close?.kind === "awaiting-merge") {
+        const number = /\/pull\/(\d+)$/.exec(s.close.pr)?.[1];
+        waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number}` : `gh pr merge ${s.close.pr}` });
+      } else if (s.close?.kind === "refused") {
+        needsYou.push({ feature: f.name, decision: `review PASS but not closed: ${s.close.detail}` });
+      }
+    }
+  }
+  for (const d of docsBranchesUnpushed) {
+    if (d.gone) {
+      needsYou.push({ feature: d.feature, decision: d.remedy ? docsNotProvenLandedDecision(d.feature, d.remedy, d.reason) : docsNeverLandedDecision(d.feature, d.reason) });
+      continue;
+    }
+    if (d.kind === "lookup-rerun") {
+      waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: DOCS_LOOKUP_RERUN, ...(d.reason ? { reason: d.reason } : {}), kind: d.kind, next: docsLookupRerunDecision(d.feature, DOCS_LOOKUP_RERUN) });
+      continue;
+    }
+    waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
+  }
+  return { needsYou, waitingToMerge, running };
+}
+
+/** A docs branch nothing proves landed and nothing is left to push; doctor gives the same decision. */
+export function docsNeverLandedDecision(feature: string, reason?: string): string {
+  return `canonical docs for ${feature} never landed${reason ? ` (${reason})` : ""}: re-land them on a fresh docs branch for a PR with kf archive ${feature}, or leave them`;
+}
+
+/** A gone docs branch no lookup could run for until the human applies `remedy`, so it is not called never landed. */
+export function docsNotProvenLandedDecision(feature: string, remedy: string, reason?: string): string {
+  return `run ${remedy} first, then re-run ${DOCS_LOOKUP_RERUN}: canonical docs for ${feature} are not proven landed${reason ? ` (${reason})` : ""}`;
+}
+
+/** The command kf status --all gives a gone docs branch whose merged-PR lookup could not run. */
+export const DOCS_LOOKUP_RERUN = "kf status --all";
+
+/** The next step for a gone docs branch whose merged-PR lookup could not run; doctor gives the same one. */
+export function docsLookupRerunDecision(feature: string, rerun: string): string {
+  return `re-run ${rerun} once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive ${feature}`;
+}
+
+export function renderBuckets(b: Buckets): string {
+  const lines = ["Needs you"];
+  if (b.needsYou.length === 0) lines.push("  (none)");
+  for (const n of b.needsYou) lines.push(`  ${n.feature} — ${n.decision}`);
+  lines.push("Waiting to merge");
+  if (b.waitingToMerge.length === 0) lines.push("  (none)");
+  for (const w of b.waitingToMerge) {
+    if (!w.docsBranch) lines.push(`  ${w.feature} — ${w.pr}: ${w.command}`);
+    else if (w.kind === "lookup-rerun") lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged${w.reason ? ` (${w.reason})` : ""}: ${w.next}`);
+    else if (w.reason) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged (${w.reason}): ${w.command}`);
+    else lines.push(`  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}`);
+  }
+  lines.push(`Running: ${b.running}`);
+  return lines.join("\n");
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { writeFileSync, existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,8 @@ import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdShip } from "../cli/commands/ship.js";
 import { cmdSync } from "../cli/commands/sync.js";
 import { cmdCancel } from "../cli/commands/cancel.js";
-import type { ParsedArgs } from "../cli/args.js";
+import { parseArgsCli, type ParsedArgs } from "../cli/args.js";
+import { PKG_ROOT } from "../shared/paths.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 const feature = (name = "demo") => findFeature(root, name)!;
@@ -32,7 +33,7 @@ function fakeGh(): void {
   const script = `#!/bin/sh
 echo "$@" >> "$GH_LOG"
 case "$*" in
-  "pr view"*) echo "{\\"state\\":\\"\${GH_STATE:-OPEN}\\"}";;
+  "pr view"*) echo "{\\"state\\":\\"\${GH_STATE:-OPEN}\\",\\"headRefName\\":\\"kf/stub\\",\\"headRefOid\\":\\"0123456789abcdef0123456789abcdef01234567\\"}";;
   "pr create"*) echo "https://github.com/o/r/pull/7";;
   "pr merge"*) echo "scheduled";;
   "release create"*) echo "https://github.com/o/r/releases/tag/v9.9.9";;
@@ -58,7 +59,7 @@ async function writeCfg(ship?: Record<string, unknown>): Promise<void> {
 
 const SPEC = "---\nstatus: confirmed\n---\n# Requirement\n## Objective\nShip the thing.\n## FR-001\nUser ships.\n## Affected surfaces\nN/A";
 
-/** Drive an item to review with a PASS pair, then (optionally) into shipping. */
+/** Drive an item to review with a PASS pair — the stage that now awaits the merge. */
 async function shipReadyItem(name = "demo"): Promise<void> {
   expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), SPEC);
@@ -70,12 +71,11 @@ async function shipReadyItem(name = "demo"): Promise<void> {
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it");
   await writeFile(join(feature(name).dir, ARTIFACTS["test-cases"].file), "# Cases\n## TC-001\nFR-001 UC-001\nShip and verify.\n");
   expect((await cmdApprove(args("approve", [name]), root)).code).toBe(0);
-  expect((await cmdStage(args("stage", [name, "implementation"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |\n";
   const report = async (id: "testing-result" | "review-report") =>
     writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report("review-report");
@@ -105,158 +105,162 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-describe("schema: shipping stage (TC-001)", () => {
-  it("sits between review and dones with correct maps", () => {
-    expect(STAGES).toEqual(["brainstorm", "planning", "backlog", "implementation", "testing", "review", "shipping", "dones", "cancelled"]);
-    expect(TRANSITIONS.review).toContain("shipping");
-    expect(TRANSITIONS.review).toContain("dones");
-    expect(TRANSITIONS.shipping).toEqual(["dones"]);
-    expect(STAGE_GATES.shipping).toEqual([]);
-    expect(STAGE_INDEX.shipping).toBe(6);
-    expect(STAGE_INDEX.dones).toBe(7);
+describe("schema: no shipping stage", () => {
+  it("review hands straight to done with correct maps", () => {
+    expect(STAGES).toEqual(["brainstorm", "planning", "backlog", "implementation", "testing", "review", "done", "cancelled"]);
+    expect(TRANSITIONS.review).toEqual(["done", "implementation", "planning"]);
+    expect(STAGE_GATES.done).toEqual([]);
+    expect(STAGE_INDEX.review).toBe(5);
+    expect(STAGE_INDEX.done).toBe(6);
   });
 });
 
-describe("stage gate into shipping (TC-002, TC-003)", () => {
-  it("review + PASS enters shipping", async () => {
+describe("legacy stage names refuse with a hint", () => {
+  it("kf stage <x> shipping exits 1 with the shipping hint and moves nothing", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
+    const meta = readFileSync(join(feature().dir, ".kfw.json"));
     const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(feature().stage).toBe("shipping");
+    expect(res.code).toBe(1);
+    expect(res.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status --change demo closes the item");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(join(root, ".works", "shipping"))).toBe(false);
+    expect(readFileSync(join(feature().dir, ".kfw.json")).equals(meta)).toBe(true);
   });
 
-  it("creates a missing shipping directory before the move", async () => {
+  it("kf stage <x> dones exits 1 with the dones hint and moves nothing", async () => {
     await writeCfg({ enabled: false });
     await shipReadyItem();
-    rmSync(join(root, ".works", "shipping"), { recursive: true, force: true });
-    const res = await cmdStage(args("stage", ["demo", "shipping"]), root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(feature().stage).toBe("shipping");
-    expect(existsSync(join(root, ".works", "shipping", feature().folder))).toBe(true);
+    const meta = readFileSync(join(feature().dir, ".kfw.json"));
+    const res = await cmdStage(args("stage", ["demo", "dones"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status --change demo, kf sync or kf archive");
+    expect(feature().stage).toBe("review");
+    expect(existsSync(join(root, ".works", "dones"))).toBe(false);
+    expect(readFileSync(join(feature().dir, ".kfw.json")).equals(meta)).toBe(true);
   });
 
-  it("refuses without a PASS report and from other stages", async () => {
+  it("kf stage <x> constructor is an unknown stage, not a legacy hint", async () => {
+    await writeCfg({ enabled: false });
+    await shipReadyItem();
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      const res = await cmdStage(args("stage", ["demo", name]), root);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toBe("unknown stage");
+      expect(res.stdout).toBe(`Unknown stage '${name}'. Stages: ${STAGES.join(" → ")}`);
+    }
+    expect(feature().stage).toBe("review");
+  });
+
+  it("refuses done without a PASS report and from other stages", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
     // FAIL review blocks entry
     await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
       `---\nstatus: FAIL\nexecution: ${feature().meta?.executionId}\n---\n# Review\nNo.`);
-    const fail = await cmdStage(args("stage", ["demo", "shipping"]), root);
+    const fail = await cmdStage(args("stage", ["demo", "done"]), root);
     expect(fail.code).toBe(1);
     expect(feature().stage).toBe("review");
     // non-review stages have no edge at all
     const early = await cmdNew(args("new", ["early"], { context: "app" }), root);
     expect(early.code).toBe(0);
-    const res = await cmdStage(args("stage", ["early", "shipping"]), root);
+    const res = await cmdStage(args("stage", ["early", "done"]), root);
     expect(res.code).toBe(1);
     expect(feature("early").stage).toBe("brainstorm");
   });
 });
 
-describe("ship config parse (TC-004)", () => {
-  it("defaults absent block; validates fields", async () => {
-    await writeCfg();
-    expect(readProjectConfig(root).ship).toEqual({ enabled: false, merge: "manual", release: false, changelog: false });
-    await writeCfg({ enabled: true, merge: "auto", release: true, changelog: true });
-    expect(readProjectConfig(root).ship).toEqual({ enabled: true, merge: "auto", release: true, changelog: true });
-    await writeCfg({ merge: "now" });
-    expect(() => readProjectConfig(root)).toThrow(/ship/);
+describe("a leftover ship config block is tolerated", () => {
+  it("reads past any ship block shape without throwing and exposes nothing", async () => {
+    for (const ship of [{ enabled: true, merge: "auto", release: true, changelog: true }, { merge: "now" }, { enabled: "yes" }]) {
+      await writeCfg(ship);
+      const cfg = readProjectConfig(root);
+      expect(cfg.repository).toBe("o/r");
+      expect(Object.hasOwn(cfg, "ship")).toBe(false);
+    }
   });
 });
 
-describe("kf ship pipeline (TC-005..TC-007)", () => {
-  it("refuses outside shipping and prints the manual checklist when disabled", async () => {
-    await writeCfg(); // no ship block
-    await shipReadyItem();
-    const wrong = await cmdShip(args("ship", ["demo"]), root);
-    expect(wrong.code).toBe(1);
-    expect(wrong.stdout).toContain("shipping");
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
-    const off = await cmdShip(args("ship", ["demo"]), root);
-    expect(off.code).toBe(1);
-    expect(off.stdout).toContain("Manual ship checklist");
-    expect(feature().meta!.ship).toBeUndefined();
-  });
+describe("kf ship is a deprecated alias", () => {
+  const DEPRECATED = (feature: string) =>
+    `kf ship is deprecated: review opens the PR; merge on GitHub; kf status --change ${feature} closes the item`;
 
-  it("publishes once, waits on manual merge, resumes to release+changelog after merge", async () => {
-    await writeCfg({ enabled: true, merge: "manual", release: true, changelog: true });
-    await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
-
-    const first = await cmdShip(args("ship", ["demo"]), root);
-    expect(first.code, first.stdout).toBe(0);
-    expect(first.stdout).toContain("PR opened");
-    expect(first.stdout).toContain("waiting");
-    expect(feature().meta!.pr).toBe("https://github.com/o/r/pull/7");
-    expect(ghLog()).toContain("pr create");
-    expect(ghLog()).toContain("pr view");
-
-    // second run: no duplicate publish; still waiting while OPEN
-    const second = await cmdShip(args("ship", ["demo"]), root);
-    expect(second.code).toBe(0);
-    expect(second.stdout).toContain("already recorded");
-    expect(ghLog().match(/pr create/g)).toHaveLength(1);
-
-    // human merges → resume runs release + changelog
-    process.env.GH_STATE = "MERGED";
-    const third = await cmdShip(args("ship", ["demo"]), root);
-    expect(third.code, third.stdout).toBe(0);
-    expect(third.stdout).toContain("Ship complete");
-    expect(ghLog()).toContain("release create");
-    expect(feature().meta!.ship).toMatchObject({ release: "done", releaseTag: "v9.9.9", changelog: "done" });
-    expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toContain("demo");
-  });
-
-  it("auto merge schedules once; flags skip release/changelog", async () => {
+  it("exits 1 with the pointer for both spellings and old flags, and writes nothing", async () => {
     await writeCfg({ enabled: true, merge: "auto", release: true, changelog: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
-    const r1 = await cmdShip(args("ship", ["demo"]), root);
-    expect(r1.code).toBe(0);
-    expect(ghLog()).toContain("pr merge https://github.com/o/r/pull/7 -R o/r --auto --squash");
-    const r2 = await cmdShip(args("ship", ["demo"]), root);
-    expect(r2.stdout).toContain("already scheduled");
-    expect(ghLog().match(/pr merge/g)).toHaveLength(1);
-    process.env.GH_STATE = "MERGED";
-    const r3 = await cmdShip(args("ship", ["demo"], { "skip-release": true, "skip-changelog": true }), root);
-    expect(r3.code).toBe(0);
-    expect(feature().meta!.ship).toMatchObject({ release: "skipped", changelog: "skipped" });
-    expect(ghLog()).not.toContain("release create");
+    // A local commit the remote lacks, so a push would be visible on the remote ref.
+    writeFileSync(join(root, "change.txt"), "x");
+    execFileSync("git", ["-C", root, "add", "change.txt"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "commit", "-qm", "change"], { stdio: "pipe" });
+    const remoteHead = () => execFileSync("git", ["--git-dir", join(scratch, "remote.git"), "rev-parse", "HEAD"], { encoding: "utf8" });
+    const before = remoteHead();
+    const metaFile = join(feature().dir, ".kfw.json");
+    const metaBefore = readFileSync(metaFile, "utf8");
+    const configBefore = readFileSync(join(root, ".kf", "config.json"), "utf8");
+
+    const invocations: [ReturnType<typeof parseArgsCli>, string][] = [
+      [parseArgsCli(["ship", "demo"]), "demo"],
+      [parseArgsCli(["feature", "ship", "demo"]), "demo"],
+      [parseArgsCli(["ship", "demo", "--draft", "--skip-release", "--skip-changelog"]), "demo"],
+      [parseArgsCli(["ship"]), "<feature>"],
+    ];
+    for (const [parsed, name] of invocations) {
+      expect(parsed.command).toBe("ship");
+      const res = await cmdShip(parsed, root);
+      expect(res.code).toBe(1);
+      expect(res.stdout).toBe(DEPRECATED(name));
+    }
+
+    expect(ghLog()).toBe("");
+    expect(remoteHead()).toBe(before);
+    expect(readFileSync(metaFile, "utf8")).toBe(metaBefore);
+    expect(readFileSync(join(root, ".kf", "config.json"), "utf8")).toBe(configBefore);
+    expect(feature().stage).toBe("review");
     expect(existsSync(join(root, "CHANGELOG.md"))).toBe(false);
   });
+
+  it("an item stamped by the old pipeline still loads with its meta.ship", async () => {
+    await writeCfg();
+    await shipReadyItem();
+    const { writeFeatureMeta } = await import("../workflow/features.js");
+    const stamp = { published: "2026-01-01T00:00:00Z", merged: "2026-01-02T00:00:00Z", release: "done" as const, releaseTag: "v1.0.0", changelog: "skipped" as const };
+    await writeFeatureMeta(feature().dir, { ...feature().meta!, ship: stamp });
+    expect(feature().meta!.ship).toEqual(stamp);
+  });
+
+  it("the shipping pipeline source is gone from the tree", () => {
+    expect(existsSync(join(PKG_ROOT, "src", "ship"))).toBe(false);
+  });
 });
 
-describe("archive + sync cover shipping (TC-008, TC-009)", () => {
-  it("archive accepts shipping; unmerged recorded PR still refuses; review→dones direct works", async () => {
+describe("archive + sync from review", () => {
+  it("unmerged recorded PR refuses at review; merged archives; review→done direct works", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem("a");
     await shipReadyItem("b");
-    await cmdStage(args("stage", ["a", "shipping"]), root);
-    // recorded PR still open → refuse from shipping
+    // recorded PR still open → refuse from review
     const { writeFeatureMeta } = await import("../workflow/features.js");
     await writeFeatureMeta(feature("a").dir, { ...feature("a").meta!, pr: "https://github.com/o/r/pull/7" });
     process.env.GH_STATE = "OPEN";
     const refuse = await cmdArchive(args("archive", ["a"]), root);
     expect(refuse.code).toBe(1);
-    expect(feature("a").stage).toBe("shipping");
-    // merged → archives from shipping
+    expect(feature("a").stage).toBe("review");
+    // merged → archives from review
     process.env.GH_STATE = "MERGED";
     await writeFile(join(feature("a").dir, ARTIFACTS["feature-report"].file), "# Report\nShipped.");
     const ok = await cmdArchive(args("archive", ["a"]), root);
     expect(ok.code, ok.stdout).toBe(0);
-    expect(feature("a").stage).toBe("dones");
-    // review → dones direct still works (non-code path)
+    expect(feature("a").stage).toBe("done");
+    // review → done direct still works (non-code path)
     await writeFile(join(feature("b").dir, ARTIFACTS["feature-report"].file), "# Report\nDone.");
     const direct = await cmdArchive(args("archive", ["b"]), root);
     expect(direct.code, direct.stdout).toBe(0);
-    expect(feature("b").stage).toBe("dones");
+    expect(feature("b").stage).toBe("done");
   });
 
-  it("kf sync sweeps shipping items with merged PRs", async () => {
+  it("kf sync sweeps review items with merged PRs", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
     const { writeFeatureMeta } = await import("../workflow/features.js");
     await writeFeatureMeta(feature().dir, { ...feature().meta!, pr: "https://github.com/o/r/pull/7" });
     process.env.GH_STATE = "MERGED";
@@ -264,16 +268,15 @@ describe("archive + sync cover shipping (TC-008, TC-009)", () => {
     const res = await cmdSync(args("sync"), root);
     expect(res.code, res.stdout).toBe(0);
     expect(res.stdout).toContain("archived");
-    expect(feature().stage).toBe("dones");
+    expect(feature().stage).toBe("done");
   });
 
-  it("cancel from shipping returns via its recorded stage", async () => {
+  it("cancel from review returns via its recorded stage", async () => {
     await writeCfg({ enabled: true });
     await shipReadyItem();
-    await cmdStage(args("stage", ["demo", "shipping"]), root);
     const res = await cmdCancel(args("cancel", ["demo"], { reason: "no longer needed" }), root);
     expect(res.code, res.stdout).toBe(0);
     expect(feature().stage).toBe("cancelled");
-    expect(feature().meta!.cancellation!.fromStage).toBe("shipping");
+    expect(feature().meta!.cancellation!.fromStage).toBe("review");
   });
 });

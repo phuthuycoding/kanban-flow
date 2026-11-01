@@ -6,10 +6,10 @@ Run `kf dashboard` and open `http://localhost:8787`. Change the port with `--por
 
 | Metric | How it is computed |
 |---|---|
-| Work items | Every feature and bug matching the filter, `dones` included |
-| In execution | Items in `implementation`, `testing` or `review` — `shipping` is drawn on the pipeline strip but counts as waiting on delivery, not executing |
+| Work items | Every feature and bug matching the filter, `done` included |
+| In execution | Items in `implementation`, `testing` or `review`; the stages on the strip end at `done` |
 | Backlog | Items in `backlog` |
-| Completed | Items in `dones`; the rate is dones divided by total items **minus cancelled ones** |
+| Completed | Items in `done`; the rate is done items divided by total items **minus cancelled ones** |
 | Cancelled | Items in `cancelled`; shown so the gap in the completion rate's denominator is visible |
 | Gate bypasses | Items carrying a recorded `--force` or `--skip-hooks` |
 | Task progress | Completed checkboxes divided by all checkboxes across the items in execution |
@@ -21,7 +21,7 @@ With no items or no tasks to divide by, the figure shows as `—`. An item in ex
 - Bars by stage: the total per state and the feature/bug split within it.
 - Feature and bug donut: the share of each work item kind under the current filter.
 - Bars by context: item volume across contexts, ordered by total, largest first.
-- Approval bars: pending, approved and changed. The filter excludes exactly two stages, `brainstorm` and `dones` — so besides planning through review and backlog, **cancelled items are counted too**, and a cancelled item that never reached approval lands in the pending column.
+- Approval bars: pending, approved and changed. The filter excludes exactly two stages, `brainstorm` and `done` — so besides planning through review and backlog, **cancelled items are counted too**, and a cancelled item that never reached approval lands in the pending column.
 - Task progress bar: tasks done, items that have tasks and items that do not, across the stages in execution.
 
 The charts show the filesystem as it is right now. The workflow keeps no history of stage transitions, so the dashboard infers no throughput, no lead time and no trend over time from these counts.

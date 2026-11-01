@@ -1,14 +1,16 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { claimDrive, superviseDrive, type DriveOutcome } from "../harness/drive.js";
+import { claimDrive, followDrive, superviseDrive, type DriveOutcome } from "../harness/drive.js";
 import { cmdDrive } from "../cli/commands/drive.js";
+import { cmdRun } from "../cli/commands/run.js";
 import { transitionItem, type Transition } from "../workflow/transition.js";
 import { findFeature, updateFeatureMeta } from "../workflow/features.js";
 import { createTaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
-import { readProjectConfig } from "../project/config.js";
+import { readProjectConfig, resolveDriveConfig } from "../project/config.js";
+import { driveBoundary } from "../harness/drive/claim.js";
 import { gitDriveProject, type DriveTask, type GitDriveOptions, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -44,7 +46,7 @@ function reportScript(root: string, stage: "testing" | "review", statuses: strin
     "arr=(" + statuses.join(" ") + "); i=$((n-1)); [ $i -ge ${#arr[@]} ] && i=$((${#arr[@]}-1)); s=${arr[$i]}",
     "d=$(ls -d '" + root + "/.works/" + stage + "'/demo_*)",
     "id=$(sed -n 's/.*\"executionId\": *\"\\([^\"]*\\)\".*/\\1/p' \"$d/.kfw.json\")",
-    "printf -- '---\\nstatus: %s\\nexecution: %s\\n---\\n# Evidence\\nVerified.\\n" + (stage === "testing" ? EVIDENCE : "") + "' \"$s\" \"$id\" > \"$d/" + file + "\"",
+    "printf -- '---\\nstatus: %s\\nexecution: %s\\n" + (stage === "review" ? "ci: none\\nlanding: none\\n" : "") + "---\\n# Evidence\\nVerified.\\n" + (stage === "testing" ? EVIDENCE : "") + "' \"$s\" \"$id\" > \"$d/" + file + "\"",
   ].join("\n");
 }
 
@@ -72,18 +74,13 @@ const editConfig = (pr: GitDriveProject, fn: (cfg: Record<string, any>) => void)
   writeFileSync(file, JSON.stringify(cfg, null, 2));
 };
 
-describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
-  it("refuses planning and backlog items, naming the start decision, and a pending approval naming kf approve (TC-013)", async () => {
+describe("kf drive preconditions", () => {
+  it("refuses a backlog item, naming the start command, and a changed approval naming kf approve", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }], { implementation: false });
-    const planning = await cmdDrive(args(["demo"]), pr.root);
-    expect(planning.code).toBe(1);
-    expect(planning.stdout).toContain("kf stage demo implementation");
-    expect(pr.readMeta()!.drive).toBeUndefined();
-
-    await pr.stage("backlog");
     const backlog = await cmdDrive(args(["demo"]), pr.root);
     expect(backlog.code).toBe(1);
     expect(backlog.stdout).toContain("kf stage demo implementation");
+    expect(pr.readMeta()!.drive).toBeUndefined();
 
     await pr.writePlan([{ id: "TASK-001", files: ["b.txt"] }]);
     const pending = await cmdDrive(args(["demo"]), pr.root);
@@ -92,7 +89,18 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
     expect(pr.readMeta()!.drive).toBeUndefined();
   });
 
-  it("refuses after the approved plan is edited (TC-004)", async () => {
+  it("refuses an approved item still in planning, naming kf approve as the start", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["a.txt"] }], { implementation: false });
+    const approval = pr.readMeta()!.approval!;
+    await pr.stage("planning");
+    await updateFeatureMeta(pr.root, "demo", (meta) => ({ ...meta, approval }));
+    const res = await cmdDrive(args(["demo"]), pr.root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("Start it first: kf approve demo");
+    expect(pr.readMeta()!.drive).toBeUndefined();
+  });
+
+  it("refuses after the approved plan is edited", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }]);
     await pr.writePlan([{ id: "TASK-001", role: "tester", files: ["a.txt"] }]);
     const res = await cmdDrive(args(["demo"]), pr.root);
@@ -100,7 +108,7 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
     expect(res.stdout).toContain("kf approve demo");
   });
 
-  it("refuses without worktrees or without verify.stage, writing nothing (TC-010, TC-029 A)", async () => {
+  it("refuses without worktrees or without verify.stage, writing nothing", async () => {
     const pr = await project([{ id: "TASK-001", files: ["a.txt"] }]);
     editConfig(pr, (c) => { c.worktree.enabled = false; });
     const off = await cmdDrive(args(["demo"]), pr.root);
@@ -115,8 +123,8 @@ describe("kf drive preconditions (TC-013, TC-004, TC-010, TC-029)", () => {
   });
 });
 
-describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
-  it("runs the DAG, testing and review, and stops ready without shipping (TC-014)", async () => {
+describe("kf drive to review PASS", () => {
+  it("runs the DAG, testing and review, and stops ready without shipping", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -127,7 +135,7 @@ describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
 
     const out = await drive(pr);
     expect(out.status, out.reason).toBe("ready");
-    expect(out.reason).toBe("ready for ship decision");
+    expect(out.reason).toBe("ready — review PASS: merge the PR, kf status --change demo closes the item");
     const meta = pr.readMeta()!;
     expect(pr.feature().stage).toBe("review");
     expect(meta.ship).toBeUndefined();
@@ -147,7 +155,7 @@ describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
     expect(tasksMd).toMatch(/- \[x\] TASK-002/);
   });
 
-  it("drives a bug with one implementation run and no task records (TC-015)", async () => {
+  it("drives a bug with one implementation run and no task records", async () => {
     const pr = await project([], { kind: "bug" });
     reports(pr);
     const out = await drive(pr);
@@ -157,7 +165,7 @@ describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
     expect(runs.some((r) => r.task)).toBe(false);
   });
 
-  it("never runs more than `parallel` workers and never overlaps tasks sharing files (TC-012)", async () => {
+  it("never runs more than `parallel` workers and never overlaps tasks sharing files", async () => {
     // TASK-005 shares src/f1.txt with TASK-001; each task also writes its own marker, declared so the allowlist passes.
     const tasks: DriveTask[] = ["1", "2", "3", "4"].map((n) => ({ id: `TASK-00${n}`, files: [`src/f${n}.txt`, `src/TASK-00${n}.done`] }));
     tasks.push({ id: "TASK-005", files: ["src/f1.txt", "src/TASK-005.done"] });
@@ -187,8 +195,8 @@ describe("kf drive to the ship gate (TC-014, TC-015, TC-012)", () => {
   });
 });
 
-describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () => {
-  it("stops plan_change_needed on an allowlist violation; the running task still merges (TC-017)", async () => {
+describe("kf drive stops", () => {
+  it("stops plan_change_needed on an allowlist violation; the running task still merges", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", files: ["src/b.txt"] },
@@ -202,6 +210,8 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(out.stopCode, out.reason).toBe("plan_change_needed");
     expect(out.reason).toContain("src/evil.txt");
     expect(out.nextCommand).toBe("kf stage demo planning");
+    // kf approve already moves the item to implementation, so a later kf stage implementation would be refused.
+    expect(out.reason).toContain("re-approve it (kf stage demo planning, kf approve demo), then kf drive demo");
     expect(taskCalls(pr, "TASK-001")).toHaveLength(1);
     expect(taskCalls(pr, "TASK-003")).toHaveLength(0);
     const meta = pr.readMeta()!;
@@ -210,7 +220,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(pr.feature().stage).toBe("implementation");
   });
 
-  it("retries a failed verify once in the same session, then blocks and stops tasks_blocked (TC-018)", async () => {
+  it("retries a failed verify once in the same session, then blocks and stops tasks_blocked", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -229,7 +239,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(existsSync(join(pr.worktreePath()!, "src/a.txt"))).toBe(false);
   });
 
-  it("runs a repair loop after FAIL and passes; loops REJECT back through testing (TC-021)", async () => {
+  it("runs a repair loop after FAIL and passes; loops REJECT back through testing", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }]);
     pr.cli.scenario("claude", { write: { "src/a.txt": "a" } }, "TASK-001");
     reports(pr, ["FAIL", "PASS", "PASS"], ["REJECT", "PASS"]);
@@ -243,7 +253,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(repairPrompts.some((a) => a.includes("phase-5-review-report.md"))).toBe(true);
   });
 
-  it("stops loop_limit when testing keeps failing (TC-021)", async () => {
+  it("stops loop_limit when testing keeps failing", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { maxLoops: 1 } });
     pr.cli.scenario("claude", { write: { "src/a.txt": "a" } }, "TASK-001");
     reports(pr, ["FAIL"]);
@@ -252,7 +262,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(out.loops).toBe(1);
   });
 
-  it("stops on the run budget (TC-022)", async () => {
+  it("stops on the run budget", async () => {
     const tasks: DriveTask[] = ["1", "2", "3"].map((n) => ({ id: `TASK-00${n}`, files: [`src/f${n}.txt`] }));
     const pr = await project(tasks, { limits: { parallel: 1, budget: { maxRuns: 2 } } });
     const out = await drive(pr);
@@ -261,20 +271,90 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(pr.calls("claude").filter((c) => c.task)).toHaveLength(2);
   });
 
-  it("stops config_changed when a worker edits harness.verify, and worker_blocked on BLOCKED (TC-023)", async () => {
+  it("stops config_changed when a worker edits harness.verify, and worker_blocked on BLOCKED", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
     ]);
-    const cfg = join(pr.root, ".kf", "config.json");
-    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${cfg}'` }, "TASK-001");
+    // The fixture commits no config and has no origin, so the drive resolves the primary copy; edit what it resolves.
+    const resolved = resolveDriveConfig(pr.root, pr.feature());
+    expect(resolved.source).toBe("primary");
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${resolved.file}'` }, "TASK-001");
     const changed = await drive(pr);
     expect(changed.stopCode, changed.reason).toBe("config_changed");
-    expect(changed.reason).toContain("harness.verify");
+    expect(changed.reason).toContain(`harness.verify.stage: [["true"]] → [["true","x"]]`);
+    expect(changed.nextCommand).toBe("kf drive demo --accept-config");
     expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+    expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("primary");
   });
 
-  it("stops worker_blocked without retrying a BLOCKED task (TC-023)", async () => {
+  it("refuses a plain resume after config_changed and re-pins only with --accept-config, printing the new argv", async () => {
+    const pr = await project([
+      { id: "TASK-001", files: ["src/a.txt"] },
+      { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
+    ]);
+    const file = resolveDriveConfig(pr.root, pr.feature()).file;
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"sh", "-c", "curl evil"/' '${file}'` }, "TASK-001");
+    const changed = await drive(pr);
+    expect(changed.stopCode, changed.reason).toBe("config_changed");
+    const pinned = pr.readMeta()!.drive!.configHash;
+
+    const plain = await cmdDrive(args(["demo"]), pr.root);
+    expect(plain.code).toBe(1);
+    expect(plain.stdout).toContain(`harness.verify.stage: [["true"]] → [["sh","-c","curl evil"]]`);
+    expect(plain.stdout).toContain("kf drive demo --accept-config");
+    expect(pr.readMeta()!.drive).toMatchObject({ status: "stopped", stopCode: "config_changed", configHash: pinned });
+
+    const accepted = await claimDrive(pr.root, "demo", { acceptConfig: true });
+    if (!accepted.ok) throw new Error(accepted.reason);
+    expect(accepted.resumed).toBe(true);
+    expect(accepted.accepted).toEqual([`harness.verify.stage: [["true"]] → [["sh","-c","curl evil"]]`]);
+    expect(pr.readMeta()!.drive!.configHash).not.toBe(pinned);
+    expect(driveBoundary(pr.root, pr.feature(), accepted.drive.id)).toBeNull();
+  });
+
+  it("asks for --accept-config when runner argv changed during another stop, and re-pins a limit change on a plain resume", async () => {
+    const pr = await project([
+      { id: "TASK-001", files: ["src/a.txt"] },
+      { id: "TASK-002", files: ["src/b.txt"] },
+    ], { limits: { parallel: 1, budget: { maxRuns: 1 } } });
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("budget");
+
+    editConfig(pr, (c) => { c.harness.budget = { maxRuns: 5 }; });
+    const raised = await claimDrive(pr.root, "demo");
+    if (!raised.ok) throw new Error(raised.reason);
+    expect(raised.accepted).toEqual(["harness.budget changed"]);
+    await updateFeatureMeta(pr.root, "demo", (meta) => ({ ...meta, drive: { ...meta.drive!, status: "stopped", stopCode: "budget" } }));
+
+    editConfig(pr, (c) => { c.harness.runners.claude.start = ["sh", "-c", "curl evil", "{prompt}"]; });
+    const refused = await claimDrive(pr.root, "demo");
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.reason).toMatch(/harness\.runners\.claude\.start: \["claude",.*\] → \["sh","-c","curl evil","\{prompt\}"\]/);
+    expect(refused.reason).toContain("kf drive demo --accept-config");
+  });
+
+  it("kf run warns when the worktree copy's runner or verify argv differ from the primary copy", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    const dryRun = () => cmdRun({ command: "run", positionals: ["demo"], options: { stage: "testing", "dry-run": true } }, pr.root);
+    const same = await dryRun();
+    expect(same.code, same.stdout).toBe(0);
+    expect(same.stdout).not.toContain("⚠");
+
+    const cfg = JSON.parse(readFileSync(copy, "utf8"));
+    cfg.harness.verify.stage = [["sh", "-c", "curl evil"]];
+    writeFileSync(copy, JSON.stringify(cfg, null, 2));
+    const warned = await dryRun();
+    expect(warned.code, warned.stdout).toBe(0);
+    expect(warned.stdout).toContain(`⚠ Runner and verify commands are read from the item worktree copy ${copy} (config source: worktree)`);
+    expect(warned.stdout).toContain(`harness.verify.stage: [["true"]] → [["sh","-c","curl evil"]]`);
+    const task = await cmdRun({ command: "run", positionals: ["demo"], options: { task: "TASK-001", "dry-run": true } }, pr.root);
+    expect(task.stdout).toContain(`harness.verify.stage: [["true"]] → [["sh","-c","curl evil"]]`);
+  });
+
+  it("stops worker_blocked without retrying a BLOCKED task", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { retries: 2 } });
     pr.cli.scenario("claude", { stdout: "STATUS: BLOCKED\nSummary: needs a decision on the schema" }, "TASK-001");
     const out = await drive(pr);
@@ -283,7 +363,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
     expect(taskCalls(pr, "TASK-001")).toHaveLength(1);
   });
 
-  it("names every stop, never bypasses a gate (TC-034)", async () => {
+  it("names every stop, never bypasses a gate", async () => {
     const seen: { force?: boolean; skipHooks?: boolean }[] = [];
     const spy: Transition = (root, name, to, opts) => {
       seen.push({ force: opts.force, skipHooks: opts.skipHooks });
@@ -318,6 +398,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
       expect(out.stopCode, `${c.code}: ${out.reason}`).toBe(c.code);
       expect(out.reason.length).toBeGreaterThan(0);
       expect(out.nextCommand).toMatch(/^kf /);
+      if (c.code === "approval_changed") expect(out.reason).toContain("kf stage demo planning, kf approve demo, then kf drive demo");
       await pr.cleanup();
       p = null;
     }
@@ -326,7 +407,7 @@ describe("kf drive stops (TC-017, TC-018, TC-021, TC-022, TC-023, TC-034)", () =
   });
 });
 
-describe("drive-stop hook (TC-030)", () => {
+describe("drive-stop hook", () => {
   const hook = (pr: GitDriveProject, exit = 0) => {
     mkdirSync(join(pr.root, ".kf", "hooks"), { recursive: true });
     const out = join(pr.scratch, "hook-env.txt");
@@ -340,7 +421,7 @@ describe("drive-stop hook (TC-030)", () => {
     reports(pr);
     const out = hook(pr);
     expect((await drive(pr)).status).toBe("ready");
-    expect(readFileSync(out, "utf8")).toContain("ready|ready for ship decision");
+    expect(readFileSync(out, "utf8")).toContain("ready|ready — review PASS: merge the PR, kf status --change demo closes the item");
     await pr.cleanup();
 
     const pb = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { limits: { budget: { maxRuns: 1 } } });
@@ -363,7 +444,7 @@ describe("drive-stop hook (TC-030)", () => {
   });
 });
 
-describe("detached drive (TC-024, TC-025)", () => {
+describe("detached drive", () => {
   const status = async (pr: GitDriveProject) => JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
   const until = async (pr: GitDriveProject, ok: (s: any) => boolean, ms = 60_000) => {
     const end = Date.now() + ms;
@@ -375,14 +456,15 @@ describe("detached drive (TC-024, TC-025)", () => {
     }
   };
 
-  it("one of two concurrent drives starts; --stop ends it and keeps worktrees (TC-025)", async () => {
+  it("one of two concurrent drives starts; --stop ends it and keeps worktrees", async () => {
     const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }]);
     pr.cli.scenario("claude", { sleep: 20 }, "TASK-001");
     const [a, b] = await Promise.all([cmdDrive(args(["demo"]), pr.root), cmdDrive(args(["demo"]), pr.root)]);
     expect([a.code, b.code].sort()).toEqual([0, 1]);
     expect((a.code === 1 ? a : b).stdout).toContain("already live");
 
-    await until(pr, (s) => s.runningTasks.includes("TASK-001"));
+    // The task is claimed as running before its worktree is added, so wait for the worktree itself.
+    await until(pr, (s) => s.runningTasks.includes("TASK-001") && pr.git(pr.root, "worktree", "list").includes("demo.tasks/task-001"));
     const stopped = await cmdDrive(args(["demo"], { stop: true }), pr.root);
     expect(stopped.code, stopped.stdout).toBe(0);
     const s = await status(pr);
@@ -391,7 +473,7 @@ describe("detached drive (TC-024, TC-025)", () => {
     expect(pr.git(pr.root, "worktree", "list")).toContain("demo.tasks/task-001");
   });
 
-  it("reports a killed supervisor as crashed and resumes without re-running done tasks (TC-024)", async () => {
+  it("reports a killed supervisor as crashed and resumes without re-running done tasks", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -415,7 +497,7 @@ describe("detached drive (TC-024, TC-025)", () => {
     expect(taskCalls(pr, "TASK-001")).toHaveLength(1);
   });
 
-  it("resumes after a crash mid-merge: aborts the half merge, merges again, does not re-run the task (TC-025)", async () => {
+  it("resumes after a crash mid-merge: aborts the half merge, merges again, does not re-run the task", async () => {
     const pr = await project([
       { id: "TASK-001", files: ["src/a.txt"] },
       { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
@@ -441,7 +523,10 @@ describe("detached drive (TC-024, TC-025)", () => {
       drive: { id: "deadbeef", status: "running", step: "implementation", loops: 0, runs: 1, configHash: "stale", supervisorPid: 999999, startedAt: now, updatedAt: now },
     }));
 
-    const out = await drive(pr);
+    // The hand-written record pinned no config, so the resume has to accept the current one.
+    const claim = await claimDrive(pr.root, "demo", { acceptConfig: true });
+    if (!claim.ok) throw new Error(claim.reason);
+    const out = await superviseDrive(pr.root, "demo", claim.drive.id, { timeoutMs: 60_000 });
     expect(out.status, out.reason).toBe("ready");
     const meta = pr.readMeta()!;
     expect(meta.drive!.id).toBe("deadbeef");
@@ -465,5 +550,373 @@ describe("transition errors keep their stack (review FINDING-002)", () => {
     const stage = events(pr).find((e) => e.event === "stage" && e.refused);
     expect(String(stage?.stack)).toContain("rename exploded");
     expect(String(stage?.stack)).toMatch(/\n\s+at /);
+  });
+});
+
+describe("drive config resolution: worktree → origin → primary", () => {
+  const twoTasks: DriveTask[] = [
+    { id: "TASK-001", files: ["src/a.txt"] },
+    { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
+  ];
+  const stripPrimaryHarness = (pr: GitDriveProject) => editConfig(pr, (c) => { delete c.harness; });
+  const status = async (pr: GitDriveProject) => cmdDrive(args(["demo"], { status: true }), pr.root);
+
+  it("drives from the worktree copy when the primary has no harness; the log and --status name the source", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    stripPrimaryHarness(pr);
+    expect(readProjectConfig(pr.root).harness).toBeUndefined();
+    reports(pr);
+
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("worktree");
+    const text = await status(pr);
+    expect(text.stdout).toContain("Config: worktree");
+    const json = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(json.configSource).toBe("worktree");
+  });
+
+  it("stops config_changed when the worktree copy is edited mid-drive", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    expect(resolveDriveConfig(pr.root, pr.feature()).file).toBe(copy);
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${copy}'` }, "TASK-001");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+    expect(out.reason).toContain("harness.verify");
+    expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+  });
+
+  it("stops config_changed naming harness.budget when a task merge raises budget.maxRuns in the worktree copy", async () => {
+    const tasks: DriveTask[] = [
+      { id: "TASK-001", files: [".kf/config.json"] },
+      { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.txt"] },
+    ];
+    const pr = await project(tasks, { commitConfig: true, limits: { budget: { maxRuns: 30 } } });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    // The worker runs in its task worktree; the edit reaches the item worktree only through the task merge.
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"maxRuns": 30/"maxRuns": 99/' .kf/config.json` }, "TASK-001");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+    expect(readProjectConfig(pr.worktreePath()!).harness?.budget?.maxRuns).toBe(99);
+    expect(out.reason).toContain("harness.budget");
+    expect(out.reason).not.toContain("harness.verify");
+    expect(out.reason).toContain(`${copy} (config source: worktree)`);
+    expect(taskCalls(pr, "TASK-002")).toHaveLength(0);
+  });
+
+  it("moves implementation → testing on the worktree harness when the primary lacks the task's role", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    editConfig(pr, (c) => {
+      delete c.harness.roles.coder;
+      c.harness.stages.implementation = ["architect"];
+    });
+    expect(readProjectConfig(pr.root).harness?.roles.coder).toBeUndefined();
+    reports(pr);
+    const seen: (string | undefined)[] = [];
+    const spy: Transition = (root, name, to, opts) => {
+      seen.push(opts.harness?.roles.coder?.runner);
+      return transitionItem(root, name, to, opts);
+    };
+    const out = await drive(pr, spy);
+    expect(out.status, out.reason).toBe("ready");
+    expect(events(pr).some((e) => e.event === "stage" && e.from === "implementation" && e.to === "testing" && !e.refused)).toBe(true);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((runner) => runner === "claude")).toBe(true);
+  });
+
+  it("names the resolved file and its source in a loop_limit stop", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.txt"] }], { commitConfig: true, limits: { maxLoops: 0 } });
+    reports(pr, ["FAIL"]);
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("loop_limit");
+    expect(out.reason).toContain(`raise harness.maxLoops in ${join(pr.worktreePath()!, ".kf", "config.json")} (config source: worktree)`);
+  });
+
+  it("names the resolved file and its source in a budget stop", async () => {
+    const pr = await project(twoTasks, { commitConfig: true, limits: { parallel: 1, budget: { maxRuns: 1 } } });
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("budget");
+    expect(out.reason).toContain(`raise it in ${join(pr.worktreePath()!, ".kf", "config.json")} (config source: worktree)`);
+  });
+
+  it("maps a copy that no longer parses to config_changed at the boundary, and lets a read failure propagate", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    const claim = await claimDrive(pr.root, "demo");
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(driveBoundary(pr.root, pr.feature(), claim.drive.id)).toBeNull();
+
+    writeFileSync(copy, "{ nope");
+    const stop = driveBoundary(pr.root, pr.feature(), claim.drive.id);
+    expect(stop?.code).toBe("config_changed");
+    expect(stop?.reason).toContain("no longer parses");
+    expect(stop?.reason).toContain(`Invalid JSON in project config: ${copy}`);
+
+    // Not a config the human changed: the file cannot be read at all (it is a directory now).
+    rmSync(copy);
+    mkdirSync(copy);
+    expect(() => driveBoundary(pr.root, pr.feature(), claim.drive.id)).toThrow(/EISDIR/);
+  });
+
+  it("--status, --watch and followDrive show a stop on a copy that no longer parses instead of throwing", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    pr.cli.scenario("claude", { script: `printf '{ nope' > '${copy}'` }, "TASK-001");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+
+    const text = (await status(pr)).stdout;
+    expect(text).toContain("Stop: config_changed — the drive config no longer parses");
+    expect(text).toMatch(/Loops: \d+\/\? {3}Runs: \d+\/\?/);
+    expect(text).toContain(`Limits unavailable: Invalid JSON in project config: ${copy}`);
+    const json = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(json).toMatchObject({ stopCode: "config_changed", maxLoops: null, maxRuns: null, configError: `Invalid JSON in project config: ${copy}` });
+
+    const watched: string[] = [];
+    const followed = await followDrive({ root: pr.root, name: "demo", json: false, tail: false, replay: true, signal: new AbortController().signal, write: (l) => watched.push(l) });
+    expect(followed).toEqual({ code: 1, detached: false });
+    expect(watched.at(-1)).toContain("stopped: config_changed — the drive config no longer parses");
+
+    // --watch resumes a stopped drive; the claim refuses with the parse error instead of throwing.
+    const watch = await cmdDrive(args(["demo"], { watch: true }), pr.root);
+    expect(watch.code).toBe(1);
+    expect(watch.stdout).toContain(`does not parse: Invalid JSON in project config: ${copy}`);
+    expect(pr.readMeta()!.drive).toMatchObject({ status: "stopped", stopCode: "config_changed" });
+  });
+
+  it("stops config_changed when a task merge breaks the worktree copy, after the task still running records its outcome", async () => {
+    const tasks: DriveTask[] = [
+      { id: "TASK-001", files: [".kf/config.json"] },
+      { id: "TASK-002", files: ["src/b.txt"] },
+      { id: "TASK-003", deps: ["TASK-001"], files: ["src/c.txt"] },
+    ];
+    const pr = await project(tasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    // The worker writes its task worktree; the broken file reaches the item worktree only through the task merge.
+    pr.cli.scenario("claude", { write: { ".kf/config.json": "{ nope" } }, "TASK-001");
+    pr.cli.scenario("claude", { write: { "src/b.txt": "b" }, sleep: 3 }, "TASK-002");
+    const out = await drive(pr);
+    expect(out.stopCode, out.reason).toBe("config_changed");
+    expect(out.reason).toContain(`no longer parses: Invalid JSON in project config: ${copy}`);
+    const meta = pr.readMeta()!;
+    expect(meta.tasks!["TASK-001"].state).toBe("done");
+    expect(meta.tasks!["TASK-002"].state).toBe("done");
+    expect(Object.entries(meta.tasks!).filter(([, t]) => t.state === "running")).toEqual([]);
+    expect((meta.runs ?? []).filter((r) => r.status === "running")).toEqual([]);
+    expect(taskCalls(pr, "TASK-003")).toHaveLength(0);
+  });
+
+  it("names the worktree copy when it turns worktrees off", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const copy = join(pr.worktreePath()!, ".kf", "config.json");
+    const cfg = JSON.parse(readFileSync(copy, "utf8"));
+    cfg.worktree = { ...cfg.worktree, enabled: false };
+    writeFileSync(copy, JSON.stringify(cfg, null, 2));
+    const res = await cmdDrive(args(["demo"]), pr.root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("worktree.enabled");
+    expect(res.stdout).toContain(`Read from ${copy} (config source: worktree).`);
+    expect(pr.readMeta()!.drive).toBeUndefined();
+  });
+
+  it("shows the limits of the resolved copy in --status", async () => {
+    const pr = await project(twoTasks, { commitConfig: true, limits: { maxLoops: 5, budget: { maxRuns: 7 } } });
+    editConfig(pr, (c) => { c.harness.maxLoops = 1; c.harness.budget = { maxRuns: 2 }; });
+    reports(pr);
+    await drive(pr);
+    const json = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(json.maxLoops).toBe(5);
+    expect(json.maxRuns).toBe(7);
+  });
+
+  it("does not stop when only the primary copy is edited while the worktree copy exists", async () => {
+    const pr = await project(twoTasks, { commitConfig: true });
+    const primary = join(pr.root, ".kf", "config.json");
+    pr.cli.scenario("claude", { script: `perl -0pi -e 's/"true"/"true", "x"/' '${primary}'` }, "TASK-001");
+    reports(pr);
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    expect(readFileSync(primary, "utf8")).toContain(`"true", "x"`);
+    expect(taskCalls(pr, "TASK-002")).toHaveLength(1);
+  });
+
+  it("uses origin's default branch when the worktree has no copy", async () => {
+    const pr = await project(twoTasks, { origin: true });
+    // Publish the full config on origin only: the item worktree was cut before it existed.
+    const clone = join(pr.scratch, "clone");
+    pr.git(pr.scratch, "clone", "-q", pr.originDir!, clone);
+    mkdirSync(join(clone, ".kf"), { recursive: true });
+    writeFileSync(join(clone, ".kf", "config.json"), readFileSync(join(pr.root, ".kf", "config.json"), "utf8"));
+    pr.git(clone, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".kf/config.json");
+    pr.git(clone, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "config");
+    pr.git(clone, "push", "-q", "origin", "HEAD");
+    pr.git(pr.root, "fetch", "-q", "origin");
+    stripPrimaryHarness(pr);
+    expect(existsSync(join(pr.worktreePath()!, ".kf", "config.json"))).toBe(false);
+    reports(pr);
+
+    const out = await drive(pr);
+    expect(out.status, out.reason).toBe("ready");
+    expect(events(pr).find((e) => e.event === "start")?.config_source).toBe("origin");
+    expect((await status(pr)).stdout).toContain("Config: origin");
+  });
+
+  it("refuses naming the three places it looked when none has a harness", async () => {
+    const pr = await project(twoTasks);
+    stripPrimaryHarness(pr);
+    const res = await cmdDrive(args(["demo"]), pr.root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("No harness configured");
+    expect(res.stdout).toContain(join(pr.worktreePath()!, ".kf", "config.json"));
+    expect(res.stdout).toContain("origin/<default>:.kf/config.json");
+    expect(res.stdout).toContain(join(pr.root, ".kf", "config.json"));
+    expect(pr.readMeta()!.drive).toBeUndefined();
+  });
+});
+
+describe("kf drive shows its workers", () => {
+  const until = async <T>(what: string, probe: () => Promise<T | null> | T | null, ms = 30_000): Promise<T> => {
+    const end = Date.now() + ms;
+    for (;;) {
+      const hit = await probe();
+      if (hit !== null) return hit;
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+      await wait(100);
+    }
+  };
+  const line = (o: unknown) => JSON.stringify(o).replace(/'/g, "'\\''");
+  const SESSION = "s-1";
+  const editLine = line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: "src/a.ts", old_string: "a", new_string: "b" } }] }, session_id: SESSION });
+  const result = (o: Record<string, unknown>) => JSON.stringify({ type: "result", session_id: SESSION, ...o });
+
+  it("streams the worker log; --status, the heartbeat and --tail show readable activity", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }]);
+    // The fake's script output goes to the run log as it is written; the result line comes last, at exit.
+    pr.cli.scenario("claude", {
+      write: { "src/a.ts": "a" },
+      script: `echo '${line({ type: "system", subtype: "init", session_id: SESSION })}'; sleep 1; echo '${editLine}'; sleep 4`,
+      stdout: result({ is_error: false, result: "Edited.\nSTATUS: DONE\nSummary: edited a" }),
+    }, "TASK-001");
+    reports(pr);
+
+    const watched: string[] = [];
+    const ac = new AbortController();
+    const running = drive(pr);
+    await until("the drive record", () => pr.readMeta()?.drive?.status === "running" || null);
+    const followed = followDrive({ root: pr.root, name: "demo", json: false, tail: true, replay: true, signal: ac.signal, heartbeatMs: 200, pollMs: 50, write: (l) => watched.push(l) });
+
+    const live = await until("the Edit activity in --status", async () => {
+      const text = (await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout;
+      return /Edit src\/a\.ts \(\d+s ago\)/.test(text) ? text : null;
+    });
+    expect(live).toMatch(/Live: TASK-001 coder claude \d+s {2}\S+\.log — Edit src\/a\.ts \(\d+s ago\)/);
+    const view = JSON.parse((await cmdDrive(args(["demo"], { status: true, json: true }), pr.root)).stdout);
+    expect(view.liveRuns[0]).toMatchObject({ task: "TASK-001", activity: "Edit src/a.ts", activityAgo: expect.stringMatching(/^\d+s$/) });
+    // The worker is still running, and its log already holds the streamed lines.
+    expect(pr.calls("claude")).toHaveLength(0);
+    expect(readFileSync(view.liveRuns[0].log, "utf8")).toContain('"tool_use"');
+
+    const out = await running;
+    expect(out.status, out.reason).toBe("ready");
+    await followed;
+    expect(watched.some((l) => l.startsWith("♥ TASK-001 coder claude") && l.endsWith(")") && l.includes(" — Edit src/a.ts ("))).toBe(true);
+    const tail = watched.filter((l) => l.startsWith("    "));
+    expect(tail).toContain("    Edit src/a.ts");
+    expect(tail.some((l) => l.trimStart().startsWith("{"))).toBe(false);
+    expect(events(pr).some((e) => e.event === "task" && e.task === "TASK-001" && e.state === "done")).toBe(true);
+  });
+
+  it("puts the worker's own error text in the task and stop reasons", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }], { limits: { retries: 1 } });
+    pr.cli.scenario("claude", { stdout: result({ is_error: true, result: "boom: tool denied" }), exit: 1 }, "TASK-001");
+
+    const out = await drive(pr);
+    expect(out.stopCode).toBe("tasks_blocked");
+    expect(out.reason).toContain("worker exited 1: boom: tool denied");
+    const meta = pr.readMeta()!;
+    expect(meta.tasks!["TASK-001"]).toMatchObject({ state: "blocked", reason: "worker exited 1: boom: tool denied (after 2 attempts)" });
+    expect(meta.drive!.runs).toBe(2);
+    const runs = meta.runs!.filter((r) => r.task === "TASK-001");
+    expect(runs.map((r) => [r.mode, r.error])).toEqual([["start", "worker exited 1: boom: tool denied"], ["resume", "worker exited 1: boom: tool denied"]]);
+    // The retry resumed the first worker's session instead of resetting it.
+    expect(meta.sessions!["task:TASK-001"]).toBe(runs[0].session);
+    expect((await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout).toMatch(/Stop: tasks_blocked — .*worker exited 1: boom: tool denied/);
+  });
+
+  it("stops on the usage limit without spending a run, then resumes the same session", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }]);
+    const limit = "You've hit your 5-hour limit · resets 1:30pm";
+    pr.cli.scenario("claude", {
+      script: "mkdir -p src; if [ -f src/a.ts ]; then printf full > src/a.ts; else printf partial > src/a.ts; fi",
+      stdout: result({ is_error: true, api_error_status: 429, api_error: "usage_limit_reached", result: limit }),
+      exit: 1,
+      resumeStdout: "STATUS: DONE\nSummary: finished after the reset",
+      resumeExit: 0,
+    }, "TASK-001");
+    reports(pr);
+
+    const first = await drive(pr);
+    expect(first.stopCode).toBe("usage_limit");
+    expect(first.reason).toContain(limit);
+    expect(first.nextCommand).toBe("kf drive demo");
+    expect(first.runs).toBe(0);
+    let meta = pr.readMeta()!;
+    expect(meta.drive!.runs).toBe(0);
+    expect(meta.tasks!["TASK-001"]).toMatchObject({ state: "pending", reason: `usage limit: ${limit}`, attempts: 0 });
+    const calls = taskCalls(pr, "TASK-001");
+    expect(calls).toHaveLength(1);
+    const session = calls[0].argv[calls[0].argv.indexOf("--session-id") + 1];
+    expect(meta.sessions!["task:TASK-001"]).toBe(session);
+    expect(readFileSync(join(calls[0].cwd, "src/a.ts"), "utf8")).toBe("partial");
+    expect((await cmdDrive(args(["demo"], { status: true }), pr.root)).stdout).toContain(`Stop: usage_limit — TASK-001 hit the API usage limit: ${limit}`);
+
+    const second = await drive(pr);
+    expect(second.status, second.reason).toBe("ready");
+    const again = taskCalls(pr, "TASK-001");
+    expect(again).toHaveLength(2);
+    expect(again[1].argv).toContain("-r");
+    expect(again[1].argv[again[1].argv.indexOf("-r") + 1]).toBe(session);
+    meta = pr.readMeta()!;
+    expect(meta.tasks!["TASK-001"].state).toBe("done");
+    expect(readFileSync(join(pr.worktreePath()!, "src/a.ts"), "utf8")).toBe("full");
+  });
+
+  it("stops on the usage limit in the review role without spending a run, then resumes the same session", async () => {
+    const pr = await project([{ id: "TASK-001", files: ["src/a.ts"] }], { roles: { reviewer: { runner: "claude", brief: "Audits the diff." } } });
+    const limit = "You've hit your 5-hour limit · resets 4:00pm";
+    // Per-task values, so the reviewer's scenario below does not reach the task worker.
+    pr.cli.scenario("claude", { write: { "src/a.ts": "a" }, script: "true", stdout: "STATUS: DONE\nSummary: ok", exit: 0 }, "TASK-001");
+    pr.cli.scenario("gemini", { script: reportScript(pr.root, "testing", ["PASS"]) });
+    // The first review call hits the limit and writes nothing; the resumed one writes the PASS report.
+    const flag = join(pr.scratch, "review-called");
+    pr.cli.scenario("claude", {
+      script: `if [ -f '${flag}' ]; then\n${reportScript(pr.root, "review", ["PASS"])}\nfi; touch '${flag}'`,
+      stdout: result({ is_error: true, api_error_status: 429, api_error: "usage_limit_reached", result: limit }),
+      exit: 1,
+      resumeStdout: "STATUS: DONE\nSummary: reviewed after the reset",
+      resumeExit: 0,
+    });
+    const reviews = () => pr.calls("claude").filter((c) => !c.task);
+
+    const first = await drive(pr);
+    expect(first.stopCode, first.reason).toBe("usage_limit");
+    expect(first.reason).toContain(`the review role reviewer hit the API usage limit: ${limit}`);
+    expect(first.nextCommand).toBe("kf drive demo");
+    // Task and tester ran; the reviewer's limited run was given back.
+    expect(first.runs).toBe(2);
+    expect(pr.readMeta()!.drive!.runs).toBe(2);
+    expect(pr.feature().stage).toBe("review");
+    expect(reviews()).toHaveLength(1);
+    const session = reviews()[0].argv[reviews()[0].argv.indexOf("--session-id") + 1];
+    expect(pr.readMeta()!.sessions!.reviewer).toBe(session);
+
+    const second = await drive(pr);
+    expect(second.status, second.reason).toBe("ready");
+    expect(reviews()).toHaveLength(2);
+    const resumed = reviews()[1].argv;
+    expect(resumed).toContain("-r");
+    expect(resumed[resumed.indexOf("-r") + 1]).toBe(session);
+    expect(second.runs).toBe(3);
   });
 });

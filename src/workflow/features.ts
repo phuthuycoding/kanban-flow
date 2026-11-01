@@ -3,9 +3,9 @@ import { join, resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
-import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, type Stage, type ApprovalStatus, type WorkItemKind } from "./schema.js";
+import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type LegacyStageName, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
-import { withLock } from "../shared/lock.js";
+import { withLock, type LockOptions } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
 
 export interface Approval {
@@ -18,8 +18,8 @@ export interface Approval {
 /** One deliberate gate/hook bypass (`--force` / `--skip-hooks`), appended by the CLI and never removed by it. */
 export interface Bypass {
   at: string;
-  from: Stage | null;
-  to: Stage;
+  from: Stage | LegacyStageName | null;
+  to: Stage | LegacyStageName;
   flag: "force" | "skip-hooks";
   /** Validation codes that were ignored, or `hook:<path>` for a skipped hook. */
   codes: string[];
@@ -30,7 +30,7 @@ export interface Cancellation {
   at: string;
   by: string;
   reason: string;
-  fromStage: Stage;
+  fromStage: Stage | LegacyStageName;
 }
 
 export type RunStatus = "running" | "done" | "failed" | "timeout" | "reset";
@@ -42,7 +42,7 @@ export interface RunRecord {
   role: string;
   /** Runner that actually executed the role, kept so a role can change model later. */
   runner: string;
-  stage: Stage;
+  stage: Stage | LegacyStageName;
   mode: "start" | "resume";
   session?: string;
   at: string;
@@ -95,6 +95,12 @@ export interface FeatureMeta {
   /** Set by `kf archive` — archive is the delivery gate and stamps this last in its pass. */
   delivered?: boolean;
   deliveredAt?: string;
+  /** Unpushed branch the close committed canonical docs to, when the primary checkout was not a safe place for them. */
+  docsBranch?: string;
+  /** The commit the close made on `docsBranch`; items closed by earlier versions have none. */
+  docsCommit?: string;
+  /** `docsBranch` once `kf status --all` (or a done-item `kf archive`) proved it landed; replaces it so later polls skip it. */
+  docsLanded?: { branch: string; by: "ancestor" | "merged-pr" | "content"; at: string };
   approval?: Approval;
   executionId?: string;
   status?: "archived" | "cancelled";
@@ -105,7 +111,7 @@ export interface FeatureMeta {
   runs?: RunRecord[];
   /** Git worktree + domain allocated for implementation; absent until created. */
   worktree?: WorktreeRegistration;
-  /** Ship pipeline progress; written by `kf ship`, absent until it first runs. */
+  /** Progress of the removed `kf ship` pipeline. Nothing writes it now; items shipped by earlier releases still carry it, so it must keep loading. */
   ship?: ShipState;
   /** Per-task progress of the task harness, keyed by task id; tasks with no entry are pending or ready (computed). */
   tasks?: Record<string, TaskState>;
@@ -119,8 +125,22 @@ export type DriveStatus = (typeof DRIVE_STATUSES)[number];
 export const DRIVE_STOP_CODES = [
   "loop_limit", "requirement_bug", "worker_blocked", "plan_change_needed", "tasks_blocked", "verify_failed",
   "transition_refused", "approval_changed", "config_changed", "budget", "stopped_by_user", "git_error", "internal_error",
+  "usage_limit",
 ] as const;
 export type DriveStopCode = (typeof DRIVE_STOP_CODES)[number];
+
+/** A drive config pinned while it differed from what it is compared with; appended by `kf drive`, never removed. */
+export interface DriveConfigAcceptance {
+  at: string;
+  /** The command that pinned it, e.g. `kf drive <item> --accept-config`. */
+  command: string;
+  /** Whether the claiming process had a terminal on stdin: a hint at a person rather than a script or agent. Absent in records written before it was kept. */
+  tty?: boolean;
+  /** `pin`: a resume re-pinned over the drive's previous pin. `origin` / `primary`: a new drive pinned a worktree copy whose argv differ from that copy of `.kf/config.json`. */
+  against: "pin" | "origin" | "primary";
+  /** `key: old → new` per changed argv leaf, `key changed` for the other parts. */
+  changes: string[];
+}
 
 export interface DriveState {
   id: string;
@@ -134,9 +154,9 @@ export interface DriveState {
   stopCode?: DriveStopCode;
   reason?: string;
   nextCommand?: string;
-  /** Hash of harness.roles, harness.runners, harness.verify and worktree.enabled when the drive (re)started. */
+  /** Hash of every harness key, the config source and worktree.enabled when the drive (re)started. */
   configHash: string;
-  /** The same four sections hashed one by one, so a change can be named. */
+  /** The same pinned items one by one, so a change can be named: hashes, except harness.runners and harness.verify, stored as JSON values so a stop can show the old argv. */
   configParts?: Record<string, string>;
   /** Approval fingerprint at (re)start; a different one stops the drive. */
   approvalHash?: string;
@@ -144,6 +164,8 @@ export interface DriveState {
   repairReport?: string;
   /** Warnings the driver recorded, e.g. a failed drive-stop hook. */
   warnings?: string[];
+  /** Every config change a claim pinned, carried over by later resumes and drives of the item. */
+  configAcceptances?: DriveConfigAcceptance[];
   supervisorPid?: number;
   startedAt: string;
   updatedAt: string;
@@ -152,6 +174,14 @@ export interface DriveState {
 /** A drive is live while it is running and its supervisor (the detached process, or the claiming CLI until it hands over) answers. */
 export function driveLive(drive: DriveState | undefined): boolean {
   return drive?.status === "running" && isPidAlive(drive.supervisorPid);
+}
+
+function isConfigAcceptance(value: unknown): value is DriveConfigAcceptance {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const a = value as Partial<DriveConfigAcceptance>;
+  return typeof a.at === "string" && typeof a.command === "string" && (a.against === "pin" || a.against === "origin" || a.against === "primary")
+    && (a.tty === undefined || typeof a.tty === "boolean")
+    && Array.isArray(a.changes) && a.changes.every((c) => typeof c === "string");
 }
 
 function isDriveState(value: unknown): value is DriveState {
@@ -169,6 +199,7 @@ function isDriveState(value: unknown): value is DriveState {
     && (d.approvalHash === undefined || typeof d.approvalHash === "string")
     && (d.repairReport === undefined || typeof d.repairReport === "string")
     && (d.warnings === undefined || (Array.isArray(d.warnings) && d.warnings.every((w) => typeof w === "string")))
+    && (d.configAcceptances === undefined || (Array.isArray(d.configAcceptances) && d.configAcceptances.every(isConfigAcceptance)))
     && (d.supervisorPid === undefined || int(d.supervisorPid))
     && typeof d.startedAt === "string" && typeof d.updatedAt === "string";
 }
@@ -203,7 +234,7 @@ function isTaskState(value: unknown): value is TaskState {
     && (t.updatedAt === undefined || typeof t.updatedAt === "string");
 }
 
-/** Per-step ship progress so `kf ship` stays resumable/idempotent. */
+/** Per-step progress recorded by the removed `kf ship` pipeline — read-only legacy metadata. */
 export interface ShipState {
   /** ISO stamp — PR created/recorded (meta.pr is the value itself). */
   published?: string;
@@ -304,6 +335,12 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.pr !== undefined && (typeof meta.pr !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(meta.pr)))
     || (meta.delivered !== undefined && typeof meta.delivered !== "boolean")
     || (meta.deliveredAt !== undefined && typeof meta.deliveredAt !== "string")
+    // The close only ever names it docs/<context>-<feature>; it is printed in commands to copy, so nothing else passes.
+    || (meta.docsBranch !== undefined && (typeof meta.docsBranch !== "string"
+      || meta.docsBranch !== `docs/${meta.context}-${meta.feature}` || !/^docs\/[a-z0-9][a-z0-9_-]*$/i.test(meta.docsBranch)))
+    || (meta.docsCommit !== undefined && (typeof meta.docsCommit !== "string" || !/^[0-9a-f]{40,64}$/.test(meta.docsCommit)))
+    || (meta.docsLanded !== undefined && (!meta.docsLanded || typeof meta.docsLanded.branch !== "string"
+      || !["ancestor", "merged-pr", "content"].includes(meta.docsLanded.by) || typeof meta.docsLanded.at !== "string"))
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
@@ -326,11 +363,13 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
   return meta;
 }
 
+// History written by earlier releases names `dones` and `shipping`; an item must still load so
+// the one-time migration can rewrite it, so these readers accept the legacy names alongside STAGES.
 function isBypass(value: unknown): value is Bypass {
   if (!value || typeof value !== "object") return false;
   const b = value as Partial<Bypass>;
-  return typeof b.at === "string" && (b.from === null || (typeof b.from === "string" && STAGES.includes(b.from)))
-    && typeof b.to === "string" && STAGES.includes(b.to)
+  return typeof b.at === "string" && (b.from === null || (typeof b.from === "string" && isStageOrLegacy(b.from)))
+    && typeof b.to === "string" && isStageOrLegacy(b.to)
     && (b.flag === "force" || b.flag === "skip-hooks")
     && Array.isArray(b.codes) && b.codes.every((c) => typeof c === "string");
 }
@@ -339,7 +378,7 @@ function isCancellation(value: unknown): value is Cancellation {
   if (!value || typeof value !== "object") return false;
   const c = value as Partial<Cancellation>;
   return typeof c.at === "string" && typeof c.by === "string" && typeof c.reason === "string"
-    && typeof c.fromStage === "string" && STAGES.includes(c.fromStage);
+    && typeof c.fromStage === "string" && isStageOrLegacy(c.fromStage);
 }
 
 const RUN_STATUSES = ["running", "done", "failed", "timeout", "reset"];
@@ -351,7 +390,7 @@ function isRunRecord(value: unknown): value is RunRecord {
     || typeof r.chain.id !== "string" || typeof r.chain.index !== "number" || typeof r.chain.total !== "number")) return false;
   if (r.task !== undefined && typeof r.task !== "string") return false;
   return typeof r.id === "string" && typeof r.role === "string" && typeof r.runner === "string"
-    && typeof r.stage === "string" && STAGES.includes(r.stage)
+    && typeof r.stage === "string" && isStageOrLegacy(r.stage)
     && (r.mode === "start" || r.mode === "resume") && typeof r.at === "string" && typeof r.log === "string"
     && typeof r.status === "string" && RUN_STATUSES.includes(r.status);
 }
@@ -371,6 +410,7 @@ export async function updateFeatureMeta(
   root: string,
   name: string,
   fn: (meta: FeatureMeta) => FeatureMeta | Promise<FeatureMeta>,
+  lock: LockOptions = {},
 ): Promise<Feature> {
   return withLock(root, name, async () => {
     const feature = findFeature(root, name);
@@ -378,7 +418,17 @@ export async function updateFeatureMeta(
     const meta = await fn(feature.meta);
     await writeFeatureMeta(feature.dir, meta);
     return { ...feature, meta };
-  });
+  }, lock);
+}
+
+/**
+ * `meta` with a proven landing of `branch` in place of its docs-branch record. The proof was
+ * made outside the lock, so a record that moved on since (a re-land, another close) is kept.
+ */
+export function withDocsLanded(meta: FeatureMeta, branch: string, by: "ancestor" | "merged-pr" | "content"): FeatureMeta {
+  if (meta.docsBranch !== branch) return meta;
+  const { docsBranch: _branch, docsCommit: _commit, ...rest } = meta;
+  return { ...rest, docsLanded: { branch, by, at: new Date().toISOString() } };
 }
 
 export function assertPathName(value: string, label: string): void {
@@ -415,7 +465,7 @@ function isDirectory(path: string): boolean {
   return stats !== undefined && stats.isDirectory();
 }
 
-/** List all features found under a `.works` root, in stage order (brainstorm → dones). */
+/** List all features found under a `.works` root, in stage order (brainstorm → done). */
 export function listFeatures(root: string): Feature[] {
   const out: Feature[] = [];
   // Within a stage, sort by folder name desc — the trailing timestamp approximates newest first.

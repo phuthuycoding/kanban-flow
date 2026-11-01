@@ -1,5 +1,5 @@
 import { rename, rm } from "node:fs/promises";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { findFeature, stageDir, writeFeatureMeta, type Bypass, type Cancellation } from "./features.js";
@@ -7,6 +7,7 @@ import { withLock } from "../shared/lock.js";
 import { findSecretLike } from "./validate.js";
 import { runningRun } from "../harness/run.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
+import { WorktreeDirtyError } from "../worktree/manager.js";
 import { readProjectConfig } from "../project/config.js";
 import { nowTimestamp } from "../shared/time.js";
 import { canonicalDocPaths } from "./canonical-docs.js";
@@ -39,6 +40,7 @@ export type CancelRefusalReason =
   | "run-in-progress"
   | "purge-unconfirmed"
   | "worktree-dirty"
+  | "teardown-failed"
   | "changed-concurrently";
 
 export type CancelOutcome =
@@ -62,6 +64,15 @@ export type CancelOutcome =
   | { kind: "error"; error: unknown };
 
 const refuse = (reason: CancelRefusalReason, stderrTag: string, stdout: string): CancelOutcome => ({ kind: "refused", reason, stdout, stderrTag });
+
+/** Single-quoted for a POSIX shell, so a printed re-run command can be pasted as is. */
+const shellArg = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
+
+/** The command that repeats this cancel, with every flag of the original call that changes what it does. */
+function rerunCommand(name: string, reason: string, opts: CancelOptions): string {
+  const by = typeof opts.by === "string" && opts.by.trim() ? ` --by ${shellArg(opts.by.trim())}` : "";
+  return `kf cancel ${name} --reason ${shellArg(reason)}${by}${opts.purgeDocs ? " --purge-docs" : ""}${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}`;
+}
 
 /**
  * The reason checks on their own, because `kf cancel` has always reported a missing reason before
@@ -115,6 +126,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
 
   const skipHooks = Boolean(opts.skipHooks);
   const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "cancelled") : null;
+  let ranHook: HookSource | null = null;
   if (!skipHooks) {
     const hook = runHook(root, {
       feature: f.name, context: f.context, dir: f.dir, root,
@@ -128,9 +140,10 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
         stderrTag: "hook failed",
       };
     }
+    if (hook.ran) ranHook = hook.hook;
   }
 
-  const docs = f.stage === "dones" ? canonicalDocPaths(root, f) : [];
+  const docs = f.stage === "done" ? canonicalDocPaths(root, f) : [];
   let purgeApproved = false;
   if (opts.purgeDocs && docs.length > 0) {
     if (force) {
@@ -158,10 +171,21 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
   let teardown: TeardownResult | null = null;
   if (f.meta.worktree) {
     const wtCfg = worktreeConfig(root, readProjectConfig(root).worktree);
+    const where = f.meta.worktree.path;
+    const wasOnDisk = existsSync(where);
     try {
       teardown = await teardownWorktree(root, f, wtCfg);
     } catch (err) {
-      return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err instanceof Error ? err.message : String(err)}`);
+      const hookRan = ranHook ? ` The cancelled hook already ran (${ranHook.path}).` : "";
+      const rerun = rerunCommand(name, reason, opts);
+      if (err instanceof WorktreeDirtyError) {
+        return refuse("worktree-dirty", "worktree dirty", `Cannot cancel '${name}': ${err.message}.${hookRan} The item was not cancelled. Then re-run: ${rerun}`);
+      }
+      // Teardown checks dirtiness first; any other failure may come after `git worktree remove`.
+      const left = existsSync(where)
+        ? `The worktree ${where} is still on disk.`
+        : wasOnDisk ? `The worktree ${where} was removed.` : `The worktree ${where} is not on disk.`;
+      return refuse("teardown-failed", "teardown failed", `Cannot cancel '${name}': worktree teardown failed: ${err instanceof Error ? err.message : String(err)}.${hookRan} ${left} The item was not cancelled. Fix the cause, then re-run: ${rerun}`);
     }
   }
 

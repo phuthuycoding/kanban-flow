@@ -68,6 +68,15 @@ describe("gate bypass audit trail", () => {
     expect(bypasses[1].codes[0]).toMatch(/^hook:.*backlog\.sh$/);
   });
 
+  it("names a legacy stage in the last bypass by the stage kf stage accepts today", async () => {
+    const dir = join(root, ".works", "planning", "old_20260919_1200");
+    await mkdir(dir, { recursive: true });
+    await writeFeatureMeta(dir, { schema: "kanban-flow", feature: "old", context: "app", created: "20260919_1200", bypasses: [{ at: "20260919_1200", from: "shipping", to: "dones", flag: "force", codes: ["gate_blocked"] }] });
+    const issue = validateFeature(findFeature(root, "old")!).issues.find((i) => i.code === "gate_bypassed")!;
+    expect(issue.message).toContain("--force review → done at");
+    expect(issue.message).not.toMatch(/shipping|dones/);
+  });
+
   it("counts bypassed items in view and dashboard data", async () => {
     const forced: Bypass[] = [{ at: "20260919_1200", from: "brainstorm", to: "planning", flag: "force", codes: ["gate_blocked"] }];
     for (const [name, bypasses] of [["clean", undefined], ["forced", forced]] as Array<[string, Bypass[] | undefined]>) {

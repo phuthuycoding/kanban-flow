@@ -8,12 +8,15 @@ import { isManagedBranch, taskWorktreesDir, type WorktreeConfig } from "./config
 
 export type { WorktreeRegistration } from "../workflow/features.js";
 
+/** A git call that could not run or exited non-zero, so a caller can tell it from a bug in its own code. */
+export class GitCommandError extends Error {}
+
 function git(root: string, args: string[]): string {
   try {
     return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   } catch (err) {
     const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr: unknown }).stderr).trim() : "";
-    throw new Error(`git ${args.join(" ")} failed${stderr ? `: ${stderr}` : ""}`, { cause: err });
+    throw new GitCommandError(`git ${args.join(" ")} failed${stderr ? `: ${stderr}` : ""}`, { cause: err });
   }
 }
 
@@ -65,6 +68,9 @@ export function taskWorktreeEntries(root: string, cfg: WorktreeConfig, feature: 
   const prefix = join(existsSync(parent) ? realpathSync(parent) : parent, basename(dir)) + sep;
   return gitWorktreeEntries(root).filter((e) => e.path.startsWith(prefix));
 }
+
+/** Thrown when a worktree holds uncommitted work, so a caller can tell that refusal from a failed git call. */
+export class WorktreeDirtyError extends Error {}
 
 /** Uncommitted or untracked content → teardown must refuse, never silently drop it. */
 export function worktreeDirty(path: string): boolean {

@@ -54,14 +54,13 @@
       <span class="prompt">$</span> npm install -g @phuthuycoding/kanban-flow
       <button class="copy" type="button" data-copy="npm install -g @phuthuycoding/kanban-flow">Copy</button></p>
 
-    <div class="strip" aria-label="brainstorm, planning, implementation, testing, review, shipping, dones">
+    <div class="strip" aria-label="brainstorm, planning, implementation, testing, review, done">
       <span class="stage">brainstorm</span><i class="link"></i>
       <span class="stage">planning</span><i class="link"></i>
       <span class="stage">implementation</span><i class="link"></i>
       <span class="stage">testing</span><i class="link"></i>
       <span class="stage">review</span><i class="link"></i>
-      <span class="stage" title="optional — only items that ship code">shipping</span><i class="link"></i>
-      <span class="stage end">dones</span>
+      <span class="stage end" title="closes when the PR is merged">done</span>
     </div>
   </div>
 
@@ -77,8 +76,8 @@
         <span class="line"><span class="c">added 1 package</span></span>
         <span class="line"> </span>
         <span class="line"><span class="t">$ kf init</span><span class="rest c">   # or --defaults on a non-TTY</span></span>
-        <span class="line"><span class="ok">✓</span> .works/{brainstorm…dones} · .kf/ seeded</span>
-        <span class="line"><span class="ok">✓</span> 9 skills → .claude/skills/ · AGENTS.md created</span>
+        <span class="line"><span class="ok">✓</span> .works/{brainstorm…done} · .kf/ seeded</span>
+        <span class="line"><span class="ok">✓</span> 9 skills → .claude/skills/ · 3 agents → .claude/agents/ · AGENTS.md created</span>
         <span class="line"> </span>
         <span class="line"><span class="t">$ kf autoconfig</span><span class="rest c">   # a briefing the agent finishes</span></span>
         <span class="line"><span class="k">## Setup checklist</span></span>
@@ -112,8 +111,9 @@
         </div>
         <div class="card reveal">
           <h3>Three decisions stay human</h3>
-          <p>Confirming the requirement, approving the execution contract, and choosing
-             to start now or hold in backlog. The tool never takes those.</p>
+          <p>Confirming the requirement, approving the execution contract (approval starts
+             the item), and merging the pull request after a review PASS. The tool never
+             takes those.</p>
         </div>
         <div class="card reveal">
           <h3>Approval bound to the bytes</h3>
@@ -176,20 +176,21 @@
 
   <section class="reveal" id="drive">
     <div class="wrap">
-      <h2>From approval to the ship gate, unattended</h2>
+      <h2>From approval to the merge gate, unattended</h2>
       <div class="feature-row">
         <div>
-          <p>Once you approve the plan and choose to start, <code>kf drive</code> runs the
+          <p>Once you approve the plan, which starts the item, <code>kf drive</code> runs the
              rest in a detached supervisor. The plan's task table names a <strong>role</strong>
              and a <strong>file allowlist</strong> for every task, and approval seals it, so
              the same plan always produces the same dispatch.</p>
           <p class="quiet" style="margin-top:14px">Tasks run in their own worktrees, in
              parallel when their files do not overlap. kf decides when a task is done, not
              the worker: it checks the files the task changed, commits, merges and runs the
-             verify commands you pinned in config. It stops at the ship decision, or earlier
-             with a named reason and the next command to run.</p>
+             verify commands you pinned in config. It shows what each worker is doing, stops on an API
+             limit with <code>usage_limit</code>, and stops when a review PASS waits for
+             its merge, or earlier with a named reason and the next command to run.</p>
         </div>
-        <div class="term" data-replay><span class="line">$ kf drive auth</span><span class="line"><span class="c">Started drive 3f2a of 'auth' (supervisor pid 48211, …)</span></span><span class="line"> </span><span class="line">$ kf tasks auth</span><span class="line">TASK-001  wave 1  <span class="ok">done</span>       coder  deps: -  files: auth/</span><span class="line">TASK-002  wave 1  <span class="ok">done</span>       tester  deps: -  files: e2e/</span><span class="line">TASK-003  wave 1  <span class="k">verifying</span>  coder  deps: -  files: api/</span><span class="line"> </span><span class="line">$ kf drive auth --status</span><span class="line">Drive 3f2a of 'auth': <span class="ok">ready</span> (step review)</span><span class="line"><span class="c">  Loops: 0/2   Runs: 5/30</span></span><span class="line">  Result: <span class="ok">ready for ship decision</span></span><span class="line"><span class="c">  Next: kf status --change auth</span></span></div>
+        <div class="term" data-replay><span class="line">$ kf drive auth</span><span class="line"><span class="c">Started drive 3f2a of 'auth' (supervisor pid 48211, …)</span></span><span class="line"> </span><span class="line">$ kf tasks auth</span><span class="line">TASK-001  wave 1  <span class="ok">done</span>       coder  deps: -  files: auth/</span><span class="line">TASK-002  wave 1  <span class="ok">done</span>       tester  deps: -  files: e2e/</span><span class="line">TASK-003  wave 1  <span class="k">verifying</span>  coder  deps: -  files: api/</span><span class="line"> </span><span class="line">$ kf drive auth --status</span><span class="line">Drive 3f2a of 'auth': <span class="ok">ready</span> (step review)</span><span class="line"><span class="c">  Loops: 0/2   Runs: 5/30</span></span><span class="line">  Result: <span class="ok">ready — review PASS: merge the PR</span></span><span class="line"><span class="c">  Next: kf status --change auth</span></span></div>
       </div>
       <div class="grid">
         <div class="card reveal">
@@ -217,7 +218,9 @@
     <div class="wrap">
       <h2>Start in one command</h2>
       <p>Needs Node 20 or newer. <code>kf init</code> seeds <code>.kf/</code>, installs the
-         agent skills, and leaves your existing <code>AGENTS.md</code> alone.
+         agent skills and the <code>code-reviewer</code>, <code>scout</code> and
+         <code>spec-reviewer</code> agents the skills dispatch, and leaves your existing
+         <code>AGENTS.md</code> alone.
          <code>kf autoconfig</code> then prints a briefing — context, a setup checklist
          with the command that fixes each missing item, the review rules — that the
          agent configures the project from.</p>
@@ -228,7 +231,7 @@ kf init                             <span class="c"># seeds .kf/, installs the s
 kf autoconfig                       <span class="c"># hand this briefing to your agent</span>
 kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstorm</span>
 kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
-kf drive user-login                 <span class="c"># after approval: tasks → testing → review, stops at the ship gate</span>
+kf drive user-login                 <span class="c"># after approval: tasks → testing → review, stops at the merge gate</span>
 kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
       <div class="cta" style="margin-top:26px">
         <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>

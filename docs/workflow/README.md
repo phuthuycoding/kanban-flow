@@ -3,13 +3,15 @@
 `kanban-flow` drives a feature's life cycle through the `kf` CLI and the phase skills:
 
 ```text
-brainstorm → planning → implementation → testing → review ─┬→ shipping → dones
-                 ↘ backlog ↗     ↺ FAIL loops back          └→ dones (non-code items)
+brainstorm → planning ─ kf approve ─→ implementation → testing → review ─ PR merged ─→ done
+                 ↘ kf approve --backlog ─→ backlog ↗      ↺ FAIL / red CI loop back
 
 any stage ──kf cancel──→ cancelled ──back to the stage it stopped in──→ (resumes)
 ```
 
-The pipeline exists to turn an idea into an approved execution contract, then execute it with traceability, and test and review the right version of it before archiving.
+The pipeline exists to turn an idea into an approved execution contract, then execute it with traceability, and test and review the right version of it before the change lands and the item closes.
+
+Above the items, the `travel` skill plans and runs a whole day: it sizes the work, keeps several `kf drive` runs busy and reports what needs the human or is waiting to merge. See [skill routing](skills.md).
 
 Features and bugs share one state machine. Create a bug with `kf new <name> --type bug`; it goes through `kanban-bug` for triage and reproduction before it reaches planning.
 
@@ -23,7 +25,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 6. [Agent onboarding](autoconfig.md) — `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 7. [Skill routing](skills.md) — which skill loads in which state.
 8. [Dashboard](dashboard.md) — the KPIs, the charts, the filters and what each number means.
-9. [Agent harness](harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`, and the task harness: `kf tasks`, `kf run --task` and `kf drive`, which runs an approved item from implementation to the ship gate.
+9. [Agent harness](harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`, and the task harness: `kf tasks`, `kf run --task` and `kf drive`, which runs an approved item from implementation to review PASS.
 10. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
 
 ## The rules that never bend
@@ -31,13 +33,14 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 - Never move a folder by hand; use `kf stage`, `kf cancel` or `kf archive`.
 - `kf cancel` is the second way out. It needs `--reason`, moves the item to `.works/cancelled/`, and the only way back is the stage it stopped in.
 - The requirement or bug report must be `status: confirmed` before it leaves brainstorm.
-- Once planning is approved, the user chooses to start now or to send the item to `backlog`.
+- Approving the plan starts the item: `kf approve` moves it to implementation, `kf approve --backlog` parks it in `backlog`. Nobody is asked to choose between the two in chat.
 - Planning needs human approval. A feature's fingerprint covers the requirement, the four planning artifacts and every UC file; a bug's fingerprint covers only the bug report.
 - Editing the execution contract after approval forces a return to planning and a fresh approval.
 - Every entry into testing mints a new execution id. The testing and review reports must reference that exact id.
-- A FAIL or a REJECT returns to implementation and must be tested again. BLOCKED stops the pipeline.
+- A FAIL or a REJECT, or red CI on the PR, returns to implementation and must be tested again. BLOCKED stops the pipeline.
+- Review runs the independent `code-reviewer` first; only after its PASS is the branch pushed and the PR opened, and the review report is PASS only when CI is green or absent. The human merges the PR on GitHub; `kf status`, `kf sync` or `kf archive` then closes the item into `done`, removes its worktree and deletes the merged branch.
 - REQUIREMENT_BUG stops every ordinary transition so the user can decide.
-- The feature report must be written before archive; the CLI syncs the canonical docs when a feature is archived. A bug only updates the related docs when there is a docs impact.
+- The feature report must be written before the close; the CLI syncs the canonical docs when a feature is archived. A bug only updates the related docs when there is a docs impact.
 
 One rule in that list is not like the others: the pipeline granting itself no access to a database, a deployment, a publish or a message is a **policy carried in the skill prompts**, not a gate. Nothing in `src/` enforces it, and the runner presets start workers with edits auto-accepted. It bends exactly as far as the worker does.
 
@@ -49,7 +52,8 @@ project/
 │   ├── config.json
 │   ├── templates/
 │   ├── hooks/
-│   └── review/rules/
+│   ├── review/rules/
+│   └── travel/             (the day ledger and estimates, gitignored)
 ├── .works/
 │   ├── brainstorm/
 │   ├── planning/
@@ -58,7 +62,7 @@ project/
 │   ├── testing/
 │   ├── review/
 │   ├── cancelled/
-│   └── dones/
+│   └── done/
 └── docs/
     ├── requirement/{context}/{feature}.md
     ├── use-cases/{context}/{feature}/README.md + UC-###-<slug>.md + diagram.md

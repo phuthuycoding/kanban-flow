@@ -58,6 +58,7 @@ describe("kf init seeds AGENTS.md", () => {
     const content = await readFile(join(dir, "AGENTS.md"), "utf8");
     expect(content).toContain("TODO: fill in");
     expect(content).toContain("kf stage");
+    expect(content).toContain("kf approve");
   });
 
   it("reports an unreadable package.json instead of guessing", async () => {

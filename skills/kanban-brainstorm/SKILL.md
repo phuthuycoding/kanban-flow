@@ -15,14 +15,25 @@ Brainstorming is **divergence then convergence**: first open the problem up from
 
 ---
 
+## 0. Classify the path, and say it out loud
+
+`kanban-flow` names a path before this skill runs; if you were called directly, name it now — "this looks bounded, so the spec will be a page and I skip the divergence framework" — so the user can override it:
+
+- **Spike** — a question or a one-shot operation that lands no code. **Stop here: no `kf new`.** Say in two sentences what you will probe, get a nod, probe as cheaply as correctness allows (an irreversible step waits for the human's explicit "go"), and report the answer with the exact commands run. If the answer becomes work, classify again.
+- **Bounded** — a change to a flow that already exists in this repository. Run sections 1, 3, 4 and 5; **skip section 2** (the frameworks). The spec is a page: the restated journey, one or two FRs, the Affected surfaces, a Test Strategy, acceptance criteria. Every gate below still applies.
+- **Architectural** — everything else. All sections.
+
+One-way ratchet: if the bounded spec grows a second surface or a new subsystem mid-way, say so and step up to architectural; never the reverse.
+
 ## 1. Understand the challenge
 
 Orientation before ideation. Cheap questions here prevent expensive ones later.
 
 1. **Read the repository.** Structure, stack, tooling, data model, conventions. Reading code beats asking — never make the user explain what the code already answers.
-2. **Read one similar existing feature** (if any) for house patterns.
-3. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target.
-4. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
+2. **Ground the request.** Before your first question, verify every entity the idea names against its real definition — the file, command, table, field, endpoint or config key — spelled as the source spells it. A name the user used that the code does not have is your first question, not an assumption. Field-level detail waits for planning; here the names must be real.
+3. **Read one similar existing feature** (if any) for house patterns.
+4. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target. Describe the real user journey — what they see and type — and have the user agree to it before any FR list or structural naming; the human decides whether the journey is right, and a spec written before that agreement is rework waiting to happen.
+5. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
 
 Rules of engagement:
 - **Material ambiguity** (missing scope, unclear behavior, conflicting acceptance criteria) → ask **up to 3 focused questions**, then proceed. Each question names the decision it feeds.
@@ -33,7 +44,7 @@ Rules of engagement:
 
 ## 2. Diverge — open the problem (framework phase)
 
-A `kanban` launch can arrive with the idea fully formed or as a vague half-thought. **If the requirement is not already crystal clear, run a brainstorming framework** to widen the view before committing to a shape.
+Architectural path only — a bounded change skips this section. A `kanban` launch can arrive with the idea fully formed or as a vague half-thought. **If the requirement is not already crystal clear, run a brainstorming framework** to widen the view before committing to a shape.
 
 Pick the framework that fits the situation. Ask yourself (or the user, if genuinely uncertain) which angle is weak:
 
@@ -266,7 +277,11 @@ The checklist reports content completion; human confirmation is still required b
 
 ---
 
-## 5. Confirm with the human
+## 5. Review the spec, then confirm with the human
+
+**Self-review first**, with fresh eyes: placeholders or vague requirements; sections that contradict each other; a scope too wide for one implementation plan; a requirement that could be read two ways. Fix inline.
+
+**Then dispatch `Agent(spec-reviewer)` once**, `model: opus`, with a fresh context: the brief names the work item folder, points at the user's original request (an excerpt file you write under the item folder, or the Objective) and names a report file (`<item>/reviews/spec-review.md`). It reports only requirement gaps, untestable FRs or acceptance criteria, internal contradictions and ungrounded names — never new scope. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report`. HIGH findings go into the confirmation ask below; the review never blocks on its own, the human does. When the runtime has no subagent tool, run the same four checks yourself and say so.
 
 Present a tight summary (do not dump the whole file):
 
@@ -292,6 +307,9 @@ DECISIONS RECORDED:
 
 SCOPE OUT (explicit):
 - {item} — because {reason}
+
+SPEC REVIEW (spec-reviewer, <model>): {n HIGH, n MEDIUM, n LOW}
+- [HIGH] {finding} — {fixed | left for your call because ...}
 
 Please confirm the requirement.
 ```

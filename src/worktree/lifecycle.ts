@@ -13,8 +13,10 @@ import {
   isGitRepo,
   unmergedCommitCount,
   worktreeDirty,
+  WorktreeDirtyError,
 } from "./manager.js";
 import { addRoute, removeRoute, readRoutes } from "./routes.js";
+import { deleteRemoteBranch, hasRemote, runGit, runRemoteGit, type RemoteBranchDeletion } from "../shared/git.js";
 import { assertTaskWorktreesClean, removeTaskWorktrees } from "./tasks.js";
 import { worktreeDir, worktreeDomain, worktreeBranch, type WorktreeConfig } from "./config.js";
 
@@ -210,6 +212,93 @@ function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration,
 }
 
 /**
+ * Throws when the item worktree or one of its task worktrees holds uncommitted work — the
+ * refusal teardown makes, callable before any irreversible step of a close.
+ */
+export function assertWorktreeClean(root: string, feature: Feature, cfg: WorktreeConfig): void {
+  const wt = feature.meta?.worktree;
+  if (!wt) return;
+  const wtPath = real(wt.path);
+  if (gitWorktreePaths(root).includes(wtPath) && worktreeDirty(wtPath)) {
+    throw new WorktreeDirtyError(
+      `Worktree for '${feature.name}' has uncommitted changes (${wt.path}). ` +
+      `Commit them inside the worktree, or discard deliberately: kf worktree remove ${feature.name} --force`,
+    );
+  }
+  assertTaskWorktreesClean(root, feature.name, cfg);
+}
+
+export interface BranchDeletion {
+  branch: string;
+  local: { kind: "deleted" } | { kind: "absent" } | { kind: "kept"; detail: string } | { kind: "failed"; detail: string };
+  remote: RemoteBranchDeletion | { kind: "kept"; detail: string };
+}
+
+/**
+ * What proves the branch's commits landed: the head commit of the merged PR, or the tip the
+ * landing rule counted 0 commits ahead of its base. `none` (e.g. a forced close with nothing
+ * proven) keeps the branch on both sides.
+ */
+export type LandedProof =
+  | { kind: "merged-head"; sha: string }
+  | { kind: "base-tip"; sha: string }
+  | { kind: "none"; detail: string };
+
+function localTip(root: string, branch: string): string | null {
+  const res = runGit(root, ["rev-parse", "-q", "--verify", `refs/heads/${branch}^{commit}`]);
+  return res.code === 0 ? res.stdout.trim() || null : null;
+}
+
+function commitsPastHead(count: number): string {
+  return count === 0 ? "it is behind the merged head, so deleting it by hand is safe" : `${count} commits after the merged head`;
+}
+
+/** "N commits after the merged head", or why the tip cannot be placed relative to it. */
+function keptDetail(root: string, branch: string, proof: Exclude<LandedProof, { kind: "none" }>): string {
+  if (proof.kind === "base-tip") return `it moved since its commits were counted (tip was ${proof.sha.slice(0, 12)})`;
+  const ahead = runGit(root, ["rev-list", "--count", `${proof.sha}..refs/heads/${branch}`]);
+  return ahead.code === 0
+    ? commitsPastHead(Number(ahead.stdout.trim()) || 0)
+    : `its tip is not the merged head ${proof.sha.slice(0, 12)}`;
+}
+
+/** A branch kept without proof is "kept" on origin only when it is there; a read-only probe says so. */
+function keptRemote(root: string, branch: string, detail: string): BranchDeletion["remote"] {
+  if (!hasRemote(root, "origin")) return { kind: "no-remote" };
+  const probe = runRemoteGit(root, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
+  // --exit-code: 2 means the ref is not there.
+  if (probe.code === 2) return { kind: "absent" };
+  return { kind: "kept", detail: probe.code === 0 ? detail : `${detail} (origin could not be probed: ${probe.stderr.trim() || `git ls-remote exited ${probe.code}`})` };
+}
+
+/**
+ * Delete a closed item's branch locally, then on origin — each side only while it still points
+ * at the commit `proof` names, so no commit that did not land is deleted. A branch that moved
+ * is kept and reported; a failure on either side is reported, never forced, and does not stop
+ * the other side. The worktree must already be gone.
+ */
+export function deleteItemBranch(root: string, branch: string, proof: LandedProof): BranchDeletion {
+  if (proof.kind === "none") {
+    return {
+      branch,
+      local: branchExists(root, branch) ? { kind: "kept", detail: proof.detail } : { kind: "absent" },
+      remote: keptRemote(root, branch, proof.detail),
+    };
+  }
+  let local: BranchDeletion["local"] = { kind: "absent" };
+  const tip = localTip(root, branch);
+  if (tip !== null && tip !== proof.sha) {
+    local = { kind: "kept", detail: keptDetail(root, branch, proof) };
+  } else if (tip !== null) {
+    // -D, not -d: a squash or rebase merge leaves the tip unreachable from the default branch,
+    // so -d would refuse a branch that did land. The tip check above is the proof -d lacks.
+    const res = runGit(root, ["branch", "-D", branch]);
+    local = res.code === 0 ? { kind: "deleted" } : { kind: "failed", detail: res.stderr.trim() || `git branch -D exited ${res.code}` };
+  }
+  return { branch, local, remote: deleteRemoteBranch(root, "origin", branch, proof.sha) };
+}
+
+/**
  * Remove worktree + route for an item that is closing. Refuses on a dirty worktree —
  * uncommitted work must be committed or deliberately discarded via `worktree remove --force`.
  */
@@ -223,15 +312,8 @@ export async function teardownWorktree(
 
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
-  if (!missing && worktreeDirty(wtPath)) {
-    throw new Error(
-      `Worktree for '${feature.name}' has uncommitted changes (${wt.path}). ` +
-      `Commit them inside the worktree, or discard deliberately: kf worktree remove ${feature.name} --force`,
-    );
-  }
-
   // Checked before anything is removed so a refusal leaves everything in place.
-  assertTaskWorktreesClean(root, feature.name, cfg);
+  assertWorktreeClean(root, feature, cfg);
 
   const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
   if (!missing) git(root, ["worktree", "remove", wtPath]);

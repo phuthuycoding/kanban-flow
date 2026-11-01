@@ -6,6 +6,8 @@ status: archived
 ---
 # Test Plan
 
+> **Partly superseded by `workflow-slim`:** the stage `dones` is now `done`, and the reconcile step (FR-004, FR-006, UC-003) no longer runs in `kanban-archive` before `kf archive` — it runs in `kanban-review` step 2b as one commit on the item branch and lands with the PR; canonical docs are written when the merged item closes (`kf status`, `kf sync` or `kf archive`), on a `docs/<context>-<feature>` branch when the checkout is not a clean, current default branch. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
 

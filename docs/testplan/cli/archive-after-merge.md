@@ -6,6 +6,8 @@ status: archived
 ---
 # Test Plan
 
+> **Partly superseded by `workflow-slim`:** the stage `dones` and the human `kf archive` run after the merge no longer hold — the stage is `done` (`done.sh`, `statusMap.done`; `kf stage <feature> dones` is refused, legacy `.works/dones/` items are migrated once), and the next `kf status --change <feature>` or `kf sync` closes a merged review-PASS item (`kf archive` remains a close path), removing the worktree and deleting the merged branch. The merged-PR delivery gate still holds. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
 

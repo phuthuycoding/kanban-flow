@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, readdir, writeFile, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdtemp, rm, mkdir, readdir, writeFile, readFile, symlink } from "node:fs/promises";
+import { existsSync, lstatSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { copySkillsTo, removeSkillsFrom, MANAGED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
+import { copySkillsTo, removeSkillsFrom, removeRetiredSkills, MANAGED_SKILLS, RETIRED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
+import { STAGE_SKILL } from "../harness/prompt.js";
 
 let dir: string;
 
@@ -15,6 +16,78 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
+});
+
+describe("managed skills", () => {
+  it("no longer installs a ship stage skill and maps the done stage to the archive skill", () => {
+    expect(MANAGED_SKILLS).not.toContain("kanban-ship");
+    expect(STAGE_SKILL.done).toBe("kanban-archive");
+    for (const skill of Object.values(STAGE_SKILL)) if (skill) expect(MANAGED_SKILLS).toContain(skill);
+  });
+
+  it("manages the eight kanban skills plus travel and lists kanban-ship as retired", () => {
+    expect(MANAGED_SKILLS).toHaveLength(9);
+    expect(MANAGED_SKILLS).toContain("travel");
+    expect(RETIRED_SKILLS).toEqual(["kanban-ship"]);
+  });
+
+  it.skipIf(process.platform === "win32")("keeps the executable bit of travel's estimates script when copying", async () => {
+    await copySkillsTo(dir);
+    const script = join(dir, "travel", "scripts", "estimates");
+    expect(existsSync(script)).toBe(true);
+    expect(statSync(script).mode & 0o111).not.toBe(0);
+    expect(existsSync(join(dir, "travel", "references"))).toBe(true);
+  });
+});
+
+describe("retired skills", () => {
+  it.skipIf(process.platform === "win32")("removes a kanban-ship symlink that points into a kanban-flow package", async () => {
+    const pkg = join(dir, "pkg", "kanban-flow", "skills", "kanban-ship");
+    await mkdir(pkg, { recursive: true });
+    const skills = join(dir, "skills");
+    await mkdir(skills, { recursive: true });
+    await symlink(pkg, join(skills, "kanban-ship"), "dir");
+
+    const res = await removeRetiredSkills(skills);
+    expect(res).toEqual({ removed: ["kanban-ship"], kept: [] });
+    expect(() => lstatSync(join(skills, "kanban-ship"))).toThrow();
+    expect(existsSync(pkg)).toBe(true);
+  });
+
+  it.skipIf(process.platform === "win32")("removes a dangling kanban-ship symlink whose target ends in kanban-flow/skills/kanban-ship", async () => {
+    const skills = join(dir, "skills");
+    await mkdir(skills, { recursive: true });
+    await symlink(join(dir, "gone", "kanban-flow", "skills", "kanban-ship"), join(skills, "kanban-ship"), "dir");
+
+    const res = await removeRetiredSkills(skills);
+    expect(res.removed).toEqual(["kanban-ship"]);
+    expect(() => lstatSync(join(skills, "kanban-ship"))).toThrow();
+  });
+
+  it("leaves a foreign kanban-ship directory untouched and warns on install", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    const foreign = join(dir, ".claude", "skills", "kanban-ship");
+    await mkdir(foreign, { recursive: true });
+    await writeFile(join(foreign, "SKILL.md"), "mine");
+
+    const res = await cmdInstall([], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("kanban-ship");
+    expect(res.stdout).toContain("left untouched");
+    expect(await readFile(join(foreign, "SKILL.md"), "utf8")).toBe("mine");
+  });
+
+  it.skipIf(process.platform === "win32")("leaves a symlink to somewhere else untouched", async () => {
+    const elsewhere = join(dir, "other", "kanban-ship");
+    await mkdir(elsewhere, { recursive: true });
+    const skills = join(dir, "skills");
+    await mkdir(skills, { recursive: true });
+    await symlink(elsewhere, join(skills, "kanban-ship"), "dir");
+
+    const res = await removeRetiredSkills(skills);
+    expect(res).toEqual({ removed: [], kept: ["kanban-ship"] });
+    expect(lstatSync(join(skills, "kanban-ship")).isSymbolicLink()).toBe(true);
+  });
 });
 
 describe("copySkillsTo / removeSkillsFrom", () => {
@@ -99,7 +172,7 @@ describe("install/uninstall (project scope)", () => {
   it("uninstall --purge --force removes skills plus .works/, .kf/ and kanban doc dirs", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     await cmdInstall([], { cwd: dir, scope: "project" });
-    await mkdir(join(dir, ".works", "dones", "x"), { recursive: true });
+    await mkdir(join(dir, ".works", "done", "x"), { recursive: true });
     await mkdir(join(dir, ".kf", "review", "rules"), { recursive: true });
     await mkdir(join(dir, "docs", "requirement"), { recursive: true });
     await mkdir(join(dir, "docs", "notes"), { recursive: true });

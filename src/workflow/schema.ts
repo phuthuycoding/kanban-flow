@@ -5,13 +5,42 @@ export const STAGES = [
   "implementation",
   "testing",
   "review",
-  "shipping",
-  "dones",
+  "done",
   "cancelled",
 ] as const;
 export type Stage = (typeof STAGES)[number];
 
+/**
+ * Stage names of earlier releases that still appear in old `.kfw.json` history and `statusMap`
+ * keys: `dones` became `done`, `shipping` was removed (review opens the PR; the merge closes the item).
+ */
+export const LEGACY_STAGE_NAMES = ["shipping", "dones"] as const;
+export type LegacyStageName = (typeof LEGACY_STAGE_NAMES)[number];
+
+/** True for a current stage name or a legacy one; readers of old metadata use it, nothing else does. */
+export function isStageOrLegacy(value: string): boolean {
+  return (STAGES as readonly string[]).includes(value) || (LEGACY_STAGE_NAMES as readonly string[]).includes(value);
+}
+
+/**
+ * The current stage a legacy name stands for: `dones` became `done`, and `shipping` items were
+ * awaiting merge, which is `review` now. A cancelled legacy item reopens there, so naming the
+ * legacy stage in a hint would name one `kf stage` rejects.
+ */
+export const LEGACY_REOPEN_STAGE: Record<LegacyStageName, Stage> = { dones: "done", shipping: "review" };
+
+/** A stage name from old metadata, mapped to the current stage `kf stage` accepts. */
+export function currentStageName(stage: Stage | LegacyStageName): Stage {
+  return Object.hasOwn(LEGACY_REOPEN_STAGE, stage) ? LEGACY_REOPEN_STAGE[stage as LegacyStageName] : stage as Stage;
+}
+
 export type WorkItemKind = "feature" | "bug";
+
+/** Review report frontmatter `landing:` — `pr` lands through the recorded `meta.pr`; `none` means nothing to land. */
+export const REVIEW_LANDING_VALUES = ["pr", "none"] as const;
+
+/** Review report frontmatter `ci:` — `green` passed, `red` failed, `none` means no CI runs on the PR. */
+export const REVIEW_CI_VALUES = ["green", "red", "none"] as const;
 
 export const ARTIFACT_IDS = [
   "spec-requirement",
@@ -104,14 +133,14 @@ export const ARTIFACTS: Record<ArtifactId, ArtifactDef> = {
     template: "phase-5-review-report.md",
     phase: "review",
     dueFromStage: 5,
-    unlocks: "Phase 5 done — review result gates review → dones",
+    unlocks: "Phase 5 done — review result gates review → done",
   },
   "feature-report": {
     id: "feature-report",
     file: "phase-6-feature-report.md",
     template: "phase-6-feature-report.md",
     phase: "artifact",
-    dueFromStage: 7,
+    dueFromStage: 6,
     unlocks: "Phase 6 — overall Feature Report completes the feature",
   },
 };
@@ -127,8 +156,7 @@ export const STAGE_GATES: Record<Stage, ArtifactId[]> = {
   implementation: [],
   testing: ["testing-result"],
   review: ["review-report"],
-  shipping: [],
-  dones: [],
+  done: [],
   cancelled: [],
 };
 
@@ -143,9 +171,8 @@ export const TRANSITIONS: Record<Stage, Stage[]> = {
   backlog: ["implementation", "planning"],
   implementation: ["testing", "planning"],
   testing: ["review", "implementation", "planning"],
-  review: ["shipping", "dones", "implementation", "planning"],
-  shipping: ["dones"],
-  dones: [],
+  review: ["done", "implementation", "planning"],
+  done: [],
   // Entered through `kf cancel`, left only back to the stage it was cancelled from.
   cancelled: [],
 };
@@ -157,8 +184,7 @@ export const STAGE_INDEX: Record<Stage, number> = {
   implementation: 3,
   testing: 4,
   review: 5,
-  shipping: 6,
-  dones: 7,
+  done: 6,
   /** Off the linear track on purpose: a negative index turns every "is this artifact due yet"
    *  and "past planning" comparison false, so a cancelled item is never asked for anything. */
   cancelled: -1,
@@ -172,8 +198,7 @@ export const PHASE_NAMES: Record<Stage, string> = {
   implementation: "Phase 3 — Implement",
   testing: "Phase 4 — Testing",
   review: "Phase 5 — Review",
-  shipping: "Phase 5.5 — Shipping",
-  dones: "Phase 6 — Artifact",
+  done: "Phase 6 — Done",
   cancelled: "Cancelled — stopped for good",
 };
 

@@ -135,12 +135,13 @@ describe("cmdStage output is byte-identical to the pre-refactor CLI", () => {
     });
   });
 
-  it("missing args names shipping between review and dones", async () => {
+  it("missing args names done right after review", async () => {
     await fixture(confirmed);
     const none = await cmdStage(stageArgs([]), root);
     expect(none.code).toBe(1);
     expect(none.stderr).toBe("missing args");
-    expect(none.stdout).toContain("review → shipping → dones");
+    expect(none.stdout).toContain("review → done");
+    expect(none.stdout).not.toContain("shipping");
     expect(none.stdout).not.toContain("cancelled");
     const named = await cmdStage(stageArgs(["demo"]), root);
     expect(named.code).toBe(1);
@@ -148,8 +149,18 @@ describe("cmdStage output is byte-identical to the pre-refactor CLI", () => {
     const unknown = await cmdStage(stageArgs(["demo", "nosuch"]), root);
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toBe("unknown stage");
-    expect(unknown.stdout).toContain("shipping");
+    expect(unknown.stdout).toContain("done");
     expect(unknown.stdout).toContain("cancelled");
+  });
+
+  it("answers the removed stage names with where that work went", async () => {
+    await fixture(confirmed);
+    const shipping = await cmdStage(stageArgs(["demo", "shipping"]), root);
+    expect(shipping.code).toBe(1);
+    expect(shipping.stdout).toBe("shipping is gone: open the PR at review, merge on GitHub, kf status --change demo closes the item");
+    const dones = await cmdStage(stageArgs(["demo", "dones"]), root);
+    expect(dones.code).toBe(1);
+    expect(dones.stdout).toBe("the stage is now done: a review PASS item closes on merge via kf status --change demo, kf sync or kf archive");
   });
 
   it("rename failure is re-thrown with the original error", async () => {

@@ -5,6 +5,7 @@ import { ARTIFACTS, type Stage } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
+import { checkReviewDelivery } from "./validate-reports.js";
 import type { Feature } from "./features.js";
 
 /**
@@ -12,9 +13,10 @@ import type { Feature } from "./features.js";
  * This is the semantic half of the gate: it reads the report STATUS, not just
  * artifact existence. The artifact gate (validateFeature) and the transition
  * graph (TRANSITIONS) both still apply on top.
- * Returns a list of blocking findings (empty = allowed).
+ * Returns a list of blocking findings (empty = allowed). `legacyPrMerged`: the caller already
+ * verified the recorded PR is merged (see checkReviewDelivery).
  */
-export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
+export function checkDirectionGate(feature: Feature, to: Stage, legacyPrMerged = false): Finding[] {
   const issues: Finding[] = [];
   const read = (file: string): string | null => {
     const p = join(feature.dir, file);
@@ -49,15 +51,18 @@ export function checkDirectionGate(feature: Feature, to: Stage): Finding[] {
     }
   }
 
-  // review → dones|shipping requires PASS; REQUIREMENT_BUG stops the feature entirely.
-  // Items in shipping keep answering to the review report: it is still the only
-  // verdict that may carry them into dones.
-  if (feature.stage === "review" || feature.stage === "shipping") {
+  // review → done requires PASS with CI green or none and a landing: a recorded PR when landing is pr,
+  // nothing to land otherwise;
+  // REQUIREMENT_BUG stops the feature entirely.
+  if (feature.stage === "review") {
     const file = ARTIFACTS["review-report"].file;
     const status = read(file);
-    if ((to === "dones" || to === "shipping") && status !== "PASS") {
+    if (to === "done" && status !== "PASS") {
       issues.push(finding(feature, "ERROR", file, "review_not_pass",
         `review-report status is ${status ?? "missing"}; only PASS may enter ${to} (FAIL/REJECT loop to implementation)`));
+    }
+    if (to === "done" && status === "PASS") {
+      issues.push(...checkReviewDelivery(feature, splitFrontmatter(readFileSync(join(feature.dir, file), "utf8")).fm, legacyPrMerged));
     }
     if (status === "REQUIREMENT_BUG") {
       issues.push(finding(feature, "ERROR", file, "requirement_bug_stop",
