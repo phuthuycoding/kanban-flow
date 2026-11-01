@@ -55,7 +55,7 @@ const GRAMMAR = [
 /** A commit range in a ledger commit field — the form commit lists replace. */
 const COMMIT_RANGE = /commits [^\s,;)]+\.\.[^\s,;)]+/;
 
-// A pre-feature ledger excerpt (drive-retire, TASK-002): no suffixes, free-form seat lines, a commit range,
+// A pre-feature ledger excerpt (drive-retire): no suffixes, free-form seat lines, a commit range,
 // and "fix round" in lines that are not fix rounds — so counting the phrase over-counts rounds.
 const PRE_FEATURE_LEDGER = `# Task loop ledger — drive-retire — plan: /tmp/plan.md
 TASK-002: base 4ad7c81
@@ -171,6 +171,11 @@ describe("a pre-feature ledger rewritten in the grammar", () => {
       expect(line.kind, `line ${line.line}`).not.toBe("untimed");
       expect(line.kind, `line ${line.line}`).not.toBe("unparsed");
     }
+    for (const text of REWRITTEN_LEDGER.trim().split("\n").slice(1)) {
+      const suffix = TS_SUFFIX.exec(text);
+      expect(suffix, text).not.toBeNull();
+      expect(TS_SUFFIX.test(text.slice(0, (suffix as RegExpExecArray).index)), text).toBe(false);
+    }
     expect(parseLedger(PRE_FEATURE_LEDGER).lines.every((l) => l.kind === "untimed")).toBe(true);
   });
 
@@ -209,11 +214,15 @@ describe("resuming the task loop from the ledger", () => {
     for (const n of [0, 1]) expect(items[n]).toContain("test-writer");
     expect(items[2]).toContain("last task commit");
     expect(items[2]).toContain("Files are disjoint");
-    expect(items[3]).toContain("developer");
+    expect(items[3]).toMatch(/developer`? `?done/);
     for (const n of [4, 5]) expect(items[n]).toContain("verify");
     expect(items[6]).toContain("code-reviewer");
+    expect(items[7]).toContain("fix queued");
+    // A round's own test-writer or automation-writer seat must not count as the round's developer dispatch.
+    expect(items[7]).toMatch(/test-writer[\s\S]*automation-writer`? `?dispatched[\s\S]*round=/);
     expect(items[7]).toContain("next fix round");
     expect(items[7]).toContain("breaker");
+    expect(items[7]).toContain("resume the developer to commit them unchanged");
     expect(items[8]).toContain("fix queued");
     expect(items[9]).toContain("cascade re-review owed");
     expect(items[10]).toContain("completion check");
@@ -241,6 +250,25 @@ describe("resuming the task loop from the ledger", () => {
     expect(resume).toMatch(/head/);
     expect(resume).toMatch(/next task/);
     expect(resume).not.toMatch(/last line/);
+  });
+});
+
+describe("a stand-in seat in the ledger", () => {
+  const NOTE = "Note TASK-NNN: <seat> stand-in general-purpose @ <ts>";
+
+  it("is ledgered as its own note line, not folded into the seat's dispatched line", () => {
+    for (const line of implement().split("\n").filter((l) => l.includes("stand-in: general-purpose"))) {
+      expect(line).not.toContain("in the ledger line");
+    }
+    expect(implement()).toContain(NOTE);
+    expect(taskLoop()).toContain(NOTE);
+  });
+
+  it("reads the note as a timed note, while a stand-in folded into a dispatched line breaks that shape", () => {
+    const note = parseLedger("# h\nNote TASK-001: developer stand-in general-purpose @ 2026-11-01T18:41:26+07:00").lines;
+    expect(note.map((l) => l.kind)).toEqual(["other-timed"]);
+    const folded = parseLedger("# h\nTASK-001: developer dispatched model=opus stand-in: general-purpose @ 2026-11-01T18:41:26+07:00").lines;
+    expect(folded.map((l) => l.kind)).toEqual(["unparsed"]);
   });
 });
 
