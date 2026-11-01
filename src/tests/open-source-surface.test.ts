@@ -409,3 +409,64 @@ describe("the docs name the commit-list form beside the range form", () => {
     expect(unreleased).toMatch(/pipelin/i);
   });
 });
+
+describe("the docs describe concurrent developers in one worktree", () => {
+  const read = (file: string) => readFileSync(join(ROOT, file), "utf8");
+  const unreleased = () => read("CHANGELOG.md").split(/^## \[/m)[1] ?? "";
+
+  it("states up to 4 developers per worktree in the README, the harness guide, the lifecycle guide and the Pages site", () => {
+    for (const file of ["README.md", "docs/workflow/harness.md", "docs/workflow/lifecycle.md", ".github/pages/index.html"]) {
+      expect(read(file), file).toMatch(/4 developers/);
+    }
+  });
+
+  it("no longer states the one-developer-at-a-time rule", () => {
+    for (const file of ["README.md", "docs/workflow/harness.md", "docs/workflow/lifecycle.md", ".github/pages/index.html", "docs/workflow/cli-reference.md"]) {
+      const text = read(file);
+      expect(text, file).not.toContain("one developer at a time per worktree");
+      expect(text, file).not.toContain("one developer seat at a time");
+    }
+  });
+
+  it("carries the wait lines, the controller work list, commit-task.mjs and the build setup's exit-2 rule in the harness guide", () => {
+    const harness = read("docs/workflow/harness.md");
+    for (const needle of [
+      "developer waits — Files overlap",
+      "developer waits — 4 developers in flight",
+      "work list",
+      "commit-task.mjs",
+      "exit 2",
+    ]) {
+      expect(harness, needle).toContain(needle);
+    }
+  });
+
+  it("names commit-task.mjs and out-of-order completion in the lifecycle guide", () => {
+    const lifecycle = read("docs/workflow/lifecycle.md");
+    expect(lifecycle).toContain("commit-task.mjs");
+    expect(lifecycle).toMatch(/out of order|out-of-order/i);
+  });
+
+  it("names commit-task.mjs in the README task-loop bullet", () => {
+    expect(read("README.md")).toContain("commit-task.mjs");
+  });
+
+  it("documents kf tasks --graph, the critical path, the max width, developers peak and dispatch lag in the CLI reference", () => {
+    const text = read("docs/workflow/cli-reference.md");
+    for (const needle of ["kf tasks", "--graph", "critical path", "max width", "developers peak", "dispatch lag"]) {
+      expect(text, needle).toContain(needle);
+    }
+  });
+
+  it("lists --graph in the kanban-flow CLI block and in the kanban-plan approval summary", () => {
+    expect(read("skills/kanban-flow/SKILL.md")).toContain("kf tasks {feature} [--json] [--graph]");
+    expect(read("skills/kanban-plan/SKILL.md")).toContain("kf tasks <feature> --graph");
+  });
+
+  it("records concurrent developers, --graph and the new loop-stats figures in the unreleased changelog", () => {
+    const section = unreleased();
+    for (const needle of ["4 developers", "--graph", "developers peak", "dispatch lag", "commit-task.mjs"]) {
+      expect(section, needle).toContain(needle);
+    }
+  });
+});
