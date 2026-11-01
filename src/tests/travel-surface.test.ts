@@ -53,6 +53,24 @@ describe("the travel skill", () => {
     expect(skill).toContain("`sequential` pair is never dispatched in the same tick");
     expect(skill).toContain("two independent items run in two worktrees");
     expect(skill).toContain("estimates overlap");
+    expect(skill).toMatch(/`sequential` partners \(if any\) are all `done`/);
+    expect(skill).toMatch(/a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks/);
+  });
+
+  it("adds a seat's duration to work and, for a review seat, to review as well", () => {
+    expect(skill).toMatch(/add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`,/);
+    expect(skill).not.toMatch(/\(`review=<n>` for a review seat\)/);
+  });
+
+  it("dispatches seats in the background so another item advances while they run", () => {
+    expect(skill).toMatch(/dispatches an item's seats \([^)]*\) in the background and advances another item while they run/i);
+  });
+
+  it("never force-pushes in any bash block of the skill or its references", () => {
+    const texts = [skill, read("references", "daily-plan.md"), read("references", "ledger-format.md"), read("references", "estimation.md")];
+    for (const text of texts) {
+      for (const block of bashBlocks(text)) expect(block).not.toMatch(/git push\b[^\n]*(--force|--force-with-lease|\s-f\b)/);
+    }
   });
 
   it("defines driving, blocked and waiting-to-merge without any drive status", () => {
