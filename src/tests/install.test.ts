@@ -525,7 +525,37 @@ describe("a linked git worktree as the package root", () => {
     return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
   }
 
-  it.skipIf(process.platform === "win32")("interactive kf init from a linked worktree at the default global scope refuses before it prompts", async () => {
+  /** Like kfOnTerminal, but answers the prompts: customize setup, "no" to global skills, Enter for the rest. */
+  function kfAnswering(pkg: string, cwd: string, home: string, ...argv: string[]): { code: number; out: string } {
+    const prog = [
+      "import os,pty,re,select,sys,time",
+      "pid,fd=pty.fork()",
+      "if pid==0: os.execv(sys.argv[1],sys.argv[1:])",
+      "buf=b'';done=0;end=time.time()+40",
+      "while time.time()<end:",
+      "  if not select.select([fd],[],[],0.3)[0]:",
+      "    continue",
+      "  try: d=os.read(fd,4096)",
+      "  except OSError: break",
+      "  if not d: break",
+      "  buf+=d;tail=re.sub(r'\\x1b\\[[0-9;]*[A-Za-z]','',buf[done:].decode('utf8','replace'))",
+      "  if 'Customize' in tail and tail.endswith('\\n'):",
+      "    os.write(fd,b'2');time.sleep(0.2);os.write(fd,b'\\r');done=len(buf)",
+      "  elif tail.rstrip().endswith((':','(Y/n)','(y/N)')):",
+      "    os.write(fd,b'n\\r' if 'globally' in tail else b'\\r');done=len(buf)",
+      "if time.time()>=end: os.kill(pid,9)",
+      "_,st=os.waitpid(pid,0)",
+      "sys.stdout.write(buf.decode('utf8','replace'));sys.exit(os.waitstatus_to_exitcode(st))",
+    ].join("\n");
+    const { KF_ALLOW_WORKTREE_LINK: _optOut, ...base } = process.env;
+    const r = spawnSync("python3", ["-I", "-c", prog, process.execPath, join(pkg, "dist", "index.js"), ...argv], {
+      cwd, encoding: "utf8", timeout: 60_000, env: { ...base, HOME: home, USERPROFILE: home },
+    });
+    if (r.error) throw r.error;
+    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+  }
+
+  it.skipIf(process.platform === "win32")("with no declared scope, interactive kf init prompts first and still lets the user choose project scope from a linked worktree", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");
     const root = join(dir, "proj");
@@ -533,12 +563,13 @@ describe("a linked git worktree as the package root", () => {
     await mkdir(root, { recursive: true });
     stagePackage(pkg, "file");
 
-    const res = kfOnTerminal(pkg, root, home, "init");
-    expect(res.out).not.toContain("Setup mode");
-    expect(res.out).toContain("primary checkout");
-    expect(res.code, res.out).toBe(1);
-    expect(await readdir(root)).toEqual([]);
-  });
+    const res = kfAnswering(pkg, root, home, "init");
+    expect(res.out).toContain("Setup mode");
+    expect(res.out).not.toContain("primary checkout");
+    expect(res.code, res.out).toBe(0);
+    expect(existsSync(join(root, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+  }, 70_000);
 
   it.skipIf(process.platform === "win32")("interactive kf init from a linked worktree refuses before it prompts when the config declares global", async () => {
     const pkg = join(dir, "pkg");

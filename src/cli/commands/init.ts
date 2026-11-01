@@ -90,9 +90,8 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
 
   const explicitContext = typeof args.options.context === "string" ? args.options.context : undefined;
 
-  // A scope known before the prompts (declared, or the global default) is refused before the user answers anything.
-  const declared = readProjectConfig(target).skills?.scope;
-  const early = (declared ?? "global") === "global" ? globalLinkRefusal() : null;
+  // A declared global scope is refused before the user answers anything; an undeclared one may still be answered "project".
+  const early = readProjectConfig(target).skills?.scope === "global" ? globalLinkRefusal() : null;
   if (early) return { code: 1, stdout: "", stderr: early };
 
   let answers: BootstrapAnswers;
