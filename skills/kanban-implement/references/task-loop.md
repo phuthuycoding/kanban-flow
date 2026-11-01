@@ -51,7 +51,7 @@ Ruling: the empty commit list exits 3, not 1 — the requirement calls it bad in
 TASK-001: test hashes src/tests/verify.test.ts=72d245a130481dcd4de1129b37d039ebf1371023 @ 2026-11-01T20:42:30+07:00
 ```
 
-The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes:
+The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes, including the stand-in note written right after a stand-in seat's dispatched line:
 
 ```
 # Task loop ledger — <feature> — plan: <abs path>
@@ -62,6 +62,7 @@ TASK-001: test hashes <file>=<sha> … @ <ts>
 TASK-001: test dispute <file:line> — <fixed | kept, Ruling | stopped> @ <ts>
 TASK-001: minor (deferred): <one-liner> @ <ts>
 TASK-001: parked — <finding> — Ruling: <why> @ <ts>
+Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
 ```
 
 A new `test hashes` line follows every test-writer change; the latest one is the baseline.
