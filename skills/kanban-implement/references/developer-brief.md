@@ -20,6 +20,7 @@ Agent:
     ## Where you work
     Worktree: [WORKTREE] on branch [BRANCH]. Never touch the main checkout.
     Seats in flight: [IN_FLIGHT]
+    Test-writer run advisory: [ADVISORY]
     Files allowlist: [FILES]. Only change files inside it; needing another file is a
     BLOCKED report naming the file and why, not an edit.
 
@@ -70,6 +71,7 @@ Agent:
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
 - `[IN_FLIGHT]` — `none`, or the other seats in flight at dispatch (e.g. `developer TASK-002`).
+- `[ADVISORY]` — `yes` when the test-writer's run was advisory (it ran while a developer was in flight), otherwise `no`.
 - `[SPEC_FILES]` — the spec files the automation-writer's report lists when it ran before the developer against a `data-testid` contract; otherwise "none".
 - `[FILES_TO_COMMIT]` — the files the test-writer's (or automation-writer's) fix report lists.
 

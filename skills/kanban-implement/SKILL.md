@@ -50,7 +50,7 @@ Read the approved plan once: `kf tasks {feature_name} --json` gives the task gra
 7. No `code-reviewer dispatched` after the task's last commit, or one without its `code-reviewer done` → dispatch the code-reviewer.
 8. A latest review `code-reviewer done status=findings`, or a latest `verify done exit=1` the task keeps (3.2), with no `developer dispatched`, no `fix queued` and no round seat (`test-writer` or `automation-writer dispatched … round=<R>`) after it → below the five-round cap, the next fix round (round R+1), queued behind any developer in flight; at the cap, the breaker (3.4: park with rulings); a round seat done with no later `developer dispatched` → hash the changed tests, ledger `test hashes`, and resume the developer to commit them unchanged.
 9. `fix queued` with no later `developer dispatched` → re-queue the fix.
-10. A `cascade re-review owed` line without its answering `code-reviewer done` (matched by its sha7) → dispatch that re-review.
+10. A `cascade re-review owed` line is answered by a `code-reviewer dispatched … cascade=<sha7>` line followed by that seat's `code-reviewer done`; without both → dispatch that re-review.
 11. Otherwise → the completion check (3.5). Completion is earned from the ledger, never inferred from the absence of open seats: `developer done`, `verify done exit=0` after the task's last commit (or the routed case of 3.2), and a clean review — `code-reviewer done status=clean`, or every open finding parked at the cap — with no cascade line unanswered.
 
 **Pre-Task-1 conflict scan.** Before the first dispatch, scan the plan for tasks that contradict each other or the Global Constraints, and for anything the plan mandates that the review rubric treats as a defect. Write the table to the ledger with a `Ruling:` per row — the requirement is binding, the plan is its argument. A clean scan is a table with no rows, not a sentence.
@@ -141,7 +141,7 @@ When `.kf/config.json` sets `harness.verify.stage`, `kf verify <f> --stage` repl
 
 When all tasks are complete, run the FULL build and the FULL suite (not just the touched module), in the worktree. Collect every ledger `Ruling:` line into your final message under "Rulings I made", each with what it costs if wrong — that list is the only place the decisions you took on the human's behalf reach them.
 
-Then run `kf loop-stats <f> --record` (it prints the item's report and appends its row to `.works/loop-metrics.md`) and `kf loop-stats --all` (it prints the history and its `largest:` line), and print the item's report and the `largest:` line in your final message beside "Rulings I made". The numbers report where the loop's time went; they change no rule of the loop.
+Then run `kf loop-stats <f> --record` (it prints the item's report and writes (replacing any earlier) its row in `.works/loop-metrics.md`) and `kf loop-stats --all` (it prints the history and its `largest:` line), and print the item's report and the `largest:` line in your final message beside "Rulings I made". The numbers report where the loop's time went; they change no rule of the loop.
 
 Do not modify the approved requirement, plan or test-case contract. Project-specific permissions for database operations and other external actions still apply.
 
