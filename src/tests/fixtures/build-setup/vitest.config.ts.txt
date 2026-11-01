@@ -1,0 +1,7 @@
+export default {
+  test: {
+    globalSetup: [process.env.BUILD_SETUP_PATH as string],
+    include: ["scratch.test.js"],
+    globals: true,
+  },
+};
