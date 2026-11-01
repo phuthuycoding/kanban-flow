@@ -18,9 +18,9 @@ Two rules for skill authors:
 | Edit or create a file | `Edit` / `Write` | `apply_patch` | the CLI's edit tool |
 | Run a shell command | `Bash` | shell | shell |
 | Run a bundled skill script | `Bash: bash <skill dir>/scripts/<name>` or `node …` — installs do not set the exec bit | same | same |
-| Wait on a background process (a `kf drive`) | `Bash` with `run_in_background`, or poll `kf drive <f> --status` | poll in the foreground | poll in the foreground |
+| Wait on a background process (the CI watcher) | `Bash` with `run_in_background` | poll in the foreground | poll in the foreground |
 | Drive the pipeline's state | `Bash: kf …` — the CLI is the only writer of `.works/` state | same | same |
 
 ## Boundary
 
-`kf` never calls any of these: it is harness-agnostic and spawns each vendor's official CLI headless (`claude -p`, `codex exec`, `gemini -p`, …) through `harness.runners`. The adapter layer is the skill text plus the agent definitions; `kf install` only puts them where each runtime looks.
+`kf` never calls any of these: it is harness-agnostic and spawns no agent session. The adapter layer is the skill text plus the agent definitions; `kf install` only puts them where each runtime looks.

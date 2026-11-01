@@ -25,17 +25,17 @@ describe("task harness surfaces", () => {
     expect(plan).toContain("worktree.enabled");
   });
 
-  it("kanban-implement has a task-worker mode and no runtime agent choice", () => {
+  it("kanban-implement runs the in-session loop and has no task-worker mode or runtime agent choice", () => {
     const impl = read("skills", "kanban-implement", "SKILL.md");
-    expect(impl).toMatch(/Task worker/);
+    expect(impl).not.toMatch(/Task worker/);
+    expect(impl).not.toContain("kf drive {feature_name}");
     expect(impl).toContain("TASK-###");
-    expect(impl).toContain("kf drive");
     expect(impl).not.toContain("Pick the agent that fits");
   });
 
-  it("kanban-flow checks worktrees at the start decision and hands off to kf drive", () => {
+  it("kanban-flow checks worktrees at the start decision and hands off to no drive", () => {
     const flow = read("skills", "kanban-flow", "SKILL.md");
-    expect(flow).toContain("kf drive");
+    expect(flow).not.toMatch(/`kf drive <f>`|kf drive when/);
     expect(flow).toContain("worktree.enabled");
   });
 });

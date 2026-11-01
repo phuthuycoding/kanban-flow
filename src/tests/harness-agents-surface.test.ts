@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
@@ -20,11 +20,6 @@ function slice(text: string, from: string, to: string): string {
 }
 
 const taskLoop = () => slice(implement(), "\n## 3.", "\n## 4.");
-
-const STAGE_WORKER_PARAGRAPH =
-  "**Invoked through `kf run` as the stage worker?** If your prompt starts with `kf-run:<id>` **without** a `TASK-###` token, you are the controller for this stage only: skip the \"move to stage\" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, never push, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. You run section 3's task loop when your runtime offers subagents; **the only commits in a stage worker's session are the ones that loop prescribes** — one per task on the item branch, made by the implementer it dispatches. You commit nothing yourself outside that loop.";
-const TASK_WORKER_PARAGRAPH =
-  "**Task worker:** if your prompt starts with `kf-run:<id> TASK-###`, you implement exactly that one task and nothing else — you are the implementer, not the controller. Only touch files in its allowlist; if you need another file, stop with `STATUS: BLOCKED` and say which file and why. Do not edit tasks.md, do not commit (kf commits, merges and verifies), never dispatch a subagent, and end with the STATUS lines above. Follow the TDD and self-review rules of `references/implementer-brief.md`.";
 
 describe("the task loop seats", () => {
   it("dispatches the test-writer, then the developer, then the code-reviewer, each from its own brief", () => {
@@ -92,13 +87,50 @@ describe("the task loop seats", () => {
     expect(reference("task-loop.md")).toContain("\n## Model selection\n");
   });
 
-  it("leaves the kf run worker paragraphs and the single-implementer brief as they were", () => {
+  it("carries no stage-worker or task-worker paragraph and keeps the single-implementer brief", () => {
     const skill = implement();
-    expect(skill).toContain(`\n${STAGE_WORKER_PARAGRAPH}\n`);
-    expect(skill).toContain(`\n${TASK_WORKER_PARAGRAPH}\n`);
+    expect(skill).not.toContain("Invoked through `kf run`");
+    expect(skill).not.toContain("**Task worker:**");
+    expect(skill).not.toContain("kf-run:");
     const implementer = reference("implementer-brief.md");
     expect(implementer).toContain("subagent_type: general-purpose");
     expect(implementer).toContain("TDD is mandatory");
+  });
+
+  it("runs kf verify for the task after the developer's commit and before the code-reviewer", () => {
+    const loop = slice(taskLoop(), "\n### 3.2", "\n### 3.4");
+    const verify = loop.indexOf("kf verify <f> --task");
+    expect(verify, "kf verify <f> --task").toBeGreaterThanOrEqual(0);
+    expect(verify).toBeGreaterThan(loop.indexOf("`Agent(developer)`"));
+    expect(verify).toBeLessThan(loop.indexOf("`Agent(code-reviewer)`"));
+    expect(loop).toContain("--base <BASE>");
+  });
+
+  it("maps kf verify exit 2 to a plan change, exit 1 to a fix round and exit 3 to a corrected call", () => {
+    const loop = taskLoop();
+    expect(loop).toMatch(/exit 2[^\n]*stop[^\n]*(edit|fix)[^\n]*Files[^\n]*re-approve/i);
+    expect(loop).toMatch(/exit 1[^\n]*developer[^\n]*fix round/i);
+    expect(loop).toMatch(/exit 3[^\n]*(fix|correct)[^\n]*re-run[^\n]*never a fix round/i);
+  });
+
+  it("names kf verify --stage in place of the hand-run build gate when harness.verify.stage is configured", () => {
+    const gate = slice(implement(), "\n## 4.", "\n## References");
+    expect(gate).toContain("kf verify <f> --stage");
+    expect(gate).toContain("harness.verify.stage");
+    expect(gate).toContain("{build_command}");
+  });
+
+  it("has no hand-off section to a drive or to assigned roles", () => {
+    const skill = implement();
+    expect(skill).not.toContain("assignedRoles");
+    expect(skill).not.toContain("## 2. Hand off to the harness");
+    expect(skill).not.toMatch(/--accept-config|plan_change_needed|usage_limit/);
+  });
+
+  it("leaves the task loop reference without a Role line", () => {
+    const loop = reference("task-loop.md");
+    expect(loop).not.toMatch(/`Role` column/);
+    expect(loop).not.toMatch(/Under `kf drive`/);
   });
 
   it("hands the test-writer only unit and integration cases and wants each test failing for the right reason", () => {
@@ -200,7 +232,7 @@ describe("the testing stage dispatch", () => {
   it("has the in-session controller commit the testing-stage specs before the testing report", () => {
     const text = section();
     expect(text).toContain("the in-session controller commits the automation-writer's spec files unchanged in one commit on the item branch before writing the testing report");
-    expect(text).toContain("A `kf run` worker does not commit");
+    expect(text).not.toContain("A `kf run` worker");
     expect(agentBody("automation-writer")).toContain("the in-session testing controller commits your spec files unchanged in one commit on the item branch before the testing report");
     expect(read("docs", "workflow", "harness.md")).toContain("committed unchanged by the developer in the task loop and by the in-session controller at the testing stage");
   });
@@ -252,5 +284,45 @@ describe("the documentation surfaces", () => {
       expect(text, surface.join("/")).toContain("test-writer");
       expect(text, surface.join("/")).toContain("developer");
     }
+  });
+});
+
+describe("the skills tree after the runner and drive removal", () => {
+  const skillsRoot = join(PKG_ROOT, "skills");
+  function files(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === "travel" ? [] : files(full);
+      return /\.(md|sh)$/.test(entry.name) || !entry.name.includes(".") ? [full] : [];
+    });
+  }
+  const lines = () => files(skillsRoot).flatMap((file) => readFileSync(file, "utf8").split("\n").map((text, i) => ({ where: `${file.slice(skillsRoot.length + 1)}:${i + 1}`, text })));
+
+  it("carries no kf-run worker marker and no assignedRoles check outside travel", () => {
+    const hits = lines().filter((l) => /kf-run:|assignedRoles/.test(l.text)).map((l) => l.where);
+    expect(hits).toEqual([]);
+  });
+
+  it("names kf drive, kf run, kf runs and kf harness only to say they were removed", () => {
+    const hits = lines()
+      .filter((l) => /\bkf (drive|run|runs|harness)\b/.test(l.text) && !/removed/i.test(l.text))
+      .map((l) => l.where);
+    expect(hits).toEqual([]);
+  });
+
+  it("describes only in-session agents in the multi-agent harness section", () => {
+    const section = slice(read("skills", "kanban-flow", "SKILL.md"), "\n## Multi-agent harness", "\n## ");
+    expect(section).not.toMatch(/runner|headless|harness\.(stages|roles|runners)/i);
+    expect(section).toContain("Agent(");
+    expect(read("skills", "kanban-flow", "references", "harness-tools.md")).not.toMatch(/runner/i);
+  });
+
+  it("says a review without a subagent tool cannot complete and the human is told, without kf run", () => {
+    const review = read("skills", "kanban-review", "SKILL.md");
+    const fallback = review.split("\n").find((line) => line.includes("no subagent tool at all"));
+    expect(fallback, "fallback paragraph").toBeDefined();
+    expect(fallback).toMatch(/cannot complete/);
+    expect(fallback).toMatch(/tell the human/i);
+    expect(fallback).not.toMatch(/kf run|--role reviewer|harness\.stages/);
   });
 });

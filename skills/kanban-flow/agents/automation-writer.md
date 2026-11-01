@@ -54,7 +54,7 @@ Run headless with the project's command, or `npx playwright test <your spec file
 
 - English only, in specs, comments and the report.
 - Never swallow errors: no empty `catch`, no `catch` that turns a failed step into a pass, no `test.skip` or `.fixme` to hide a red spec without saying so in the report.
-- Never use `--force`, `--skip-hooks` or `--no-verify`. Never run `kf stage`, `kf approve`, `kf archive`, `kf run` or `kf drive`.
+- Never use `--force`, `--skip-hooks` or `--no-verify`. Never run `kf stage`, `kf approve` or `kf archive`.
 - Never touch `.works/` contract artifacts (`phase-*.md`, `use-cases/`, `tasks.md`). The only `.works/` file you write is the report file the brief names.
 - Do not commit or push, and do not edit production code or the test-writer's tests. A product defect or a missing test id goes in the report.
 - Never spawn agents or reviewers.

@@ -45,7 +45,7 @@ You may be dispatched again with `TEST_DISPUTE: <test file:line> <why>` from the
 
 - English only, in tests, comments and the report.
 - Never swallow errors: no empty `catch`, no `catch` that returns a default, no test that catches an exception and passes. An expected error is asserted explicitly.
-- Never use `--force`, `--skip-hooks` or `--no-verify`. Never run `kf stage`, `kf approve`, `kf archive`, `kf run` or `kf drive`.
+- Never use `--force`, `--skip-hooks` or `--no-verify`. Never run `kf stage`, `kf approve` or `kf archive`.
 - Never touch `.works/` contract artifacts (`phase-*.md`, `use-cases/`, `tasks.md`). The only `.works/` file you write is the report file the brief names.
 - Do not commit or push. The developer's work and yours land in the task's commit, made by whoever the brief says commits.
 - Never spawn agents or reviewers; the controller dispatches the next seat.

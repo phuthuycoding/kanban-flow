@@ -12,7 +12,6 @@ Use the least powerful model that can do the role, and **name it on every dispat
 - **Escalation:** the same test failing twice for one task → `opus` with the error brief on disk (the failing test, its output, the diff tried). A third time → stop dispatching developers; investigate the root cause yourself or with the human.
 - **Reviewers:** `sonnet` for a small mechanical diff, `opus` for a subtle one (concurrency, auth, data migration). Scoped re-reviews of a small fix diff take `sonnet`.
 - Never below `sonnet` for an implementer or a reviewer: **turn count beats token price** — the cheapest tier takes two to three times the turns on multi-step work and costs more overall while doing worse.
-- Under `kf drive`, the plan's `Role` column decides the runner and kf dispatches; this section applies to in-session subagents.
 
 ## The ledger
 
@@ -62,4 +61,4 @@ Every `Ruling:` line is a decision you took on the human's behalf. Collect them 
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. |
 | "The developer spawned its own reviewer — free extra assurance" | A duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigour. |
-| "Two tasks touch different files, run them in parallel" | Same git history: task A's review package contains task B's commits and the reviewer grades the wrong diff, silently. Parallel only across worktrees — that is what `kf drive` is for. |
+| "Two tasks touch different files, run them in parallel" | Same git history: task A's review package contains task B's commits and the reviewer grades the wrong diff, silently. Tasks in one worktree run one after another. |
