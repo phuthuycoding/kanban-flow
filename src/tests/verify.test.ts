@@ -253,6 +253,37 @@ describe("kf verify --task without a worktree", () => {
   });
 });
 
+describe("kf verify --task with non-ASCII and spaced paths", () => {
+  beforeEach(async () => {
+    item = await makeItem({ files: "src/", worktree: true });
+  });
+
+  it("passes files inside the allowlist whose names are non-ASCII or contain a space", async () => {
+    const base = item.head();
+    await item.commit({ "src/ä.ts": "a", "src/with space.ts": "b" });
+    await item.configure({ task: [touch(item.marker)] });
+
+    const res = item.kf("verify", "f", "--task", "TASK-001", "--base", base);
+
+    expect(res.code).toBe(0);
+    expect(existsSync(item.marker)).toBe(true);
+  });
+
+  it("prints the real, unquoted name of an outside file", async () => {
+    const base = item.head();
+    await item.commit({ "src/ok.ts": "a", "other/ü x.ts": "b" });
+    await item.configure({ task: [touch(item.marker)] });
+
+    const res = item.kf("verify", "f", "--task", "TASK-001", "--base", base);
+
+    expect(res.code).toBe(2);
+    expect(res.out).toContain("other/ü x.ts");
+    expect(res.out).not.toContain('"');
+    expect(res.out).not.toContain("\\303");
+    expect(existsSync(item.marker)).toBe(false);
+  });
+});
+
 describe("kf verify --task with unknown files", () => {
   beforeEach(async () => {
     item = await makeItem({ files: "-", worktree: true });
