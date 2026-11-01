@@ -186,8 +186,8 @@ describe("taskView", () => {
       "| TASK-002 | b | TASK-001 | ghost | - |",
     ], ROLE_HEADER)))!;
     expect(taskView(f)).toEqual([
-      { id: "TASK-001", description: "a", dependencies: [], files: ["a.ts"], wave: 1 },
-      { id: "TASK-002", description: "b", dependencies: ["TASK-001"], files: null, wave: 2 },
+      { id: "TASK-001", description: "a", dependencies: [], files: ["a.ts"], wave: 1, overlaps: [{ task: "TASK-002", entries: null }] },
+      { id: "TASK-002", description: "b", dependencies: ["TASK-001"], files: null, wave: 2, overlaps: [{ task: "TASK-001", entries: null }] },
     ]);
   });
 });

@@ -145,3 +145,38 @@ describe("kf tasks", () => {
     expect(res).toMatchObject({ code: 0, stdout: "No planned tasks." });
   });
 });
+
+describe("kf tasks overlaps", () => {
+  const overlapPlan: PlanTask[] = [
+    { id: "TASK-001", files: ["src/a.ts"] },
+    { id: "TASK-002", files: ["src/b.ts"] },
+    { id: "TASK-003", files: ["src/"] },
+    { id: "TASK-004" },
+  ];
+
+  it("lists every other task whose files are not disjoint, with the first overlapping entry pair", async () => {
+    await writePlan(overlapPlan);
+    const out = JSON.parse((await cmdTasks(args({ json: true }), root)).stdout) as { tasks: Array<{ id: string; overlaps: Array<{ task: string; entries: [string, string] | null }> }> };
+    expect(out.tasks.map((t) => [t.id, t.overlaps.map((o) => o.task)])).toEqual([
+      ["TASK-001", ["TASK-003", "TASK-004"]],
+      ["TASK-002", ["TASK-003", "TASK-004"]],
+      ["TASK-003", ["TASK-001", "TASK-002", "TASK-004"]],
+      ["TASK-004", ["TASK-001", "TASK-002", "TASK-003"]],
+    ]);
+    expect(out.tasks[0].overlaps[0].entries).toEqual(["src/a.ts", "src/"]);
+    expect(out.tasks[0].overlaps[1].entries).toBeNull();
+    expect(out.tasks[1].overlaps[1].entries).toBeNull();
+    expect(out.tasks[2].overlaps[0].entries).toEqual(["src/", "src/a.ts"]);
+    for (const o of out.tasks[3].overlaps) expect(o.entries).toBeNull();
+  });
+
+  it("keeps the text rows free of overlaps", async () => {
+    await writePlan(overlapPlan);
+    const res = await cmdTasks(args(), root);
+    expect(res.stdout).not.toContain("overlap");
+    const lines = res.stdout.split("\n");
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toMatch(/^TASK-001 +wave 1 +\w+ +deps: - +files: src\/a\.ts$/);
+    expect(lines[3]).toMatch(/^TASK-004 +wave 1 +\w+ +deps: - +files: files unknown$/);
+  });
+});
