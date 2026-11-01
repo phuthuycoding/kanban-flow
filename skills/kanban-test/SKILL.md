@@ -29,7 +29,7 @@ Every entry to testing creates a new execution id. Keep old reports as evidence,
 
 ## 2. Run against the plan's test cases
 
-Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests / Tools / Coverage Target) — it was committed in the approved plan. Detect the real test tooling from the repo. Execute exactly what the level promises: `unit` → unit suite; `unit+integration` → + integration; `full` → + UI/E2E suite (Playwright/Cypress/...). If `full` and the UI tests are missing or skipped, that's a gap — report it, don't fake coverage.
+Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests / Tools / Coverage Target) — it was committed in the approved plan. Detect the real test tooling from the repo. Execute exactly what the level promises: `unit` → unit suite; `unit+integration` → + integration; `full` → + UI/E2E suite (Playwright/Cypress/...). Under `full`, when the UI/E2E suite is missing or a UI test case has no spec, dispatch `Agent(automation-writer)` with `../kanban-implement/references/automation-writer-brief.md` (Test Strategy, the UI test cases, the worktree and the domain or fallback URL from `kf status`), then run what it wrote. The Playwright MCP is for selector discovery only, one agent at a time; the evidence is the headless run. Put each `npx playwright test` row in `## Commands and Evidence` with its real exit code — a non-zero row means the report is not PASS (`kf validate` rejects it). If the suite is still missing after the run, or the tests are skipped, that's a gap — report it, don't fake coverage.
 
 Track TC-by-TC: Status / Actual / Expected / Tool / Evidence.
 

@@ -7,6 +7,7 @@ import { PKG_ROOT } from "../shared/paths.js";
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
 const implement = () => read("skills", "kanban-implement", "SKILL.md");
 const reference = (name: string) => read("skills", "kanban-implement", "references", name);
+const testing = () => read("skills", "kanban-test", "SKILL.md");
 const agentBody = (name: string) => read("skills", "kanban-flow", "agents", `${name}.md`);
 
 /** The text between a heading that starts with `from` and the next heading that starts with `to`. */
@@ -141,5 +142,30 @@ describe("the task loop seats", () => {
     expect(loop).toContain("A test-writer `NEEDS_CONTEXT` for a TC with no concrete expected value");
     expect(loop).toContain("never goes to the developer");
     expect(loop).toContain("the Unit TCs go to the test-writer and the UI TCs to the automation-writer; neither edits the other's files");
+  });
+});
+
+describe("the testing stage dispatch", () => {
+  const section = () => slice(testing(), "\n## 2.", "\n## 3.");
+
+  it("dispatches the automation-writer under the full level when the UI suite or a UI spec is missing", () => {
+    const text = section();
+    expect(text).toContain("`Agent(automation-writer)`");
+    expect(text).toContain("`../kanban-implement/references/automation-writer-brief.md`");
+    expect(text).toContain("`full`");
+    expect(text).toContain("a UI test case has no spec");
+    expect(text).toContain("still missing after the run, or the tests are skipped, that's a gap");
+  });
+
+  it("records the playwright rows with real exit codes and refuses a PASS on a non-zero row", () => {
+    const text = section();
+    expect(text).toContain("`## Commands and Evidence`");
+    expect(text).toContain("`npx playwright test`");
+    expect(text).toContain("real exit code");
+    expect(text).toContain("non-zero row means the report is not PASS");
+  });
+
+  it("limits the Playwright MCP to selector discovery, one agent at a time", () => {
+    expect(section()).toMatch(/the Playwright MCP is for selector discovery only, one agent at a time/i);
   });
 });
