@@ -131,9 +131,10 @@ runGit(["add", "--", ...paths]);
 runGit(["commit", "-m", message, "--", ...paths]);
 // HEAD may already have moved on (a hook, another seat), so read the commit this call made by its paths.
 const [sha, subject] = runGit(["log", "-1", "--format=%H%n%s", "--", ...paths]).stdout.trim().split("\n");
-const expected = message.trim().split(/\n\s*\n/)[0].split("\n").map((l) => l.trim()).join(" ");
-if (subject !== expected) {
-  process.stderr.write("BLOCKED: commit sha could not be confirmed\n");
+const collapse = (text) => text.replace(/\s+/g, " ").trim();
+const expected = collapse(message.trim().split(/\n\s*\n/)[0]);
+if (collapse(subject) !== expected) {
+  process.stderr.write(`BLOCKED: commit ${sha} made but its sha could not be confirmed against the message; check git log\n`);
   process.exit(4);
 }
 process.stdout.write(`${sha}\n`);

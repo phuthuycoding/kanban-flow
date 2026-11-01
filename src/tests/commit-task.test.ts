@@ -165,6 +165,24 @@ describe("commit-task.mjs", () => {
       expect(r.stdout.trim()).not.toBe(git("rev-parse", "HEAD"));
       expect(git("log", "-1", "--format=%s", own)).toBe("task A");
     });
+
+    it("prints HEAD's sha for a message that starts with a space", async () => {
+      await writeFile(join(repo, "mine.txt"), "changed\n");
+
+      const r = run(["-m", " lead space", "--allow", "mine.txt", "--", "mine.txt"]);
+
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe(git("rev-parse", "HEAD"));
+    });
+
+    it("prints HEAD's sha for a multi-line message with an indented continuation line and a body", async () => {
+      await writeFile(join(repo, "mine.txt"), "changed\n");
+
+      const r = run(["-m", "fix: a\n  indented cont\n\nbody", "--allow", "mine.txt", "--", "mine.txt"]);
+
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe(git("rev-parse", "HEAD"));
+    });
   });
 
   describe("allowlist decision matches the shared matcher", () => {
