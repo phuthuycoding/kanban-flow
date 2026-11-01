@@ -39,9 +39,10 @@ Agent:
     commit on [BRANCH], message in the repository's convention, no attribution trailers.
     Commit by path, naming exactly the paths you changed or were handed, so no spec file lands in it:
     `node <skills dir>/kanban-implement/scripts/commit-task.mjs -m <message> --allow <entry> … -- <paths>`,
-    with one `--allow` per entry of [FILES] and [TEST_FILES] (plus [SPEC_FILES] for the spec commit).
+    with one `--allow` per entry of [FILES] and [TEST_FILES] (plus [SPEC_FILES] for the spec commit). A task whose [FILES] is `.` (the plan's Files is `-`, unknown) is committed with `--allow .`.
+    Run the script from the repository root (the worktree root), never a subdirectory.
     Other seats' staged or unstaged paths are not your concern.
-    On any non-zero exit of the script — exit 4 or 5 (a path outside the allowlist, or `index.lock` still held), 2 (bad usage), 1 (no dist build) or git's own status → `BLOCKED` quoting its output, no commit; never delete the lock.
+    On any non-zero exit of the script — exit 4 or 5 (4: a path outside the allowlist, a bad path — absolute, `..`, leading `:` or a backslash —, an empty `--allow`, the script run from a subdirectory instead of the repository root, or a commit sha it could not confirm; 5: `index.lock` still held), 2 (bad usage) or git's own status → `BLOCKED` quoting its output, no commit; never delete the lock.
     The same holds for every commit you make, fix rounds included. Never push.
     `git add -- <paths>` and `git commit -m <msg> -- <paths>` run only through the script, for paths inside
     the allowlist; a raw git commit as a fallback is forbidden. While another seat is in flight, they are

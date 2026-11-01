@@ -418,6 +418,30 @@ describe("binding phrases of the parallel loop", () => {
   });
 });
 
+describe("committing a task whose Files are unknown, and the commit script's exit codes", () => {
+  const dotAllow = /--allow `?\.`?(?![\w./-])/;
+
+  it("tells the controller a task with unknown Files is committed with --allow .", () => {
+    expect(implement()).toMatch(dotAllow);
+  });
+
+  it("tells the developer a task with unknown Files is committed with --allow .", () => {
+    expect(reference("developer-brief.md")).toMatch(dotAllow);
+    expect(developerStep(7)).toMatch(dotAllow);
+  });
+
+  // The script has no dist-build exit, so listing one misleads a developer reading the exit codes.
+  it("does not list a missing dist build among the commit script's exit codes", () => {
+    expect(reference("developer-brief.md")).not.toContain("no dist build");
+    expect(developerAgent()).not.toContain("no dist build");
+  });
+
+  it("tells the developer to run the commit script from the repository root", () => {
+    expect(reference("developer-brief.md")).toContain("repository root");
+    expect(developerAgent()).toContain("repository root");
+  });
+});
+
 describe("same-wave developers follow the dispatch conditions", () => {
   it("keeps same-wave developers under the dispatch conditions, not a one-developer rule", () => {
     const wave = paragraphWith(taskLoop(), "wave <w>: parallel test-writers");
