@@ -83,8 +83,9 @@ export function verifyTask(root: string, feature: Feature, taskId: string, base:
   if (task.files === null) {
     lines.push(`${task.id} has no Files: allowlist check skipped.`);
   } else {
-    const diff = runGit(dir, ["diff", "--name-only", `${base}..HEAD`]);
-    if (diff.code !== 0) throw new Error(`git diff --name-only ${base}..HEAD failed in ${dir}: ${diff.stderr.trim()}`);
+    // --no-renames lists a rename as a delete plus an add, so the old path is checked against Files too.
+    const diff = runGit(dir, ["diff", "--name-only", "--no-renames", `${base}..HEAD`]);
+    if (diff.code !== 0) throw new Error(`git diff --name-only --no-renames ${base}..HEAD failed in ${dir}: ${diff.stderr.trim()}`);
     const outside = diff.stdout.split("\n").map((f) => f.trim()).filter((f) => f !== "" && !pathAllowed(f, task.files!));
     if (outside.length > 0) {
       lines.push(`${outside.length} file(s) outside ${task.id}'s Files:`, ...outside.map((f) => `  ${f}`));

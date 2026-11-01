@@ -139,6 +139,20 @@ describe("kf verify --task", () => {
     expect(existsSync(item.marker)).toBe(false);
   });
 
+  it("exits 2 naming the old path when a file is renamed from outside the task's files into them", async () => {
+    await item.commit({ "src/outside.ts": "moved" });
+    const base = item.head();
+    gitIn(item.dir, "mv", "src/outside.ts", "src/a.ts");
+    gitIn(item.dir, "commit", "-qm", "rename into the allowlist");
+    await item.configure({ task: [touch(item.marker)] });
+
+    const res = item.kf("verify", "f", "--task", "TASK-001", "--base", base);
+
+    expect(res.code).toBe(2);
+    expect(res.out).toContain("src/outside.ts");
+    expect(existsSync(item.marker)).toBe(false);
+  });
+
   it("exits 1 naming the first failing command and its exit code, then 0 once it is removed", async () => {
     const base = item.head();
     await item.commit({ "src/a.ts": "a" });
