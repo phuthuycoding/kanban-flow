@@ -17,20 +17,54 @@ Use the least powerful model that can do the role, and **name it on every dispat
 
 Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/loop/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection.
 
-Lines, in order of appearance:
+Every line after the header ends with ` @ <ISO-8601 timestamp with offset>` — the moment the line was written, e.g. ` @ 2026-11-01T18:41:26+07:00` — and a line gets exactly one suffix, never a second suffix. The suffix comes last so the `TASK-NNN:` that travel and the resume rule read stays first.
+
+The lines `kf loop-stats` reads follow one grammar:
+
+```
+TASK-NNN: <seat> dispatched model=<model>[ round=<R>][ cascade=<sha7>] @ <ts>
+TASK-NNN: <seat> done status=<STATUS> @ <ts>
+TASK-NNN: verify started @ <ts>
+TASK-NNN: verify done exit=<n> @ <ts>
+TASK-NNN: developer waits — <reason> @ <ts>
+TASK-NNN: fix queued — developer TASK-MMM in flight @ <ts>
+TASK-NNN: fix round <R>/5 (…) @ <ts>
+TASK-NNN: cascade re-review owed — after <sha7> of TASK-MMM @ <ts>
+TASK-NNN: complete (…) @ <ts>
+```
+
+`<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase — the queued fix is `fix queued`.
+
+One example of each shape — in the grammar's order, from different points of one loop — then a ruling and a hashes line:
+
+```ledger-example
+TASK-001: developer dispatched model=sonnet @ 2026-11-01T18:41:26+07:00
+TASK-001: developer done status=DONE @ 2026-11-01T19:02:10+07:00
+TASK-001: verify started @ 2026-11-01T19:02:40+07:00
+TASK-001: verify done exit=0 @ 2026-11-01T19:04:05+07:00
+TASK-002: developer waits — Files overlap src/cli/args.ts / src/cli/args.ts @ 2026-11-01T19:04:30+07:00
+TASK-003: fix queued — developer TASK-004 in flight @ 2026-11-01T20:15:12+07:00
+TASK-003: fix round 1/5 (1 addressed, 0 open — empty list rejected; commits d4e5f6a) @ 2026-11-01T20:31:48+07:00
+TASK-004: cascade re-review owed — after d4e5f6a of TASK-003 @ 2026-11-01T20:31:55+07:00
+TASK-003: complete (commits a1b2c3d,d4e5f6a, review clean) @ 2026-11-01T20:40:02+07:00
+Ruling: the empty commit list exits 3, not 1 — the requirement calls it bad input — cost if wrong: one re-run @ 2026-11-01T20:41:10+07:00
+TASK-001: test hashes src/tests/verify.test.ts=72d245a130481dcd4de1129b37d039ebf1371023 @ 2026-11-01T20:42:30+07:00
+```
+
+The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes:
 
 ```
 # Task loop ledger — <feature> — plan: <abs path>
-Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...>
-Ruling: <decision> — <why> — <cost if wrong>
-TASK-002: no test-writer — <why>
-TASK-001: test hashes <file>=<sha> … (again after every test-writer change; the latest line is the baseline)
-TASK-001: test dispute <file:line> — <fixed | kept, Ruling | stopped>
-TASK-001: fix round 1/5 (2 addressed, 1 open — <one-liner>; commits a1b2c3d..d4e5f6a)
-TASK-001: minor (deferred): <one-liner>
-TASK-001: parked — <finding> — Ruling: <why>
-TASK-001: complete (commits a1b2c3d..9f8e7d6, review clean)
+Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...> @ <ts>
+Ruling: <decision> — <why> — <cost if wrong> @ <ts>
+TASK-002: no test-writer — <why> @ <ts>
+TASK-001: test hashes <file>=<sha> … @ <ts>
+TASK-001: test dispute <file:line> — <fixed | kept, Ruling | stopped> @ <ts>
+TASK-001: minor (deferred): <one-liner> @ <ts>
+TASK-001: parked — <finding> — Ruling: <why> @ <ts>
 ```
+
+A new `test hashes` line follows every test-writer change; the latest one is the baseline.
 
 When `.works/` is gitignored (the default `kf init` answer), the ledger travels with the item, not the branch; `kf archive` moves it with the item folder either way.
 

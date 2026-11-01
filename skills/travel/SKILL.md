@@ -67,7 +67,7 @@ Rewrite the previous section's unfinished lines as `carry-over` (if the morning 
 
 Each **tick**:
 
-1. **Collect** the seats that reported since the last tick (background notifications). For each, read the item's `loop/progress.md` and act as the item's phase skill says: the next task, the `kf verify` gate, the review, the fix loop. Advance every item whose seat reported; add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`, on its `.kf/travel/progress.md` line, dispatch the next seat of each in the background, then move on to another item while it runs. Never wait on one item's seat while another item has work to do.
+1. **Collect** the seats that reported since the last tick (background notifications). For each, read the item's `loop/progress.md` and act as the item's phase skill says: the next task, the `kf verify` gate, the review, the fix loop. Advance every item whose seat reported; add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`, on its `.kf/travel/progress.md` line, except an implementation-phase seat when the item's ledger has timestamped seat lines, whose minutes `measure` takes from `kf loop-stats` (§6); dispatch the next seat of each in the background, then move on to another item while it runs. Never wait on one item's seat while another item has work to do.
 2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done`, then measure (§6).
 3. **Refill**: while started items < `slots=N`, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once. Start an item by creating or entering its worktree (`kf status --change <f> --json` → `worktree.path`) and running the phase skill for its current stage, exactly as a `kanban-flow` session would; the line becomes `driving`.
 4. **Print the progress block** (below) — every tick, even when every slot is full.
@@ -75,7 +75,7 @@ Each **tick**:
 
 **End of day** when the human says stop, or nothing is `driving` and nothing `queued` is dispatchable: §6.
 
-**Resume after compaction.** Read `.kf/travel/progress.md` first (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md` for the task, round and seat it was at. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there, and re-dispatches only the seat the item's ledger shows unfinished.
+**Resume after compaction.** Read `.kf/travel/progress.md` first (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read as kanban-implement's resume rule reads them. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
 
 ### Line states
 
@@ -135,6 +135,7 @@ node <skill dir>/scripts/estimates measure --file .kf/travel/estimates.md --id <
 ```
 
 `--est` is the line's `est0`, not today's re-size, so est and actual both cover the whole item.
+For the implementation phase, `--work` and `--review` take that phase's minutes from `kf loop-stats <f> --json` when the item's ledger has timestamped seat lines — `--work` its `seatMinutes` (seat minutes, verify excluded), `--review` its `seats["code-reviewer"].sum` (code-reviewer minutes) — added to the line's `work=<n>` and `review=<n>`, and from seat notifications otherwise; the testing and review phases keep the notification source, summed on the line as §3 step 1 says.
 A line cancelled or restarted from scratch gets the same call with `--cancelled` (`actual -`, excluded from stats).
 
 **End of day:** print

@@ -37,7 +37,21 @@ Read the approved plan once: `kf tasks {feature_name} --json` gives the task gra
 
 **Seats, in this order.** Each task gets `Agent(test-writer)`, which writes the failing tests from the task's test cases; then `Agent(developer)`, which makes them pass and commits the task; then `Agent(code-reviewer)`, which reviews the task's diff. Whoever writes a file owns it: the developer never edits the test-writer's tests, and neither of them edits the automation-writer's specs. The agent bodies live in `<skills dir>/kanban-flow/agents/<name>.md`; when a seat's agent is not registered, a general-purpose subagent stands in with that body pasted first and `stand-in: general-purpose` written in the ledger line.
 
-**Ledger first.** The item folder holds this item's loop artifacts under `<item>/loop/`: `progress.md` (the ledger, first line `# Task loop ledger — <feature> — plan: <abs plan path>`), `task-NNN-brief.md`, `task-NNN-tests-report.md`, `task-NNN-report.md`, `task-NNN-e2e-report.md`, `review-<first7>..<last7>.diff`. **Resume from the ledger**: a `TASK-NNN: complete` line is never re-dispatched; a task whose last line is a fix round resumes at the next round. Conversation memory does not survive compaction; the ledger and `git log` do.
+**Ledger first.** The item folder holds this item's loop artifacts under `<item>/loop/`: `progress.md` (the ledger, first line `# Task loop ledger — <feature> — plan: <abs plan path>`), `task-NNN-brief.md`, `task-NNN-tests-report.md`, `task-NNN-report.md`, `task-NNN-e2e-report.md`, `review-<first7>..<last7>.diff`. Every ledger line after the header ends with ` @ <ISO-8601 timestamp with offset>`, once; the lines `kf loop-stats` reads follow the grammar in `references/task-loop.md` § The ledger, and the lines quoted below omit the suffix. Conversation memory does not survive compaction; the ledger and `git log` do.
+
+**Resume from the ledger.** After compaction or in a new session, rebuild the state of only the head task H and the next task X — the two earliest incomplete tasks; later tasks are not touched — from their ledger lines and `git log`, and resume each at its first unmet step, checked in this order. A task with a `complete` line is never re-dispatched.
+
+1. No `test-writer dispatched` and no `no test-writer` line → dispatch the test-writer (for X, when developer H starts, as the pipelining rule says).
+2. `test-writer dispatched` without its `test-writer done` → re-dispatch the test-writer.
+3. No `developer dispatched` → dispatch the developer under the pipelining gates — for X, only once H's last task commit has landed and their Files are disjoint, else wait for `TASK-H: complete` — queued behind any developer in flight.
+4. `developer dispatched` without its `developer done` → re-dispatch the developer.
+5. No `verify started` after the task's last commit → build the review package, start `kf verify` and dispatch the code-reviewer (3.2).
+6. `verify started` without its `verify done` → re-run `kf verify`.
+7. No `code-reviewer dispatched` after the task's last commit, or one without its `code-reviewer done` → dispatch the code-reviewer.
+8. A latest review `code-reviewer done status=findings`, or a latest `verify done exit=1` the task keeps (3.2), with no `developer dispatched` and no `fix queued` after it → below the five-round cap, the next fix round (round R+1), queued behind any developer in flight; at the cap, the breaker (3.4: park with rulings).
+9. `fix queued` with no later `developer dispatched` → re-queue the fix.
+10. A `cascade re-review owed` line without its answering `code-reviewer done` (matched by its sha7) → dispatch that re-review.
+11. Otherwise → the completion check (3.5). Completion is earned from the ledger, never inferred from the absence of open seats: `developer done`, `verify done exit=0` after the task's last commit (or the routed case of 3.2), and a clean review — `code-reviewer done status=clean`, or every open finding parked at the cap — with no cascade line unanswered.
 
 **Pre-Task-1 conflict scan.** Before the first dispatch, scan the plan for tasks that contradict each other or the Global Constraints, and for anything the plan mandates that the review rubric treats as a defect. Write the table to the ledger with a `Ruling:` per row — the requirement is binding, the plan is its argument. A clean scan is a table with no rows, not a sentence.
 
@@ -101,7 +115,7 @@ A round is one fix dispatch plus one scoped re-review. **Five rounds maximum per
 - **Rounds 4–5 dispatch a fresh developer one tier up**, with the brief path, the report path, the open findings and the framing "a prior developer attempted this N times; you own it now".
 - **Findings about a test go to the test-writer** (a spec's to the automation-writer): resume it with those findings verbatim; it fixes the test against the TC, re-runs it and appends a fix report to its report file. Then re-run `git hash-object` on the changed test files and ledger a new `TASK-NNN: test hashes` line before resuming the developer to commit the fixed test unchanged. The round counts the same as a code round.
 - **The re-review is scoped:** `review-package --commits <fix sha>[,<fix sha>…]` over the round's fix commits, `FIX_BASE` being the head the previous review saw, dispatched with `references/re-review-brief.md`. Each finding comes back ADDRESSED or NOT ADDRESSED; new breakage in the fix diff joins the open list; out-of-scope observations become deferred minors.
-- After each round append `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>..<b7>)`.
+- After each round append `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…)`, listing the round's fix commits.
 
 **The cascade re-review.** A fix round of H that commits after developer X was dispatched owes X a scoped re-review of X's own commits after X's review, with H's fix diff in the re-review brief's `[CASCADE_FIX_DIFF]`. No file check decides it: every such fix triggers it. Ledger `TASK-X: cascade re-review owed — after <sha7> of TASK-H`; dispatch it as `TASK-X: code-reviewer dispatched model=<m> round=<R> cascade=<sha7>`, and its `done` line answers it. Each `cascade re-review owed` line is answered by its own re-review, matched by its sha7. X is never marked complete before H is complete or while a cascade line of X is unanswered.
 
@@ -109,7 +123,7 @@ A round is one fix dispatch plus one scoped re-review. **Five rounds maximum per
 
 ### 3.5 Complete the task
 
-H is complete when its developer is done, its latest verify is `exit=0` (or its failures were routed to X and X's next verify passed, or X parked them at its five-round cap), its latest review is `clean` or every open finding is `parked` at the five-round cap, and none of its own cascade lines is unanswered, and, for X, H is complete. Every task completes by this check; then tick the task in tasks.md and append `TASK-NNN: complete (commits <base7>..<head7>, review clean)` or `… (<K> parked)`, naming any verify failure X parked. "Review clean" certifies the diff matched the brief and the code is sound; it certifies nothing visual. A task whose deliverable is something a person looks at gets a real run before its ledger line (start the app at the item's domain or port, exercise the screen) — the plan should have flagged it.
+H is complete when its developer is done, its latest verify is `exit=0` (or its failures were routed to X and X's next verify passed, or X parked them at its five-round cap), its latest review is `clean` or every open finding is `parked` at the five-round cap, and none of its own cascade lines is unanswered, and, for X, H is complete. Every task completes by this check; then tick the task in tasks.md and append `TASK-NNN: complete (commits <a7>,<b7>,…, review clean)` or `… (<K> parked)`, listing the task's commit list, naming any verify failure X parked. "Review clean" certifies the diff matched the brief and the code is sound; it certifies nothing visual. A task whose deliverable is something a person looks at gets a real run before its ledger line (start the app at the item's domain or port, exercise the screen) — the plan should have flagged it.
 
 **No subagent tool in your runtime?** Implement task by task in the same order (brief, tests, implement, commit, ledger), but **do not fill the independent seats yourself** — a session does not grade its own work, and it never fills the test-writer and the developer seats in one session and claims them independent: tests and code written by one session are one seat. Write `TASK-NNN: implemented, test-writer seat: none, review seat: none` in the ledger and leave the review to the review stage, which then treats every task as unreviewed and reviews the whole branch at the tier the diff demands. A `complete (review clean)` line without an independent reviewer is a lie the ledger must not carry.
 
@@ -126,6 +140,8 @@ When `.kf/config.json` sets `harness.verify.stage`, `kf verify <f> --stage` repl
 - Failed again → STOP, show error, ask.
 
 When all tasks are complete, run the FULL build and the FULL suite (not just the touched module), in the worktree. Collect every ledger `Ruling:` line into your final message under "Rulings I made", each with what it costs if wrong — that list is the only place the decisions you took on the human's behalf reach them.
+
+Then run `kf loop-stats <f> --record` (it prints the item's report and appends its row to `.works/loop-metrics.md`) and `kf loop-stats --all` (it prints the history and its `largest:` line), and print the item's report and the `largest:` line in your final message beside "Rulings I made". The numbers report where the loop's time went; they change no rule of the loop.
 
 Do not modify the approved requirement, plan or test-case contract. Project-specific permissions for database operations and other external actions still apply.
 

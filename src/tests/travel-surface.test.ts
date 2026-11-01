@@ -57,8 +57,11 @@ describe("the travel skill", () => {
     expect(skill).toMatch(/a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks/);
   });
 
-  it("adds a seat's duration to work and, for a review seat, to review as well", () => {
-    expect(skill).toMatch(/add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`,/);
+  it("adds a seat's duration to work and, for a review seat, to review as well, unless the item's ledger is timestamped", () => {
+    expect(skill).toMatch(/add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`/);
+    // Implementation-phase minutes come from kf loop-stats when the ledger is timestamped, so the step must say the sum excludes them.
+    const step = skill.split("\n").find((l) => l.includes("add the seat's reported duration")) ?? "";
+    expect(step).toMatch(/timestamped/);
     expect(skill).not.toMatch(/\(`review=<n>` for a review seat\)/);
   });
 
