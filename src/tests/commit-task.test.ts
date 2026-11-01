@@ -138,6 +138,12 @@ describe("commit-task.mjs", () => {
       ["question mark matches one character", "src/a1.ts", ["src/a?.ts"]],
       ["glob matching a parent directory allows its children", "src/a/deep/x.ts", ["src/*"]],
       ["second entry matches", "docs/x.md", ["src/a", "docs"]],
+      ["backtick-wrapped entry", "src/a.ts", ["`src/a.ts`"]],
+      ["backtick-wrapped entry that does not match", "src/b.ts", ["`src/a.ts`"]],
+      ["dot-slash prefixed entry", "src/a.ts", ["./src/a.ts"]],
+      ["dot-slash prefixed entry that does not match", "src/b.ts", ["./src/a.ts"]],
+      ["double star alone", "src/x/y/a.ts", ["**"]],
+      ["single dot", "src/a.ts", ["."]],
     ];
 
     for (const [name, path, allow] of cases) {
@@ -170,6 +176,63 @@ describe("commit-task.mjs", () => {
         expect(git("rev-parse", "HEAD")).toBe(headBefore);
         expect(git("rev-list", "--count", "HEAD")).toBe("1");
         expect(git("diff", "--cached", "--name-only")).toBe("");
+      });
+    }
+  });
+
+  describe("refuses further escaping paths and degenerate allow entries", () => {
+    const pathCases: Array<[string, string]> = [
+      ["a dot-slash path that climbs out", "./../x"],
+      ["a path ending in a parent segment", "src/a/.."],
+      ["a path containing a backslash", "src\\..\\x"],
+      ["a path with a glob pathspec magic prefix", ":(glob)*"],
+    ];
+
+    for (const [name, path] of pathCases) {
+      it(`blocks ${name} without committing`, async () => {
+        await writeFile(join(repo, "other.txt"), "changed\n");
+        const headBefore = git("rev-parse", "HEAD");
+
+        const r = run(["-m", "msg", "--allow", ".", "--", path]);
+
+        expect(r.status).toBe(4);
+        expect(r.stderr).toContain("BLOCKED");
+        expect(git("rev-parse", "HEAD")).toBe(headBefore);
+        expect(git("rev-list", "--count", "HEAD")).toBe("1");
+        expect(git("diff", "--cached", "--name-only")).toBe("");
+      });
+    }
+
+    const allowCases: Array<[string, string]> = [
+      ["a whitespace-only allow entry", " "],
+      ["a backtick-only allow entry", "`"],
+      ["a dot-slash-only allow entry", "./"],
+    ];
+
+    for (const [name, allow] of allowCases) {
+      it(`blocks ${name} as an empty allow without committing`, async () => {
+        await writeFile(join(repo, "other.txt"), "changed\n");
+        const headBefore = git("rev-parse", "HEAD");
+
+        const r = run(["-m", "msg", "--allow", allow, "--", "other.txt"]);
+
+        expect(r.status).toBe(4);
+        expect(r.stderr).toContain("BLOCKED");
+        expect(git("rev-parse", "HEAD")).toBe(headBefore);
+        expect(git("rev-list", "--count", "HEAD")).toBe("1");
+        expect(git("diff", "--cached", "--name-only")).toBe("");
+      });
+    }
+
+    for (const allow of [".", "**"]) {
+      it(`still allows everything with the entry ${allow} and commits`, async () => {
+        await writeFile(join(repo, "other.txt"), "changed\n");
+
+        const r = run(["-m", "msg", "--allow", allow, "--", "other.txt"]);
+
+        expect(r.status).toBe(0);
+        expect(git("rev-list", "--count", "HEAD")).toBe("2");
+        expect(git("show", "--name-only", "--pretty=format:", "HEAD")).toBe("other.txt");
       });
     }
   });

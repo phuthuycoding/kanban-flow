@@ -69,7 +69,8 @@ function pathAllowed(path, patterns) {
 }
 
 function unsafeReason(path, allows) {
-  if (allows.some((a) => a === "")) return "cannot be checked: an --allow value is empty";
+  if (allows.some((a) => normalise(a) === "")) return "cannot be checked: an --allow value is empty";
+  if (path.includes("\\")) return "contains a backslash";
   if (path.startsWith("/")) return "is an absolute path";
   if (path.startsWith(":")) return "starts with a colon pathspec magic";
   if (path.split("/").includes("..")) return "contains a .. segment";
