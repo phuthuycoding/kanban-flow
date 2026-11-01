@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
@@ -34,11 +34,6 @@ function kf(cwd: string, ...argv: string[]): { code: number; out: string } {
 
 const gitIn = (dir: string, ...a: string[]): string =>
   execFileSync("git", ["-C", dir, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-
-beforeAll(() => {
-  // The CLI cases run dist/index.js, so it must reflect the current source.
-  execFileSync("npm", ["run", "build"], { cwd: PKG_ROOT, stdio: "pipe" });
-}, 120_000);
 
 describe("removed harness commands", () => {
   it.each([
