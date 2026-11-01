@@ -70,7 +70,7 @@ The developer writes its full report to `<item>/loop/task-NNN-report.md` and ret
   - exit 0 → `bash <kanban-review skill dir>/scripts/review-package "$BASE" HEAD <item>/loop/review-<base7>..<head7>.diff` (exit 3 "empty commit range" means it committed nothing: send it back — DONE requires a commit), then 3.3.
   - exit 2 (a changed file is outside the task's Files; the output lists them) → stop: this is a plan change — `kf stage <f> planning`, edit the plan's Files, have the human re-approve with `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`. Never a fix round.
   - exit 1 (a `harness.verify.task` command failed) → resume the developer for a fix round (3.4) with the verify output as the finding, then re-run `kf verify`.
-  - exit 3 (bad input: unknown task, `BASE` not a commit or not an ancestor, missing worktree; nothing ran) → your call is wrong: fix the call and re-run it, never a fix round.
+  - exit 3 (bad input: unknown task, `BASE` not a commit or not an ancestor, missing worktree; nothing ran) → your call is wrong: fix the call and re-run it, never a fix round. Exit 3 with `kf verify could not run: …` (an unexpected kf error) → report it to the human, not a fix round.
 - **DONE_WITH_CONCERNS** → read the concerns; correctness or scope concerns are addressed before review, observations are noted and reviewed.
 - **NEEDS_CONTEXT** → supply it, re-dispatch the same agent.
 - **BLOCKED** → a context problem gets more context; a reasoning problem gets a more capable model; a too-large task gets split; a wrong plan gets a ledgered `Ruling:` and a re-dispatch carrying it. Never force an unchanged retry, never ignore an escalation.

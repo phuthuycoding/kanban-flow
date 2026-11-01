@@ -204,7 +204,7 @@ kf doctor --fix                                       # strips the removed harne
 ```
 
 `kf verify` exits 0 on a pass, 1 when a verify command failed, 2 when a file
-outside the task's `Files` changed, 3 on bad input (it runs nothing). kf never
+outside the task's `Files` changed, 3 on bad input or when `kf verify` could not run (it runs nothing). kf never
 runs a command taken from an artifact. If your project still has the removed
 config keys or `drive`/`runs`/`sessions`/`tasks` in item metadata, `kf doctor`
 warns and `kf doctor --fix` removes them.
