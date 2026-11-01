@@ -8,6 +8,7 @@ import { cmdRules } from "./cli/commands/rules.js";
 import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
 import { cmdDoctor } from "./cli/commands/doctor.js";
 import { cmdTasks } from "./cli/commands/tasks.js";
+import { cmdLoopStats } from "./cli/commands/loop-stats.js";
 import { cmdVerify } from "./cli/commands/verify.js";
 import { cmdContexts } from "./cli/commands/contexts.js";
 import { cmdIssues } from "./cli/commands/issues.js";
@@ -108,6 +109,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdDoctor(parsed, cwd);
     case "tasks":
       return cmdTasks(parsed, cwd);
+    case "loop-stats":
+      return cmdLoopStats(parsed, cwd);
     case "verify":
       return cmdVerify(parsed, cwd);
     case "contexts":

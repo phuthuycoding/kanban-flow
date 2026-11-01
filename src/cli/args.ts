@@ -210,6 +210,15 @@ const COMMANDS: Record<string, CmdSpec> = {
       json: { type: "boolean" },
     },
   },
+  "loop-stats": {
+    help: "Usage: kf loop-stats <feature> [--json] [--record] | kf loop-stats --all [--json]  — measure a task loop from its ledger (loop/progress.md); --record writes the row to .works/loop-metrics.md, --all summarises the history. Exit 0 report, 1 no ledger / untimed / refused, 3 bad input",
+    allowPositionals: true,
+    options: {
+      json: { type: "boolean" },
+      record: { type: "boolean" },
+      all: { type: "boolean" },
+    },
+  },
   verify: {
     help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits), or run harness.verify.stage. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
     allowPositionals: true,
@@ -293,8 +302,8 @@ export function parseArgsCli(argv: string[]): ParsedArgs {
       strict: true,
     });
   } catch (err) {
-    // Exit 1 of `kf verify` means a verify command failed, so its flag errors must not reach the global catch.
-    if (node.dispatch === "verify" && err instanceof Error) {
+    // Exit 1 of `kf verify` and `kf loop-stats` has its own meaning, so their flag errors must not reach the global catch.
+    if ((node.dispatch === "verify" || node.dispatch === "loop-stats") && err instanceof Error) {
       return { command: node.dispatch, positionals: [], options: {}, parseError: err.message };
     }
     throw err;

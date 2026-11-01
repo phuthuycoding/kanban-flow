@@ -1,0 +1,382 @@
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** The FR-014 ledger grammar, each shape matched against a line's body (the text before its ` @ <ts>` suffix). */
+export const LEDGER_SHAPES = {
+  dispatched: /^(TASK-\d+): (test-writer|developer|automation-writer|code-reviewer) dispatched model=(\S+)(?: round=(\d+))?(?: cascade=([0-9a-f]{7,40}))?$/,
+  done: /^(TASK-\d+): (test-writer|developer|automation-writer|code-reviewer) done status=(\S+)$/,
+  verifyStarted: /^(TASK-\d+): verify started$/,
+  verifyDone: /^(TASK-\d+): verify done exit=(\d+)$/,
+  developerWaits: /^(TASK-\d+): developer waits — (.+)$/,
+  fixQueued: /^(TASK-\d+): fix queued — developer (TASK-\d+) in flight$/,
+  fixRound: /^(TASK-\d+): fix round (\d+)\/5 \(.*\)$/,
+  cascadeOwed: /^(TASK-\d+): cascade re-review owed — after ([0-9a-f]{7,40}) of (TASK-\d+)$/,
+  complete: /^(TASK-\d+): complete \(.*\)$/,
+} as const;
+
+export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))$/;
+
+const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
+
+export const SEATS = ["test-writer", "developer", "automation-writer", "code-reviewer"] as const;
+export type Seat = (typeof SEATS)[number];
+export type ShapeName = keyof typeof LEDGER_SHAPES;
+
+export interface LedgerLine {
+  /** 1-based line number in the ledger file. */
+  line: number;
+  kind: "shape" | "unparsed" | "other-timed" | "untimed";
+  shape?: ShapeName;
+  task?: string;
+  /** Epoch ms (UTC) of the line's suffix. */
+  ts?: number;
+  /** The suffix timestamp as written, with its own offset. */
+  stamp?: string;
+  seat?: Seat;
+  model?: string;
+  round?: number;
+  cascade?: string;
+  status?: string;
+  exit?: number;
+  reason?: string;
+  otherTask?: string;
+  sha?: string;
+}
+
+export interface ParsedLedger {
+  lines: LedgerLine[];
+}
+
+function shapeFields(shape: ShapeName, m: RegExpExecArray): Partial<LedgerLine> {
+  switch (shape) {
+    case "dispatched":
+      return {
+        seat: m[2] as Seat,
+        model: m[3],
+        ...(m[4] !== undefined ? { round: Number(m[4]) } : {}),
+        ...(m[5] !== undefined ? { cascade: m[5] } : {}),
+      };
+    case "done":
+      return { seat: m[2] as Seat, status: m[3] };
+    case "verifyDone":
+      return { exit: Number(m[2]) };
+    case "developerWaits":
+      return { reason: m[2] };
+    case "fixQueued":
+      return { otherTask: m[2] };
+    case "fixRound":
+      return { round: Number(m[2]) };
+    case "cascadeOwed":
+      return { sha: m[2], otherTask: m[3] };
+    case "verifyStarted":
+    case "complete":
+      return {};
+  }
+}
+
+function classify(text: string, line: number): LedgerLine {
+  const suffix = TS_SUFFIX.exec(text);
+  if (!suffix) return { line, kind: "untimed" };
+  const stamp = suffix[1];
+  const ts = Date.parse(stamp);
+  const body = text.slice(0, suffix.index);
+  for (const shape of Object.keys(LEDGER_SHAPES) as ShapeName[]) {
+    const m = LEDGER_SHAPES[shape].exec(body);
+    if (m) return { line, kind: "shape", shape, task: m[1], ts, stamp, ...shapeFields(shape, m) };
+  }
+  return { line, kind: SHAPE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
+}
+
+/** Classify every ledger line after the header; blank lines are skipped. */
+export function parseLedger(text: string): ParsedLedger {
+  const lines: LedgerLine[] = [];
+  text.split("\n").forEach((raw, i) => {
+    const content = raw.replace(/\r$/, "");
+    if (i === 0 || content.trim() === "") return;
+    lines.push(classify(content, i + 1));
+  });
+  return { lines };
+}
+
+export interface SeatFigures {
+  count: number;
+  sum: number;
+  median: number;
+}
+
+export interface LoopStats {
+  inProgress: boolean;
+  wallMinutes: number;
+  seats: Record<Seat, SeatFigures>;
+  verify: SeatFigures;
+  seatMinutes: number;
+  verifyMinutes: number;
+  busyMinutes: number;
+  savedMinutes: number;
+  controllerMinutes: number;
+  waitMinutes: number;
+  rounds: number;
+  cascades: number;
+  /** Count of distinct tasks with a `dispatched` line. */
+  tasks: number;
+  byModel: Record<string, number>;
+  unparsed: number[];
+  orphans: number[];
+  openWaits: number[];
+  otherTimed: number;
+  untimed: number;
+}
+
+interface Interval {
+  start: number;
+  end: number;
+}
+
+const MINUTE = 60000;
+const round1 = (x: number): number => Math.round(x * 10) / 10;
+const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+
+function median(xs: number[]): number {
+  if (xs.length === 0) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function figures(minutes: number[]): SeatFigures {
+  return { count: minutes.length, sum: round1(sum(minutes)), median: round1(median(minutes)) };
+}
+
+function unionMs(intervals: Interval[]): number {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  let total = 0;
+  let current: Interval | null = null;
+  for (const iv of sorted) {
+    if (current && iv.start <= current.end) {
+      current.end = Math.max(current.end, iv.end);
+      continue;
+    }
+    if (current) total += current.end - current.start;
+    current = { ...iv };
+  }
+  if (current) total += current.end - current.start;
+  return total;
+}
+
+/**
+ * Pair each closing line with the latest still-open opening line of the same key before it. A close
+ * with no open line, and a pair whose close is earlier than its open, go to `unparsed`; opens still
+ * waiting at the end go to `orphans`.
+ */
+function pairLines(
+  lines: LedgerLine[],
+  isOpen: (l: LedgerLine) => boolean,
+  isClose: (l: LedgerLine) => boolean,
+  key: (l: LedgerLine) => string,
+  unparsed: number[],
+  orphans: number[],
+): { open: LedgerLine; close: LedgerLine }[] {
+  const stacks = new Map<string, LedgerLine[]>();
+  const pairs: { open: LedgerLine; close: LedgerLine }[] = [];
+  for (const l of lines) {
+    if (isOpen(l)) {
+      const stack = stacks.get(key(l)) ?? [];
+      stack.push(l);
+      stacks.set(key(l), stack);
+    } else if (isClose(l)) {
+      const open = stacks.get(key(l))?.pop();
+      if (!open) unparsed.push(l.line);
+      else if (l.ts! < open.ts!) unparsed.push(open.line, l.line);
+      else pairs.push({ open, close: l });
+    }
+  }
+  for (const stack of stacks.values()) orphans.push(...stack.map((l) => l.line));
+  return pairs;
+}
+
+/** Every FR-012 figure of a parsed ledger; minutes are exact until rounded to one decimal here. */
+export function loopStats(parsed: ParsedLedger): LoopStats {
+  const shapes = parsed.lines.filter((l) => l.kind === "shape");
+  const of = (shape: ShapeName): LedgerLine[] => shapes.filter((l) => l.shape === shape);
+  const unparsed = parsed.lines.filter((l) => l.kind === "unparsed").map((l) => l.line);
+  const orphans: number[] = [];
+
+  const seatPairs = pairLines(
+    shapes,
+    (l) => l.shape === "dispatched",
+    (l) => l.shape === "done",
+    (l) => `${l.task}\u0000${l.seat}`,
+    unparsed,
+    orphans,
+  );
+  const verifyPairs = pairLines(
+    shapes,
+    (l) => l.shape === "verifyStarted",
+    (l) => l.shape === "verifyDone",
+    (l) => l.task!,
+    unparsed,
+    orphans,
+  );
+
+  const seatIntervals = seatPairs.map(({ open, close }) => ({ seat: open.seat!, model: open.model!, start: open.ts!, end: close.ts! }));
+  const verifyIntervals = verifyPairs.map(({ open, close }) => ({ start: open.ts!, end: close.ts! }));
+  const minutesOf = (iv: Interval): number => (iv.end - iv.start) / MINUTE;
+
+  const seats = Object.fromEntries(
+    SEATS.map((seat) => [seat, figures(seatIntervals.filter((iv) => iv.seat === seat).map(minutesOf))]),
+  ) as Record<Seat, SeatFigures>;
+  const byModelExact: Record<string, number> = {};
+  for (const iv of seatIntervals) {
+    const key = `${iv.seat}/${iv.model}`;
+    byModelExact[key] = (byModelExact[key] ?? 0) + minutesOf(iv);
+  }
+
+  const dispatched = of("dispatched");
+  const taskIds = new Set(dispatched.map((l) => l.task!));
+  const completes = of("complete");
+  const completed = new Set(completes.map((l) => l.task!));
+  const inProgress = [...taskIds].some((t) => !completed.has(t));
+
+  const timed = parsed.lines.filter((l) => l.ts !== undefined).map((l) => l.ts!);
+  let wallMs = 0;
+  if (dispatched.length > 0) {
+    const start = Math.min(...dispatched.map((l) => l.ts!));
+    const end = inProgress || completes.length === 0 ? Math.max(...timed) : Math.max(...completes.map((l) => l.ts!));
+    wallMs = end - start;
+  }
+
+  const openWaits: number[] = [];
+  let waitMs = 0;
+  shapes.forEach((l, i) => {
+    if (l.shape !== "developerWaits" && l.shape !== "fixQueued") return;
+    const next = shapes.slice(i + 1).find((n) => n.shape === "dispatched" && n.task === l.task && n.seat === "developer");
+    if (next) waitMs += next.ts! - l.ts!;
+    else openWaits.push(l.line);
+  });
+
+  const seatMs = sum(seatIntervals.map((iv) => iv.end - iv.start));
+  const verifyMs = sum(verifyIntervals.map((iv) => iv.end - iv.start));
+  const busyMs = unionMs([...seatIntervals, ...verifyIntervals]);
+
+  return {
+    inProgress,
+    wallMinutes: round1(wallMs / MINUTE),
+    seats,
+    verify: figures(verifyIntervals.map(minutesOf)),
+    seatMinutes: round1(seatMs / MINUTE),
+    verifyMinutes: round1(verifyMs / MINUTE),
+    busyMinutes: round1(busyMs / MINUTE),
+    savedMinutes: round1((seatMs + verifyMs - busyMs) / MINUTE),
+    controllerMinutes: round1((wallMs - busyMs) / MINUTE),
+    waitMinutes: round1(waitMs / MINUTE),
+    rounds: of("fixRound").length,
+    cascades: of("cascadeOwed").length,
+    tasks: taskIds.size,
+    byModel: Object.fromEntries(Object.entries(byModelExact).map(([k, v]) => [k, round1(v)])),
+    unparsed: [...unparsed].sort((a, b) => a - b),
+    orphans: orphans.sort((a, b) => a - b),
+    openWaits,
+    otherTimed: parsed.lines.filter((l) => l.kind === "other-timed").length,
+    untimed: parsed.lines.filter((l) => l.kind === "untimed").length,
+  };
+}
+
+export const HEADER = "date · feature · tasks · wall · busy · controller · saved · waits · test-writer · developer · automation-writer · code-reviewer · verify · rounds · cascades · untimed";
+const COLUMNS = HEADER.split(" · ");
+const TEXT_COLUMNS = new Set(["date", "feature"]);
+export const NUMERIC_COLUMNS = COLUMNS.filter((c) => !TEXT_COLUMNS.has(c));
+
+export type HistoryRow = Record<string, string | number>;
+
+/** The history file cannot be used as it is (another header, or a malformed row); nothing is written. */
+export class HistoryFileError extends Error {}
+
+export const historyPath = (root: string): string => join(root, ".works", "loop-metrics.md");
+
+function historyLines(path: string): string[] {
+  const lines = readFileSync(path, "utf8").split("\n").map((l) => l.replace(/\r$/, ""));
+  if (lines[0] !== HEADER) {
+    throw new HistoryFileError(`${path} has a different header than the current one:\n  ${HEADER}\nmove it aside or update its header and rows by hand`);
+  }
+  return lines.slice(1).filter((l) => l.trim() !== "");
+}
+
+/** The item's history row; minutes as integers, seat and verify columns their sum minutes. */
+export function historyRow(feature: string, stats: LoopStats, date: string): string {
+  const values = [
+    date,
+    feature,
+    stats.tasks,
+    stats.wallMinutes,
+    stats.busyMinutes,
+    stats.controllerMinutes,
+    stats.savedMinutes,
+    stats.waitMinutes,
+    ...SEATS.map((s) => stats.seats[s].sum),
+    stats.verify.sum,
+    stats.rounds,
+    stats.cascades,
+    stats.untimed,
+  ];
+  return values.map((v) => (typeof v === "number" ? String(Math.round(v)) : v)).join(" · ");
+}
+
+/** Write the item's row to `.works/loop-metrics.md`, replacing its earlier row; returns the file path. */
+export function recordRow(root: string, feature: string, stats: LoopStats, date: string): string {
+  const path = historyPath(root);
+  const rows = existsSync(path) ? historyLines(path) : [];
+  const row = historyRow(feature, stats, date);
+  const at = rows.findIndex((r) => r.split(" · ")[1] === feature);
+  if (at >= 0) rows[at] = row;
+  else rows.push(row);
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${[HEADER, ...rows].join("\n")}\n`);
+  renameSync(tmp, path);
+  return path;
+}
+
+/** The history rows keyed by column name, or `null` when no loop was recorded yet. */
+export function readHistory(root: string): HistoryRow[] | null {
+  const path = historyPath(root);
+  if (!existsSync(path)) return null;
+  return historyLines(path).map((text, i) => {
+    const fields = text.split(" · ");
+    if (fields.length !== COLUMNS.length) {
+      throw new HistoryFileError(`${path}:${i + 2}: expected ${COLUMNS.length} fields, found ${fields.length}`);
+    }
+    const row: HistoryRow = {};
+    COLUMNS.forEach((col, c) => {
+      if (TEXT_COLUMNS.has(col)) {
+        row[col] = fields[c];
+        return;
+      }
+      const n = Number(fields[c]);
+      if (fields[c].trim() === "" || !Number.isFinite(n)) {
+        throw new HistoryFileError(`${path}:${i + 2}: column ${col} is not a number: '${fields[c]}'`);
+      }
+      row[col] = n;
+    });
+    return row;
+  });
+}
+
+export const PER_TASK_BUCKETS = ["controller", "test-writer", "developer", "code-reviewer", "verify", "waits"] as const;
+export type Bucket = (typeof PER_TASK_BUCKETS)[number];
+
+export interface HistorySummary {
+  medians: Record<string, number>;
+  perTask: Record<Bucket, number>;
+  largest: { bucket: Bucket; minutesPerTask: number };
+}
+
+/** Column medians, median minutes per task of each bucket, and the bucket with the biggest one. */
+export function summarise(rows: HistoryRow[]): HistorySummary {
+  const medians = Object.fromEntries(NUMERIC_COLUMNS.map((c) => [c, round1(median(rows.map((r) => r[c] as number)))]));
+  const counted = rows.filter((r) => (r.tasks as number) > 0);
+  const perTask = Object.fromEntries(
+    PER_TASK_BUCKETS.map((b) => [b, round1(median(counted.map((r) => (r[b] as number) / (r.tasks as number))))]),
+  ) as Record<Bucket, number>;
+  let largest: Bucket = PER_TASK_BUCKETS[0];
+  for (const b of PER_TASK_BUCKETS) if (perTask[b] > perTask[largest]) largest = b;
+  return { medians, perTask, largest: { bucket: largest, minutesPerTask: perTask[largest] } };
+}
