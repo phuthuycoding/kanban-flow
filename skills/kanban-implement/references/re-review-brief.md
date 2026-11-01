@@ -1,6 +1,6 @@
 # Scoped re-review brief — after a fix round
 
-Use this template after an implementer's fix round. The re-reviewer verdicts each finding and inspects the fix diff for new breakage — nothing else. It is not a fresh review; the full review already happened.
+Use this template after a fix round. The re-reviewer verdicts each finding and inspects the fix diff for new breakage — nothing else. It is not a fresh review; the full review already happened.
 
 ```
 Agent:
@@ -8,8 +8,9 @@ Agent:
   model: [MODEL]                          # REQUIRED — a small fix diff takes sonnet
   description: "Re-review TASK-NNN fix round R"
   prompt: |
-    You are re-reviewing one task's fix round. A previous review produced findings; an
-    implementer has attempted to fix them. Verdict each finding and inspect the fix diff.
+    You are re-reviewing one task's fix round. A previous review produced findings; the
+    developer (or, for a finding about a test, the test-writer) has attempted to fix them.
+    Verdict each finding and inspect the fix diff.
 
     ## The task
     Read the task brief: [BRIEF_FILE]
@@ -19,7 +20,7 @@ Agent:
     one per bullet]
 
     ## The fix
-    Read the implementer's report (fix reports are appended at the end): [REPORT_FILE]
+    Read the fixing seat's report (fix reports are appended at the end): [REPORT_FILE]
     Fix base: [FIX_BASE_SHA] (the head the previous review saw)  Head: [HEAD_SHA]
     Diff file: [DIFF_FILE] — read it once; do not re-run git commands.
 
@@ -30,7 +31,7 @@ Agent:
     not block this task and does not extend the loop.
 
     ## Tests
-    The implementer re-ran the covering tests and appended the results. Confirm the fix
+    The fixing seat re-ran the covering tests and appended the results. Confirm the fix
     report names them and shows their output; verify the claims against the diff. Do not
     re-run the suite; a focused test only when reading raises a specific doubt.
 

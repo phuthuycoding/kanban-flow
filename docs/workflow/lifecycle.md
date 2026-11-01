@@ -23,7 +23,7 @@ flowchart TD
     KB --> L
     L -- Not yet --> K
     L -- Yes --> M[kf approve: store the contract fingerprint and start]
-    M --> O[Implementation in the item worktree: kf drive, or the task loop - implementer + code-reviewer per task, ledger]
+    M --> O[Implementation in the item worktree: kf drive, or the task loop - test-writer, developer, code-reviewer per task, ledger]
     L -- "Approved, but later: kf approve --backlog" --> P[Backlog: hold the approved contract]
     P --> Q[Start it: kf stage item implementation]
     Q --> O

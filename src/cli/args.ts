@@ -171,7 +171,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 9 skills (8 kanban phase skills and travel) for agent skill dirs (default agent: claude), plus the 3 kanban agents (code-reviewer, scout, spec-reviewer) into the agents dir of runtimes that have one (Claude Code: .claude/agents). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
+    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 9 skills (8 kanban phase skills and travel) for agent skill dirs (default agent: claude), plus the 6 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer) into the agents dir of runtimes that have one (Claude Code: .claude/agents). Scope defaults to skills.scope in .kf/config.json, then global: global links skills into ~/.<agent>/skills so one set serves every project (copies instead when linking fails); project copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },
@@ -180,7 +180,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 9 skills (8 kanban phase skills and travel) and the 3 kanban agents at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 9 skills (8 kanban phase skills and travel) and the 6 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer) at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },

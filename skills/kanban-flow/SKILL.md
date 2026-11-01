@@ -31,12 +31,12 @@ A step invoked as a tool renders one line carrying its name; a step merely *perf
 |---|---|---|
 | 2 Brainstorm | `Skill(kanban-brainstorm)` · `Agent(spec-reviewer)` once before the confirmation ask | the spec was written without the reviewer, or confirmed without the user's word |
 | 3 Plan | `Skill(kanban-plan)` · `Agent(scout)` per thing that changes · `Agent(spec-reviewer)` before the approval ask | the impact survey was done inline, or the plan presented without the reviewer |
-| 4 Implement | `kf drive <f>` (task harness) or `Skill(kanban-implement)` with `Agent(code-reviewer)` per task | a task was marked complete without a review seat |
+| 4 Implement | `kf drive <f>` (task harness) or `Skill(kanban-implement)` with `Agent(test-writer)`, `Agent(developer)` and `Agent(code-reviewer)` per task | a task was marked complete without its test-writer, developer or review seat |
 | 5 Test | `Skill(kanban-test)` | a PASS report with no command and exit code behind it |
 | 6 Review | `Skill(kanban-review)` · `Agent(code-reviewer)` × the tier `select-tier` chose · the landing board `cat` from its file · `gh pr create` (first review only) and the CI watcher, both after the reviewer PASS | the orchestrator wrote findings itself, dispatched fewer seats than the tier, summarised the board instead of printing it, or opened the PR before the reviewer passed |
 | 7 Merge / close | the PR URL handed to the human, then `kf status` showing `done` after their merge | a close before the PR merged, or a merge made by the agent |
 
-The three agent bodies live in this skill at `agents/<name>.md`; `kf install` registers them where Claude Code looks (`.claude/agents/`), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
+The six agent bodies live in this skill at `agents/<name>.md`; `kf install` registers them where Claude Code looks (`.claude/agents/`), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
 
 ---
 
@@ -70,7 +70,7 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 | 2. Brainstorm / Bug triage | `kanban-brainstorm` or `kanban-bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Ground the names first; `spec-reviewer` before the confirmation ask; human confirms |
 | 3. Planning | `kanban-plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | `scout` per surface, saved under `<item>/reviews/`; `spec-reviewer` before approval; **human approves: `kf approve` starts, `kf approve --backlog` defers** |
 | Backlog | — | Approved planning contract remains intact | Waiting for the explicit decision to start (`kf stage <f> implementation`) |
-| 4. Implement | `kanban-implement` | — (tasks.md and the `loop/progress.md` ledger track) | `kf drive` when a task harness is configured, else the subagent-driven task loop — fresh implementer per task, `code-reviewer` per task, bounded fix loop |
+| 4. Implement | `kanban-implement` | — (tasks.md and the `loop/progress.md` ledger track) | `kf drive` when a task harness is configured, else the subagent-driven task loop — `test-writer` → `developer` → `code-reviewer` per task, bounded fix loop |
 | 5. Testing | `kanban-test` | `phase-4-testing-result.md` (`status: PASS`) | Counts, not verdicts; a changed behaviour no test covers is run for real; FAIL/REJECT → loop to implementation |
 | 6. Review | `kanban-review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents at the tier the diff earns, evidence verified; the landing board stamps every check with the tree's fingerprint; only after the reviewer PASS is the item branch pushed and the PR opened, then CI is watched (`ci:` / `landing:` in the report); FAIL/REJECT or red CI → loop; REQUIREMENT_BUG → STOP |
 | 7. Closure | `kanban-archive` | Feature: `phase-6-feature-report.md` (written at review PASS); bug: current test/review evidence | Internal: once the PR is merged on GitHub, `kf status` / `kf sync` close the item to `done` (a `landing: none` item with no commits closes on the next `kf status`); `kf archive` is the explicit, idempotent form |
@@ -107,7 +107,7 @@ The approval is the start: `kf approve {feature}` moves the item to implementati
 
 ## Multi-agent harness
 
-Two layers hand work off, and they do not overlap. **Runner roles** (`kf run`, `kf drive`) are whole headless sessions kf spawns per stage or per task from `harness.roles`; they are configured in `.kf/config.json` and kf supervises them. **In-session agents** (`scout`, `spec-reviewer`, `code-reviewer`) are subagents the phase skills dispatch from whatever session is running the skill — the main agent or a runner worker alike — for a bounded job with a fresh context and a short report back. A worker running `kanban-review` under `kf run` still dispatches `code-reviewer`; the harness decides *who runs the stage*, the skill decides *who reviews*.
+Two layers hand work off, and they do not overlap. **Runner roles** (`kf run`, `kf drive`) are whole headless sessions kf spawns per stage or per task from `harness.roles`; they are configured in `.kf/config.json` and kf supervises them. **In-session agents** (`scout`, `spec-reviewer`, `test-writer`, `developer`, `automation-writer`, `code-reviewer`) are subagents the phase skills dispatch from whatever session is running the skill — the main agent or a runner worker alike — for a bounded job with a fresh context and a short report back. A worker running `kanban-review` under `kf run` still dispatches `code-reviewer`; the harness decides *who runs the stage*, the skill decides *who reviews*.
 
 If `.kf/config.json` has `harness.stages`, some stages are assigned to **roles**, each backed by a runner CLI. Before doing a stage's work yourself, read `kf status --change {feature} --json`: when `assignedRoles` is non-empty, you are the orchestrator for that stage — hand it off:
 

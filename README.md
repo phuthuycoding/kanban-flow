@@ -97,9 +97,9 @@ cd kanban-flow && npm install && npm run build && npm link
 
 `kf init` does the filesystem half: it installs the nine kanban skills into the
 agent's skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`; `claude` is
-the default, and several agents read each other's directories), installs the three
+the default, and several agents read each other's directories), installs the six
 kanban agents the skills dispatch by name — `code-reviewer`, `scout`,
-`spec-reviewer` — into the runtime's agents dir when it has one (Claude Code:
+`spec-reviewer`, `developer`, `test-writer`, `automation-writer` — into the runtime's agents dir when it has one (Claude Code:
 `.claude/agents/`), and seeds `AGENTS.md` when the project does not already have one. By default the install is
 **global** — symlinked into `~/.<agent>/skills` so one set serves every project and
 tracks package upgrades (copied instead when linking is unavailable). A project
@@ -231,8 +231,9 @@ Whoever runs a stage, the skills never let that session grade its own work.
 `kanban-plan` dispatches a `scout` agent per thing that changes (consumers, covering
 tests, dual writes, why the code exists — a `file:line` map under 40 lines) and a
 `spec-reviewer` with a fresh context before the human approves. `kanban-implement`
-runs the plan task by task: a fresh implementer per task, a `code-reviewer` on its
-diff, a fix loop capped at five rounds, every decision in a ledger that survives
+runs the plan task by task: a `test-writer` writes the failing tests, a `developer`
+makes them pass (an `automation-writer` adds the UI specs under the full level), a
+`code-reviewer` reads the diff, a fix loop capped at five rounds, every decision in a ledger that survives
 compaction. `kanban-review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared

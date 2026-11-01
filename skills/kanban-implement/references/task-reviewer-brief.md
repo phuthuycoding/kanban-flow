@@ -1,6 +1,6 @@
 # Task reviewer brief — the dispatch for one task's review
 
-Use this template verbatim after an implementer reports DONE. The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `<skills dir>/kanban-flow/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim after the developer reports DONE (and, for a UI task under `Level: full`, has committed the automation-writer's specs). The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `<skills dir>/kanban-flow/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:
@@ -22,10 +22,10 @@ Agent:
     Global constraints from the approved plan that bind this task:
     [GLOBAL_CONSTRAINTS]
 
-    ## What the implementer claims it built
-    Read the implementer's report: [REPORT_FILE]
+    ## What the developer claims it built
+    Read the developer's report: [REPORT_FILE]
     Treat it as unverified claims. Design rationales ("kept it simple per YAGNI") are the
-    implementer grading its own work; a stated rationale never downgrades a finding.
+    developer grading its own work; a stated rationale never downgrades a finding.
 
     ## Diff under review
     Base: [BASE_SHA]  Head: [HEAD_SHA]  Diff file: [DIFF_FILE]
@@ -36,7 +36,7 @@ Agent:
     per risk, both named in your report.
 
     ## Tests
-    The implementer ran the tests and reported TDD evidence for exactly this code. Do not
+    The developer ran the tests and reported TDD evidence for exactly this code. Do not
     re-run the suite to confirm it. Warnings or noise in the reported test output are
     findings. Evidence you cannot see is not evidence that does not exist: if the report
     looks truncated, re-read it at its path; if it is genuinely missing, report the gap.
@@ -80,7 +80,7 @@ Agent:
 - `[MODEL]` — REQUIRED. `sonnet` by default; `opus` for a subtle or high-risk diff (concurrency, auth, data migration).
 - `[DOCTRINE_FILE]` — absolute path of `kanban-review/references/reviewer-doctrine.md` (the reviewer has Read; do not paste it on every dispatch).
 - `[RULE_FILES]` — the rule files resolved once by the controller, project → user → package (`.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, the package's `kanban-flow/review/rules/*.md`) plus `AGENTS.md`/`CLAUDE.md` when present.
-- `[BRIEF_FILE]`, `[REPORT_FILE]` — the same files the implementer worked from and wrote to.
+- `[BRIEF_FILE]`, `[REPORT_FILE]` — the brief the developer worked from and the `<item>/loop/task-NNN-report.md` it wrote.
 - `[GLOBAL_CONSTRAINTS]` — copied verbatim from the plan's `## Global Constraints` (exact values, formats, relationships) — not process rules, which the template already carries.
 - `[BASE_SHA]`, `[HEAD_SHA]`, `[DIFF_FILE]` — the recorded `BASE`, the current head, and the package `review-package` wrote.
 - `[REVIEW_REPORT_FILE]` — `<item>/loop/task-NNN-review.md`, written by the controller from the reply, verbatim.
