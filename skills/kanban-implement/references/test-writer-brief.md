@@ -24,7 +24,8 @@ Agent:
     Worktree: [WORKTREE] on branch [BRANCH]. Never touch the main checkout.
     Seats in flight: [IN_FLIGHT]
     Files allowlist: [FILES]. Write only test files and fixtures inside it, never production
-    code; needing another file is a BLOCKED report naming the file and why.
+    code, and never a file inside another open task's Files; needing another file is a
+    BLOCKED report naming the file and why.
 
     ## Your job
     1. One or more tests per in-scope test case. Expected values come from the test case

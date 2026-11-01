@@ -37,15 +37,24 @@ Agent:
     ## Commit
     The loop commits this task: you commit the test-writer's tests and your code in one
     commit on [BRANCH], message in the repository's convention, no attribution trailers.
-    Stage by path, never everything, so no spec file lands in it. Before committing, check
-    `git diff --cached --name-only` against [FILES] plus [TEST_FILES]; any other staged path → `BLOCKED` naming it, no commit.
-    The same check holds for every commit you make; the same rule applies to fix rounds. Never push.
+    Commit by path, naming exactly the paths you changed or were handed, so no spec file lands in it:
+    `node <skills dir>/kanban-implement/scripts/commit-task.mjs -m <message> --allow <entry> … -- <paths>`,
+    with one `--allow` per entry of [FILES] and [TEST_FILES] (plus [SPEC_FILES] for the spec commit).
+    Other seats' staged or unstaged paths are not your concern.
+    Its exit 4 or 5 (a path outside the allowlist, or `index.lock` still held) → `BLOCKED` quoting its output, no commit; never delete the lock.
+    The same holds for every commit you make, fix rounds included. Never push.
+    While another seat is in flight, `git add -- <paths>` and `git commit -m <msg> -- <paths>` are the only
+    index-writing git commands you run. Never run `checkout`, `switch`, `reset`, `restore --staged` on
+    another seat's paths, `stash`, `rebase`, `merge`, `cherry-pick`, `commit` without a pathspec,
+    `commit -a`, `add -A`, `add .`, `clean`, or anything with `GIT_INDEX_FILE`; needing one is a
+    `BLOCKED` report naming the command.
 
     ## Checks while another seat is in flight
     Your typecheck, lint, build and test runs are advisory while another seat is in flight:
     focused tests only, no full suite while another seat is in flight; a failure in a file you
-    neither wrote nor were handed is reported as `not mine: <file>`. `kf verify --commits` is
-    the task's authoritative check.
+    neither wrote nor were handed is reported as `not mine: <file>`. The build setup's warning on
+    tsc exit 2 is expected then. `kf verify --task TASK-NNN --commits <your commits>` is the task's
+    authoritative check.
 
     ## You do not dispatch subagents
     Never spawn a helper or a reviewer; a fresh reviewer is dispatched against your diff.

@@ -33,16 +33,19 @@ TASK-NNN: cascade re-review owed — after <sha7> of TASK-MMM @ <ts>
 TASK-NNN: complete (…) @ <ts>
 ```
 
-`<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase — the queued fix is `fix queued`.
+`<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase.
 
-One example of each shape — in the grammar's order, from different points of one loop — then a ruling and a hashes line:
+`fix queued` is a legacy shape: the loop no longer writes it — a fix round held by the cap writes `developer waits — 4 developers in flight` instead — but older ledgers carry it, and `kf loop-stats` still reads it.
+
+One example of each shape — in the grammar's order, from different points of one loop, with both wait lines — then a ruling and a hashes line:
 
 ```ledger-example
 TASK-001: developer dispatched model=sonnet @ 2026-11-01T18:41:26+07:00
 TASK-001: developer done status=DONE @ 2026-11-01T19:02:10+07:00
 TASK-001: verify started @ 2026-11-01T19:02:40+07:00
 TASK-001: verify done exit=0 @ 2026-11-01T19:04:05+07:00
-TASK-002: developer waits — Files overlap src/cli/args.ts / src/cli/args.ts @ 2026-11-01T19:04:30+07:00
+TASK-002: developer waits — Files overlap src/cli/args.ts / src/cli/args.ts (TASK-001) @ 2026-11-01T19:04:30+07:00
+TASK-006: developer waits — 4 developers in flight @ 2026-11-01T19:05:10+07:00
 TASK-003: fix queued — developer TASK-004 in flight @ 2026-11-01T20:15:12+07:00
 TASK-003: fix round 1/5 (1 addressed, 0 open — empty list rejected; commits d4e5f6a) @ 2026-11-01T20:31:48+07:00
 TASK-004: cascade re-review owed — after d4e5f6a of TASK-003 @ 2026-11-01T20:31:55+07:00
@@ -68,6 +71,19 @@ Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
 A new `test hashes` line follows every test-writer change; the latest one is the baseline.
 
 When `.works/` is gitignored (the default `kf init` answer), the ledger travels with the item, not the branch; `kf archive` moves it with the item folder either way.
+
+## Parallel developers
+
+A worktree runs up to the **cap of 4** developer seats at once — a task's developer, a fix-round developer and a resume-commit developer (the one resumed to commit specs or fixed tests) each count one. A task's developer is dispatched only under the three dispatch conditions: every dependency's developer has reported DONE, so its task commit exists; the task's test-writer is done and its test hashes are ledgered; and its Files overlap no open task. An **open task** is a task whose developer has been dispatched and that has no `complete` line yet, checked against the `overlaps` list of `kf tasks <f> --json`; a task with unknown Files overlaps everything. The cap rests on a probe: 4 full suites in one worktree all passed, at about 1.8× the throughput of one. Gating on open tasks rather than running developers keeps a later fix round of one task out of files another developer is changing.
+
+The two wait lines:
+
+```
+TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)
+TASK-NNN: developer waits — 4 developers in flight
+```
+
+The first waits for `TASK-MMM: complete`; the second, a fix round's included, waits for the next `developer done`.
 
 ## The fix loop
 
@@ -96,4 +112,4 @@ Every `Ruling:` line is a decision you took on the human's behalf. Collect them 
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. |
 | "The developer spawned its own reviewer — free extra assurance" | A duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigour. |
-| "Two tasks touch different files, run them all in parallel" | One developer seat per worktree and at most two tasks in flight — the head and the next — and only when `overlaps` in `kf tasks <f> --json` says their Files are disjoint. Each task's package and `kf verify` take its own commit list, never a range: a range would carry the other task's commits and the reviewer would grade the wrong diff, silently. |
+| "Tasks touch different files, run them all in parallel" | Up to 4 developers, and only under the dispatch conditions: dependencies' developers done, test hashes ledgered, and Files that `overlaps` in `kf tasks <f> --json` says are disjoint from every open task. Each task's package and `kf verify` take its own commit list, never a range: a range would carry another task's commits and the reviewer would grade the wrong diff, silently. |
