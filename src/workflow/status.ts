@@ -13,7 +13,6 @@ import {
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
 import { executionContractHash } from "./features.js";
-import type { HarnessConfig } from "../project/harness-config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
 
@@ -102,7 +101,7 @@ export function countTasks(content: string): { done: number; total: number } {
 }
 
 /** Compute artifact completion status for a feature at its current stage. */
-export function computeStatus(feature: Feature, harness?: HarnessConfig): FeatureStatus {
+export function computeStatus(feature: Feature): FeatureStatus {
   const stageIndex = STAGE_INDEX[feature.stage];
   const artifacts: ArtifactState[] = [];
   let doneCount = 0;
@@ -148,7 +147,7 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig): Featur
   // ERROR left out: it is not a defect in the artifacts but the human gate, and the `Approval:`
   // field and the `Next:` line below already say so. Listing it here would put a red ERROR on
   // every correctly-prepared item sitting in planning, which is exactly where the signal matters.
-  const blockers = validateFeature(feature, false, true, harness).issues
+  const blockers = validateFeature(feature, false, true).issues
     .filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
 
   return {

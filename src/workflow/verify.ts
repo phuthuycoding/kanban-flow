@@ -22,12 +22,12 @@ export interface VerifyResult {
 
 /**
  * Run the verify argv list in `cwd`, in order, without a shell; returns the first failure naming the command and
- * its exit code (followed by the output tail), or null when all pass. A timeoutMs of 0 means no timeout.
+ * its exit code (followed by the output tail), or null when all pass.
  */
-export function runVerify(commands: string[][], cwd: string, timeoutMs = 0): string | null {
+export function runVerify(commands: string[][], cwd: string): string | null {
   for (const argv of commands) {
     const res = spawnSync(argv[0], argv.slice(1), {
-      cwd, encoding: "utf8", maxBuffer: VERIFY_MAX_BUFFER, stdio: ["ignore", "pipe", "pipe"], ...(timeoutMs > 0 ? { timeout: timeoutMs } : {}),
+      cwd, encoding: "utf8", maxBuffer: VERIFY_MAX_BUFFER, stdio: ["ignore", "pipe", "pipe"],
     });
     if (res.error) {
       const code = (res.error as NodeJS.ErrnoException).code;

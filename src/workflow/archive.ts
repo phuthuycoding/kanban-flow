@@ -272,7 +272,7 @@ export async function archiveItem(root: string, name: string, opts: ArchiveOptio
  * re-entry waits on itself forever), the done and worktree-remove hooks are user processes
  * that may run kf on this item (they would wait on their parent until LOCK_TIMEOUT_MS), and
  * the close's network steps (fetch, gh, push) can outlast that timeout for every other writer
- * of the item, a drive included. So a close-in-progress marker is taken under the lock instead,
+ * of the item. So a close-in-progress marker is taken under the lock instead,
  * and a second close refuses before its hook while the first one's process is alive.
  */
 async function whileClosing(root: string, key: string, name: string, close: () => Promise<ArchiveOutcome>): Promise<ArchiveOutcome> {
@@ -313,7 +313,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
 
   // Only review → done transition is archive-able. If already done, refresh canonical docs idempotently.
   if (f.stage === "done") {
-    const check = validateFeature(f, false, true, readProjectConfig(root).harness);
+    const check = validateFeature(f, false, true);
     if (!check.valid && !opts.force) return refuseChecks("gate", "gate failed", renderValidateText(check), check.issues);
     const recordedBranch = opts.skipSpecs ? undefined : f.meta?.docsBranch;
     const plan = recordedBranch ? docsBranchPlan(root, f, recordedBranch) : null;
@@ -423,7 +423,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
 
   const force = Boolean(opts.force);
   const forcedCodes: string[] = [];
-  const check = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
+  const check = validateFeature({ ...f, stage: "done" }, false, true);
   if (!check.valid) {
     if (!force) {
       return refuseChecks("gate", "gate failed", `Gate failed for '${name}'. Fix validation before archiving:\n\n${renderValidateText(check)}\n\nOr re-run with --force.`, check.issues);
@@ -485,7 +485,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     if (hook.ran) ranHook = hook.hook;
   }
 
-  const afterHook = validateFeature({ ...f, stage: "done" }, false, true, readProjectConfig(root).harness);
+  const afterHook = validateFeature({ ...f, stage: "done" }, false, true);
   if (!afterHook.valid && !force) return refuseChecks("gate", "gate failed", renderValidateText(afterHook), afterHook.issues);
   if (!f.meta) return refuse("metadata-missing", "metadata missing", "Feature metadata is missing.");
 

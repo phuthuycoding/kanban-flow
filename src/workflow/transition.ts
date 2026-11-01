@@ -123,10 +123,9 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   // the `cancelled` shortcut inside validateFeature, so `kf validate` called the item valid while
   // `kf stage` refused the very reopen `kf cancel` prints, and blamed a stage it was not in. The
   // only way through was --force, which stamps a permanent bypass for a gate that should not hold.
-  const harness = readProjectConfig(root).harness;
   const check = to === "planning" && f.stage !== "brainstorm" && f.stage !== "cancelled"
-    ? validateFeature({ ...f, stage: "brainstorm" }, false, false, harness)
-    : validateFeature(f, false, true, harness);
+    ? validateFeature({ ...f, stage: "brainstorm" }, false, false)
+    : validateFeature(f, false, true);
   if (!check.valid) {
     if (!force) {
       return refuse("gate", "gate failed", `Gate failed for '${name}' (${f.stage}). Fix validation before moving:\n\n${renderValidateText(check)}\n\n${FORCE_RETRY_HINT}`);

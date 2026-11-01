@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 /**
  * Per-project worktree settings live in `.kf/config.json` (committed — the whole
@@ -131,10 +131,6 @@ export function worktreeDir(cfg: WorktreeConfig, feature: string): string {
   return join(dir, feature);
 }
 
-/** Directory holding an item's task worktrees — a sibling of the item worktree, never inside it. */
-export function taskWorktreesDir(cfg: WorktreeConfig, feature: string): string {
-  return join(dirname(worktreeDir(cfg, feature)), `${feature}.tasks`);
-}
 
 export function worktreeDomain(cfg: WorktreeConfig, feature: string): string {
   return `${slugify(feature)}.${cfg.baseDomain}`;

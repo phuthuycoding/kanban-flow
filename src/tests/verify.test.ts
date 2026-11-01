@@ -388,3 +388,35 @@ describe("runVerify", () => {
     expect(existsSync(join(cwd, "ran-here"))).toBe(true);
   });
 });
+
+describe("kf verify when preparation fails unexpectedly", () => {
+  beforeEach(async () => {
+    item = await makeItem({ files: "src/a.ts", worktree: true });
+  });
+
+  it("exits 3 saying kf verify could not run, and runs no verify command", async () => {
+    const base = item.head();
+    await item.configure({ task: [touch(item.marker)] });
+    // A directory where the plan file belongs: it exists, but reading it throws.
+    const plan = join(findFeature(item.root, "f")!.dir, ARTIFACTS["implementation-plan"].file);
+    await rm(plan);
+    await mkdir(plan);
+
+    const res = item.kf("verify", "f", "--task", "TASK-001", "--base", base);
+
+    expect(res.code).toBe(3);
+    expect(res.out).toContain("kf verify could not run:");
+    expect(existsSync(item.marker)).toBe(false);
+  });
+
+  it("still exits 1, not 3, when a verify command fails", async () => {
+    const base = item.head();
+    await item.commit({ "src/a.ts": "a" });
+    await item.configure({ task: [["false"]] });
+
+    const res = item.kf("verify", "f", "--task", "TASK-001", "--base", base);
+
+    expect(res.code).toBe(1);
+    expect(res.out).not.toContain("kf verify could not run:");
+  });
+});

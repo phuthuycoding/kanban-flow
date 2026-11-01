@@ -187,9 +187,8 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (change && features.length === 0) {
     return { code: 1, stdout: `${migrated}Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
   }
-  const harness = readProjectConfig(root.root).harness;
   const statuses = features.map((f) => {
-    const s = computeStatus(f, harness);
+    const s = computeStatus(f);
     const close = closed.states.get(f.name);
     return close ? { ...s, close } : s;
   });
@@ -280,8 +279,7 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
   if (change && features.length === 0) {
     return { code: 1, stdout: `Unknown feature '${change}'.`, stderr: "unknown feature" };
   }
-  const harness = readProjectConfig(root.root).harness;
-  const results = features.map((f) => validateFeature(f, strict, true, harness));
+  const results = features.map((f) => validateFeature(f, strict, true));
 
   // Domain infra is environmental, not contractual — a WARNING telling the human to onboard,
   // never an ERROR that blocks a gate. It surfaces here because `kf validate` is the command

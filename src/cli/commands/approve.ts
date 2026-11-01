@@ -28,7 +28,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
     };
   }
 
-  const check = validateFeature(f, false, false, readProjectConfig(root.root).harness);
+  const check = validateFeature(f, false, false);
   if (!check.valid) {
     return { code: 1, stdout: `Cannot approve an incomplete execution contract:\n${renderValidateText(check)}`, stderr: "invalid contract" };
   }

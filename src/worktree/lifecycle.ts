@@ -194,8 +194,6 @@ export interface TeardownResult {
   /** Commits on kf/<feature> not reachable from HEAD — caller prints the warning. */
   unmergedCommits: number;
   branch: string | null;
-  /** Task branches kept after their worktrees were removed; always empty now that items have no task worktrees. */
-  taskBranches: string[];
   /** Non-fatal warnings (e.g. a worktree-remove hook that failed) — callers surface them. */
   warnings: string[];
 }
@@ -313,7 +311,7 @@ export async function teardownWorktree(
   cfg: WorktreeConfig,
 ): Promise<TeardownResult> {
   const wt = feature.meta?.worktree;
-  if (!wt) return { removed: false, unmergedCommits: 0, branch: null, taskBranches: [], warnings: [] };
+  if (!wt) return { removed: false, unmergedCommits: 0, branch: null, warnings: [] };
 
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
@@ -325,7 +323,7 @@ export async function teardownWorktree(
   await removeRoute(cfg.routesFile, wt.domain);
 
   const unmergedCommits = branchExists(root, wt.branch) ? unmergedCommitCount(root, wt.branch) : 0;
-  return { removed: !missing, unmergedCommits, branch: wt.branch, taskBranches: [], warnings };
+  return { removed: !missing, unmergedCommits, branch: wt.branch, warnings };
 }
 
 /** Force-remove a worktree regardless of dirty state; the branch always survives. */
@@ -335,12 +333,12 @@ export async function forceRemoveWorktree(
   cfg: WorktreeConfig,
 ): Promise<TeardownResult> {
   const wt = feature.meta?.worktree;
-  if (!wt) return { removed: false, unmergedCommits: 0, branch: null, taskBranches: [], warnings: [] };
+  if (!wt) return { removed: false, unmergedCommits: 0, branch: null, warnings: [] };
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
   const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
   if (!missing) git(root, ["worktree", "remove", "--force", wtPath]);
   await removeRoute(cfg.routesFile, wt.domain);
   const unmergedCommits = branchExists(root, wt.branch) ? unmergedCommitCount(root, wt.branch) : 0;
-  return { removed: !missing, unmergedCommits, branch: wt.branch, taskBranches: [], warnings };
+  return { removed: !missing, unmergedCommits, branch: wt.branch, warnings };
 }

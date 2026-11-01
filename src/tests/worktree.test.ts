@@ -17,6 +17,8 @@ import { cmdWorktree } from "../cli/commands/worktree.js";
 import { worktreeConfig, parseWorktreeConfig, slugify } from "../worktree/config.js";
 import { addRoute, readRoutes, removeRoute } from "../worktree/routes.js";
 import { allocatePort, listWorktrees } from "../worktree/manager.js";
+import * as manager from "../worktree/manager.js";
+import { teardownWorktree } from "../worktree/lifecycle.js";
 import { writeFeatureMeta } from "../workflow/features.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -443,5 +445,47 @@ describe("teardown (FR-007, FR-008)", () => {
     const { items, orphans } = listWorktrees(root, wtCfg());
     expect(items).toHaveLength(1);
     expect(orphans.map((o) => o.kind).sort()).toEqual(["missing-worktree", "stale-route", "unmanaged-worktree"]);
+  });
+});
+
+describe("worktrees left behind by the removed task runner", () => {
+  /** A linked worktree under <baseDir>/demo.tasks/, as the removed drive created them. */
+  async function leftoverTaskWorktree(): Promise<string> {
+    const path = join(scratch, "wts", "demo.tasks", "TASK-001");
+    await mkdir(join(scratch, "wts", "demo.tasks"), { recursive: true });
+    git(root, "worktree", "add", "-b", "leftover-task", path);
+    return path;
+  }
+
+  it("exports no task worktree lookup", () => {
+    expect(manager).not.toHaveProperty("taskWorktreeEntries");
+  });
+
+  it("lists the item without a tasks row", async () => {
+    await approvedItem();
+    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    await leftoverTaskWorktree();
+
+    const { items } = listWorktrees(root, wtCfg());
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toHaveProperty("tasks");
+
+    const json = await cmdWorktree(args("worktree", ["list"], { json: true }), root);
+    expect(JSON.parse(json.stdout).items[0]).not.toHaveProperty("tasks");
+    const text = await cmdWorktree(args("worktree", ["list"]), root);
+    expect(text.stdout).not.toContain("TASK-001");
+  });
+
+  it("teardown reports no task branches and leaves the leftover worktree alone", async () => {
+    await approvedItem();
+    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    const leftover = await leftoverTaskWorktree();
+
+    const result = await teardownWorktree(root, feature(), wtCfg());
+
+    expect(result.removed).toBe(true);
+    expect(result).not.toHaveProperty("taskBranches");
+    expect(existsSync(leftover)).toBe(true);
+    expect(git(root, "branch", "--list", "leftover-task")).toContain("leftover-task");
   });
 });

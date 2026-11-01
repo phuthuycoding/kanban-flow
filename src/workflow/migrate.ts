@@ -155,7 +155,7 @@ function removeIfEmpty(root: string, legacy: LegacyStageName): string | null {
  * One-time move of folders left by releases that had `dones` and `shipping` stages:
  * `dones/*` → `done/*`; `shipping/*` → `review/*`, or on to `done/*` through archiveItem when
  * the recorded PR is merged. The stage is the folder, so `.kfw.json` is not rewritten and its
- * history keeps the legacy names. An item with a dirty worktree, a live run or drive, a clashing
+ * history keeps the legacy names. An item with a dirty worktree, a live run, a clashing
  * target or an unreadable `.kfw.json` stays where it is and gets a line; everything else is untouched.
  */
 export async function migrateLegacyStages(root: string): Promise<MigrationResult> {

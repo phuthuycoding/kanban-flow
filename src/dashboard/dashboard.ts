@@ -36,7 +36,7 @@ export function dashboardData(root: string, filters: DashboardFilters = {}) {
       const stageFeatures = features
         .filter((f) => f.stage === stage)
         .map((f) => {
-          const st = computeStatus(f, config.harness);
+          const st = computeStatus(f);
           return {
             name: st.feature.name,
             kind: st.feature.meta?.kind ?? "feature",

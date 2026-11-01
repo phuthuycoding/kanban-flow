@@ -51,3 +51,24 @@ describe("filesOverlap", () => {
     expect(filesOverlap([], ["b/y.ts"])).toBe(false);
   });
 });
+
+describe("a bracket in a Files entry", () => {
+  // Files names real paths such as src/[id].ts, so a bracket is a literal character, not a character class.
+  it("allows exactly the literal path and not the class it would spell", () => {
+    expect(pathAllowed("src/[id].ts", ["src/[id].ts"])).toBe(true);
+    expect(pathAllowed("src/i.ts", ["src/[id].ts"])).toBe(false);
+    expect(pathAllowed("src/d.ts", ["src/[id].ts"])).toBe(false);
+  });
+
+  it("still allows a directory prefix of the literal path", () => {
+    expect(pathAllowed("src/[id]/page.ts", ["src/[id]"])).toBe(true);
+  });
+
+  it("overlaps by the same literal reading", () => {
+    expect(patternsOverlap("src/[id].ts", "src/[id].ts")).toBe(true);
+    expect(patternsOverlap("src/[id].ts", "src/i.ts")).toBe(false);
+    expect(patternsOverlap("src/i.ts", "src/[id].ts")).toBe(false);
+    expect(patternsOverlap("src/[id]/page.ts", "src/[id]")).toBe(true);
+    expect(filesOverlap(["src/[id].ts"], ["src/i.ts"])).toBe(false);
+  });
+});

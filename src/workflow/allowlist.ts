@@ -1,4 +1,5 @@
-const GLOB_CHARS = /[*?[]/;
+// `[` is deliberately not a glob character: Files lists real paths such as `src/[id].ts`, and globToRegExp has no bracket classes.
+const GLOB_CHARS = /[*?]/;
 
 const normalise = (pattern: string): string => {
   let p = pattern.replace(/`/g, "").trim();
@@ -28,7 +29,7 @@ export function pathAllowed(path: string, patterns: string[]): boolean {
   return patterns.some((raw) => {
     const p = normalise(raw);
     if (p === "" || p === "." || p === "**") return true;
-    if (!/[*?]/.test(p)) return path === p || path.startsWith(`${p}/`);
+    if (!GLOB_CHARS.test(p)) return path === p || path.startsWith(`${p}/`);
     const re = globToRegExp(p);
     return prefixes.some((x) => re.test(x));
   });

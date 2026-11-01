@@ -18,7 +18,6 @@ function issueNote(hasIssue: boolean): string {
 
 function worktreeNote(teardown: TeardownResult, path: string | null): string {
   return `\n  Worktree removed: ${path ?? ""}` +
-    teardown.taskBranches.map((b) => `\n  kept task branch: ${b}`).join("") +
     teardown.warnings.map((w) => `\n  ⚠ ${w}`).join("");
 }
 
