@@ -9,8 +9,6 @@ import { parseTaskGraph, checkTaskGraph, resolveTaskRole, resolveStageRoles, tas
 import { validateFeature } from "../workflow/validate.js";
 import type { HarnessConfig } from "../harness/config.js";
 import type { Stage } from "../workflow/schema.js";
-import type { ParsedArgs } from "../cli/args.js";
-import { cmdValidate } from "../cli/commands/inspect.js";
 
 let root: string;
 
@@ -182,48 +180,5 @@ describe("taskWaves", () => {
     const w = taskWaves(tasks);
     expect([w["TASK-001"], w["TASK-002"], w["TASK-003"], w["TASK-004"]]).toEqual([1, 2, 3, 1]);
     expect(w["TASK-005"]).toBeGreaterThan(0);
-  });
-});
-
-describe("task_harness_needs_worktree (TC-029 B/C)", () => {
-  const validateArgs = (options: Record<string, unknown>): ParsedArgs => ({ command: "validate", positionals: [], options });
-  const writeConfig = async (extra: Record<string, unknown>) => {
-    await mkdir(join(root, ".kf"), { recursive: true });
-    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
-      schema: "kanban-flow",
-      created: "20260101_0000",
-      worktree: { enabled: false },
-      harness: {
-        main: "lead",
-        roles: { lead: { runner: "r" } },
-        stages: {},
-        runners: { r: { start: ["r", "{prompt}"] } },
-        ...extra,
-      },
-    }));
-  };
-  const warned = async (stage: Stage) => {
-    await makeFeature(table(["| TASK-001 | a | - | - | src/a.ts |"]), stage);
-    const res = await cmdValidate(validateArgs({ change: "tg", json: true }), root);
-    const [item] = JSON.parse(res.stdout) as { issues: { code: string }[] }[];
-    return codes(item.issues).includes("task_harness_needs_worktree");
-  };
-
-  it("warns in planning when verify.stage is set and worktrees are off", async () => {
-    await writeConfig({ verify: { stage: [["npm", "test"]] } });
-    expect(await warned("planning")).toBe(true);
-  });
-
-  it("warns in backlog too, but not once the item is in implementation", async () => {
-    await writeConfig({ verify: { stage: [["npm", "test"]] } });
-    expect(await warned("backlog")).toBe(true);
-    await rm(join(root, ".works", "backlog"), { recursive: true, force: true });
-    ensureWorksStructure(root);
-    expect(await warned("implementation")).toBe(false);
-  });
-
-  it("stays silent for a project that never opted into driving", async () => {
-    await writeConfig({});
-    expect(await warned("planning")).toBe(false);
   });
 });

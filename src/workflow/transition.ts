@@ -13,17 +13,11 @@ import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
-import type { HarnessConfig } from "../harness/config.js";
 
 export interface TransitionOptions {
   force?: boolean;
   skipHooks?: boolean;
   cwd: string;
-  /**
-   * The harness the gate validates the task graph against. `kf drive` passes the one it resolved (the item worktree's
-   * copy first), so a stale primary cannot refuse a move the drive itself accepts; omitted, the primary's is read.
-   */
-  harness?: HarnessConfig;
 }
 
 /**
@@ -129,7 +123,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   // the `cancelled` shortcut inside validateFeature, so `kf validate` called the item valid while
   // `kf stage` refused the very reopen `kf cancel` prints, and blamed a stage it was not in. The
   // only way through was --force, which stamps a permanent bypass for a gate that should not hold.
-  const harness = opts.harness ?? readProjectConfig(root).harness;
+  const harness = readProjectConfig(root).harness;
   const check = to === "planning" && f.stage !== "brainstorm" && f.stage !== "cancelled"
     ? validateFeature({ ...f, stage: "brainstorm" }, false, false, harness)
     : validateFeature(f, false, true, harness);

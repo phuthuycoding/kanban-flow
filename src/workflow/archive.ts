@@ -3,10 +3,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type Stage } from "./schema.js";
-import { driveLive, findFeature, stageDir, assertPathName, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
+import { findFeature, stageDir, assertPathName, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
 import { lockPath, withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
-import { liveRecords } from "../harness/run.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
@@ -56,8 +55,6 @@ export type ArchiveRefusalReason =
   | "landing-commits"
   | "docs-target"
   | "changed-concurrently"
-  | "drive-live"
-  | "run-in-progress"
   | "pr-branch"
   | "close-in-progress";
 
@@ -168,8 +165,6 @@ function rerunCommand(name: string, opts: ArchiveOptions): string {
   const flags = `${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}${opts.skipSpecs ? " --skip-specs" : ""}`;
   return opts.trigger === "stage" ? `kf stage ${name} done${flags}` : `kf archive ${name}${flags}`;
 }
-
-const pidState = (pid: number): string => `${pid} (${isPidAlive(pid) ? "alive" : "dead"})`;
 
 /** The same sentences `kf archive` has always printed for a merge-gate refusal; the failure rides along for callers that act on it. */
 function refuseMerge(name: string, failure: MergeGateFailure): ArchiveOutcome {
@@ -309,27 +304,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   }
 
   const rerun = rerunCommand(name, opts);
-
-  // A live worker run may be the caller, from inside the worktree the close would remove; no
-  // --force escape, as for a live drive. Liveness is the pid alone, so a dead run whose pid was
-  // reused looks live: the refusal says where its record is, since no command ends it.
-  const live = liveRecords(f.meta?.runs);
-  if (live.length > 0) {
-    const runs = live.map((r) => {
-      const pids = [
-        ...(r.pid !== undefined ? [`pid ${pidState(r.pid)}`] : []),
-        ...(r.supervisorPid !== undefined && r.supervisorPid !== r.pid ? [`supervisor ${pidState(r.supervisorPid)}`] : []),
-      ];
-      return `${r.id} (${r.role}, ${pids.join(", ")})`;
-    }).join(", ");
-    const record = relative(root, join(f.dir, METADATA_FILE));
-    return refuse("run-in-progress", "run in progress", `Cannot archive '${name}': worker run ${runs} is still running; the run record is in ${record} (runs, by id). Wait for it to end, then re-run: ${rerun}\nIf the alive pid is not the run (it died and the pid was reused), set the record's status to "failed" there, then re-run.`);
-  }
-
-  // A live drive owns the item: closing under it would tear down the worktree it works in.
-  if (driveLive(f.meta?.drive)) {
-    return refuse("drive-live", "drive running", `Cannot archive '${name}': drive ${f.meta?.drive?.id} is live (supervisor pid ${f.meta?.drive?.supervisorPid}). Check: kf drive ${f.name} --status, or stop it: kf drive ${f.name} --stop`);
-  }
 
   // Delivery gate: a recorded PR must be verifiably merged — archive is the post-delivery
   // step, so an unmerged/unverifiable PR refuses before any side effect, on both the
@@ -487,7 +461,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const wtCfg = f.meta?.worktree ? worktreeConfig(root, readProjectConfig(root).worktree) : null;
   if (wtCfg) {
     try {
-      assertWorktreeClean(root, f, wtCfg);
+      assertWorktreeClean(root, f);
     } catch (err) {
       return refuse("worktree-dirty", "worktree dirty", `Cannot archive '${name}': ${err instanceof Error ? err.message : String(err)}`);
     }

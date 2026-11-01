@@ -17,7 +17,6 @@ import {
 } from "./manager.js";
 import { addRoute, removeRoute, readRoutes } from "./routes.js";
 import { deleteRemoteBranch, hasRemote, runGit, runRemoteGit, type RemoteBranchDeletion } from "../shared/git.js";
-import { assertTaskWorktreesClean, removeTaskWorktrees } from "./tasks.js";
 import { worktreeDir, worktreeDomain, worktreeBranch, type WorktreeConfig } from "./config.js";
 
 /**
@@ -195,7 +194,7 @@ export interface TeardownResult {
   /** Commits on kf/<feature> not reachable from HEAD — caller prints the warning. */
   unmergedCommits: number;
   branch: string | null;
-  /** Task branches kept after their worktrees were removed. */
+  /** Task branches kept after their worktrees were removed; always empty now that items have no task worktrees. */
   taskBranches: string[];
   /** Non-fatal warnings (e.g. a worktree-remove hook that failed) — callers surface them. */
   warnings: string[];
@@ -212,10 +211,10 @@ function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration,
 }
 
 /**
- * Throws when the item worktree or one of its task worktrees holds uncommitted work — the
- * refusal teardown makes, callable before any irreversible step of a close.
+ * Throws when the item worktree holds uncommitted work — the refusal teardown makes,
+ * callable before any irreversible step of a close.
  */
-export function assertWorktreeClean(root: string, feature: Feature, cfg: WorktreeConfig): void {
+export function assertWorktreeClean(root: string, feature: Feature): void {
   const wt = feature.meta?.worktree;
   if (!wt) return;
   const wtPath = real(wt.path);
@@ -225,7 +224,6 @@ export function assertWorktreeClean(root: string, feature: Feature, cfg: Worktre
       `Commit them inside the worktree, or discard deliberately: kf worktree remove ${feature.name} --force`,
     );
   }
-  assertTaskWorktreesClean(root, feature.name, cfg);
 }
 
 export interface BranchDeletion {
@@ -320,15 +318,14 @@ export async function teardownWorktree(
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
   // Checked before anything is removed so a refusal leaves everything in place.
-  assertWorktreeClean(root, feature, cfg);
+  assertWorktreeClean(root, feature);
 
   const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
   if (!missing) git(root, ["worktree", "remove", wtPath]);
-  const taskBranches = removeTaskWorktrees(root, feature.name, cfg);
   await removeRoute(cfg.routesFile, wt.domain);
 
   const unmergedCommits = branchExists(root, wt.branch) ? unmergedCommitCount(root, wt.branch) : 0;
-  return { removed: !missing, unmergedCommits, branch: wt.branch, taskBranches, warnings };
+  return { removed: !missing, unmergedCommits, branch: wt.branch, taskBranches: [], warnings };
 }
 
 /** Force-remove a worktree regardless of dirty state; the branch always survives. */
@@ -342,9 +339,8 @@ export async function forceRemoveWorktree(
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
   const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
-  const taskBranches = removeTaskWorktrees(root, feature.name, cfg, { force: true });
   if (!missing) git(root, ["worktree", "remove", "--force", wtPath]);
   await removeRoute(cfg.routesFile, wt.domain);
   const unmergedCommits = branchExists(root, wt.branch) ? unmergedCommitCount(root, wt.branch) : 0;
-  return { removed: !missing, unmergedCommits, branch: wt.branch, taskBranches, warnings };
+  return { removed: !missing, unmergedCommits, branch: wt.branch, taskBranches: [], warnings };
 }

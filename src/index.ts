@@ -7,11 +7,8 @@ import { cmdInstruct, cmdTemplates } from "./cli/commands/artifacts.js";
 import { cmdRules } from "./cli/commands/rules.js";
 import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
 import { cmdDoctor } from "./cli/commands/doctor.js";
-import { cmdRun, cmdRuns } from "./cli/commands/run.js";
 import { cmdTasks } from "./cli/commands/tasks.js";
 import { cmdVerify } from "./cli/commands/verify.js";
-import { cmdDrive } from "./cli/commands/drive.js";
-import { cmdHarness } from "./cli/commands/harness.js";
 import { cmdContexts } from "./cli/commands/contexts.js";
 import { cmdIssues } from "./cli/commands/issues.js";
 import type { CmdResult } from "./cli/result.js";
@@ -45,7 +42,7 @@ function portFrom(parsed: ParsedArgs): number {
 async function help(parts: string[]): Promise<CmdResult> {
   const topic = parts.join(" ");
   if (topic) return renderHelp(topic);
-  const canonical = "  kf feature <verb>  — start | list | show | move | approve | ship | finish | drop | run\n  kf bug <verb>      — same lifecycle for bugs (\"bug start\" implies --type bug)";
+  const canonical = "  kf feature <verb>  — start | list | show | move | approve | ship | finish | drop\n  kf bug <verb>      — same lifecycle for bugs (\"bug start\" implies --type bug)";
   const cmds = allCommands().map((c) => `  ${c.padEnd(12)} ${commandHelp(c).split("\n")[0]}`).join("\n");
   return {
     code: 0,
@@ -109,18 +106,10 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdAutoconfig(parsed, cwd);
     case "doctor":
       return cmdDoctor(parsed, cwd);
-    case "run":
-      return cmdRun(parsed, cwd);
-    case "runs":
-      return cmdRuns(parsed, cwd);
     case "tasks":
       return cmdTasks(parsed, cwd);
     case "verify":
       return cmdVerify(parsed, cwd);
-    case "drive":
-      return cmdDrive(parsed, cwd);
-    case "harness":
-      return cmdHarness(parsed, cwd);
     case "contexts":
       return cmdContexts(parsed, cwd);
     case "issues":

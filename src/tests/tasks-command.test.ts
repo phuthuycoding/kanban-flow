@@ -1,41 +1,71 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { gitDriveProject, type GitDriveProject } from "./helpers/git-fixture.js";
 import { cmdTasks } from "../cli/commands/tasks.js";
-import { writeFeatureMeta, type TaskState } from "../workflow/features.js";
-import { renderTasksMd, writeTasksMd, type TaskViewRow } from "../workflow/tasks.js";
-import { countTasks } from "../workflow/status.js";
+import { ensureWorksStructure } from "../workflow/features.js";
+import { ARTIFACTS, METADATA_FILE } from "../workflow/schema.js";
+import type { TaskViewRow } from "../workflow/tasks.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (options: Record<string, unknown> = {}): ParsedArgs => ({ command: "tasks", positionals: ["demo"], options });
 
-let p: GitDriveProject;
-
-async function setTasks(tasks: Record<string, TaskState>): Promise<void> {
-  await writeFeatureMeta(p.itemDir(), { ...p.readMeta()!, tasks });
+interface PlanTask {
+  id: string;
+  deps?: string[];
+  files?: string[];
 }
 
-describe("kf tasks (TC-006)", () => {
-  beforeEach(async () => {
-    p = await gitDriveProject({
-      tasks: [
-        { id: "TASK-001", files: ["src/a.ts"] },
-        { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.ts", "src/c.ts"] },
-        { id: "TASK-003", deps: ["TASK-001", "TASK-002"] },
-      ],
-    });
-    await setTasks({ "TASK-001": { state: "done" } });
-  });
-  afterEach(async () => {
-    await p.cleanup();
-  });
+const TABLE_HEADER = "| Task | Description | Area | Dependencies | Expected output | FR / UC references | Role | Files |\n|---|---|---|---|---|---|---|---|";
 
-  it("reports state, wave, role, deps and files as JSON", async () => {
-    const res = await cmdTasks(args({ json: true }), p.root);
+function planWithTasks(tasks: PlanTask[]): string {
+  const list = (v: string[] | undefined) => (v && v.length ? v.join(", ") : "-");
+  const rows = tasks.map((t) => `| ${t.id} | Do ${t.id} | Core | ${list(t.deps)} | Change merged | FR-001 / UC-001 | coder | ${list(t.files)} |`);
+  return `# Implementation Plan\nUC-001: Create a task\n\n## Task Breakdown\n\n${TABLE_HEADER}\n${rows.join("\n")}\n`;
+}
+
+let root: string;
+let itemDir: string;
+
+async function writePlan(tasks: PlanTask[]): Promise<void> {
+  await writeFile(join(itemDir, ARTIFACTS["implementation-plan"].file), planWithTasks(tasks));
+}
+
+beforeEach(async () => {
+  root = realpathSync(await mkdtemp(join(tmpdir(), "kf-tasks-")));
+  ensureWorksStructure(root);
+  await mkdir(join(root, ".kf"), { recursive: true });
+  await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+    schema: "kanban-flow", created: "20260919_1200", defaultContext: "app",
+    harness: {
+      main: "lead",
+      roles: { lead: { runner: "claude" }, coder: { runner: "claude" } },
+      stages: { implementation: ["coder"] },
+      runners: { claude: { start: ["claude", "{prompt}"] } },
+    },
+  }));
+  itemDir = join(root, ".works", "implementation", "demo_20260919_1200");
+  await mkdir(itemDir, { recursive: true });
+  await writeFile(join(itemDir, METADATA_FILE), JSON.stringify({ schema: "kanban-flow", feature: "demo", context: "app", created: "20260919_1200" }));
+  await writePlan([
+    { id: "TASK-001", files: ["src/a.ts"] },
+    { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.ts", "src/c.ts"] },
+    { id: "TASK-003", deps: ["TASK-001", "TASK-002"] },
+  ]);
+  writeFileSync(join(itemDir, "tasks.md"), "# Tasks\n\n## Tasks\n\n- [x] TASK-001 — Do TASK-001\n- [ ] TASK-002 — later\n");
+});
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("kf tasks", () => {
+  it("reports state from the tasks.md checkboxes, wave, role, deps and files as JSON", async () => {
+    const res = await cmdTasks(args({ json: true }), root);
     expect(res.code).toBe(0);
-    const out = JSON.parse(res.stdout) as { feature: string; tasks: TaskViewRow[] };
+    const out = JSON.parse(res.stdout) as { feature: string; tasks: Array<TaskViewRow & { state: string }> };
     expect(out.feature).toBe("demo");
     expect(out.tasks.map((t) => [t.id, t.state, t.wave, t.role])).toEqual([
       ["TASK-001", "done", 1, "coder"],
@@ -48,7 +78,7 @@ describe("kf tasks (TC-006)", () => {
   });
 
   it("shows the same data in text mode", async () => {
-    const res = await cmdTasks(args(), p.root);
+    const res = await cmdTasks(args(), root);
     expect(res.code).toBe(0);
     const lines = res.stdout.split("\n");
     expect(lines).toHaveLength(3);
@@ -57,106 +87,51 @@ describe("kf tasks (TC-006)", () => {
     expect(lines[2]).toMatch(/^TASK-003 +wave 3 +pending +coder +deps: TASK-001, TASK-002 +files: files unknown$/);
   });
 
-  it("names the blocked dependency of a pending task and does not write", async () => {
-    await setTasks({ "TASK-001": { state: "blocked", reason: "allowlist violation" } });
-    const out = JSON.parse((await cmdTasks(args({ json: true }), p.root)).stdout) as { tasks: TaskViewRow[] };
-    expect(out.tasks[0]).toMatchObject({ state: "blocked", reason: "allowlist violation" });
-    expect(out.tasks[1]).toMatchObject({ state: "pending", blockedBy: "TASK-001" });
-    expect(existsSync(join(p.itemDir(), "tasks.md"))).toBe(false);
-  });
-
-  it("shows a hand-ticked task as done when meta.tasks is absent", async () => {
-    const { tasks: _tasks, ...rest } = p.readMeta()!;
-    await writeFeatureMeta(p.itemDir(), rest);
-    const file = join(p.itemDir(), "tasks.md");
-    writeFileSync(file, "# Tasks\n\n## Tasks\n\n- [x] TASK-001 — Do TASK-001\n- [ ] TASK-002 — later\n");
+  it("reads tasks.md without writing it", async () => {
+    const file = join(itemDir, "tasks.md");
     const before = readFileSync(file, "utf8");
-    const res = await cmdTasks(args({ json: true }), p.root);
-    expect(res.code).toBe(0);
-    const out = JSON.parse(res.stdout) as { tasks: Array<{ id: string; state: string; stateSource: string }> };
-    expect(out.tasks.map((t) => [t.id, t.state, t.stateSource])).toEqual([
-      ["TASK-001", "done", "tasks.md"],
-      ["TASK-002", "ready", "view"],
-      ["TASK-003", "pending", "view"],
-    ]);
+    expect((await cmdTasks(args({ json: true }), root)).code).toBe(0);
     expect(readFileSync(file, "utf8")).toBe(before);
-    const text = await cmdTasks(args(), p.root);
-    expect(text.stdout.split("\n")[0]).toContain("tasks.md");
   });
 
-  it("keeps stored pending when the checkbox is ticked", async () => {
-    await setTasks({ "TASK-001": { state: "pending" } });
-    writeFileSync(join(p.itemDir(), "tasks.md"), "- [x] TASK-001 — Do TASK-001\n");
-    const out = JSON.parse((await cmdTasks(args({ json: true }), p.root)).stdout) as { tasks: Array<{ id: string; state: string; stateSource: string }> };
-    expect(out.tasks[0]).toMatchObject({ id: "TASK-001", state: "pending", stateSource: "meta" });
+  it("shows every task pending or ready when there is no tasks.md", async () => {
+    await rm(join(itemDir, "tasks.md"));
+    const out = JSON.parse((await cmdTasks(args({ json: true }), root)).stdout) as { tasks: Array<{ id: string; state: string }> };
+    expect(out.tasks.map((t) => [t.id, t.state])).toEqual([
+      ["TASK-001", "ready"],
+      ["TASK-002", "pending"],
+      ["TASK-003", "pending"],
+    ]);
+    expect(existsSync(join(itemDir, "tasks.md"))).toBe(false);
+  });
+
+  it("ignores leftover per-task state in .kfw.json", async () => {
+    await writeFile(join(itemDir, METADATA_FILE), JSON.stringify({
+      schema: "kanban-flow", feature: "demo", context: "app", created: "20260919_1200",
+      tasks: { "TASK-001": { state: "blocked", reason: "allowlist violation" } },
+    }));
+    const out = JSON.parse((await cmdTasks(args({ json: true }), root)).stdout) as { tasks: Array<Record<string, unknown>> };
+    expect(out.tasks[0]).toMatchObject({ id: "TASK-001", state: "done" });
+    expect(out.tasks[0]).not.toHaveProperty("reason");
+    expect(out.tasks[1]).not.toHaveProperty("blockedBy");
   });
 
   it("exits 1 for an unknown feature", async () => {
-    const res = await cmdTasks({ command: "tasks", positionals: ["ghost"], options: {} }, p.root);
+    const res = await cmdTasks({ command: "tasks", positionals: ["ghost"], options: {} }, root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("Unknown feature 'ghost'");
   });
 
   it("exits 1 printing task_dep_cycle on a cyclic plan", async () => {
-    await p.writePlan([{ id: "TASK-001", deps: ["TASK-002"] }, { id: "TASK-002", deps: ["TASK-001"] }]);
-    const res = await cmdTasks(args(), p.root);
+    await writePlan([{ id: "TASK-001", deps: ["TASK-002"] }, { id: "TASK-002", deps: ["TASK-001"] }]);
+    const res = await cmdTasks(args(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("task_dep_cycle");
-    expect(existsSync(join(p.itemDir(), "tasks.md"))).toBe(false);
   });
 
   it("says there are no planned tasks when the plan has no table", async () => {
-    await p.writePlan([]);
-    const res = await cmdTasks(args(), p.root);
+    await writePlan([]);
+    const res = await cmdTasks(args(), root);
     expect(res).toMatchObject({ code: 0, stdout: "No planned tasks." });
-  });
-});
-
-describe("tasks.md rendering (TC-007)", () => {
-  const row = (id: string, state: TaskViewRow["state"], reason?: string): TaskViewRow => ({
-    id, description: `Do ${id}`, role: "coder", dependencies: [], files: null, wave: 1, state, ...(reason ? { reason } : {}),
-  });
-  const view = [row("TASK-001", "done"), row("TASK-002", "blocked", "merge conflict")];
-  const baseline = { sha: "abc1234", porcelain: [" M src/x.ts", "?? notes.md"] };
-
-  beforeEach(async () => {
-    p = await gitDriveProject({ tasks: [{ id: "TASK-001" }, { id: "TASK-002" }] });
-  });
-  afterEach(async () => {
-    await p.cleanup();
-  });
-
-  it("keeps Baseline byte-identical, ticks only done tasks and counts 1/2", async () => {
-    const feature = p.feature();
-    const file = join(p.itemDir(), "tasks.md");
-    await writeTasksMd(feature, view, baseline);
-    const first = readFileSync(file, "utf8");
-    const section = (md: string) => md.slice(md.indexOf("## Baseline"), md.indexOf("## Tasks"));
-    expect(section(first)).toContain("abc1234");
-    expect(section(first)).toContain(" M src/x.ts");
-
-    await writeTasksMd(feature, view, { sha: "different", porcelain: [] });
-    const second = readFileSync(file, "utf8");
-    expect(second).toBe(first);
-    expect(section(second)).toBe(section(first));
-
-    expect(first.split("\n").filter((l) => /^\s*- \[[ xX]\]/.test(l))).toEqual([
-      "- [x] TASK-001 — Do TASK-001",
-      "- [ ] TASK-002 — Do TASK-002 (blocked: merge conflict)",
-    ]);
-    expect(countTasks(first)).toEqual({ done: 1, total: 2 });
-  });
-
-  it("preserves a hand-written Baseline and omits it when none exists", () => {
-    const existing = "# Tasks\n\n## Baseline\n\nsha: deadbeef\n M a.ts\n\n## Tasks\n\n- [ ] TASK-001 — old\n";
-    const out = renderTasksMd(existing, view);
-    expect(out).toContain("## Baseline\n\nsha: deadbeef\n M a.ts\n\n## Tasks");
-    expect(renderTasksMd(out, view)).toBe(out);
-    expect(renderTasksMd(null, view)).not.toContain("Baseline");
-  });
-
-  it("marks failed tasks and never ticks them", () => {
-    const out = renderTasksMd(null, [row("TASK-001", "failed", "verify failed\nline two")]);
-    expect(out).toContain("- [ ] TASK-001 — Do TASK-001 (failed: verify failed line two)");
   });
 });

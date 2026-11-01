@@ -101,7 +101,6 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
       `  demo — ${neverLanded("demo")}`,
       "Waiting to merge",
       "  (none)",
-      "Running: 0",
     ].join("\n"));
 
     const json = JSON.parse((await cmdStatus({ command: "status", positionals: [], options: { all: true, json: true } }, root)).stdout) as {

@@ -5,7 +5,6 @@ import { join, relative } from "node:path";
 import { findFeature, stageDir, writeFeatureMeta, type Bypass, type Cancellation } from "./features.js";
 import { withLock } from "../shared/lock.js";
 import { findSecretLike } from "./validate.js";
-import { runningRun } from "../harness/run.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
 import { WorktreeDirtyError } from "../worktree/manager.js";
 import { readProjectConfig } from "../project/config.js";
@@ -37,7 +36,6 @@ export type CancelRefusalReason =
   | "unknown-item"
   | "already-cancelled"
   | "metadata-missing"
-  | "run-in-progress"
   | "purge-unconfirmed"
   | "worktree-dirty"
   | "teardown-failed"
@@ -115,14 +113,6 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
   if (!f.meta) return refuse("metadata-missing", "metadata missing", "Feature metadata is missing.");
 
   const force = Boolean(opts.force);
-  const forcedCodes: string[] = [];
-  const active = runningRun(f);
-  if (active) {
-    if (!force) {
-      return refuse("run-in-progress", "run in progress", `Run ${active.id} (${active.role} @ ${active.stage}) is still running for '${name}'. Wait for it, or re-run with --force.`);
-    }
-    forcedCodes.push("run_in_progress");
-  }
 
   const skipHooks = Boolean(opts.skipHooks);
   const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "cancelled") : null;
@@ -189,7 +179,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
     }
   }
 
-  const recorded = recordBypasses(f.stage, "cancelled", forcedCodes, skippedHook);
+  const recorded = recordBypasses(f.stage, "cancelled", [], skippedHook);
   const cancellation = { at: nowTimestamp(), by, reason, fromStage: f.stage };
   const dest = stageDir(root, "cancelled");
   mkdirSync(dest, { recursive: true });

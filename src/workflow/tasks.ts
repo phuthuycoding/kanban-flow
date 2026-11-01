@@ -4,8 +4,7 @@ import { join } from "node:path";
 import { ARTIFACTS, STAGE_INDEX, type Stage } from "./schema.js";
 import { parseMarkdownTable, readMarkdownSection, splitFrontmatter } from "../shared/frontmatter.js";
 import { finding, type Finding } from "./findings.js";
-import type { Feature, TaskStateName } from "./features.js";
-import { writeFileAtomic } from "../shared/paths.js";
+import type { Feature } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
 
 export interface PlannedTask {
@@ -168,75 +167,21 @@ export interface TaskViewRow {
   dependencies: string[];
   files: string[] | null;
   wave: number;
-  state: TaskStateName;
-  reason?: string;
-  /** For a pending task: the first dependency that is blocked or failed. */
-  blockedBy?: string;
 }
 
-/** Planned tasks joined with stored state. Unstored tasks are `pending`, or `ready` once every dependency is `done`. */
+/** The planned tasks of an item with their wave and resolved role. */
 export function taskView(feature: Feature, harness: HarnessConfig): TaskViewRow[] {
   if (feature.meta?.kind === "bug") return [];
   const path = join(feature.dir, ARTIFACTS["implementation-plan"].file);
   if (!existsSync(path)) return [];
   const { tasks } = parseTaskGraph(splitFrontmatter(readFileSync(path, "utf8")).body);
   const waves = taskWaves(tasks);
-  const stored = feature.meta?.tasks ?? {};
-  const stateOf = (id: string): TaskStateName => stored[id]?.state ?? "pending";
-  return tasks.map((t) => {
-    let state = stateOf(t.id);
-    if (state === "pending" && t.dependencies.every((d) => stateOf(d) === "done")) state = "ready";
-    const row: TaskViewRow = {
-      id: t.id,
-      description: t.description,
-      role: resolveTaskRole(t, harness),
-      dependencies: t.dependencies,
-      files: t.files,
-      wave: waves[t.id],
-      state,
-    };
-    const reason = stored[t.id]?.reason;
-    if (reason) row.reason = reason;
-    if (state === "pending") {
-      const blocker = t.dependencies.find((d) => stateOf(d) === "blocked" || stateOf(d) === "failed");
-      if (blocker) row.blockedBy = blocker;
-    }
-    return row;
-  });
-}
-
-export interface TasksBaseline {
-  sha: string;
-  /** `git status --porcelain` lines of the item worktree. */
-  porcelain: string[];
-}
-
-function baselineSection(existing: string | null): string | null {
-  if (existing === null) return null;
-  const match = /^## Baseline[ \t]*$/m.exec(existing);
-  if (!match) return null;
-  const rest = existing.slice(match.index + match[0].length);
-  const next = rest.search(/^## /m);
-  return (match[0] + (next === -1 ? rest : rest.slice(0, next))).trimEnd();
-}
-
-/** The `tasks.md` text for a task view; an existing `## Baseline` section is carried over byte-for-byte. */
-export function renderTasksMd(existing: string | null, view: TaskViewRow[], baseline?: TasksBaseline): string {
-  const kept = baselineSection(existing);
-  const baselineBlock = kept ?? (baseline
-    ? ["## Baseline", "", `Branch HEAD: ${baseline.sha}`, "", "git status --porcelain:", "```", ...baseline.porcelain, "```"].join("\n")
-    : null);
-  const lines = view.map((t) => {
-    const note = t.state === "blocked" || t.state === "failed"
-      ? ` (${t.state}${t.reason ? `: ${t.reason.replace(/\s+/g, " ").trim()}` : ""})`
-      : "";
-    return `- [${t.state === "done" ? "x" : " "}] ${t.id} — ${t.description}${note}`;
-  });
-  return `# Tasks\n\n${baselineBlock ? `${baselineBlock}\n\n` : ""}## Tasks\n\n${lines.join("\n")}\n`;
-}
-
-/** Render and atomically write `tasks.md` in the item folder, keeping an existing Baseline. */
-export async function writeTasksMd(feature: Feature, view: TaskViewRow[], baseline?: TasksBaseline): Promise<void> {
-  const file = join(feature.dir, "tasks.md");
-  await writeFileAtomic(file, renderTasksMd(existsSync(file) ? readFileSync(file, "utf8") : null, view, baseline));
+  return tasks.map((t) => ({
+    id: t.id,
+    description: t.description,
+    role: resolveTaskRole(t, harness),
+    dependencies: t.dependencies,
+    files: t.files,
+    wave: waves[t.id],
+  }));
 }

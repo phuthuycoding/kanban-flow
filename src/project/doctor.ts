@@ -1,16 +1,14 @@
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { ARTIFACTS, LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { parseTaskGraph } from "../workflow/tasks.js";
 import { isPidAlive } from "../shared/process.js";
-import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
 import { branchPushed, revParse, type LandedRun } from "../shared/git.js";
 import { docsLandedProof } from "../workflow/canonical-docs.js";
-import { worktreeConfig, worktreeDir } from "../worktree/config.js";
-import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
+import { listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { docsLookupRerunDecision, docsNeverLandedDecision, reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
@@ -85,7 +83,7 @@ function checkLegacyStageDirs(root: string): DoctorFinding[] {
     return [{
       level: "WARNING" as const,
       area: `.works/${legacy}/`,
-      message: `legacy stage folder .works/${legacy}/ ${folders.length > 0 ? `holds ${folders.join(", ")}` : "is still present (empty)"} — kf list, view, drive and archive do not see it.`,
+      message: `legacy stage folder .works/${legacy}/ ${folders.length > 0 ? `holds ${folders.join(", ")}` : "is still present (empty)"} — kf list, view and archive do not see it.`,
       action: "run kf status to migrate them",
     }];
   });
@@ -541,37 +539,6 @@ function plannedRolesMissing(root: string, roles: Record<string, unknown>): Doct
   return findings;
 }
 
-/** A run is live while its worker or supervisor pid answers; a drive records the same pids. */
-function hasLiveRunOrDrive(meta: ReturnType<typeof readFeatureMeta>): boolean {
-  if (!meta) return false;
-  if ((meta.runs ?? []).some((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid)))) return true;
-  return driveLive(meta.drive);
-}
-
-/** Task worktrees left behind by a drive or run that is no longer alive. */
-function staleTaskWorktrees(root: string, cfg: ReturnType<typeof readProjectConfig>): DoctorFinding[] {
-  const wt = worktreeConfig(root, cfg.worktree);
-  const baseDir = dirname(worktreeDir(wt, "x"));
-  const dirs = existsSync(baseDir) ? readdirSync(baseDir).filter((n) => n.endsWith(".tasks")) : [];
-  if (dirs.length === 0 || !isGitRepo(root)) return [];
-  const items = listFeatures(root);
-  const findings: DoctorFinding[] = [];
-  for (const dir of dirs) {
-    const feature = dir.slice(0, -".tasks".length);
-    const item = items.find((i) => i.name === feature && i.stage !== "done");
-    if (item && hasLiveRunOrDrive(item.meta)) continue;
-    for (const entry of taskWorktreeEntries(root, wt, feature)) {
-      findings.push({
-        level: "WARNING",
-        area: entry.path,
-        message: `task worktree of ${feature} has no live run or drive.`,
-        action: item ? `kf worktree remove ${feature} --force` : `git worktree remove ${entry.path}`,
-      });
-    }
-  }
-  return findings;
-}
-
 /** A lock whose holder died is taken over by the next writer, but it keeps showing up until then. */
 function deadLocks(root: string): DoctorFinding[] {
   const dir = join(root, ".works", ".locks");
@@ -591,22 +558,12 @@ function deadLocks(root: string): DoctorFinding[] {
   return findings;
 }
 
-/** Harness readiness; the verify check applies only once a stage is assigned, the rest whenever a harness exists. */
+/** Harness readiness, whenever a harness exists. */
 function checkHarness(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
   const harness = cfg?.harness;
   if (!cfg || !harness) return [];
   const findings: DoctorFinding[] = [];
-  const assigned = Object.values(harness.stages).some((chain) => Array.isArray(chain) && chain.length > 0);
-  if (assigned && !harness.verify?.stage?.length) {
-    findings.push({
-      level: "WARNING",
-      area: ".kf/config.json",
-      message: "harness.verify.stage is not set; kf drive refuses to start without it.",
-      action: 'set harness.verify.stage in .kf/config.json, e.g. [["npm", "test"]]',
-    });
-  }
   findings.push(...plannedRolesMissing(root, harness.roles));
-  findings.push(...staleTaskWorktrees(root, cfg));
   findings.push(...deadLocks(root));
   return findings;
 }

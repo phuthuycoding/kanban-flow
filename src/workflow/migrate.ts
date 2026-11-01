@@ -3,9 +3,8 @@ import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 
 import { LEGACY_REOPEN_STAGE, METADATA_FILE, type LegacyStageName, type Stage } from "./schema.js";
-import { driveLive, parseFolderName, readFeatureMeta, stageDir, type FeatureMeta } from "./features.js";
+import { parseFolderName, readFeatureMeta, stageDir, type FeatureMeta } from "./features.js";
 import { archiveItem } from "./archive.js";
-import { liveRecords } from "../harness/run.js";
 import { withLock } from "../shared/lock.js";
 import { checkMergeGate } from "../integrations/github.js";
 import { readProjectConfig } from "../project/config.js";
@@ -45,14 +44,6 @@ function readLegacyItem(root: string, legacy: LegacyStageName, folder: string): 
   const dir = join(root, ".works", legacy, folder);
   const meta = readFeatureMeta(dir);
   return { folder, dir, name: meta?.feature ?? parseFolderName(folder).name, meta };
-}
-
-/** What still runs in the item: a live worker run or drive holds its folder as an absolute path, so it must not be renamed. */
-function liveWork(meta: FeatureMeta | null): string | null {
-  const runs = liveRecords(meta?.runs);
-  if (runs.length > 0) return `worker run ${runs.map((r) => r.id).join(", ")} is still running`;
-  if (driveLive(meta?.drive)) return `drive ${meta?.drive?.id} is live (supervisor pid ${meta?.drive?.supervisorPid})`;
-  return null;
 }
 
 /** The item worktree when it exists and holds uncommitted work; null otherwise. */
@@ -184,11 +175,6 @@ export async function migrateLegacyStages(root: string): Promise<MigrationResult
         const dirty = dirtyWorktree(item.meta);
         if (dirty) {
           lines.push(`⚠ ${item.folder} left in ${rel(legacy)}: worktree has uncommitted changes (${dirty}) — commit or discard them, then re-run kf status --change ${item.name}`);
-          continue;
-        }
-        const live = liveWork(item.meta);
-        if (live) {
-          lines.push(`⚠ ${item.folder} left in ${rel(legacy)}: ${live} — wait for it to end, then re-run kf status --change ${item.name}`);
           continue;
         }
         const res = await migrate(item);

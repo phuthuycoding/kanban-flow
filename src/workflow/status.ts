@@ -12,7 +12,7 @@ import {
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
-import { driveLive, executionContractHash } from "./features.js";
+import { executionContractHash } from "./features.js";
 import type { HarnessConfig } from "../harness/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
@@ -49,15 +49,8 @@ export interface FeatureStatus {
    */
   blockers: Finding[];
   taskProgress: { done: number; total: number };
-  /** Roles assigned to the current stage, in run order; empty when the main role does it. */
-  assignedRoles: Array<{ role: string; runner: string }>;
   /** Why a review PASS item did not close on this run; set by the command that attempted it. */
   close?: CloseState;
-  /**
-   * `kf drive` can take the item, as the drive resolves its config (driveConfigReady). Computed by the command layer,
-   * which can read the worktree and origin copies; false when the caller did not compute it.
-   */
-  driveConfigured: boolean;
 }
 
 /**
@@ -108,14 +101,8 @@ export function countTasks(content: string): { done: number; total: number } {
   return { done, total };
 }
 
-function assignedFor(feature: Feature, harness: HarnessConfig | undefined): Array<{ role: string; runner: string }> {
-  const chain = harness?.stages[feature.stage] ?? [];
-  if (chain.length === 1 && chain[0] === harness?.main) return [];
-  return chain.map((role) => ({ role, runner: harness?.roles[role]?.runner ?? "?" }));
-}
-
 /** Compute artifact completion status for a feature at its current stage. */
-export function computeStatus(feature: Feature, harness?: HarnessConfig, driveReady = false): FeatureStatus {
+export function computeStatus(feature: Feature, harness?: HarnessConfig): FeatureStatus {
   const stageIndex = STAGE_INDEX[feature.stage];
   const artifacts: ArtifactState[] = [];
   let doneCount = 0;
@@ -174,8 +161,6 @@ export function computeStatus(feature: Feature, harness?: HarnessConfig, driveRe
     next,
     blockers,
     taskProgress,
-    assignedRoles: assignedFor(feature, harness),
-    driveConfigured: driveReady,
   };
 }
 
@@ -211,13 +196,6 @@ export function renderStatusText(s: FeatureStatus): string {
   const cancellation = s.feature.meta?.cancellation;
   if (cancellation) {
     lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${currentStageName(cancellation.fromStage)}) — ${cancellation.reason.split("\n")[0]}`);
-  }
-  if (s.assignedRoles.length > 0) lines.push(`Assigned: ${s.assignedRoles.map((a) => `${a.role} (${a.runner})`).join(" → ")} (kf run)`);
-  const runs = s.feature.meta?.runs ?? [];
-  if (runs.length > 0) {
-    const byRole = new Map<string, number>();
-    for (const r of runs) byRole.set(r.role, (byRole.get(r.role) ?? 0) + 1);
-    lines.push(`Runs: ${runs.length} (${[...byRole].map(([a, n]) => `${a}×${n}`).join(", ")})`);
   }
   lines.push("");
 
@@ -256,8 +234,7 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`Next: kf stage "${s.feature.name}" implementation`);
   } else if (s.feature.stage === "implementation") {
     lines.push("");
-    lines.push(driveLive(s.feature.meta?.drive) ? `Next: kf drive "${s.feature.name}" --status`
-      : s.driveConfigured ? `Next: kf drive "${s.feature.name}"` : `Next: load the kanban-implement skill for "${s.feature.name}"`);
+    lines.push(`Next: load the kanban-implement skill for "${s.feature.name}"`);
   }
   return lines.join("\n");
 }
@@ -278,8 +255,6 @@ export function statusToJson(s: FeatureStatus) {
     worktree: s.feature.meta?.worktree ?? null,
     bypasses: s.feature.meta?.bypasses ?? [],
     cancellation: s.feature.meta?.cancellation ?? null,
-    assignedRoles: s.assignedRoles,
-    runs: s.feature.meta?.runs ?? [],
     artifacts: s.artifacts.map((a) => ({
       id: a.id,
       file: a.file,
@@ -313,18 +288,15 @@ export interface Buckets {
   needsYou: Array<{ feature: string; decision: string }>;
   /** Things the human does outside kf: merge a PR, push a docs branch. */
   waitingToMerge: WaitingToMergeEntry[];
-  /** Live `kf drive` supervisors. */
-  running: number;
 }
 
 /**
- * The two buckets `kf status --all` ends with. `docsBranchesUnpushed` and `running` come from
- * git and process state the caller read; everything else is read off the statuses.
+ * The two buckets `kf status --all` ends with. `docsBranchesUnpushed` comes from
+ * git state the caller read; everything else is read off the statuses.
  */
 export function computeBuckets(
   statuses: FeatureStatus[],
   docsBranchesUnpushed: Array<{ feature: string; branch: string; reason?: string; kind?: "lookup-rerun"; remedy?: string; gone?: true }>,
-  running: number,
 ): Buckets {
   const needsYou: Buckets["needsYou"] = [];
   const waitingToMerge: Buckets["waitingToMerge"] = [];
@@ -361,7 +333,7 @@ export function computeBuckets(
     }
     waitingToMerge.push({ feature: d.feature, docsBranch: d.branch, command: `git push -u origin ${d.branch}`, ...(d.reason ? { reason: d.reason } : {}) });
   }
-  return { needsYou, waitingToMerge, running };
+  return { needsYou, waitingToMerge };
 }
 
 /** A docs branch nothing proves landed and nothing is left to push; doctor gives the same decision. */
@@ -394,6 +366,5 @@ export function renderBuckets(b: Buckets): string {
     else if (w.reason) lines.push(`  ${w.feature} — ${w.docsBranch} not proven merged (${w.reason}): ${w.command}`);
     else lines.push(`  ${w.feature} — ${w.docsBranch} awaiting push: ${w.command}`);
   }
-  lines.push(`Running: ${b.running}`);
   return lines.join("\n");
 }

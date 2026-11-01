@@ -201,28 +201,6 @@ const COMMANDS: Record<string, CmdSpec> = {
       "skip-hooks": { type: "boolean" },
     },
   },
-  run: {
-    help: "Usage: kf run <feature> [--stage <s>] [--role <r>] [--fresh] [--detach] [--timeout <min>] [--dry-run]  — run the roles assigned to the work item's stage (harness.stages) as worker agents, in order, and record each run. kf run <feature> --task TASK-### [--fresh] [--timeout <min>] [--dry-run]  — run one planned task in its own task worktree (needs worktree.enabled; cannot combine with --stage, --role or --detach)",
-    allowPositionals: true,
-    options: {
-      stage: { type: "string" },
-      role: { type: "string" },
-      task: { type: "string" },
-      agent: { type: "string" },
-      fresh: { type: "boolean" },
-      detach: { type: "boolean" },
-      timeout: { type: "string" },
-      "dry-run": { type: "boolean" },
-      supervise: { type: "string" },
-    },
-  },
-  runs: {
-    help: "Usage: kf runs [<feature>] [--json]  — list worker runs (role, runner, stage, status, STATUS line) for one or all open work items",
-    allowPositionals: true,
-    options: {
-      json: { type: "boolean" },
-    },
-  },
   tasks: {
     help: "Usage: kf tasks <feature> [--json]  — list the planned tasks of a work item with wave, state, resolved role, dependencies and files (read-only)",
     allowPositionals: true,
@@ -237,20 +215,6 @@ const COMMANDS: Record<string, CmdSpec> = {
       task: { type: "string" },
       base: { type: "string" },
       stage: { type: "boolean" },
-    },
-  },
-  drive: {
-    help: "Usage: kf drive <feature> [--status] [--stop] [--watch|--follow] [--tail] [--accept-config] [--json]  — drive an approved item in implementation through its task graph, testing and review in a detached supervisor, stopping at review PASS or at a named stop (needs worktree.enabled and harness.verify.stage); --status shows the step and each live run; --watch (alias --follow) starts the drive when none is running, then streams events and a 15s heartbeat until the drive stops (Ctrl+C detaches the watcher only); --tail adds the last log lines under each heartbeat; --stop ends the drive and keeps worktrees; --accept-config resumes a drive whose runner or verify commands changed since it was pinned (or that stopped config_changed), printing the new argv first",
-    allowPositionals: true,
-    options: {
-      status: { type: "boolean" },
-      stop: { type: "boolean" },
-      watch: { type: "boolean" },
-      follow: { type: "boolean" },
-      tail: { type: "boolean" },
-      "accept-config": { type: "boolean" },
-      json: { type: "boolean" },
-      supervise: { type: "string" },
     },
   },
   worktree: {
@@ -283,12 +247,6 @@ const COMMANDS: Record<string, CmdSpec> = {
   },
   contexts: {
     help: "Usage: kf contexts [--json]  — list the declared contexts and the ones work items actually use; prints a survey brief when none are declared",
-    options: {
-      json: { type: "boolean" },
-    },
-  },
-  harness: {
-    help: "Usage: kf harness [--json]  — show the multi-agent harness: stage to role chains, role to runner, and whether each runner CLI is on PATH",
     options: {
       json: { type: "boolean" },
     },

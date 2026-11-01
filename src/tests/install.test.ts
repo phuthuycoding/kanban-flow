@@ -6,7 +6,19 @@ import { join } from "node:path";
 
 import { copySkillsTo, removeSkillsFrom, removeRetiredSkills, MANAGED_SKILLS, RETIRED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
-import { STAGE_SKILL } from "../harness/prompt.js";
+import type { Stage } from "../workflow/schema.js";
+
+/** Skill a worker loads for each stage; backlog has no work to hand off. */
+const STAGE_SKILL: Record<Stage, string | null> = {
+  brainstorm: "kanban-brainstorm",
+  planning: "kanban-plan",
+  backlog: null,
+  implementation: "kanban-implement",
+  testing: "kanban-test",
+  review: "kanban-review",
+  done: "kanban-archive",
+  cancelled: null,
+};
 
 let dir: string;
 

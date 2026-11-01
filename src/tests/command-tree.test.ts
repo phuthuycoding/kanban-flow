@@ -28,7 +28,7 @@ describe("canonical noun verbs resolve to flat handlers", () => {
   it("maps every verb for both nouns (UC-001)", () => {
     const verbs: [string, string][] = [
       ["start", "new"], ["list", "list"], ["show", "show"], ["move", "stage"],
-      ["approve", "approve"], ["ship", "ship"], ["finish", "archive"], ["drop", "cancel"], ["run", "run"],
+      ["approve", "approve"], ["ship", "ship"], ["finish", "archive"], ["drop", "cancel"],
     ];
     for (const noun of ["feature", "bug"]) {
       for (const [verb, dispatch] of verbs) {

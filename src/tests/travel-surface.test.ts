@@ -3,7 +3,6 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
-import { DRIVE_STOP_CODES } from "../workflow/features.js";
 
 const DIR = join(PKG_ROOT, "skills", "travel");
 const read = (...parts: string[]) => readFileSync(join(DIR, ...parts), "utf8");
@@ -56,8 +55,7 @@ describe("the travel skill", () => {
     expect(skill).toContain("estimates overlap");
   });
 
-  it("handles every drive stop code and state", () => {
-    for (const code of [...DRIVE_STOP_CODES, "crashed", "ready"]) expect(skill, code).toContain(`\`${code}\``);
+  it("handles the drive states", () => {
     expect(skill).toContain("waiting-to-merge");
     expect(skill).toContain("blocked");
     expect(skill).toMatch(/one retry/);

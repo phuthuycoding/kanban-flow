@@ -15,7 +15,6 @@ import { cmdStatus } from "../cli/commands/inspect.js";
 import { commandHelp } from "../cli/args.js";
 import { workflowGuide } from "../cli/commands/autoconfig.js";
 import { PKG_ROOT } from "../shared/paths.js";
-import { gitDriveProject, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let scratch: string;
@@ -150,38 +149,10 @@ describe("kf approve starts the item", () => {
     expect(feature().stage).toBe("implementation");
   });
 
-  it("prints task_harness_needs_worktree before the move when a drive cannot start", async () => {
-    await writeConfig({
-      worktree: { enabled: false },
-      harness: { main: "lead", roles: { lead: { runner: "r" } }, stages: {}, runners: { r: { start: ["r", "{prompt}"] } }, verify: { stage: [["true"]] } },
-    });
-    await plannedItem();
-    const res = await cmdApprove(args("approve", ["demo"], { backlog: true }), root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout.split("\n")[0]).toContain("task_harness_needs_worktree");
-    expect(res.stdout.indexOf("task_harness_needs_worktree")).toBeLessThan(res.stdout.indexOf("✓ Approved"));
-    expect(feature().stage).toBe("backlog");
-  });
 });
 
 describe("kf status Next after approve", () => {
-  let pr: GitDriveProject | undefined;
-  afterEach(async () => {
-    await pr?.cleanup();
-    pr = undefined;
-  });
-
-  it("names kf drive when a drive is configured, in kf approve and in kf status", async () => {
-    pr = await gitDriveProject({ tasks: [{ id: "TASK-001" }], implementation: false });
-    await pr.stage("planning");
-    const res = await cmdApprove(args("approve", ["demo"]), pr.root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain("Next: kf drive demo");
-    const status = await cmdStatus(args("status", [], { change: "demo" }), pr.root);
-    expect(status.stdout).toContain('Next: kf drive "demo"');
-  });
-
-  it("names the implement skill when no drive is configured", async () => {
+  it("names the implement skill", async () => {
     await plannedItem();
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
     const status = await cmdStatus(args("status", [], { change: "demo" }), root);
@@ -189,32 +160,9 @@ describe("kf status Next after approve", () => {
     for (const re of NO_DECISION_TEXT) expect(status.stdout).not.toMatch(re);
   });
 
-  it("names kf drive from the worktree copy of the config when the primary has no harness", async () => {
-    pr = await gitDriveProject({ tasks: [{ id: "TASK-001" }], implementation: false, commitConfig: true });
-    await pr.stage("planning");
-    const cfgFile = join(pr.root, ".kf", "config.json");
-    const cfg = JSON.parse(readFileSync(cfgFile, "utf8"));
-    delete cfg.harness;
-    await writeFile(cfgFile, JSON.stringify(cfg));
-    const res = await cmdApprove(args("approve", ["demo"]), pr.root);
-    expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).not.toContain("task_harness_needs_worktree");
-    expect(res.stdout).toContain("Next: kf drive demo");
-    const status = await cmdStatus(args("status", [], { change: "demo" }), pr.root);
-    expect(status.stdout).toContain('Next: kf drive "demo"');
-  });
-
-  it("names kf drive --status while a drive is live", async () => {
-    await plannedItem();
-    expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
-    const f = feature();
-    const live = { ...f, meta: { ...f.meta!, drive: { id: "d1", status: "running" as const, step: "implementation", loops: 0, runs: 0, configHash: "h", supervisorPid: process.pid, startedAt: "x", updatedAt: "x" } } };
-    expect(renderStatusText(computeStatus(live, undefined, true))).toContain('Next: kf drive "demo" --status');
-  });
-
   it("help lists --backlog and no CLI surface asks start-vs-backlog or ship-vs-archive", () => {
     expect(commandHelp("approve")).toContain("--backlog");
-    for (const text of [commandHelp("approve"), commandHelp("drive"), workflowGuide()]) {
+    for (const text of [commandHelp("approve"), workflowGuide()]) {
       for (const re of NO_DECISION_TEXT) expect(text).not.toMatch(re);
     }
   });
