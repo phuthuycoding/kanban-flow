@@ -249,6 +249,27 @@ describe("developer concurrency and dispatch lag", () => {
     expect(stats.dispatchLag).toEqual({ developer: { median: 3, max: 3, n: 1 }, codeReviewer: { median: 2, max: 2, n: 1 } });
   });
 
+  it("measures lag from the first plain dispatch of a task and seat only, not from a resume re-dispatch", async () => {
+    // Developer: test-writer done 10:00 → first dispatch 10:04 = 4; the plain re-dispatch at 10:30 (a resume) would give 30.
+    // Code-reviewer: developer done 10:50 → first dispatch 10:53 = 3; the plain re-dispatch at 11:10 would give 20.
+    const ledger = [
+      "# Task loop ledger — resume",
+      "TASK-001: test-writer done status=DONE @ 2026-11-01T10:00:00Z",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:04:00Z",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:30:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:50:00Z",
+      "TASK-001: code-reviewer dispatched model=opus @ 2026-11-01T10:53:00Z",
+      "TASK-001: code-reviewer dispatched model=opus @ 2026-11-01T11:10:00Z",
+      "TASK-001: code-reviewer done status=clean @ 2026-11-01T11:20:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect(stats.dispatchLag).toEqual({
+      developer: { median: 4, max: 4, n: 1 },
+      codeReviewer: { median: 3, max: 3, n: 1 },
+    });
+  });
+
   it("reports peak 1 and overlap 0 when one developer ends exactly when another starts", async () => {
     const ledger = [
       "# Task loop ledger — touching",
