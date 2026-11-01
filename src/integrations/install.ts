@@ -591,7 +591,8 @@ export interface InstallSkillsOptions {
 export async function installSkills(root: string | null, agents: AgentId[], scope: SkillScope, opts: InstallSkillsOptions = {}): Promise<InstallReport> {
   const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
   const refusal = scope === "global" ? globalLinkRefusal() : null;
-  if (refusal) return { code: 1, stdout: refusal, stderr: "linked worktree" };
+  // Exit 1, not 2: this is an install that failed, not a workflow gate refusing a move.
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const lines: string[] = [];
   const cleaned: string[] = [];
   let failed = false;

@@ -344,10 +344,13 @@ export function listFeatures(root: string): Feature[] {
 }
 
 /** Find a single feature by name across all stages. */
+/** More than one work item answers to the name; the caller has to ask for a full folder name. */
+export class AmbiguousFeatureError extends Error {}
+
 export function findFeature(root: string, name: string): Feature | null {
   const matches = listFeatures(root).filter((f) => f.name === name || f.folder === name);
   if (matches.length > 1) {
-    throw new Error(`Ambiguous feature '${name}': select its full folder name (${matches.map((f) => f.folder).join(", ")}).`);
+    throw new AmbiguousFeatureError(`Ambiguous feature '${name}': select its full folder name (${matches.map((f) => f.folder).join(", ")}).`);
   }
   return matches[0] ?? null;
 }

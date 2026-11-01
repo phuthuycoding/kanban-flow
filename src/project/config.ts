@@ -7,6 +7,7 @@ import { normalizeContext } from "./contexts.js";
 import { normalizeRepository } from "./repository.js";
 import { STAGES, LEGACY_STAGE_NAMES, type Stage, type LegacyStageName } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
+import { writeFileAtomic } from "../shared/paths.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -194,6 +195,19 @@ export function writeProjectConfig(root: string, cfg: ProjectConfig): void {
   const { statusMapLegacy: _legacy, ...project } = cfg.project ?? {};
   const out = cfg.project ? { ...cfg, project } : cfg;
   writeFileSync(configPath(root), `${JSON.stringify(out, null, 2)}\n`, "utf8");
+}
+
+/** The indentation a JSON file was written with, so a rewrite changes only the keys it touches. */
+export function jsonIndent(text: string): string | number {
+  return /^[ \t]+(?=")/m.exec(text)?.[0] ?? 2;
+}
+
+/** Set top-level keys on the config file as written: every other key keeps its spelling, order and indent. */
+export async function patchProjectConfig(root: string, keys: Record<string, unknown>): Promise<void> {
+  const f = configPath(root);
+  const text = readFileSync(f, "utf8");
+  const raw = JSON.parse(text) as Record<string, unknown>;
+  await writeFileAtomic(f, `${JSON.stringify({ ...raw, ...keys }, null, jsonIndent(text))}\n`);
 }
 
 const STACK_PROBES: Array<[string, string]> = [

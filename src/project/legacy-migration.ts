@@ -2,11 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isPidAlive } from "../shared/process.js";
-import { findFeature, listFeatures } from "../workflow/features.js";
+import { AmbiguousFeatureError, findFeature, listFeatures } from "../workflow/features.js";
 import { LEGACY_HARNESS_KEYS } from "./harness-config.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { LockTimeoutError, withLock } from "../shared/lock.js";
-import type { DoctorFinding } from "./doctor.js";
+import { jsonIndent } from "./config.js";
+import type { DoctorFinding } from "./doctor-types.js";
 
 /** The harness keys of the removed drive runtime still in the raw file; they load as ignored, so only doctor names them. */
 export function legacyHarnessKeys(harness: unknown): string[] {
@@ -58,14 +59,11 @@ export function checkLegacyRunState(root: string): DoctorFinding[] {
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
       message: `meta_legacy_run_state: .kfw.json still holds ${keys.join(", ")} from the removed task harness runtime.${liveNote}`,
-      action: `kf doctor --fix (removes ${keys.join(", ")} from .kfw.json; it never stops a process)`,
+      action: live.length > 0
+        ? `stop pid ${live.join(", ")}, then kf doctor --fix`
+        : `kf doctor --fix (removes ${keys.join(", ")} from .kfw.json; it never stops a process)`,
     }];
   });
-}
-
-/** The indentation a JSON file was written with, so a rewrite changes only the keys it removes. */
-export function jsonIndent(text: string): string | number {
-  return /^[ \t]+(?=")/m.exec(text)?.[0] ?? 2;
 }
 
 /** A failure --fix reports and moves past: bad JSON, a file-system error, or an item lock it could not take. */
@@ -80,11 +78,6 @@ export function fixFailure(area: string, err: Error): DoctorFinding {
     message: `kf doctor --fix could not rewrite this file and left it unchanged: ${err.message}`,
     action: `repair ${area} by hand (or its permissions), then re-run kf doctor --fix`,
   };
-}
-
-/** findFeature throws a plain Error, without an fs code, only when the name matches more than one item. */
-function isAmbiguity(err: unknown): err is Error {
-  return err instanceof Error && !("code" in err) && err.message.startsWith("Ambiguous feature");
 }
 
 /**
@@ -130,7 +123,7 @@ export async function stripLegacyRunState(root: string, fixed: string[], failure
         fixed.push(`removed ${keys.join(", ")} from ${f.stage}/${f.folder}/.kfw.json`);
       });
     } catch (err) {
-      if (isAmbiguity(err)) {
+      if (err instanceof AmbiguousFeatureError) {
         failures.push({ level: "ERROR", area, message: `kf doctor --fix left this file unchanged: ${err.message}`, action: `rename one of the clashing item folders, then re-run kf doctor --fix` });
         continue;
       }

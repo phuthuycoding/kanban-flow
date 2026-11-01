@@ -281,6 +281,16 @@ describe("agents adapter", () => {
 });
 
 describe("a linked git worktree as the package root", () => {
+  it("is not mistaken for a submodule, whose .git file points into .git/modules", () => {
+    const sub = join(dir, "sub");
+    const wt = join(dir, "wt");
+    for (const d of [sub, wt]) mkdirSync(d, { recursive: true });
+    writeFileSync(join(sub, ".git"), "gitdir: ../.git/modules/x\n");
+    writeFileSync(join(wt, ".git"), "gitdir: /repo/.git/worktrees/wt\n");
+    expect(isLinkedWorktree(sub)).toBe(false);
+    expect(isLinkedWorktree(wt)).toBe(true);
+  });
+
   it("is recognised by a .git file and not by a .git directory or no .git", () => {
     const linked = join(dir, "linked");
     const primary = join(dir, "primary");
@@ -305,17 +315,17 @@ describe("a linked git worktree as the package root", () => {
   }
 
   /** The suite sets the opt-out for every test; the refusal cases must run without it. */
-  function kfFrom(pkg: string, cwd: string, home: string, ...argv: string[]): { code: number; out: string } {
+  function kfFrom(pkg: string, cwd: string, home: string, ...argv: string[]): { code: number; out: string; err: string } {
     return kfWithEnv(pkg, cwd, home, {}, ...argv);
   }
 
-  function kfWithEnv(pkg: string, cwd: string, home: string, extra: Record<string, string>, ...argv: string[]): { code: number; out: string } {
+  function kfWithEnv(pkg: string, cwd: string, home: string, extra: Record<string, string>, ...argv: string[]): { code: number; out: string; err: string } {
     const { KF_ALLOW_WORKTREE_LINK: _optOut, ...base } = process.env;
     const r = spawnSync(process.execPath, [join(pkg, "dist", "index.js"), ...argv], {
       cwd, encoding: "utf8", env: { ...base, HOME: home, USERPROFILE: home, ...extra },
     });
     if (r.error) throw r.error;
-    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}`, err: r.stderr };
   }
 
   async function projectAt(root: string): Promise<void> {
@@ -336,6 +346,36 @@ describe("a linked git worktree as the package root", () => {
     expect(res.code, res.out).not.toBe(0);
     expect(res.out).toContain("primary checkout");
     expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+
+  it("kf install --global reports the refusal on stderr with exit 1", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const cwd = join(dir, "cwd");
+    await mkdir(home, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    stagePackage(pkg, "file");
+
+    const res = kfFrom(pkg, cwd, home, "install", "--global");
+    expect(res.code, res.out).toBe(1);
+    expect(res.err).toContain("primary checkout");
+  });
+
+  it("kf doctor --fix refuses to link only the agents when the skills are already healthy", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    stagePackage(pkg, "file");
+    await projectAt(root);
+    const seeded = kfWithEnv(pkg, root, home, { KF_ALLOW_WORKTREE_LINK: "1" }, "install", "--global");
+    expect(seeded.code, seeded.out).toBe(0);
+    await rm(join(home, ".claude", "agents"), { recursive: true, force: true });
+
+    const res = kfFrom(pkg, root, home, "doctor", "--fix");
+    expect(res.code, res.out).toBe(1);
+    expect(res.out.split("\n").some((l) => l.includes("[ERROR]") && l.includes("primary checkout")), res.out).toBe(true);
+    expect(existsSync(join(home, ".claude", "agents"))).toBe(false);
   });
 
   it("kf doctor --fix refuses the global link with an error finding and links nothing", async () => {

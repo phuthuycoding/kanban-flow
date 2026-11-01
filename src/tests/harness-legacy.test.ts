@@ -8,6 +8,7 @@ import { runDoctor, runDoctorFixes, type DoctorFinding } from "../project/doctor
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { readProjectConfig } from "../project/config.js";
+import { findFeature, AmbiguousFeatureError } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -367,6 +368,33 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(JSON.parse(await readFile(second.file, "utf8"))).toEqual(second.kept);
   });
 
+  it("kf doctor's live-pid finding tells the user to stop the pid first, then run kf doctor --fix", async () => {
+    await projectWithHarness(undefined);
+    const worker = liveWorker();
+    await item("alpha", leftovers(DEAD_PID, worker.pid!));
+
+    const finding = withCode(runDoctor(root).findings, "meta_legacy_run_state")[0];
+    expect(finding.action).toContain(String(worker.pid));
+    expect(finding.action).toContain("then kf doctor --fix");
+    expect(finding.action).not.toContain("removes");
+  });
+
+  it("findFeature throws an AmbiguousFeatureError for a name two items answer to", async () => {
+    await projectWithHarness(undefined);
+    await item("a", {});
+    await item(`a_${TS}`, {});
+
+    let caught: unknown;
+    try {
+      findFeature(root, `a_${TS}`);
+    } catch (err) {
+      caught = err;
+    }
+    expect(typeof AmbiguousFeatureError).toBe("function");
+    expect(caught).toBeInstanceOf(AmbiguousFeatureError);
+    expect((caught as Error).message).toContain("Ambiguous");
+  });
+
   it("kf doctor --fix names an unparseable item meta, leaves it unchanged and still fixes the others", async () => {
     await projectWithHarness(undefined);
     const broken = join(root, ".works", "implementation", `broken_${TS}`);
@@ -466,5 +494,38 @@ describe("kf init --minimal on an existing config", () => {
     expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
 
     expect((await readRaw()).repository).toBe("other/repo");
+  });
+
+  it("adds only the missing keys to the raw file and keeps ship, legacy statusMap keys and indent as written", async () => {
+    gitWithOrigin();
+    const original = {
+      schema: "kanban-flow",
+      created: "x",
+      agents: ["claude"],
+      ship: { mode: "pr", base: "main" },
+      project: { owner: "acme", number: 3, statusMap: { dones: "Closed", shipping: "Shipping", review: "In review" } },
+      harness: { ...fullLegacyBlock(), verify: VERIFY },
+    };
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(configFile(), `${JSON.stringify(original, null, 4)}\n`);
+
+    expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
+
+    expect(await readFile(configFile(), "utf8")).toBe(`${JSON.stringify({ ...original, repository: "acme/widgets" }, null, 4)}\n`);
+  });
+
+  it("adds a missing schema and created to the raw file without disturbing the other keys", async () => {
+    gitWithOrigin();
+    const original = { agents: ["claude"], ship: { mode: "pr" }, project: { owner: "acme", number: 3, statusMap: { dones: "Closed" } } };
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(configFile(), `${JSON.stringify(original, null, 4)}\n`);
+
+    expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
+
+    const after = await readFile(configFile(), "utf8");
+    const cfg = JSON.parse(after) as Record<string, unknown>;
+    expect(cfg).toMatchObject({ ...original, schema: "kanban-flow", repository: "acme/widgets" });
+    expect(typeof cfg.created).toBe("string");
+    expect(after).toContain('\n    "ship": {\n        "mode": "pr"\n    }');
   });
 });

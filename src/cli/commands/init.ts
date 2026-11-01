@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectConfig, detectStacks, writeProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
+import { readProjectConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
@@ -46,12 +46,8 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   // `defaultContext` is ignored, so writing it would leave a config contradicting itself: the
   // file naming one default while `kf new` and `kf contexts` use another.
   const recordContext = typeof args.options.context === "string" && cfg.contexts === undefined;
-  // An existing config is written only to record a context or back-fill schema, created or a detectable
-  // repository. The gate used to be `!cfg.harness`, which stood for "never initialised" while init seeded
-  // a harness; no harness is seeded any more, so it would rewrite every config that has none.
   const repository = cfg.repository ?? detectRepository(target) ?? undefined;
-  const backfill = cfg.schema === undefined || cfg.created === undefined || repository !== cfg.repository;
-  if (!existsSync(configPath(target)) || recordContext || backfill) {
+  if (!existsSync(configPath(target))) {
     await mkdir(join(target, ".kf"), { recursive: true });
     writeProjectConfig(target, {
       ...cfg, schema: "kanban-flow", created: cfg.created ?? nowTimestamp(),
@@ -59,6 +55,17 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
       ...(!declareHere && recordContext ? { defaultContext: ctx } : {}),
       repository,
     });
+  } else {
+    // An existing config is patched as written, never rewritten from the normalised read, which drops
+    // ship, renames legacy statusMap keys and loses the indent: only a recorded context and a missing
+    // schema, created or detectable repository are added.
+    const additions: Record<string, unknown> = {
+      ...(cfg.schema === undefined ? { schema: "kanban-flow" } : {}),
+      ...(cfg.created === undefined ? { created: nowTimestamp() } : {}),
+      ...(recordContext ? { defaultContext: ctx } : {}),
+      ...(repository !== cfg.repository ? { repository } : {}),
+    };
+    if (Object.keys(additions).length > 0) await patchProjectConfig(target, additions);
   }
   await mkdir(join(target, ".kf", "templates"), { recursive: true });
   await mkdir(join(target, ".kf", "hooks"), { recursive: true });
