@@ -64,7 +64,7 @@ const UNPREFIXED_SKILLS: ReadonlySet<string> = new Set(["travel"]);
 const SKILLS_MANIFEST = ".kanban-flow-skills.json";
 
 /** Subagent definitions the phase skills dispatch by name; installed only for runtimes with an agent registry. */
-export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer"];
+export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"];
 
 const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
 /** The agent bodies live inside the kanban-flow skill, so every runtime that has the skill can read them. */

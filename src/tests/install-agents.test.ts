@@ -82,7 +82,7 @@ describe("installAgentsTo / removeAgentsFrom", () => {
 
     const { removed, kept } = await removeAgentsFrom(target);
     expect(kept).toEqual(["scout"]);
-    expect(removed.sort()).toEqual(["code-reviewer", "spec-reviewer"]);
+    expect(removed.sort()).toEqual(["automation-writer", "code-reviewer", "developer", "spec-reviewer", "test-writer"]);
     expect(await readFile(join(target, "scout.md"), "utf8")).toBe(FOREIGN);
   });
 
@@ -182,9 +182,9 @@ describe("kf install / uninstall carry the agents", () => {
 
     const res = await cmdUninstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("removed 2 agents");
+    expect(res.stdout).toContain("removed 5 agents");
     expect(res.stdout).toContain("kept scout.md");
-    for (const name of ["code-reviewer", "spec-reviewer"]) {
+    for (const name of ["code-reviewer", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
       expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(false);
     }
     expect(existsSync(join(dir, ".claude", "agents", "mine.md"))).toBe(true);

@@ -54,7 +54,7 @@ describe("the user-facing surface is English", () => {
     const agentFiles = walk(join(ROOT, "skills", "kanban-flow", "agents"), (p) => p.endsWith(".md"));
     const templates = walk(join(ROOT, "kanban-flow", "templates"), (p) => p.endsWith(".md"));
     expect(skillFiles).toHaveLength(9);
-    expect(agentFiles).toHaveLength(3);
+    expect(agentFiles).toHaveLength(6);
     expect(offenders([...skillFiles, ...skillReferences, ...agentFiles, ...templates])).toEqual([]);
     for (const file of [...skillFiles, ...agentFiles]) {
       const head = readFileSync(file, "utf8").split("---")[1] ?? "";
