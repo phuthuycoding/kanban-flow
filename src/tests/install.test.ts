@@ -309,7 +309,7 @@ describe("a linked git worktree as the package root", () => {
     const git = (...a: string[]) => execFileSync("git", ["-C", main, ...a], { stdio: "pipe" });
     mkdirSync(main, { recursive: true });
     git("init", "-q");
-    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init");
+    git("-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-q", "-m", "init");
     git("worktree", "add", "-q", wt);
     expect(isLinkedWorktree(wt)).toBe(true);
     expect(isLinkedWorktree(main)).toBe(false);
