@@ -236,6 +236,23 @@ describe("kf verify --task", () => {
       expect(res.code).toBe(3);
       expect(existsSync(item.marker)).toBe(false);
     });
+
+    it("for --base given without a value", () => {
+      const res = item.kf("verify", "f", "--task", "TASK-001", "--base");
+      expect(res.code).toBe(3);
+      expect(res.out).toContain("--base");
+      expect(existsSync(item.marker)).toBe(false);
+    });
+
+    it("for a project config that is not valid JSON", async () => {
+      for (const dir of new Set([item.root, item.dir])) await writeFile(join(dir, ".kf", "config.json"), "{ not json");
+
+      const res = item.kf("verify", "f", "--task", "TASK-001", "--base", base);
+
+      expect(res.code).toBe(3);
+      expect(res.out).toMatch(/config/i);
+      expect(existsSync(item.marker)).toBe(false);
+    });
   });
 });
 

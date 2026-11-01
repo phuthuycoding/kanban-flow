@@ -86,7 +86,7 @@ export function verifyTask(root: string, feature: Feature, taskId: string, base:
     // --no-renames lists a rename as a delete plus an add, so the old path is checked against Files too.
     // -z keeps names verbatim: without it git quotes non-ASCII and special characters (core.quotePath).
     const diff = runGit(dir, ["diff", "--name-only", "-z", "--no-renames", `${base}..HEAD`]);
-    if (diff.code !== 0) throw new Error(`git diff --name-only -z --no-renames ${base}..HEAD failed in ${dir}: ${diff.stderr.trim()}`);
+    if (diff.code !== 0) return bad(`git diff --name-only -z --no-renames ${base}..HEAD failed in ${dir}: ${diff.stderr.trim()}`);
     const outside = diff.stdout.split("\0").filter((f) => f !== "" && !pathAllowed(f, task.files!));
     if (outside.length > 0) {
       lines.push(`${outside.length} file(s) outside ${task.id}'s Files:`, ...outside.map((f) => `  ${f}`));

@@ -1,4 +1,5 @@
 import { verifyStage, verifyTask } from "../../workflow/verify.js";
+import { ProjectConfigError } from "../../project/config.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -8,6 +9,7 @@ const USAGE = "Usage: kf verify <feature> --task TASK-### --base <sha> | kf veri
 const badInput = (reason: string): CmdResult => ({ code: 3, stdout: `${reason}\n${USAGE}`, stderr: "bad input" });
 
 export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResult> {
+  if (args.parseError !== undefined) return badInput(args.parseError);
   const name = args.positionals[0];
   if (!name) return badInput("Missing <feature>.");
   const task = typeof args.options.task === "string" ? args.options.task : undefined;
@@ -20,6 +22,12 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
 
   const item = await resolveItem(cwd, name);
   if (!item.ok) return { ...item.refusal, code: 3 };
-  const res = task !== undefined ? verifyTask(item.root, item.item, task, base!) : verifyStage(item.root, item.item);
+  let res;
+  try {
+    res = task !== undefined ? verifyTask(item.root, item.item, task, base!) : verifyStage(item.root, item.item);
+  } catch (err) {
+    if (err instanceof ProjectConfigError) return badInput(err.message);
+    throw err;
+  }
   return { code: res.code, stdout: res.lines.join("\n") };
 }

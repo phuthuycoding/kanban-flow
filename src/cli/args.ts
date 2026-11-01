@@ -10,6 +10,8 @@ export interface ParsedArgs {
   options: Record<string, unknown>;
   /** Set when invoked through a canonical noun path (kf feature|bug <verb>); the dispatcher gates on it. */
   noun?: WorkItemKind;
+  /** Set by `kf verify` when its flags do not parse; cmdVerify reports it as bad input (exit 3). */
+  parseError?: string;
 }
 
 export interface CmdSpec {
@@ -164,7 +166,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     options: {},
   },
   doctor: {
-    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, skill state at the configured scope (missing, stale, broken links); exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing or stale skills)",
+    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, skill state at the configured scope (missing, stale, broken links); exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing or stale skills, removed harness keys and leftover drive/run item metadata)",
     options: {
       fix: { type: "boolean" },
       json: { type: "boolean" },
@@ -281,12 +283,22 @@ export function parseArgsCli(argv: string[]): ParsedArgs {
     opts[k] = d;
   }
   opts.help = { type: "boolean", short: "h" };
-  const { values, positionals } = parseArgs({
-    args: argvArgs,
-    options: opts,
-    allowPositionals: spec.allowPositionals ?? false,
-    strict: true,
-  });
+  let parsedValues: ReturnType<typeof parseArgs>;
+  try {
+    parsedValues = parseArgs({
+      args: argvArgs,
+      options: opts,
+      allowPositionals: spec.allowPositionals ?? false,
+      strict: true,
+    });
+  } catch (err) {
+    // Exit 1 of `kf verify` means a verify command failed, so its flag errors must not reach the global catch.
+    if (node.dispatch === "verify" && err instanceof Error) {
+      return { command: node.dispatch, positionals: [], options: {}, parseError: err.message };
+    }
+    throw err;
+  }
+  const { values, positionals } = parsedValues;
   for (const [k, v] of Object.entries(node.inject ?? {})) {
     (values as Record<string, unknown>)[k] ??= v;
   }
