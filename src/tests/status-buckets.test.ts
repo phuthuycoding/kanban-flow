@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS } from "../workflow/schema.js";
 import { ensureWorksStructure, findFeature, writeFeatureMeta } from "../workflow/features.js";
-import { computeBuckets, computeStatus, renderBuckets } from "../workflow/status.js";
+import { computeBuckets, computeStatus, renderBuckets, type Buckets } from "../workflow/status.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 
 let root: string;
@@ -87,7 +87,7 @@ describe("Waiting to merge bucket", () => {
 
     expect(buckets.needsYou).toEqual([{
       feature: "a",
-      decision: "run git remote set-head origin -a first, then re-run kf status --all: canonical docs for a are not proven landed (origin/HEAD is not set)",
+      decision: "run git remote set-head origin -a first, then re-run kf status --all: canonical docs for a are not proven landed (origin/HEAD is not set); if they still are not, re-land them on a fresh docs branch for a PR with kf archive a, or leave them",
     }]);
     expect(buckets.waitingToMerge).toEqual([]);
   });
@@ -100,6 +100,13 @@ describe("Waiting to merge bucket", () => {
 
     expect(buckets.waitingToMerge).toEqual([{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "gh is not installed", kind: "lookup-rerun", next }]);
     expect(renderBuckets(buckets)).toContain(`  a — docs/app-a not proven merged (gh is not installed): ${next}`);
+  });
+
+  it("does not type a lookup-rerun entry without the next step it renders", () => {
+    // @ts-expect-error a lookup-rerun entry must carry next, or renderBuckets would print "undefined"
+    const entry: Buckets["waitingToMerge"][number] = { feature: "a", docsBranch: "docs/app-a", command: "kf status --all", kind: "lookup-rerun" };
+
+    expect(entry.kind).toBe("lookup-rerun");
   });
 
   it("renders a docs entry from its kind, not from its command", () => {

@@ -201,7 +201,9 @@ describe("kf drive --watch on a live drive", () => {
     let view: any;
     for (;;) {
       view = await status(pr);
-      if (view.runningTasks?.includes("TASK-001") && view.liveRuns?.length > 0) break;
+      // The run record lands before its run_start line is appended, so a status read in between can see a live
+      // run while the drive log's last line is still half-written (lastEvent omitted); wait for the event too.
+      if (view.runningTasks?.includes("TASK-001") && view.liveRuns?.length > 0 && view.lastEvent) break;
       if (Date.now() > end) throw new Error(`timed out; last status ${JSON.stringify(view)}`);
       await wait(200);
     }

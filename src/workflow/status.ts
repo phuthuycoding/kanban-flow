@@ -303,11 +303,16 @@ export function approvalState(feature: Feature): "pending" | "approved" | "chang
   return approval.contractHash && approval.contractHash === executionContractHash(feature.dir, feature.meta?.kind === "bug" ? "bug" : "feature") ? "approved" : "changed";
 }
 
+/** A `lookup-rerun` entry always carries the `next` step renderBuckets prints in place of its command. */
+export type WaitingToMergeEntry =
+  | { feature: string; pr?: string; command: string; docsBranch?: string; reason?: string; kind?: never; next?: never }
+  | { feature: string; pr?: never; command: string; docsBranch: string; reason?: string; kind: "lookup-rerun"; next: string };
+
 export interface Buckets {
   /** Items waiting on a human decision. */
   needsYou: Array<{ feature: string; decision: string }>;
   /** Things the human does outside kf: merge a PR, push a docs branch. */
-  waitingToMerge: Array<{ feature: string; pr?: string; command: string; docsBranch?: string; reason?: string; kind?: "lookup-rerun"; next?: string }>;
+  waitingToMerge: WaitingToMergeEntry[];
   /** Live `kf drive` supervisors. */
   running: number;
 }
@@ -366,7 +371,7 @@ export function docsNeverLandedDecision(feature: string, reason?: string): strin
 
 /** A gone docs branch no lookup could run for until the human applies `remedy`, so it is not called never landed. */
 export function docsNotProvenLandedDecision(feature: string, remedy: string, reason?: string): string {
-  return `run ${remedy} first, then re-run ${DOCS_LOOKUP_RERUN}: canonical docs for ${feature} are not proven landed${reason ? ` (${reason})` : ""}`;
+  return `run ${remedy} first, then re-run ${DOCS_LOOKUP_RERUN}: canonical docs for ${feature} are not proven landed${reason ? ` (${reason})` : ""}; if they still are not, re-land them on a fresh docs branch for a PR with kf archive ${feature}, or leave them`;
 }
 
 /** The command kf status --all gives a gone docs branch whose merged-PR lookup could not run. */

@@ -130,7 +130,7 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     };
     expect(json.waitingToMerge).toEqual([]);
     expect(json.needsYou).toHaveLength(1);
-    expect(json.needsYou[0].decision).toMatch(/^run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*origin\/HEAD is not set.*\)$/);
+    expect(json.needsYou[0].decision).toMatch(/^run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*origin\/HEAD is not set.*\); if they still are not, re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
     expect(json.needsYou[0].decision).not.toContain("never landed");
     expect(ghCalls()).toEqual([]);
   });
@@ -144,7 +144,7 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     };
     expect(json.waitingToMerge).toEqual([]);
     expect(json.needsYou).toHaveLength(1);
-    expect(json.needsYou[0].decision).toMatch(/^run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*origin\/HEAD is not set.*\)$/);
+    expect(json.needsYou[0].decision).toMatch(/^run git remote set-head origin -a first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*origin\/HEAD is not set.*\); if they still are not, re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
     expect(json.needsYou[0].decision).not.toContain("never landed");
 
     const text = (await cmdStatus({ command: "status", positionals: [], options: { all: true } }, root)).stdout;
@@ -167,7 +167,7 @@ describe("kf status --all on a docs branch gone locally and on origin", () => {
     };
     expect(json.waitingToMerge).toEqual([]);
     expect(json.needsYou).toHaveLength(1);
-    expect(json.needsYou[0].decision).toMatch(/^run git remote add origin <url> first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*there is no origin remote.*\)$/);
+    expect(json.needsYou[0].decision).toMatch(/^run git remote add origin <url> first, then re-run kf status --all: canonical docs for demo are not proven landed \(.*there is no origin remote.*\); if they still are not, re-land them on a fresh docs branch for a PR with kf archive demo, or leave them$/);
     expect(json.needsYou[0].decision).not.toContain("never landed");
 
     const found = runDoctor(root).findings.filter((f) => f.message.includes("docs_branch_unpushed"));
