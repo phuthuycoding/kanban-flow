@@ -83,5 +83,5 @@ Summary: <one or two sentences: N specs in M files, X passing, or what stopped y
 
 Two skills dispatch `Agent(automation-writer)`, only when the Test Level is `full`:
 
-- **`kanban-implement`**, in its task loop, for a task whose test cases include `UI` or `E2E` types — after the `developer` has built the screen, or before it when the plan fixes a `data-testid` contract. The brief is `<item>/loop/task-NNN-brief.md`, the report `<item>/loop/task-NNN-e2e-report.md`.
+- **`kanban-implement`**, in its task loop, for a task whose test cases include `UI` or `E2E` types — after the `developer` has built the screen, or before it when the plan fixes a `data-testid` contract — with `references/automation-writer-brief.md`. The brief is `<item>/loop/task-NNN-brief.md`, the report `<item>/loop/task-NNN-e2e-report.md`. The developer is then resumed once to commit your spec files unchanged as a second commit of the task, before the `code-reviewer`.
 - **`kanban-test`**, in section 2, when the `full` level's UI/E2E suite is missing or a UI TC has no spec. The brief names the Test Strategy, the UI TCs, the worktree and the domain/fallback URL from `kf status`; the report feeds the per-TC rows and the `Commands and Evidence` table of `phase-4-testing-result.md`.
