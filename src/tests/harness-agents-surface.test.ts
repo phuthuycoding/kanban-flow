@@ -152,6 +152,18 @@ describe("the task loop seats", () => {
     expect(reference("developer-brief.md")).toContain("The controller hashes these test files before you start and compares the hashes after you report");
     expect(agentBody("developer")).toContain("The controller hashes the test-writer's files before you start and compares the hashes after you report");
   });
+
+  it("re-hashes the tests after every test-writer change and compares against the latest hashes", () => {
+    const loop = taskLoop();
+    const REHASH = "re-run `git hash-object` on the changed test files and ledger a new `TASK-NNN: test hashes` line before resuming the developer";
+    const dispute = loop.split("\n").find((line) => line.includes("`TEST_DISPUTE: <file:line> <why>`"));
+    expect(dispute).toContain(`Fixed → ${REHASH}`);
+    const testFindings = slice(loop, "\n### 3.4", "\n### 3.5").split("\n").find((line) => line.includes("Findings about a test go to the test-writer"));
+    expect(testFindings).toContain(REHASH);
+    expect(loop).toContain("compare them with the latest `TASK-NNN: test hashes` line");
+    expect(loop).toContain("read from the worktree files at the developer's committed HEAD");
+    expect(reference("task-loop.md")).toContain("TASK-001: test hashes <file>=<sha> …");
+  });
 });
 
 describe("the testing stage dispatch", () => {

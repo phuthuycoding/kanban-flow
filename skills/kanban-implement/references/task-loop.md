@@ -25,6 +25,7 @@ Lines, in order of appearance:
 Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...>
 Ruling: <decision> — <why> — <cost if wrong>
 TASK-002: no test-writer — <why>
+TASK-001: test hashes <file>=<sha> … (again after every test-writer change; the latest line is the baseline)
 TASK-001: test dispute <file:line> — <fixed | kept, Ruling | stopped>
 TASK-001: fix round 1/5 (2 addressed, 1 open — <one-liner>; commits a1b2c3d..d4e5f6a)
 TASK-001: minor (deferred): <one-liner>
@@ -38,7 +39,7 @@ When `.works/` is gitignored (the default `kf init` answer), the ledger travels 
 
 - **Rounds 1–3 resume the original developer.** Its context is intact: it knows the task, the code and its own choices. Send the open findings verbatim. If the runtime cannot message a live subagent, dispatch a fresh one carrying the brief path, the report path and the findings.
 - **Rounds 4–5 dispatch a fresh developer one tier up.** A loop that survives three resumes usually means the developer cannot see its own problem — fresh eyes and a capability bump in one move.
-- **Findings about a test go to the test-writer** (a spec's to the automation-writer), which owns the file; the developer then commits the fixed file unchanged. The round counts the same — one counter, five rounds per task.
+- **Findings about a test go to the test-writer** (a spec's to the automation-writer), which owns the file; the controller re-hashes the changed test files into a new `test hashes` ledger line, and the developer then commits the fixed file unchanged. The round counts the same — one counter, five rounds per task.
 - **Every round:** the fixing seat fixes, re-runs the tests covering the amended code, appends a fix report to the same report file and returns the short contract. Before re-dispatching the reviewer, confirm the fix report has the covering tests, the command and the output.
 - **The re-review is scoped** to the findings and the fix diff. New findings on untouched code go to the ledger as deferred minors, not into the loop.
 - **Adjudicate only at the cap.** Adjudicating earlier to end a loop is pre-judging under another name. At the cap, park the contestable with a ruling; rule on the smallest unblocking change for a load-bearing one. Parking a structural failure silently lets every dependent task build on it.
