@@ -202,17 +202,18 @@ describe("kf tasks --graph", () => {
     ]);
   });
 
-  it("prints the graph as JSON with the six keys", async () => {
+  it("prints the graph as JSON with the graph keys and an exact flag", async () => {
     await writePlan(graphPlan);
     const res = await cmdTasks(args({ graph: true, json: true }), root);
     expect(res.code).toBe(0);
     const out = JSON.parse(res.stdout) as Record<string, unknown>;
-    expect(Object.keys(out).sort()).toEqual(["criticalPath", "earliestStart", "feature", "length", "maxWidth", "widthSet"]);
+    expect(Object.keys(out).sort()).toEqual(["criticalPath", "earliestStart", "feature", "length", "maxWidth", "maxWidthExact", "widthSet"]);
     expect(out).toEqual({
       feature: "demo",
       criticalPath: ["TASK-001", "TASK-002", "TASK-003"],
       length: 3,
       maxWidth: 4,
+      maxWidthExact: true,
       widthSet: ["TASK-001", "TASK-004", "TASK-005", "TASK-006"],
       earliestStart: { "TASK-001": 1, "TASK-002": 2, "TASK-003": 3, "TASK-004": 1, "TASK-005": 1, "TASK-006": 1 },
     });
@@ -257,5 +258,28 @@ describe("kf tasks --graph", () => {
     const res = await cmdTasks({ command: "tasks", positionals: ["ghost"], options: { graph: true } }, root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("Unknown feature 'ghost'");
+  });
+
+  const disjointPlan = (count: number): PlanTask[] =>
+    Array.from({ length: count }, (_, i) => ({ id: `TASK-${String(i + 1).padStart(3, "0")}`, files: [`src/f${i}.ts`] }));
+
+  it("prints an exact max width for a plan of 30 tasks", async () => {
+    await writePlan(disjointPlan(30));
+    const res = await cmdTasks(args({ graph: true }), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout.split("\n")[1]).toMatch(/^max width: 30 \(TASK-001, /);
+    const json = JSON.parse((await cmdTasks(args({ graph: true, json: true }), root)).stdout) as { maxWidth: number; maxWidthExact: boolean };
+    expect(json).toMatchObject({ maxWidth: 30, maxWidthExact: true });
+  });
+
+  it("prints a lower bound marker for a plan of more than 30 tasks", async () => {
+    await writePlan(disjointPlan(31));
+    const res = await cmdTasks(args({ graph: true }), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout.split("\n")[1]).toMatch(/^max width: \u226531 \(TASK-001, .*TASK-031\)$/);
+    const json = JSON.parse((await cmdTasks(args({ graph: true, json: true }), root)).stdout) as { maxWidth: number; maxWidthExact: boolean; widthSet: string[] };
+    expect(json.maxWidthExact).toBe(false);
+    expect(json.maxWidth).toBe(31);
+    expect(json.widthSet).toHaveLength(31);
   });
 });

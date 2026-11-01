@@ -165,10 +165,15 @@ export function taskView(feature: Feature): TaskViewRow[] {
   }));
 }
 
+/** Largest plan for which the max-width search stays exact; the branch-and-bound is exponential. */
+const EXACT_WIDTH_LIMIT = 30;
+
 export interface TaskGraphSummary {
   criticalPath: string[];
   length: number;
   maxWidth: number;
+  /** false when `maxWidth` is a greedy lower bound (plans above EXACT_WIDTH_LIMIT tasks). */
+  maxWidthExact: boolean;
   widthSet: string[];
   earliestStart: Record<string, number>;
 }
@@ -222,7 +227,14 @@ export function taskGraphSummary(rows: TaskViewRow[]): TaskGraphSummary {
       chosen.pop();
     }
   };
-  search(0);
+  const exact = ids.length <= EXACT_WIDTH_LIMIT;
+  if (exact) {
+    search(0);
+  } else {
+    for (const id of ids) {
+      if (!widthSet.some((c) => conflict(c, id))) widthSet.push(id);
+    }
+  }
 
-  return { criticalPath, length: criticalPath.length, maxWidth: widthSet.length, widthSet, earliestStart };
+  return { criticalPath, length: criticalPath.length, maxWidth: widthSet.length, maxWidthExact: exact, widthSet, earliestStart };
 }

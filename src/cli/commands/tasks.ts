@@ -61,7 +61,7 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
       return { code: 0, stdout: JSON.stringify({ feature: feature.name, ...summary }, null, 2) };
     }
     const path = summary.length === 0 ? "none" : summary.criticalPath.join(" \u2192 ");
-    const width = summary.maxWidth === 0 ? "max width: 0" : `max width: ${summary.maxWidth} (${summary.widthSet.join(", ")})`;
+    const width = summary.maxWidth === 0 ? "max width: 0" : `max width: ${summary.maxWidthExact ? "" : "\u2265"}${summary.maxWidth} (${summary.widthSet.join(", ")})`;
     const lines = [`critical path: ${path} (length ${summary.length})`, width];
     if (summary.length > 0) {
       lines.push(`earliest start: ${Object.entries(summary.earliestStart).map(([id, w]) => `${id} ${w}`).join(", ")}`);
