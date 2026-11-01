@@ -45,7 +45,7 @@ Skip the subagents and do every step yourself when the change is small (two UCs 
 - Task: its step (c for a UC file; the scout and spec-reviewer agents carry their own contracts), and for step c the exact `UC-###`, slug and goal from the index
 - Files to read: `phase-1-spec-requirement.md`, the skeleton artifacts, the relevant source paths
 - Files it may write: step c only, exactly its one `use-cases/UC-###-<slug>.md`; steps a and e write nothing
-- Constraints: never rename or renumber a `UC-###`/`FR-###`, never add scope beyond the confirmed requirement, never edit another artifact, never run `kf approve`, `kf stage`, `kf archive` or `kf run`
+- Constraints: never rename or renumber a `UC-###`/`FR-###`, never add scope beyond the confirmed requirement, never edit another artifact, never run `kf approve`, `kf stage` or `kf archive`
 - Context: `.works/planning/{feature_name}/` (from `kf status --change {feature_name}`)
 
 **Subagent status protocol** — require every subagent to end with:
@@ -88,8 +88,8 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 
 ### implementation-plan
 - Scope: now / supporting / future / not-in-scope
-- `TASK-###` breakdown (fill **Role** and **Files** for every task; Dependencies are `TASK-###` tokens or `-`), complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
-- **Role** is a key of `harness.roles` or `-`. **Files** is the task's allowlist and must name everything the task will touch — registering a flag in `args.ts` counts. A task that touches a file outside its Files stops the drive (`plan_change_needed`) and needs re-approval. When unsure, prefer directories or globs, at the cost of parallelism (overlapping Files run one after another; empty Files runs alone).
+- `TASK-###` breakdown (fill **Files** for every task; Dependencies are `TASK-###` tokens or `-`), complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
+- **Files** is the task's allowlist and must name everything the task will touch — registering a flag in `args.ts` counts. A task that touches a file outside its Files makes `kf verify --task` exit 2: `kf stage <f> planning`, edit Files, the human approves, `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`. When unsure, prefer directories or globs.
 - Read the spec's `## Affected surfaces` first: every declared surface gets a task row or a `## Documentation Impact` entry — `kf validate` warns on any surface the plan never mentions. `N/A` means none owed.
 - **Global Constraints**: the spec's project-wide requirements that bind every task (version floors, dependency limits, naming and copy rules, exact values), one line each, verbatim — the task reviewer in `kanban-implement` receives this section word for word. `None` when the spec states none.
 - **Review Focus**: up to five inputs or failure modes the spec implies but no task's tests exercise, likeliest first, each as the condition plus the behaviour expected (e.g. "a contact with no phone number: the export skips the row, it does not write an empty cell"). Each line's pinning test belongs to the task that owns the behaviour. `None` only after checking.
@@ -131,7 +131,7 @@ Before approval, `approval_required` is expected; `approval_changed` is expected
 - implementation plan headlines (tasks, approach, risks)
 - test strategy + coverage target *(as agreed in the spec's Test Strategy: unit / unit+integration / full + UI scope)*
 - Definition of Done
-- when `.kf/config.json` sets `harness.verify.stage` but `worktree.enabled` is not `true`: the drive (`kf drive`) cannot start — ask the human to enable worktrees in the same message
+- when `.kf/config.json` does not set `worktree.enabled: true`: implementation and `kf verify` run in the main checkout, not an item worktree — say so in the same message
 
 Ask once: **"approve?"** The reply carries the start: "approve" starts implementation; "approve, backlog" (or any reply that defers) parks it. Do not choose on the user's behalf and do not ask a second question.
 
@@ -141,7 +141,7 @@ Ask once: **"approve?"** The reply carries the start: "approve" starts implement
 
 | Reply | Command | Result |
 |---|---|---|
-| approve | `kf approve {feature_name}` | approval recorded, item → implementation (worktree provisioned when enabled), `Next: kf drive {feature_name}` or the implement skill |
+| approve | `kf approve {feature_name}` | approval recorded, item → implementation (worktree provisioned when enabled), `Next: load the kanban-implement skill` |
 | approve, backlog | `kf approve {feature_name} --backlog` | approval recorded, item → backlog; it starts later with `kf stage {feature_name} implementation` on the user's word |
 
 A refused move (hook, worktree provisioning, base behind) leaves the item in planning with the approval not kept: fix what the message names and re-run the same command. A deferred item keeps its approved contract in `backlog`.
@@ -153,5 +153,5 @@ A refused move (hook, worktree provisioning, base behind) leaves the item in pla
 Approval recorded and the item moved. Hand off:
 
 ```text
-In implementation: load kanban-implement (or kf drive when a drive is configured). In backlog: leave it there and resume only after an explicit start decision.
+In implementation: load kanban-implement. In backlog: leave it there and resume only after an explicit start decision.
 ```

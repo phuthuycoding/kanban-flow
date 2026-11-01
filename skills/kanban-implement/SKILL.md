@@ -1,6 +1,6 @@
 ---
 name: kanban-implement
-description: 'Implement an approved kanban feature or bug: hand the item to kf drive when a task harness is configured, otherwise run the subagent-driven task loop — per task a test-writer, a developer and an independent code-reviewer, a bounded fix loop and a ledger — then verify the build. Use in implementation — after `kf approve` started the item, an explicit start from backlog, or a FAIL/REJECT repair loop.'
+description: 'Implement an approved kanban feature or bug: run the subagent-driven task loop — per task a test-writer, a developer and an independent code-reviewer, a bounded fix loop and a ledger — then verify the build. Use in implementation — after `kf approve` started the item, an explicit start from backlog, or a FAIL/REJECT repair loop.'
 ---
 
 # Kanban Phase 3 — Implement (Autonomous)
@@ -10,10 +10,6 @@ Argument: `<feature_name>`.
 Execute the approved implementation plan for a feature, or the approved bug report's fix scope and regression strategy for a bug. If implementation requires a scope change, explain it and obtain the user's decision before revising the contract.
 
 **You are the controller, not the implementer.** The plan is executed by fresh subagents with isolated context, each reviewed by another fresh subagent before its work cascades into the next task. Your context stays for coordination: the ledger, the briefs, the rulings. Fixing a finding yourself pollutes that context and skips review.
-
-**Invoked through `kf run` as the stage worker?** If your prompt starts with `kf-run:<id>` **without** a `TASK-###` token, you are the controller for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, never push, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. You run section 3's task loop when your runtime offers subagents; **the only commits in a stage worker's session are the ones that loop prescribes** — one per task on the item branch, made by the implementer it dispatches. You commit nothing yourself outside that loop.
-
-**Task worker:** if your prompt starts with `kf-run:<id> TASK-###`, you implement exactly that one task and nothing else — you are the implementer, not the controller. Only touch files in its allowlist; if you need another file, stop with `STATUS: BLOCKED` and say which file and why. Do not edit tasks.md, do not commit (kf commits, merges and verifies), never dispatch a subagent, and end with the STATUS lines above. Follow the TDD and self-review rules of `references/implementer-brief.md`.
 
 ---
 
@@ -27,60 +23,17 @@ kf stage {feature_name} implementation
 
 **Worktree:** when the project opted in with `worktree.enabled: true`, entering implementation provisions a git worktree + a `.<tld>` domain for the item — `kf status --change {feature_name}` prints `Worktree:` (path), `Domain:` (`http://<feature>.<baseDomain>`) and the direct `127.0.0.1:<port>` fallback. **All code work happens inside that worktree on its branch (`<prefix>/<feature>`, printed as `Worktree: … (branch …)`) — never on the user's main checkout.** Commit your changes there; the merge back is the human's call, not yours. `.works/` artifacts and `kf` commands keep working from inside the worktree (project root resolves through the git common dir). If domain DNS is not set up on the machine yet, the direct `127.0.0.1:<port>` URL always works; `kf worktree setup` (sudo, once) fixes the domain. A project `worktree-create.sh` hook may already have installed deps and seeded `.env` — check before re-installing.
 
-Create tasks.md if missing: `- [ ] 1. ...` checkboxes mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. Preserve completed tasks on resume; add the required fix tasks when looping. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes (under a `kf drive`, kf writes it). When a worktree exists, the baseline HEAD is the worktree branch's branch point, recorded from inside the worktree.
+**Owner rule:** a `driving` or `blocked` line for this item in `.kf/travel/progress.md` means travel owns it — a session other than the travel session that wrote the line never runs its task loop a second time from here. A `blocked` item the human opened in this session is yours to fix until they say it is done; travel takes it back after that.
 
-## 2. Hand off to the harness, if configured
+Create tasks.md if missing: `- [ ] 1. ...` checkboxes mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. Preserve completed tasks on resume; add the required fix tasks when looping. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes. When a worktree exists, the baseline HEAD is the worktree branch's branch point, recorded from inside the worktree.
 
-Skip this section when your prompt starts with `kf-run:` — you are already the worker.
+## 2. Read the verify configuration
 
-After the move, read `kf status --change {feature_name} --json` and `.kf/config.json`.
-
-**Owner rule:** a `driving` or `blocked` line for this item in `.kf/travel/progress.md` means travel owns its drive — never drive it a second time from here (`kf drive` refuses a second drive anyway). A `blocked` item the human opened in this session is yours to fix until they say it is done; travel re-drives it.
-
-**Drive configured** (`harness.verify.stage` set and `worktree.enabled: true`): hand the item to the task harness. kf, not a worker, commits, merges and verifies each task result, and it writes the `## Baseline` section of tasks.md.
-
-```bash
-kf drive {feature_name}            # detached; runs the approved TASK-### rows
-kf drive {feature_name} --status   # monitor: the step and each live worker's last action with its age; add --json for machine-readable output
-kf drive {feature_name} --watch    # stream events and a heartbeat with each worker's last action until the drive stops
-kf drive {feature_name} --stop     # stop on the human's request
-```
-
-The drive verifies each task mechanically (`harness.verify.task`) but runs no independent per-task review; the whole-branch review by `code-reviewer` happens at the review stage. The drive ends `ready` once review is PASS and its PR is open — testing and review ran inside the drive; hand the human the PR URL to merge. Every stop prints a reason and the next command. Act on the stop code:
-
-| Stop code | What to do |
-|---|---|
-| `loop_limit` | Read the failing task's log; fix the cause or ask the human before re-driving |
-| `requirement_bug` | Stop; report it and await a human decision (never rewrite the requirement) |
-| `worker_blocked` | Read the worker's `BLOCKED` reason; resolve it or ask the human |
-| `plan_change_needed` | A task needed a file outside its Files: edit the plan's Files, `kf approve`, then `kf drive` |
-| `tasks_blocked` | Read which tasks are blocked and why; unblock them or ask the human |
-| `verify_failed` | Read the `harness.verify` output; fix the cause, then `kf drive` again |
-| `transition_refused` | Read the refused gate, fix what it names, then re-drive |
-| `approval_changed` | The contract changed: return to planning for human approval |
-| `config_changed` | Config changed mid-drive: check the argv `kf` printed with the human, then `kf drive <f> --accept-config` |
-| `budget` | Budget spent: ask the human whether to continue |
-| `stopped_by_user` | Wait for the human's decision |
-| `crashed` | Read the drive log; ask the human before re-driving |
-| `git_error` | Inspect the worktree git state; fix it or ask the human |
-| `usage_limit` | A worker hit the API usage limit: wait for the reset the reason quotes, then `kf drive {feature_name}` — the same worker session resumes; no run or attempt was spent |
-
-To run a single task: `kf tasks {feature_name}` lists them, `kf run {feature_name} --task TASK-### [--dry-run]` makes one attempt with no auto-retry.
-
-**No drive, but `assignedRoles` is non-empty:** the project's harness assigned implementation to those roles; you are the orchestrator, not the implementer:
-
-```bash
-kf run {feature_name} --detach   # implementation is long; returns a chain id
-kf runs {feature_name}           # poll until done, then read each run's STATUS
-```
-
-`DONE` → continue at section 4 (build gate) to verify the worker's result yourself; `DONE_WITH_CONCERNS` → read the concerns in the run log first; `BLOCKED` / `NEEDS_CONTEXT`, a missing `STATUS:` line or a non-zero exit → stop and ask the user.
-
-**Otherwise** run the task loop yourself (section 3), then the build gate (section 4).
+Read `.kf/config.json`. `harness.verify.task` lists the commands `kf verify <f> --task` runs after each task commit (3.2); `harness.verify.stage` lists the commands `kf verify <f> --stage` runs at the build gate (section 4). With no commands configured, `kf verify` still checks the task's Files allowlist on `--task`; exit 0 then means only that nothing was run, so call it unconditionally.
 
 ## 3. The subagent-driven task loop
 
-Read the approved plan once: `kf tasks {feature_name} --json` gives the task graph (id, description, dependencies, role, files, refs, expected output, wave); the plan's `## Global Constraints` and `## Review Focus` bind every task. For a bug, the "plan" is the approved bug report: one task per fix scope item plus one regression task. Read the requirement the plan argues from; conflicts inside the plan resolve against the requirement.
+Read the approved plan once: `kf tasks {feature_name} --json` gives the task graph (id, description, dependencies, files, refs, expected output, wave); the plan's `## Global Constraints` and `## Review Focus` bind every task. For a bug, the "plan" is the approved bug report: one task per fix scope item plus one regression task. Read the requirement the plan argues from; conflicts inside the plan resolve against the requirement.
 
 **Seats, in this order.** Each task gets `Agent(test-writer)`, which writes the failing tests from the task's test cases; then `Agent(developer)`, which makes them pass and commits the task; then `Agent(code-reviewer)`, which reviews the task's diff. Whoever writes a file owns it: the developer never edits the test-writer's tests, and neither of them edits the automation-writer's specs. The agent bodies live in `<skills dir>/kanban-flow/agents/<name>.md`; when a seat's agent is not registered, a general-purpose subagent stands in with that body pasted first and `stand-in: general-purpose` written in the ledger line.
 
@@ -113,7 +66,11 @@ The developer writes its full report to `<item>/loop/task-NNN-report.md` and ret
 
 **UI tasks under `Level: full`.** A task whose TCs include `UI` or `E2E` gets `Agent(automation-writer)` with `references/automation-writer-brief.md` verbatim, naming the model: after the developer's commit, against the screen it built — or before the developer when the plan fixes a `data-testid` contract, the specs then expected to fail until the screen lands; in that case pass their paths to the developer as `[SPEC_FILES]`, which it never edits and keeps out of its task commit. It writes `<item>/loop/task-NNN-e2e-report.md` and never commits. Once the developer's task commit exists, resume the developer once to commit the automation-writer's spec files unchanged as a second commit of the task, before the code-reviewer, so the review package from `BASE` covers both commits. A spec the report says fails because the product is wrong is a code finding for the fix loop (3.4). The Playwright MCP is for selector discovery only, one agent at a time; the evidence is the headless `npx playwright test` run.
 
-- **DONE** → for a UI task under `Level: full`, the automation-writer step above first; then `bash <kanban-review skill dir>/scripts/review-package "$BASE" HEAD <item>/loop/review-<base7>..<head7>.diff` (exit 3 "empty commit range" means it committed nothing: send it back — DONE requires a commit), then 3.3.
+- **DONE** → for a UI task under `Level: full`, the automation-writer step above first; then run `kf verify <f> --task TASK-### --base <BASE>` in the worktree and act on its exit code:
+  - exit 0 → `bash <kanban-review skill dir>/scripts/review-package "$BASE" HEAD <item>/loop/review-<base7>..<head7>.diff` (exit 3 "empty commit range" means it committed nothing: send it back — DONE requires a commit), then 3.3.
+  - exit 2 (a changed file is outside the task's Files; the output lists them) → stop: this is a plan change — `kf stage <f> planning`, edit the plan's Files, have the human re-approve with `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`. Never a fix round.
+  - exit 1 (a `harness.verify.task` command failed) → resume the developer for a fix round (3.4) with the verify output as the finding, then re-run `kf verify`.
+  - exit 3 (bad input: unknown task, `BASE` not a commit or not an ancestor, missing worktree; nothing ran) → your call is wrong: fix the call and re-run it, never a fix round. Exit 3 with `kf verify could not run: …` (an unexpected kf error) → report it to the human, not a fix round.
 - **DONE_WITH_CONCERNS** → read the concerns; correctness or scope concerns are addressed before review, observations are noted and reviewed.
 - **NEEDS_CONTEXT** → supply it, re-dispatch the same agent.
 - **BLOCKED** → a context problem gets more context; a reasoning problem gets a more capable model; a too-large task gets split; a wrong plan gets a ledgered `Ruling:` and a re-dispatch carrying it. Never force an unchanged retry, never ignore an escalation.
@@ -141,13 +98,15 @@ A round is one fix dispatch plus one scoped re-review. **Five rounds maximum per
 
 Review clean, or every open finding parked at the cap → tick the task in tasks.md and append `TASK-NNN: complete (commits <base7>..<head7>, review clean)` or `… (<K> parked)`. "Review clean" certifies the diff matched the brief and the code is sound; it certifies nothing visual. A task whose deliverable is something a person looks at gets a real run before its ledger line (start the app at the item's domain or port, exercise the screen) — the plan should have flagged it.
 
-**No subagent tool in your runtime?** Implement task by task in the same order (brief, tests, implement, commit, ledger), but **do not fill the independent seats yourself** — a session does not grade its own work, and it never fills the test-writer and the developer seats in one session and claims them independent: tests and code written by one session are one seat. Write `TASK-NNN: implemented, test-writer seat: none, review seat: none` in the ledger and hand the review to a runner role (`kf run <feature> --role reviewer` when `harness.roles` has one) or leave it to the review stage, which then treats every task as unreviewed and reviews the whole branch at the tier the diff demands. A `complete (review clean)` line without an independent reviewer is a lie the ledger must not carry.
+**No subagent tool in your runtime?** Implement task by task in the same order (brief, tests, implement, commit, ledger), but **do not fill the independent seats yourself** — a session does not grade its own work, and it never fills the test-writer and the developer seats in one session and claims them independent: tests and code written by one session are one seat. Write `TASK-NNN: implemented, test-writer seat: none, review seat: none` in the ledger and leave the review to the review stage, which then treats every task as unreviewed and reviews the whole branch at the tier the diff demands. A `complete (review clean)` line without an independent reviewer is a lie the ledger must not carry.
 
 ## 4. Tick tasks as they land; gate on build
 
 ```bash
 {build_command}
 ```
+
+When `.kf/config.json` sets `harness.verify.stage`, `kf verify <f> --stage` replaces the hand-run build gate: run it in the worktree once all tasks are complete, instead of `{build_command}`. Exit 0 is the PASS and exit 1 the FAIL below; exit 3 means your call is wrong — fix it and re-run.
 
 - PASS → continue.
 - FAIL → the failing task's developer fixes, re-run.
@@ -164,7 +123,7 @@ Do not modify the approved requirement, plan or test-case contract. Project-spec
 - `references/test-writer-brief.md` — the test-writer dispatch, verbatim.
 - `references/developer-brief.md` — the developer dispatch, verbatim.
 - `references/automation-writer-brief.md` — the automation-writer dispatch, verbatim.
-- `references/implementer-brief.md` — the single-implementer dispatch; the task worker follows its TDD and self-review rules.
+- `references/implementer-brief.md` — the single-implementer dispatch.
 - `references/task-reviewer-brief.md` — the task review dispatch, verbatim.
 - `references/re-review-brief.md` — the scoped re-review after a fix round.
 - `references/task-loop.md` — model selection, the ledger, fix-loop mechanics, the rationalizations to refuse.

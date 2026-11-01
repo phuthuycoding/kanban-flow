@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, writeFile, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -20,6 +20,18 @@ function findPackageRoot(): string {
 }
 
 export const PKG_ROOT = findPackageRoot();
+
+/**
+ * A linked git worktree carries a `.git` file whose gitdir holds a `commondir` file; git writes that
+ * file only for linked worktrees. A submodule also has a `.git` file, but its gitdir has none.
+ */
+export function isLinkedWorktree(dir: string): boolean {
+  const marker = join(dir, ".git");
+  if (!statSync(marker, { throwIfNoEntry: false })?.isFile()) return false;
+  const gitdir = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(marker, "utf8"))?.[1];
+  if (gitdir === undefined) return false;
+  return statSync(join(resolve(dir, gitdir), "commondir"), { throwIfNoEntry: false })?.isFile() ?? false;
+}
 export const PKG_TEMPLATES_DIR = join(PKG_ROOT, "kanban-flow", "templates");
 export const PKG_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "rules");
 export const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");

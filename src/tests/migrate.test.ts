@@ -156,7 +156,7 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     expect(f.stage).toBe("done");
     expect(f.metaError).toBeUndefined();
     expect(f.meta?.bypasses).toEqual(legacyHistory.bypasses);
-    expect(f.meta?.runs).toEqual(legacyHistory.runs);
+    expect((f.meta as unknown as Record<string, unknown> | null)?.runs).toEqual(legacyHistory.runs);
   });
 
   it("removes a legacy dir left with only a stray .DS_Store, after moving its items or with none to move", async () => {
@@ -209,28 +209,6 @@ describe("migrateLegacyStages — one-time move of dones/shipping folders", () =
     } finally {
       await chmod(works("shipping"), 0o755);
     }
-  });
-
-  it("leaves an item with a live worker run or a live drive in place and reports it", async () => {
-    const now = new Date().toISOString();
-    await seedLegacy("dones", "busy", {
-      runs: [{ id: "r9", role: "developer", runner: "claude", stage: "implementation", mode: "start", at: TS, log: "runs/r9.log", status: "running", pid: process.pid }],
-    });
-    await seedLegacy("shipping", "driven", {
-      pr: "https://github.com/o/r/pull/6",
-      drive: { id: "drv", status: "running", step: "review", loops: 0, runs: 1, configHash: "h", supervisorPid: process.pid, startedAt: now, updatedAt: now },
-    });
-
-    const res = await cmdStatus(statusAll(), root);
-    expect(res.code).toBe(0);
-    expect(migrationLines(res.stdout)).toEqual([
-      `⚠ busy_${TS} left in .works/dones: worker run r9 is still running — wait for it to end, then re-run kf status --change busy`,
-      `⚠ driven_${TS} left in .works/shipping: drive drv is live (supervisor pid ${process.pid}) — wait for it to end, then re-run kf status --change driven`,
-    ]);
-    expect(folders("dones")).toEqual([`busy_${TS}`]);
-    expect(folders("shipping")).toEqual([`driven_${TS}`]);
-    expect(folders("done")).toEqual([]);
-    expect(folders("review")).toEqual([]);
   });
 
   it("leaves an item with a dirty worktree in place and reports it", async () => {

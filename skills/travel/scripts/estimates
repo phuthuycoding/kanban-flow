@@ -278,7 +278,8 @@ async function cmdStats(args) {
   return out;
 }
 
-const GLOB_CHARS = /[*?[]/;
+// `[` is deliberately not a glob character: Files lists real paths such as `src/[id].ts`, and the matcher has no bracket classes.
+const GLOB_CHARS = /[*?]/;
 
 function normalise(pattern) {
   let p = pattern.replace(/`/g, "").trim();
@@ -303,7 +304,7 @@ function isPathPrefix(prefix, path) {
   return prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
 }
 
-// Mirrors patternsOverlap/filesOverlap in src/harness/scheduler.ts (skill scripts cannot import the TS); keep them in sync.
+// Mirrors patternsOverlap/filesOverlap in src/workflow/allowlist.ts (skill scripts cannot import the TS); keep them in sync.
 function patternsOverlap(a, b) {
   const x = normalise(a);
   const y = normalise(b);

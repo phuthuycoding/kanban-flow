@@ -206,7 +206,7 @@ describe("auto-close on merge", () => {
     expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
 
     const all = await status({ all: true });
-    expect(all.stdout).toMatch(/Waiting to merge\n {2}demo — https:\/\/github\.com\/o\/r\/pull\/7: gh pr merge 7\nRunning: 0$/);
+    expect(all.stdout).toMatch(/Waiting to merge\n {2}demo — https:\/\/github\.com\/o\/r\/pull\/7: gh pr merge 7$/);
 
     const synced = await cmdSync(args("sync"), root);
     expect(synced.code).toBe(0);
@@ -437,28 +437,6 @@ exit $rc
       kind: "kept",
       detail: "it is behind the merged head, so deleting it by hand is safe",
     });
-  }, 15_000);
-
-  it("kf sync and kf archive leave an item with a live drive alone", async () => {
-    await reviewItem();
-    const wt = feature().meta!.worktree!;
-    const now = new Date().toISOString();
-    await writeFeatureMeta(feature().dir, {
-      ...readFeatureMeta(feature().dir)!,
-      drive: { id: "drv", status: "running", step: "review", loops: 0, runs: 1, configHash: "h", supervisorPid: process.pid, startedAt: now, updatedAt: now },
-    });
-
-    const synced = await cmdSync(args("sync"), root);
-    expect(synced.code, synced.stdout).toBe(0);
-    expect(synced.stdout).toContain("- demo: skipped (a drive is running)");
-    const archived = await cmdArchive(args("archive", ["demo"]), root);
-    expect(archived.code).toBe(1);
-    expect(archived.stdout).toContain("drive drv is live");
-    expect(feature().stage).toBe("review");
-    expect(existsSync(wt.path)).toBe(true);
-    expect(git(root, "branch", "--list", "t/demo")).toContain("t/demo");
-    expect(onOrigin("t/demo")).toContain("t/demo");
-    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
   }, 15_000);
 
   it("kf sync skips an item another close is already closing", async () => {
@@ -953,7 +931,7 @@ describe("a close that fails after the done hook says what is already gone", () 
   }, 15_000);
 });
 
-describe("kf status --all ends with Needs you, Waiting to merge and Running", () => {
+describe("kf status --all ends with Needs you and Waiting to merge", () => {
   async function seed(stage: string, name: string, meta: Record<string, unknown>): Promise<void> {
     const dir = join(root, ".works", stage, `${name}_20260101_0000`);
     await mkdir(dir, { recursive: true });
@@ -970,10 +948,6 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
     await reviewItem("c");
     git(root, "branch", "docs/app-d", git(root, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "docs"));
     await seed("done", "d", { status: "archived", delivered: true, docsBranch: "docs/app-d" });
-    const now = new Date().toISOString();
-    await seed("implementation", "e", {
-      drive: { id: "drv", status: "running", step: "implementation", loops: 0, runs: 1, configHash: "h", supervisorPid: process.pid, startedAt: now, updatedAt: now },
-    });
 
     const res = await status({ all: true });
     expect(res.code, res.stdout).toBe(0);
@@ -985,15 +959,13 @@ describe("kf status --all ends with Needs you, Waiting to merge and Running", ()
       "Waiting to merge",
       `  c — ${PR}: gh pr merge 7`,
       "  d — docs/app-d awaiting push: git push -u origin docs/app-d",
-      "Running: 1",
     ].join("\n"));
 
     const json = JSON.parse((await status({ all: true, json: true })).stdout) as {
-      needsYou: Array<{ feature: string }>; waitingToMerge: Array<{ feature: string; command: string }>; running: number;
+      needsYou: Array<{ feature: string }>; waitingToMerge: Array<{ feature: string; command: string }>;
     };
     expect(json.needsYou.map((n) => n.feature)).toEqual(["a", "b"]);
     expect(json.waitingToMerge.map((w) => [w.feature, w.command])).toEqual([["c", "gh pr merge 7"], ["d", "git push -u origin docs/app-d"]]);
-    expect(json.running).toBe(1);
   }, 15_000);
 });
 

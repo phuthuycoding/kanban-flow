@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ARTIFACTS } from "../../workflow/schema.js";
-import { driveLive, findFeature, listFeatures, parseFolderName, updateFeatureMeta, withDocsLanded, type Feature } from "../../workflow/features.js";
+import { findFeature, listFeatures, parseFolderName, updateFeatureMeta, withDocsLanded, type Feature } from "../../workflow/features.js";
 import { migrateLegacyStages } from "../../workflow/migrate.js";
 import { archiveItem } from "../../workflow/archive.js";
 import {
@@ -23,8 +23,6 @@ import { readProjectConfig } from "../../project/config.js";
 import { findRoot, resolveItem } from "./helpers.js";
 import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
-import { driveConfigReady } from "../../harness/drive/claim.js";
-import { liveRecords } from "../../harness/run.js";
 import type { Finding } from "../../workflow/findings.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -84,9 +82,6 @@ export async function cmdView(args: ParsedArgs, cwd: string): Promise<CmdResult>
     `Executing: ${m.executing}   Backlog: ${m.backlog}   Completed: ${m.completed}   Cancelled: ${m.cancelled}   Bypassed: ${m.bypassed}`,
     `Completion rate: ${m.completionRate === null ? "N/A" : m.completionRate + "%"} (cancelled work excluded)`,
     `Executing tasks: ${m.tasks.done}/${m.tasks.total} (${m.tasks.completionRate === null ? "N/A" : m.tasks.completionRate + "%"})`,
-    ...(Object.keys(m.runs.byRole).length > 0
-      ? ["", "Worker runs by role:", ...Object.entries(m.runs.byRole).map(([role, r]) => `  ${role.padEnd(12)} ${r.runs} runs (${r.done} done, ${r.failed} failed)${m.runs.usage[role] ? `  ${m.runs.usage[role].input} in / ${m.runs.usage[role].output} out` : ""}`)]
-      : []),
     "", "By stage:",
     ...data.charts.byStage.map((row) => `  ${row.id.padEnd(14)} ${row.count} (${row.features} features, ${row.bugs} bugs)`),
     "", "By context:",
@@ -109,9 +104,7 @@ function oneLine(text: string, codes: string[] = []): string {
 
 /**
  * A review PASS item closes on the next `kf status` once its PR merged (or it has
- * nothing to land), through the same archiveItem transaction as `kf archive`. An item with a
- * live drive is left to the drive, and one with a live worker run is left to that run: the
- * worker may be the one calling kf status, from inside the worktree the close would remove.
+ * nothing to land), through the same archiveItem transaction as `kf archive`.
  * Returns the printed lines and, per item that stayed in review, why — the renderer turns
  * that into the Next line.
  */
@@ -120,7 +113,7 @@ async function closeLanded(root: string, items: Feature[]): Promise<{ lines: str
   const states = new Map<string, CloseState>();
   let failed = false;
   for (const f of items) {
-    if (f.stage !== "review" || currentReportStatus(f, "review-report") !== "PASS" || driveLive(f.meta?.drive) || liveRecords(f.meta?.runs).length > 0) continue;
+    if (f.stage !== "review" || currentReportStatus(f, "review-report") !== "PASS") continue;
     const outcome = await archiveItem(root, f.name, { trigger: "status" });
     switch (outcome.kind) {
       case "archived":
@@ -194,18 +187,13 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (change && features.length === 0) {
     return { code: 1, stdout: `${migrated}Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
   }
-  const harness = readProjectConfig(root.root).harness;
   const statuses = features.map((f) => {
-    const s = computeStatus(f, harness, f.stage === "implementation" && driveConfigReady(root.root, f));
+    const s = computeStatus(f);
     const close = closed.states.get(f.name);
     return close ? { ...s, close } : s;
   });
   const buckets = docsBranches
-    ? computeBuckets(
-      statuses,
-      docsBranches.entries,
-      features.filter((f) => driveLive(f.meta?.drive)).length,
-    )
+    ? computeBuckets(statuses, docsBranches.entries)
     : null;
   if (json) {
     // stdout stays parseable JSON; the migration and close lines go to stderr.
@@ -273,11 +261,6 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
   return { entries: out, warnings };
 }
 
-/** The `task_harness_needs_worktree` text; `kf approve` prints it too, before it starts or parks the item. */
-export function taskHarnessNeedsWorktreeMessage(feature: string): string {
-  return `The task harness (kf drive / kf run --task) cannot start while worktrees are off. Set "worktree": { "enabled": true } in .kf/config.json before starting '${feature}'.`;
-}
-
 export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
@@ -296,8 +279,7 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
   if (change && features.length === 0) {
     return { code: 1, stdout: `Unknown feature '${change}'.`, stderr: "unknown feature" };
   }
-  const harness = readProjectConfig(root.root).harness;
-  const results = features.map((f) => validateFeature(f, strict, true, harness));
+  const results = features.map((f) => validateFeature(f, strict, true));
 
   // Domain infra is environmental, not contractual — a WARNING telling the human to onboard,
   // never an ERROR that blocks a gate. It surfaces here because `kf validate` is the command
@@ -319,23 +301,6 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
         } satisfies Finding);
         if (strict) r.valid = !r.issues.some((i) => i.severity === "ERROR") && !r.issues.some((i) => i.severity === "WARNING");
       }
-    }
-  }
-
-  // Raised before approval starts the item, so the human enables worktrees before the drive
-  // rather than learning it from a refused `kf drive`.
-  if (!wtCfg.enabled && (harness?.verify?.stage?.length ?? 0) > 0) {
-    for (const r of results) {
-      if (r.stage !== "planning" && r.stage !== "backlog") continue;
-      r.issues.push({
-        severity: "WARNING",
-        feature: r.feature,
-        stage: r.stage,
-        file: ".kf/config.json",
-        code: "task_harness_needs_worktree",
-        message: taskHarnessNeedsWorktreeMessage(r.feature),
-      } satisfies Finding);
-      if (strict) r.valid = false;
     }
   }
 

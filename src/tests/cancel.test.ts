@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,7 +16,6 @@ import { cmdNew } from "../cli/commands/new.js";
 import { cmdApprove } from "../cli/commands/approve.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import { cmdList, cmdStatus, cmdView } from "../cli/commands/inspect.js";
-import { cmdRuns } from "../cli/commands/run.js";
 import * as paths from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -109,7 +107,7 @@ describe("kf cancel stops a work item with a reason", () => {
     expect(meta.status).toBe("cancelled");
     expect(meta.cancellation).toMatchObject({ by: "Quyen", reason: "đổi hướng sang giải pháp khác", fromStage: "implementation" });
     expect(meta.cancellation!.at).toMatch(/^\d{8}_\d{4}$/);
-    expect(meta.runs).toHaveLength(1);
+    expect((meta as unknown as Record<string, unknown>).runs).toHaveLength(1);
     expect(existsSync(join(root, ".works", "implementation", "demo_20260919_1200"))).toBe(false);
   });
 
@@ -141,27 +139,6 @@ describe("kf cancel stops a work item with a reason", () => {
     expect(again.code).toBe(1);
     expect(again.stdout).toContain("already cancelled");
     expect(feature().meta!.cancellation!.reason).toBe("real reason");
-  });
-
-  it("waits for a live worker run unless forced", async () => {
-    const sleeper = spawn("sleep", ["30"], { stdio: "ignore" });
-    try {
-      await addItem("demo", "implementation", {
-        runs: [{ id: "live", role: "coder", runner: "claude", stage: "implementation", mode: "start", at: "2026-09-19T10:00:00Z", log: "runs/live.log", status: "running", pid: sleeper.pid }],
-      });
-      const blocked = await cmdCancel(args("cancel", ["demo"], { reason: "stop" }), root);
-      expect(blocked.code).toBe(1);
-      expect(blocked.stdout).toContain("live");
-      expect(feature().stage).toBe("implementation");
-
-      const forced = await cmdCancel(args("cancel", ["demo"], { reason: "stop", force: true }), root);
-      expect(forced.code).toBe(0);
-      expect(feature().stage).toBe("cancelled");
-      expect(feature().meta!.bypasses![0]).toMatchObject({ flag: "force", to: "cancelled" });
-      expect(feature().meta!.bypasses![0].codes).toContain("run_in_progress");
-    } finally {
-      sleeper.kill();
-    }
   });
 
   it("runs the cancelled hook and records a skip", async () => {
@@ -272,7 +249,7 @@ describe("reopening a cancelled item", () => {
     expect(feature().stage).toBe("planning");
     expect(feature().meta!.cancellation).toBeUndefined();
     expect(feature().meta!.status).toBeUndefined();
-    expect(feature().meta!.sessions).toEqual({ coder: "s1" });
+    expect((feature().meta as unknown as Record<string, unknown>).sessions).toEqual({ coder: "s1" });
   });
 
   it("refuses when the metadata lost its fromStage", async () => {
@@ -671,13 +648,6 @@ describe("cancelled work stays visible without skewing the numbers", () => {
     expect(metrics).toMatchObject({ total: 4, completed: 2, cancelled: 1, completionRate: 67 });
     expect(dashboardData(root).stages).toHaveLength(8);
     expect((await cmdView(args("view"), root)).stdout).toContain("Cancelled: 1");
-    // Runs of dropped work are history: out of the default list, still visible by name.
-    await writeFeatureMeta(feature("dropped").dir, {
-      ...feature("dropped").meta!,
-      runs: [{ id: "old", role: "coder", runner: "claude", stage: "planning", mode: "start", at: "2026-09-19T09:00:00Z", log: "runs/old.log", status: "done" }],
-    });
-    expect((await cmdRuns(args("runs"), root)).stdout).not.toContain("old");
-    expect((await cmdRuns(args("runs", ["dropped"]), root)).stdout).toContain("old");
     expect(renderDashboardHtml()).toContain("Cancelled");
   });
 

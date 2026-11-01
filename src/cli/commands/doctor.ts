@@ -1,4 +1,4 @@
-import { runDoctor, applyDoctorFixes, type DoctorFinding } from "../../project/doctor.js";
+import { runDoctor, runDoctorFixes, type DoctorFinding } from "../../project/doctor.js";
 import { readProjectConfig } from "../../project/config.js";
 import { readMachineConfig, worktreeConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
@@ -17,8 +17,12 @@ export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResul
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
 
   // --fix first, then the report reflects the after-state rather than the damage it repaired.
-  const fixed = args.options.fix ? await applyDoctorFixes(root.root) : [];
+  const { fixed, failures } = args.options.fix ? await runDoctorFixes(root.root) : { fixed: [], failures: [] };
   const report = runDoctor(root.root);
+  if (failures.length > 0) {
+    report.findings.unshift(...failures);
+    report.ok = false;
+  }
 
   // Domain infra probes are async (DNS + TCP), so they live here rather than inside the
   // synchronous runDoctor. They are WARNING-only: the machine, not the work item, is what

@@ -170,33 +170,39 @@ describe("feature meta tasks", () => {
     }
   };
 
-  it("accepts valid task state and unknown extra keys", () => {
+  it("loads leftover task state and unknown extra keys untouched", () => {
     const tasks = {
       "TASK-001": { state: "done", attempts: 1, branch: "b", base: "abc", mergeSha: "def", session: "s", updatedAt: "now", future: true },
       "TASK-002": { state: "blocked", reason: "conflict" },
     };
-    expect(readWith({ tasks, other: 1 })?.tasks).toEqual(tasks);
+    const meta = readWith({ tasks, other: 1 }) as unknown as Record<string, unknown>;
+    expect(meta.tasks).toEqual(tasks);
+    expect(meta.other).toBe(1);
   });
 
-  it("rejects malformed task state", () => {
-    expect(() => readWith({ tasks: { "TASK-001": { state: "finished" } } })).toThrow("Invalid feature metadata");
-    expect(() => readWith({ tasks: { "TASK-001": { state: "done", attempts: "1" } } })).toThrow("Invalid feature metadata");
-    expect(() => readWith({ tasks: { "TASK-001": { state: "failed", reason: 5 } } })).toThrow("Invalid feature metadata");
-    expect(() => readWith({ tasks: [] })).toThrow("Invalid feature metadata");
-    expect(() => readWith({ tasks: { "TASK-001": "done" } })).toThrow("Invalid feature metadata");
+  it("no longer validates the leftover drive, runs, sessions and tasks keys", () => {
+    for (const leftover of [
+      { tasks: { "TASK-001": { state: "finished" } } },
+      { tasks: [] },
+      { runs: [{ id: "r1", stage: "shipped" }] },
+      { runs: "not a list" },
+      { sessions: { coder: 5 } },
+      { drive: { status: "unknown" } },
+    ]) {
+      const meta = readWith(leftover) as unknown as Record<string, unknown>;
+      for (const [key, value] of Object.entries(leftover)) expect(meta[key], key).toEqual(value);
+    }
   });
 
   it("loads history that names the legacy stages dones and shipping", () => {
     const legacy = {
       bypasses: [{ at: "20260101_0900", from: "review", to: "dones", flag: "force", codes: ["review_not_pass"] }],
       cancellation: { at: "20260101_1000", by: "q", reason: "dropped", fromStage: "shipping" },
-      runs: [{ id: "r1", role: "shipper", runner: "claude", stage: "shipping", mode: "start", at: "20260101_0930", log: "runs/r1.log", status: "done" }],
     };
     const meta = readWith(legacy);
     expect(meta?.bypasses).toEqual(legacy.bypasses);
     expect(meta?.cancellation).toEqual(legacy.cancellation);
-    expect(meta?.runs).toEqual(legacy.runs);
     // Legacy names are tolerated, not anything goes.
-    expect(() => readWith({ ...legacy, runs: [{ ...legacy.runs[0], stage: "shipped" }] })).toThrow("Invalid feature metadata");
+    expect(() => readWith({ ...legacy, bypasses: [{ ...legacy.bypasses[0], to: "shipped" }] })).toThrow("Invalid feature metadata");
   });
 });

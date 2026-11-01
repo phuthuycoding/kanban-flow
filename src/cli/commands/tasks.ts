@@ -3,17 +3,13 @@ import { join } from "node:path";
 
 import type { Feature } from "../../workflow/features.js";
 import { checkTaskGraph, taskView, type TaskViewRow } from "../../workflow/tasks.js";
-import { readProjectConfig } from "../../project/config.js";
-import type { HarnessConfig } from "../../harness/config.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
-const NO_HARNESS: HarnessConfig = { main: "main", roles: {}, stages: {}, runners: {} };
-
 interface ShownTask extends TaskViewRow {
-  /** `tasks.md` when done was read from a checkbox because meta.tasks is absent. */
-  stateSource: "meta" | "tasks.md" | "view";
+  /** `done` when its `tasks.md` checkbox is ticked; otherwise `ready` once every dependency is done. */
+  state: "pending" | "ready" | "done";
 }
 
 function checkedTaskIds(dir: string): Set<string> {
@@ -29,25 +25,18 @@ function checkedTaskIds(dir: string): Set<string> {
   return ids;
 }
 
-/** Display-only. A checkbox never becomes scheduler state: taskView stays the driver's source. */
 function showTasks(feature: Feature, view: TaskViewRow[]): ShownTask[] {
-  if (feature.meta?.tasks !== undefined) {
-    const stored = feature.meta.tasks;
-    return view.map((t) => ({ ...t, state: stored[t.id]?.state ?? t.state, stateSource: "meta" }));
-  }
-  const checked = checkedTaskIds(feature.dir);
-  const rows: ShownTask[] = view.map((t) =>
-    checked.has(t.id) ? { ...t, state: "done", blockedBy: undefined, reason: undefined, stateSource: "tasks.md" } : { ...t, stateSource: "view" });
-  const done = new Set(rows.filter((t) => t.state === "done").map((t) => t.id));
-  return rows.map((t) => (t.state === "pending" && t.dependencies.every((d) => done.has(d)) ? { ...t, state: "ready" } : t));
+  const done = checkedTaskIds(feature.dir);
+  return view.map((t) => ({
+    ...t,
+    state: done.has(t.id) ? "done" : t.dependencies.every((d) => done.has(d)) ? "ready" : "pending",
+  }));
 }
 
 function renderRow(t: ShownTask): string {
   const deps = t.dependencies.length > 0 ? t.dependencies.join(", ") : "-";
   const files = t.files ? t.files.join(", ") : "files unknown";
-  const note = t.blockedBy ? `blocked by ${t.blockedBy}` : t.reason ?? "";
-  const source = t.stateSource === "tasks.md" ? "tasks.md" : "";
-  return `${t.id}  wave ${t.wave}  ${t.state.padEnd(9)}  ${t.role}  deps: ${deps}  files: ${files}${note ? `  ${note}` : ""}${source ? `  ${source}` : ""}`;
+  return `${t.id}  wave ${t.wave}  ${t.state.padEnd(9)}  deps: ${deps}  files: ${files}`;
 }
 
 export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -56,9 +45,8 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
   const root = await resolveItem(cwd, name);
   if (!root.ok) return root.refusal;
   const feature = root.item;
-  const harness = readProjectConfig(root.root).harness ?? NO_HARNESS;
 
-  const errors = checkTaskGraph(feature, harness).filter((f) => f.severity === "ERROR");
+  const errors = checkTaskGraph(feature).filter((f) => f.severity === "ERROR");
   if (errors.length > 0) {
     return {
       code: 1,
@@ -67,7 +55,7 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
     };
   }
 
-  const view = showTasks(feature, taskView(feature, harness));
+  const view = showTasks(feature, taskView(feature));
   if (args.options.json) {
     return { code: 0, stdout: JSON.stringify({ feature: feature.name, tasks: view }, null, 2) };
   }

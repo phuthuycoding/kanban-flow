@@ -26,7 +26,6 @@ estimates size <minutes> <files> .kf/travel/estimates.md <kind>
 
 - **files**: the number of distinct paths in the union of the item's pending task Files (`kf tasks <f> --json`, tasks not `done`). A directory or glob counts as 10. No plan (a red-CI PR): `gh pr view <n> --json changedFiles`.
 - **minutes**: your estimate of agent time to `ready` — implementation tasks still pending plus testing and review. A testing or review line with nothing to implement is usually S or M. Needs a spec → XL. Estimate without looking at the factor and do not adjust for it yourself: the script applies it. Record these raw minutes on the ledger line as `estmin=<n>` and the approved size as `est0=<size>`; a carried line keeps the `est0` and `estmin` of the day it was first planned, since `work` covers every day. Its morning re-size feeds only the day's budget and batching.
-- **learn**: an item that already has `runs[]` in implementation, testing or review when its line is first planned (`kf status --change <f> --json`) gets `learn=no`, kept while carried: its `estmin` covers only the remaining work while `work` counts every run, which would bias the factor upward. Such a line is measured without `--estmin`. `kf approve` starts no run, so a freshly approved item learns.
 - **kind**: the line's kind (`feature`, `bug`, `pr`); each kind learns its own factor.
 
 ## Measurement row
@@ -38,7 +37,7 @@ date · id · feature · kind · est · actual · work · review · files · rou
 2026-10-31 · t1 · demo · feature · M · M · 14 · 1 · 6 · 1 · implementation→review · T1 · 0 · 10
 ```
 
-A row without `estmin` (written before it existed, or measured from a `learn=no` line) ends at `gap`; it still counts for budget, hit rate and bias.
+A row without `estmin` (written before it existed) ends at `gap`; it still counts for budget, hit rate and bias.
 
 | Field | Source |
 |---|---|
@@ -46,14 +45,14 @@ A row without `estmin` (written before it existed, or measured from a `learn=no`
 | id, feature, kind | the ledger line |
 | est | the line's `est0`: the size approved when the line was first planned, not a carried line's re-size |
 | actual | computed by the script with the **default** thresholds (never the learned ones, so learning cannot feed on itself): the size of `work` and `files`, higher of the two; `-` with `--cancelled` |
-| work | minutes: sum of `endedAt − at` over every run in the item's `runs[]` (`kf status --change <f> --json`) that has an `endedAt` and whose `stage` is implementation, testing or review — on any day, so a carried item is measured whole; worker runs only, not time waiting on the human. `kf status --json` carries no approval time (`approval` is only `pending`, `approved` or `changed`), so the window is that stage filter alone: an item sent back to planning and approved again still counts its runs from before. Recorded as `work=<n>` on the ledger line at `ready`; measure from that |
-| review | minutes of those runs whose `stage` is `review` (a share of `work`), recorded as `review=<n>` beside `work=<n>` |
+| work | minutes of seat work on the item, summed across every day: the duration of each seat run (implementation, testing and review phases) as travel observes it in the seat's completion notification, added to the `work=<n>` already on the item's line in `.kf/travel/progress.md`; time waiting on the human is not counted. The line carries the running sum, and `work=<n>` at review PASS is what `measure` takes |
+| review | the part of `work` spent in review seats, summed the same way and kept as `review=<n>` beside `work=<n>` on the travel line |
 | files | `git diff --shortstat <base>...HEAD` in the item worktree, recorded as `files=<n>` on the ledger line at `ready` (the worktree is gone after the merge); else `gh pr view <n> --json changedFiles` |
-| rounds | the drive's repair loops (`loops` of `kf drive <f> --status --json`) |
-| path | the distinct `stage`s of those same runs, in the order they first ran, e.g. `implementation→testing→review` |
+| rounds | the number of `fix round` lines in the item's `loop/progress.md` |
+| path | the distinct phases the item ran, in the order they first ran, e.g. `implementation→testing→review` |
 | tier | the review tier in the review report (`T1`, `T1C`, `T2`, `T3`), or `-` |
 | gap | computed: sizes between est and actual, signed (`+1` = estimated one size low) |
-| estmin | the raw minutes on the ledger line (`estmin=<n>`), the ones passed to `size` before the factor; `--estmin`, above 0. Omitted for a `learn=no` line → the row ends at `gap`, counts for hit rate and bias, and teaches the factor nothing |
+| estmin | the raw minutes on the ledger line (`estmin=<n>`), the ones passed to `size` before the factor; `--estmin`, above 0. Omitted → the row ends at `gap`, counts for hit rate and bias, and teaches the factor nothing |
 
 Cancelled or restarted from scratch → `--cancelled`: `actual -`, `gap -`; `stats` and the factor skip the row.
 

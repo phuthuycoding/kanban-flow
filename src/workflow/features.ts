@@ -6,7 +6,6 @@ import { execFileSync } from "node:child_process";
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type LegacyStageName, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { withLock, type LockOptions } from "../shared/lock.js";
-import { isPidAlive } from "../shared/process.js";
 
 export interface Approval {
   status: ApprovalStatus;
@@ -31,37 +30,6 @@ export interface Cancellation {
   by: string;
   reason: string;
   fromStage: Stage | LegacyStageName;
-}
-
-export type RunStatus = "running" | "done" | "failed" | "timeout" | "reset";
-
-/** One `kf run` invocation of a worker agent for a stage; appended by the CLI, updated when the worker exits. */
-export interface RunRecord {
-  id: string;
-  /** Job in the workflow (writer, coder…); also the session key for this work item. */
-  role: string;
-  /** Runner that actually executed the role, kept so a role can change model later. */
-  runner: string;
-  stage: Stage | LegacyStageName;
-  mode: "start" | "resume";
-  session?: string;
-  at: string;
-  /** Log path relative to the feature dir so it moves with the folder. */
-  log: string;
-  /** Position in the stage's role chain, so a chain that stopped early is visible. */
-  chain?: { id: string; index: number; total: number };
-  /** Task id when this run executed one planned task (`kf run --task`). */
-  task?: string;
-  status: RunStatus;
-  exitCode?: number;
-  pid?: number;
-  supervisorPid?: number;
-  endedAt?: string;
-  statusLine?: string | null;
-  summary?: string;
-  warning?: string;
-  error?: string;
-  usage?: { input: number; output: number; costUsd?: number };
 }
 
 /** The worktree record an item's `.kfw.json` carries once it has an environment. */
@@ -106,132 +74,10 @@ export interface FeatureMeta {
   status?: "archived" | "cancelled";
   cancellation?: Cancellation;
   bypasses?: Bypass[];
-  /** Worker session per role, scoped to this work item. */
-  sessions?: Record<string, string>;
-  runs?: RunRecord[];
   /** Git worktree + domain allocated for implementation; absent until created. */
   worktree?: WorktreeRegistration;
   /** Progress of the removed `kf ship` pipeline. Nothing writes it now; items shipped by earlier releases still carry it, so it must keep loading. */
   ship?: ShipState;
-  /** Per-task progress of the task harness, keyed by task id; tasks with no entry are pending or ready (computed). */
-  tasks?: Record<string, TaskState>;
-  /** State of the item's `kf drive`; written only by the driver and `kf drive --stop`. */
-  drive?: DriveState;
-}
-
-export const DRIVE_STATUSES = ["running", "stopped", "ready"] as const;
-export type DriveStatus = (typeof DRIVE_STATUSES)[number];
-
-export const DRIVE_STOP_CODES = [
-  "loop_limit", "requirement_bug", "worker_blocked", "plan_change_needed", "tasks_blocked", "verify_failed",
-  "transition_refused", "approval_changed", "config_changed", "budget", "stopped_by_user", "git_error", "internal_error",
-  "usage_limit",
-] as const;
-export type DriveStopCode = (typeof DRIVE_STOP_CODES)[number];
-
-/** A drive config pinned while it differed from what it is compared with; appended by `kf drive`, never removed. */
-export interface DriveConfigAcceptance {
-  at: string;
-  /** The command that pinned it, e.g. `kf drive <item> --accept-config`. */
-  command: string;
-  /** Whether the claiming process had a terminal on stdin: a hint at a person rather than a script or agent. Absent in records written before it was kept. */
-  tty?: boolean;
-  /** `pin`: a resume re-pinned over the drive's previous pin. `origin` / `primary`: a new drive pinned a worktree copy whose argv differ from that copy of `.kf/config.json`. */
-  against: "pin" | "origin" | "primary";
-  /** `key: old → new` per changed argv leaf, `key changed` for the other parts. */
-  changes: string[];
-}
-
-export interface DriveState {
-  id: string;
-  status: DriveStatus;
-  /** Where the driver is (or stopped): implementation | repair | verify | testing | review. */
-  step: string;
-  /** Repair loops used; shared by testing and review. */
-  loops: number;
-  /** Worker runs started by this drive, retries and repairs included. */
-  runs: number;
-  stopCode?: DriveStopCode;
-  reason?: string;
-  nextCommand?: string;
-  /** Hash of every harness key, the config source and worktree.enabled when the drive (re)started. */
-  configHash: string;
-  /** The same pinned items one by one, so a change can be named: hashes, except harness.runners and harness.verify, stored as JSON values so a stop can show the old argv. */
-  configParts?: Record<string, string>;
-  /** Approval fingerprint at (re)start; a different one stops the drive. */
-  approvalHash?: string;
-  /** Report file (in the item folder) a pending repair run must fix; set while step is `repair`. */
-  repairReport?: string;
-  /** Warnings the driver recorded, e.g. a failed drive-stop hook. */
-  warnings?: string[];
-  /** Every config change a claim pinned, carried over by later resumes and drives of the item. */
-  configAcceptances?: DriveConfigAcceptance[];
-  supervisorPid?: number;
-  startedAt: string;
-  updatedAt: string;
-}
-
-/** A drive is live while it is running and its supervisor (the detached process, or the claiming CLI until it hands over) answers. */
-export function driveLive(drive: DriveState | undefined): boolean {
-  return drive?.status === "running" && isPidAlive(drive.supervisorPid);
-}
-
-function isConfigAcceptance(value: unknown): value is DriveConfigAcceptance {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const a = value as Partial<DriveConfigAcceptance>;
-  return typeof a.at === "string" && typeof a.command === "string" && (a.against === "pin" || a.against === "origin" || a.against === "primary")
-    && (a.tty === undefined || typeof a.tty === "boolean")
-    && Array.isArray(a.changes) && a.changes.every((c) => typeof c === "string");
-}
-
-function isDriveState(value: unknown): value is DriveState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const d = value as Partial<DriveState>;
-  const int = (n: unknown): boolean => typeof n === "number" && Number.isInteger(n) && n >= 0;
-  return typeof d.id === "string" && typeof d.status === "string" && (DRIVE_STATUSES as readonly string[]).includes(d.status)
-    && typeof d.step === "string" && int(d.loops) && int(d.runs)
-    && (d.stopCode === undefined || (DRIVE_STOP_CODES as readonly string[]).includes(d.stopCode))
-    && (d.reason === undefined || typeof d.reason === "string")
-    && (d.nextCommand === undefined || typeof d.nextCommand === "string")
-    && typeof d.configHash === "string"
-    && (d.configParts === undefined || (!!d.configParts && typeof d.configParts === "object" && !Array.isArray(d.configParts)
-      && Object.values(d.configParts).every((h) => typeof h === "string")))
-    && (d.approvalHash === undefined || typeof d.approvalHash === "string")
-    && (d.repairReport === undefined || typeof d.repairReport === "string")
-    && (d.warnings === undefined || (Array.isArray(d.warnings) && d.warnings.every((w) => typeof w === "string")))
-    && (d.configAcceptances === undefined || (Array.isArray(d.configAcceptances) && d.configAcceptances.every(isConfigAcceptance)))
-    && (d.supervisorPid === undefined || int(d.supervisorPid))
-    && typeof d.startedAt === "string" && typeof d.updatedAt === "string";
-}
-
-export const TASK_STATES = ["pending", "ready", "running", "verifying", "merging", "done", "failed", "blocked"] as const;
-export type TaskStateName = (typeof TASK_STATES)[number];
-
-export interface TaskState {
-  state: TaskStateName;
-  reason?: string;
-  attempts?: number;
-  branch?: string;
-  base?: string;
-  mergeSha?: string;
-  /** Item branch HEAD recorded just before a task merge; the reset target when verify fails. */
-  preMergeSha?: string;
-  session?: string;
-  updatedAt?: string;
-}
-
-function isTaskState(value: unknown): value is TaskState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const t = value as Partial<TaskState>;
-  return typeof t.state === "string" && (TASK_STATES as readonly string[]).includes(t.state)
-    && (t.reason === undefined || typeof t.reason === "string")
-    && (t.attempts === undefined || (typeof t.attempts === "number" && Number.isInteger(t.attempts) && t.attempts >= 0))
-    && (t.branch === undefined || typeof t.branch === "string")
-    && (t.base === undefined || typeof t.base === "string")
-    && (t.mergeSha === undefined || typeof t.mergeSha === "string")
-    && (t.preMergeSha === undefined || typeof t.preMergeSha === "string")
-    && (t.session === undefined || typeof t.session === "string")
-    && (t.updatedAt === undefined || typeof t.updatedAt === "string");
 }
 
 /** Per-step progress recorded by the removed `kf ship` pipeline — read-only legacy metadata. */
@@ -346,16 +192,10 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
       || !["pending", "approved"].includes(meta.approval.status)
       || (meta.approval.contractHash !== undefined && typeof meta.approval.contractHash !== "string")))
     || (meta.bypasses !== undefined && (!Array.isArray(meta.bypasses) || !meta.bypasses.every(isBypass)))
-    || (meta.sessions !== undefined && (!meta.sessions || typeof meta.sessions !== "object" || Array.isArray(meta.sessions)
-      || !Object.values(meta.sessions).every((s) => typeof s === "string")))
-    || (meta.runs !== undefined && (!Array.isArray(meta.runs) || !meta.runs.every(isRunRecord)))
     || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
     || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))
     || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))
-    || (meta.ship !== undefined && !isShipState(meta.ship))
-    || (meta.tasks !== undefined && (!meta.tasks || typeof meta.tasks !== "object" || Array.isArray(meta.tasks)
-      || !Object.values(meta.tasks).every(isTaskState)))
-    || (meta.drive !== undefined && !isDriveState(meta.drive))) {
+    || (meta.ship !== undefined && !isShipState(meta.ship))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
   assertPathName(meta.feature, "feature");
@@ -379,20 +219,6 @@ function isCancellation(value: unknown): value is Cancellation {
   const c = value as Partial<Cancellation>;
   return typeof c.at === "string" && typeof c.by === "string" && typeof c.reason === "string"
     && typeof c.fromStage === "string" && isStageOrLegacy(c.fromStage);
-}
-
-const RUN_STATUSES = ["running", "done", "failed", "timeout", "reset"];
-
-function isRunRecord(value: unknown): value is RunRecord {
-  if (!value || typeof value !== "object") return false;
-  const r = value as Partial<RunRecord>;
-  if (r.chain !== undefined && (typeof r.chain !== "object" || r.chain === null
-    || typeof r.chain.id !== "string" || typeof r.chain.index !== "number" || typeof r.chain.total !== "number")) return false;
-  if (r.task !== undefined && typeof r.task !== "string") return false;
-  return typeof r.id === "string" && typeof r.role === "string" && typeof r.runner === "string"
-    && typeof r.stage === "string" && isStageOrLegacy(r.stage)
-    && (r.mode === "start" || r.mode === "resume") && typeof r.at === "string" && typeof r.log === "string"
-    && typeof r.status === "string" && RUN_STATUSES.includes(r.status);
 }
 
 export async function writeFeatureMeta(
@@ -517,11 +343,14 @@ export function listFeatures(root: string): Feature[] {
   return out;
 }
 
+/** More than one work item answers to the name; the caller has to ask for a full folder name. */
+export class AmbiguousFeatureError extends Error {}
+
 /** Find a single feature by name across all stages. */
 export function findFeature(root: string, name: string): Feature | null {
   const matches = listFeatures(root).filter((f) => f.name === name || f.folder === name);
   if (matches.length > 1) {
-    throw new Error(`Ambiguous feature '${name}': select its full folder name (${matches.map((f) => f.folder).join(", ")}).`);
+    throw new AmbiguousFeatureError(`Ambiguous feature '${name}': select its full folder name (${matches.map((f) => f.folder).join(", ")}).`);
   }
   return matches[0] ?? null;
 }

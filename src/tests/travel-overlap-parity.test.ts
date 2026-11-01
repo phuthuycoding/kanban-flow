@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
-import { filesOverlap, patternsOverlap } from "../harness/scheduler.js";
+import { filesOverlap, patternsOverlap } from "../workflow/allowlist.js";
 
 const SCRIPT = join(PKG_ROOT, "skills", "travel", "scripts", "estimates");
 
@@ -18,7 +18,7 @@ const CASES: Array<[string[], string[]]> = [
   [["src/a.ts"], ["src/a.ts"]],
   [["src/a.ts"], ["src/b.ts"]],
   [["src/**"], ["src/cli/x.ts"]],
-  [["src/cli/*.ts"], ["src/harness/*.ts"]],
+  [["src/cli/*.ts"], ["src/workflow/*.ts"]],
   [["src/cli/*.ts"], ["src/cli/commands/x.ts"]],
   [["./src/a.ts"], ["src/a.ts"]],
   [["src/"], ["src/a.ts"]],

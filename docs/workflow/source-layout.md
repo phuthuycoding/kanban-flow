@@ -19,8 +19,8 @@ src/
 │       ├── approve.ts    # planning approval
 │       ├── rules.ts      # stack review-rule pack installation
 │       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
-│       ├── run.ts        # kf run / kf runs (hand a stage to a worker agent)
-│       ├── harness.ts    # kf harness (effective harness config)
+│       ├── tasks.ts      # kf tasks (the plan's task graph)
+│       ├── verify.ts     # kf verify (task allowlist check and harness.verify)
 │       ├── ship.ts       # kf ship — deprecated alias, prints a pointer and exits 1
 │       ├── cancel.ts     # kf cancel (argument parsing and output over workflow/cancel)
 │       └── archive.ts    # kf archive (argument parsing and output over workflow/archive)
@@ -31,6 +31,9 @@ src/
 │   ├── canonical-docs.ts # canonical docs sync: content, paths, prepare/write/rollback copies
 │   ├── archive.ts        # archive transaction (archiveItem) behind kf archive
 │   ├── cancel.ts         # cancel transaction (cancelItem) behind kf cancel
+│   ├── tasks.ts          # the plan's task graph
+│   ├── allowlist.ts      # task Files allowlist matching
+│   ├── verify.ts         # verifyTask / verifyStage behind kf verify
 │   ├── migrate.ts        # one-time move of legacy dones/shipping items to done/review
 │   ├── status.ts         # artifact checklist rendering
 │   ├── findings.ts       # Finding/ValidationResult types
@@ -41,22 +44,14 @@ src/
 │   ├── validate-traceability.ts  # FR → UC → TC references
 │   ├── direction.ts      # directional gate (PASS/FAIL/REQUIREMENT_BUG)
 │   └── validate.ts       # facade: composes the checks, renders results, re-exports
-├── harness/              # multi-agent harness: role/runner config, worker prompt, session, run executor, role chain, detached supervisor, task runs and completion pipeline, scheduler
-│   ├── drive.ts          # kf drive facade: re-exports drive/
-│   └── drive/
-│       ├── claim.ts      # claim a drive, next command, start the detached supervisor
-│       ├── control.ts    # drive view, stop, finish
-│       ├── driver.ts     # supervisor loop: tasks, verify, testing/review repair loops
-│       ├── progress.ts   # live-run labels and elapsed time for status and watch
-│       └── watch.ts      # kf drive --watch: tail the drive log until it stops
 ├── project/              # project config, declared contexts and bootstrap prompts
 ├── integrations/         # agents, skill installation, hooks
 │   └── github.ts         # gh CLI wrapper and PR merge gate (checkMergeGate); domain result, no CLI type
 ├── dashboard/            # analytics HTTP server and HTML view
 ├── shared/               # filesystem paths, frontmatter and time helpers, per-item lock, git helpers
 └── tests/                # all Vitest tests, grouped separately from runtime
-    ├── helpers/          # fake agent CLIs and harness project fixture
-    └── setup/            # vitest globalSetup (builds dist for detached-run tests)
+    ├── helpers/          # test helpers
+    └── setup/            # vitest globalSetup (builds dist, isolates HOME)
 ```
 
 Dependency direction is intentionally one-way: command handlers call workflow/project/integration services; workflow code does not import CLI handlers. Shared utilities contain no command dispatch. This keeps changes to the CLI surface isolated from state and artifact rules.

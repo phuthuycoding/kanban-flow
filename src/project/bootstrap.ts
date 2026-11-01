@@ -12,7 +12,6 @@ import { detectRepository, normalizeRepository } from "./repository.js";
 import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
 import { STAGES } from "../workflow/schema.js";
 import { assertPathName } from "../workflow/features.js";
-import { seedHarness } from "../harness/config.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
 import { readProjectConfig, effectiveSkillsScope } from "./config.js";
 import { runGit } from "../shared/git.js";
@@ -423,7 +422,7 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
     ...(a.repository ? { repository: a.repository } : {}),
     agents: a.agents,
     skills: { scope: a.skillScope },
-    harness: existing.harness ?? seedHarness(a.agents),
+    ...(existing.harness !== undefined ? { harness: existing.harness } : {}),
     // Blocks saveConfig does not own — re-init must not silently drop what a human configured.
     ...(existing.worktree !== undefined ? { worktree: existing.worktree } : {}),
     ...(existing.project !== undefined ? { project: existing.project } : {}),

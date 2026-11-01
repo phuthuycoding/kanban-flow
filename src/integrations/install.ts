@@ -6,7 +6,7 @@ import { join, resolve, sep } from "node:path";
 import { findWorksRoot } from "../workflow/features.js";
 import { selectOption } from "../project/bootstrap.js";
 import { readProjectConfig } from "../project/config.js";
-import { PKG_ROOT } from "../shared/paths.js";
+import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
 import {
   AGENTS,
   DEFAULT_AGENT,
@@ -184,6 +184,26 @@ export interface SkillInstallResult extends InstallReport {
 /** True when the running package sits somewhere that gets purged (npx cache) — links would dangle. */
 export function packageIsEphemeral(): boolean {
   return PKG_SKILLS_DIR.split(sep).includes("_npx");
+}
+
+/**
+ * Why a global link install must not run from this package, or null when it may. A linked git
+ * worktree is transient: links from ~/.<agent> into it dangle once the worktree is removed.
+ */
+export function globalLinkRefusal(): string | null {
+  // The test suite runs inside item worktrees and links into a throwaway HOME, so it opts out.
+  if (process.env.KF_ALLOW_WORKTREE_LINK === "1") return null;
+  let linked: boolean;
+  try {
+    linked = isLinkedWorktree(PKG_ROOT);
+  } catch (err) {
+    // An unreadable .git leaves the question open; refusing is the safe answer, and the code says why.
+    if (!(err instanceof Error && "code" in err)) throw err;
+    const path = "path" in err && typeof err.path === "string" ? err.path : join(PKG_ROOT, ".git");
+    return `kf cannot read ${path} (${String(err.code)}) to tell whether it runs from a linked git worktree; a global install would link into it — run it from the primary checkout`;
+  }
+  if (!linked) return null;
+  return `kf runs from a linked git worktree (${PKG_ROOT}); a global install would link into it and dangle once it is removed — run it from the primary checkout`;
 }
 
 /** Link each managed skill to the package, copying instead when linking is impossible. */
@@ -580,6 +600,9 @@ export interface InstallSkillsOptions {
  */
 export async function installSkills(root: string | null, agents: AgentId[], scope: SkillScope, opts: InstallSkillsOptions = {}): Promise<InstallReport> {
   const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
+  const refusal = scope === "global" ? globalLinkRefusal() : null;
+  // Exit 1, not 2: this is an install that failed, not a workflow gate refusing a move.
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const lines: string[] = [];
   const cleaned: string[] = [];
   let failed = false;

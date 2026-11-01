@@ -8,6 +8,8 @@ status: PASS
 
 # Testing Result
 
+> **Partly superseded by `drive-retire`:** the README `harness` block smoke test, `kf harness` and `kf runs` no longer hold — those commands and the `roles`/`runners` config are removed; only `harness.verify.task`/`stage` remain. Kept for history.
+
 ## Feature
 open-source-ready
 

@@ -67,10 +67,6 @@ Snapshots alone go stale when a later feature changes the same behavior, so revi
 
 When the primary checkout is on a clean, current default branch, the canonical docs are written into its working tree. Otherwise they are committed to an unpushed `docs/<context>-<feature>` branch cut from `origin/<default>`, the name is stamped in the work item's `meta.docsBranch`, and `kf status --all` lists it under **Waiting to merge** until it is pushed (`kf doctor` warns `docs_branch_unpushed`).
 
-## Run logs
-
-Each worker run writes `runs/<id>.log` inside the work item folder, and the file fills while the worker runs: the default `claude` runner streams one JSON line per event, and a runner that prints one JSON object at exit is still accepted. `kf drive --status`, the `--watch` heartbeat and `--tail` read it to show each live worker's last tool call or text with its age. A worker that exits non-zero leaves its own error text in the task reason and the stop reason; a usage-limit failure stops the drive with code `usage_limit` and keeps the worker session for the next `kf drive`. See [the harness guide](harness.md#task-harness-kf-drive).
-
 ## The day files under `.kf/travel/`
 
 The `travel` skill keeps its state outside any work item, in two plain files under `.kf/travel/`. `kf init` adds the folder to `.gitignore`, so neither is committed.
@@ -78,7 +74,7 @@ The `travel` skill keeps its state outside any work item, in two plain files und
 | File | Contents |
 |---|---|
 | `progress.md` | The ledger: one `## YYYY-MM-DD` section per day, one line per item with its state (`driving`, `blocked`, `waiting-to-merge`, `carry-over`, `done`), its size, and the PR URL or the reason and next command where there is one. A `driving` or `blocked` line is owned by travel |
-| `estimates.md` | One line appended when a ledger line becomes `done`, fields in this order: `date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap`. `work` is the sum of that day's `kf drive` run durations for the item, `files` the item worktree's diff against its base, and `actual` the size the higher of the two implies (`-` for a cancelled or restarted item, which stays out of the stats) |
+| `estimates.md` | One line appended when a ledger line becomes `done`, fields in this order: `date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap`. `work` is the sum of the implementation seat durations travel observed for the item, `files` the item worktree's diff against its base, and `actual` the size the higher of the two implies (`-` for a cancelled or restarted item, which stays out of the stats) |
 
 Sizes are S=1, M=2, L=4, XL=8 points. The morning budget is the median daily total of `actual` points once three days of estimates exist, otherwise 10 tasks; after 20 measured lines the thresholds are learned from the recent rows instead of the defaults.
 
@@ -93,15 +89,14 @@ Sizes are S=1, M=2, L=4, XL=8 points. The morning budget is the median daily tot
 
 ## The implementation plan's Task Breakdown
 
-The `## Task Breakdown` table in `phase-2-implementation-plan.md` is what the [task harness](harness.md#task-harness-kf-drive) schedules:
+The `## Task Breakdown` table in `phase-2-implementation-plan.md` is what the [task loop](harness.md#kf-verify) schedules:
 
 | Column | Meaning |
 | --- | --- |
 | `Task` | `TASK-###`, unique |
 | `Dependencies` | `TASK-###` ids this task waits for; `-`, `none` or empty for none |
-| `Role` | a key of `harness.roles`, or `-` for the implementation default |
-| `Files` | comma-separated paths, directories or globs the task may change — its allowlist. A directory allows everything under it, and so does a glob that matches a directory: `src/*` also allows `src/x/y.ts`. Tasks whose Files overlap never run at the same time; an empty cell means "files unknown" and the task runs alone |
+| `Files` | comma-separated paths, directories or globs the task may change — its allowlist. A directory allows everything under it, and so does a glob that matches a directory: `src/*` also allows `src/x/y.ts`. The controller should not run tasks whose Files overlap side by side; an empty cell means "files unknown" and `kf verify --task` refuses nothing for that task |
 
 Two sections after the table bind the reviewers rather than the scheduler. `## Global Constraints` lists the spec's project-wide requirements verbatim (version floors, dependency limits, naming and copy rules, exact values); the task reviewer in `kanban-implement` receives it word for word, so a constraint missing here is a constraint nobody checks. `## Review Focus` lists up to five inputs or failure modes the spec implies but no task's tests exercise, each as the condition and the behaviour expected; each line's pinning test belongs to the task that owns the behaviour. Both take `None` — the first when the spec states none, the second only after checking.
 
-`kf validate` reports a duplicate id (`task_duplicate`), a missing dependency (`task_dep_missing`), a cycle (`task_dep_cycle`) and an undeclared role (`task_role_unknown`) as errors. The table is part of the approved contract: editing it after `kf approve` means approving again. Plans written before these columns existed still parse — every task gets role `-` and unknown files.
+`kf validate` reports a duplicate id (`task_duplicate`), a missing dependency (`task_dep_missing`), and a cycle (`task_dep_cycle`) as errors. The table is part of the approved contract: editing it after `kf approve` means approving again. Plans written before the `Files` column existed still parse — every task gets unknown files.

@@ -11,7 +11,7 @@ any stage ──kf cancel──→ cancelled ──back to the stage it stopped 
 
 The pipeline exists to turn an idea into an approved execution contract, then execute it with traceability, and test and review the right version of it before the change lands and the item closes.
 
-Above the items, the `travel` skill plans and runs a whole day: it sizes the work, keeps several `kf drive` runs busy and reports what needs the human or is waiting to merge. See [skill routing](skills.md).
+Above the items, the `travel` skill plans and runs a whole day: it sizes the work, keeps several items moving in its own session (one slot each, no detached process) and reports what needs the human or is waiting to merge. See [skill routing](skills.md).
 
 Features and bugs share one state machine. Create a bug with `kf new <name> --type bug`; it goes through `kanban-bug` for triage and reproduction before it reaches planning.
 
@@ -25,7 +25,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 6. [Agent onboarding](autoconfig.md) — `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 7. [Skill routing](skills.md) — which skill loads in which state.
 8. [Dashboard](dashboard.md) — the KPIs, the charts, the filters and what each number means.
-9. [Agent harness](harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`, and the task harness: `kf tasks`, `kf run --task` and `kf drive`, which runs an approved item from implementation to review PASS.
+9. [Agent harness](harness.md) — the in-session loop, the six agents, `harness.verify` and `kf verify`, and the `kf doctor --fix` migration (`kf drive`, `kf run`, `kf runs` and `kf harness` were removed).
 10. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
 
 ## The rules that never bend
@@ -42,7 +42,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 - REQUIREMENT_BUG stops every ordinary transition so the user can decide.
 - The feature report must be written before the close; the CLI syncs the canonical docs when a feature is archived. A bug only updates the related docs when there is a docs impact.
 
-One rule in that list is not like the others: the pipeline granting itself no access to a database, a deployment, a publish or a message is a **policy carried in the skill prompts**, not a gate. Nothing in `src/` enforces it, and the runner presets start workers with edits auto-accepted. It bends exactly as far as the worker does.
+One rule in that list is not like the others: the pipeline granting itself no access to a database, a deployment, a publish or a message is a **policy carried in the skill prompts**, not a gate. Nothing in `src/` enforces it. It bends exactly as far as the agent does.
 
 ## Filesystem model
 

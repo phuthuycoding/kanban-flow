@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseArgsCli, commandHelp, allCommands, helpTopic, renderHelp, unknownInvocation } from "../cli/args.js";
+import { verbForDispatch } from "../cli/tree.js";
 import { nounKindGate } from "../cli/noun-gate.js";
 import { writeFeatureMeta } from "../workflow/features.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -28,7 +29,7 @@ describe("canonical noun verbs resolve to flat handlers", () => {
   it("maps every verb for both nouns (UC-001)", () => {
     const verbs: [string, string][] = [
       ["start", "new"], ["list", "list"], ["show", "show"], ["move", "stage"],
-      ["approve", "approve"], ["ship", "ship"], ["finish", "archive"], ["drop", "cancel"], ["run", "run"],
+      ["approve", "approve"], ["ship", "ship"], ["finish", "archive"], ["drop", "cancel"],
     ];
     for (const noun of ["feature", "bug"]) {
       for (const [verb, dispatch] of verbs) {
@@ -169,5 +170,20 @@ describe("unknown/partial paths", () => {
     const unknown = unknownInvocation(parseArgsCli(["nosuch"]));
     expect(unknown.code).toBe(1);
     expect(unknown.stderr).toBe("unknown command: nosuch");
+  });
+});
+
+describe("the retired run verb", () => {
+  it("has no verb mapped to a run dispatch", () => {
+    expect(verbForDispatch("run")).toBeUndefined();
+  });
+
+  it("is an unknown verb for both nouns and is absent from noun help", () => {
+    for (const noun of ["feature", "bug"]) {
+      const res = unknownInvocation(parseArgsCli([noun, "run", "demo"]));
+      expect(res.code, noun).toBe(1);
+      expect(res.stderr, noun).toBe("unknown verb: run");
+      expect(res.stdout, noun).not.toMatch(/\brun\b/);
+    }
   });
 });

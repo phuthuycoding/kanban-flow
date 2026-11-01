@@ -1,43 +1,27 @@
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { ARTIFACTS, LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
-import { parseTaskGraph } from "../workflow/tasks.js";
+import { LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { isPidAlive } from "../shared/process.js";
-import { isGitRepo, taskWorktreeEntries } from "../worktree/manager.js";
 import { branchPushed, revParse, type LandedRun } from "../shared/git.js";
 import { docsLandedProof } from "../workflow/canonical-docs.js";
-import { worktreeConfig, worktreeDir } from "../worktree/config.js";
-import { driveLive, listFeatures, readFeatureMeta } from "../workflow/features.js";
+import { listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { docsLookupRerunDecision, docsNeverLandedDecision, reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
-import { legacyHarnessStageKeys } from "../harness/config.js";
-import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
+import { checkHarnessLegacyKeys, checkLegacyRunState, fixFailure, removeLegacyHarnessKeys, stripLegacyRunState } from "./legacy-migration.js";
+import { checkGithubHooks, checkOrphanedHooks, repairHooks } from "./doctor-hooks.js";
+import { checkSkills, repairSkills } from "./doctor-install.js";
+import type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
+import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, jsonIndent, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
-import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
-import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, unhealthySkills } from "../integrations/install.js";
+import { writeFileAtomic } from "../shared/paths.js";
+import { DEFAULT_AGENT, parseAgentIds } from "../integrations/agents.js";
 
-
-export interface DoctorFinding {
-  level: "ERROR" | "WARNING";
-  area: string;
-  message: string;
-  /** A command the user runs themselves. Doctor never fixes anything. */
-  action?: string;
-}
-
-export interface DoctorReport {
-  root: string;
-  findings: DoctorFinding[];
-  invalidItems: number;
-  totalItems: number;
-  ok: boolean;
-}
+export type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
 
 /** Every stage needs its directory; a file sitting where one belongs counts as missing. */
 function checkStageDirs(root: string): DoctorFinding[] {
@@ -85,7 +69,7 @@ function checkLegacyStageDirs(root: string): DoctorFinding[] {
     return [{
       level: "WARNING" as const,
       area: `.works/${legacy}/`,
-      message: `legacy stage folder .works/${legacy}/ ${folders.length > 0 ? `holds ${folders.join(", ")}` : "is still present (empty)"} — kf list, view, drive and archive do not see it.`,
+      message: `legacy stage folder .works/${legacy}/ ${folders.length > 0 ? `holds ${folders.join(", ")}` : "is still present (empty)"} — kf list, view and archive do not see it.`,
       action: "run kf status to migrate them",
     }];
   });
@@ -151,7 +135,8 @@ function checkItemMetadata(root: string): DoctorFinding[] {
       findings.push({
         level: "ERROR",
         area: `${f.stage}/${f.folder}`,
-        message: `Unreadable metadata: ${err instanceof Error ? err.message : String(err)}`,
+        // readFeatureMeta wraps the parse error; its cause says where the JSON breaks.
+        message: `Unreadable metadata: ${err instanceof Error ? err.message : String(err)}${err instanceof Error && err.cause instanceof Error ? `: ${err.cause.message}` : ""}`,
         action: `fix ${join(f.dir, ".kfw.json")} by hand`,
       });
       continue;
@@ -255,94 +240,6 @@ function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null):
   }];
 }
 
-/** A 0.13 harness.stages still keyed `dones`/`shipping` is read as done / ignored; the file says otherwise until --fix rewrites it. */
-function checkHarnessStagesLegacy(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
-  if (!cfg) return [];
-  const legacy = legacyHarnessStageKeys(readRawConfig(root)?.harness);
-  if (legacy.length === 0) return [];
-  return [{
-    level: "WARNING",
-    area: ".kf/config.json",
-    message: `harness_stages_legacy: harness.stages uses the legacy stage keys ${legacy.map((k) => `"${k}"`).join(", ")} ("dones" is read as "done", "shipping" is ignored).`,
-    action: "kf doctor --fix (renames dones to done and drops shipping)",
-  }];
-}
-
-/** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
-function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
-  const findings: DoctorFinding[] = [];
-  for (const id of agents) {
-    const adapter = AGENTS.find((a) => a.id === id);
-    if (!adapter) continue;
-    const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
-    const foreign = foreignSkills(dir);
-    if (foreign.length > 0) {
-      findings.push({
-        level: "WARNING",
-        area: dir,
-        message: `your own skill sits at a managed skill name: ${foreign.join(", ")} — kf install leaves it alone, and it runs instead of kanban-flow's`,
-        action: "keep it and accept the substitution, or move it aside and run kf install",
-      });
-    }
-    const bad = unhealthySkills(dir, foreign);
-    if (bad.length === 0) continue;
-    // The aggregate state counts a user's own entry as stale; name it only when there is none.
-    const state = foreign.length > 0 ? "incomplete" : agentSkillsState(dir);
-    findings.push({
-      level: "ERROR",
-      area: dir,
-      message: `skills ${state} (scope: ${scope}): ${bad.join(", ")}`,
-      action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
-    });
-  }
-  // The skills dispatch agents by name; an upgrade that relinks the skills without the agents
-  // leaves every dispatch on a stand-in. A user's own file under a managed name is theirs.
-  for (const id of agents) {
-    const adapter = AGENTS.find((a) => a.id === id);
-    if (!adapter) continue;
-    const agentsDir = scope === "global" ? userAgentsDir(adapter) : projectAgentsDir(adapter, root);
-    if (!agentsDir) continue;
-    const state = agentsState(agentsDir);
-    if (agentsAreHealthy(state)) continue;
-    const entries = MANAGED_AGENTS.map((a) => [a, agentEntryState(agentsDir, a)] as const);
-    const theirs = entries.filter(([, s]) => s === "foreign" || s === "not-file").map(([a]) => a);
-    const missing = entries.filter(([, s]) => s === "absent" || s === "stale").map(([a]) => a);
-    if (theirs.length > 0) {
-      findings.push({
-        level: "WARNING",
-        area: agentsDir,
-        message: `your own file sits at a managed agent name: ${theirs.map((a) => `${a}.md`).join(", ")} — the skills will dispatch it instead of kanban-flow's`,
-        action: "rename or remove your file, then kf install; or keep it and accept the substitution",
-      });
-    }
-    // A user's file under one name must not hide the agents missing or outdated next to it.
-    if (missing.length > 0) {
-      findings.push({
-        level: "ERROR",
-        area: agentsDir,
-        message: `agents ${theirs.length > 0 ? "partial" : state} (scope: ${scope}): ${missing.join(", ")}`,
-        action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
-      });
-    }
-  }
-  // At global scope the project copies shadow the shared install — they are duplicates, not skills.
-  if (scope === "global") {
-    const dupes = agents
-      .map((id) => AGENTS.find((a) => a.id === id))
-      .filter((a): a is NonNullable<typeof a> => Boolean(a))
-      .filter((a) => hasOwnedEntries(projectSkillsDir(a, root)));
-    if (dupes.length > 0) {
-      findings.push({
-        level: "WARNING",
-        area: "skills",
-        message: `Project-scope copies shadow global skills: ${dupes.map((a) => a.id).join(", ")}.`,
-        action: "kf install (cleans project copies), or kf uninstall --scope project",
-      });
-    }
-  }
-  return findings;
-}
-
 /** Config fields that still parse but no longer mean what someone reading them would assume. */
 function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
   if (!cfg) return [];
@@ -391,119 +288,6 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
   }];
 }
 
-/**
- * Hooks named after stages that no longer exist. resolveHook looks a hook up by the target stage,
- * so shipping.sh never runs again, and dones.sh runs for done only while done.sh is missing.
- * Renaming dones.sh to done.sh keeps it working: done hooks still get the `dones` status name its
- * board move reads.
- */
-const ORPHANED_STAGE_HOOKS: Array<{ file: string; action: string; fallbackFor?: string; fallbackAction?: string }> = [
-  {
-    file: "dones.sh",
-    fallbackFor: "done.sh",
-    fallbackAction: "kf doctor --fix (renames dones.sh to done.sh, keeping its content), or rename it by hand",
-    action: "port any local edits from .kf/hooks/dones.sh into done.sh, then delete dones.sh",
-  },
-  { file: "shipping.sh", action: "delete .kf/hooks/shipping.sh (the shipping stage is gone; review opens the PR)" },
-];
-
-function checkOrphanedHooks(root: string): DoctorFinding[] {
-  const dir = join(root, ".kf", "hooks");
-  return ORPHANED_STAGE_HOOKS
-    .filter(({ file }) => existsSync(join(dir, file)))
-    .map(({ file, action, fallbackFor, fallbackAction }) => {
-      const fallback = fallbackFor !== undefined && !existsSync(join(dir, fallbackFor));
-      return {
-        level: "WARNING" as const,
-        area: ".kf/hooks",
-        message: fallback
-          ? `.kf/hooks/${file} is a legacy hook: it runs for done only because ${fallbackFor} is missing.`
-          : `.kf/hooks/${file} is an orphaned legacy hook: no stage runs it any more.`,
-        action: fallback ? fallbackAction ?? action : action,
-      };
-    });
-}
-
-/** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
-const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
-
-/** A shell line that sources the pack's lib; a comment that merely names it does not count. */
-const SOURCES_HOOK_LIB = /^\s*(source|\.)\s+.*lib-github\.sh/m;
-
-interface HookPackScan {
-  optedIn: boolean;
-  /** Contents of the pack files present as regular files and readable. */
-  texts: Map<string, string>;
-  /** Pack-named entries that are not a readable file, with the cause; doctor reports them instead of crashing. */
-  unreadable: Array<{ file: string; cause: string }>;
-}
-
-/**
- * Opted in = the pack's lib is there, or a stage hook sources it. A stage-named hook alone is not
- * enough: a project's own done.sh (or a renamed 0.13 dones.sh) must not pull the whole pack in.
- */
-function scanHookPack(dir: string): HookPackScan {
-  const texts = new Map<string, string>();
-  const unreadable: HookPackScan["unreadable"] = [];
-  for (const file of GITHUB_HOOK_PACK) {
-    const path = join(dir, file);
-    const stat = statSync(path, { throwIfNoEntry: false });
-    if (!stat) continue;
-    if (!stat.isFile()) {
-      unreadable.push({ file, cause: "not a regular file" });
-      continue;
-    }
-    try {
-      texts.set(file, readFileSync(path, "utf8"));
-    } catch (err) {
-      if (!(err instanceof Error && "code" in err)) throw err;
-      unreadable.push({ file, cause: err.message });
-    }
-  }
-  const optedIn = existsSync(join(dir, "lib-github.sh"))
-    || STAGES.some((s) => SOURCES_HOOK_LIB.test(texts.get(`${s}.sh`) ?? ""));
-  return { optedIn, texts, unreadable };
-}
-
-/**
- * The hook pack is opt-in, so its state is only checked once a project opted in (scanHookPack). Missing files get restored by --fix; divergent files are
- * only reported, because a hook the project edited is project-owned and must not be clobbered.
- */
-function checkGithubHooks(root: string): DoctorFinding[] {
-  const dir = join(root, ".kf", "hooks");
-  const scan = scanHookPack(dir);
-  const findings: DoctorFinding[] = scan.unreadable.map(({ file, cause }) => ({
-    level: "WARNING" as const,
-    area: ".kf/hooks",
-    message: `.kf/hooks/${file} cannot be read: ${cause}.`,
-    action: `replace .kf/hooks/${file} with a readable hook file, or remove it`,
-  }));
-  if (!scan.optedIn) return findings;
-  const present = GITHUB_HOOK_PACK.filter((f) => existsSync(join(dir, f)));
-  const missing = GITHUB_HOOK_PACK.filter((f) => !present.includes(f));
-  if (missing.length > 0) {
-    findings.push({
-      level: "WARNING",
-      area: ".kf/hooks",
-      message: `GitHub hook pack incomplete: ${missing.join(", ")} missing.`,
-      action: "kf doctor --fix",
-    });
-  }
-  for (const f of present) {
-    const pkg = join(PKG_GITHUB_HOOKS_DIR, f);
-    const text = scan.texts.get(f);
-    if (text !== undefined && existsSync(pkg) && readFileSync(pkg, "utf8") !== text) {
-      findings.push({
-        level: "WARNING",
-        area: ".kf/hooks",
-        message: `${f} differs from the packaged version.`,
-        action: "project-owned — review the diff and refresh by hand if the change is stale",
-      });
-    }
-  }
-  return findings;
-}
-
 /** A configured board needs `gh project` commands, which need the project scope. */
 function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
   if (!cfg?.project) return [];
@@ -516,60 +300,6 @@ function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): 
     return [{ level: "WARNING", area: "gh", message: "project is configured but the gh token lacks the project scope — board sync will warn and skip.", action: "gh auth refresh -s project" }];
   }
   return [];
-}
-
-/** Roles an open item's plan names that `harness.roles` does not declare. */
-function plannedRolesMissing(root: string, roles: Record<string, unknown>): DoctorFinding[] {
-  const findings: DoctorFinding[] = [];
-  for (const f of listFeatures(root).filter((x) => x.stage !== "done")) {
-    const planFile = join(f.dir, ARTIFACTS["implementation-plan"].file);
-    if (!existsSync(planFile)) continue;
-    const missing = new Map<string, string[]>();
-    for (const t of parseTaskGraph(readFileSync(planFile, "utf8")).tasks) {
-      if (t.role === "-" || t.role in roles) continue;
-      missing.set(t.role, [...(missing.get(t.role) ?? []), t.id]);
-    }
-    for (const [role, ids] of missing) {
-      findings.push({
-        level: "ERROR",
-        area: `${f.stage}/${f.folder}`,
-        message: `${f.name}: ${ids.join(", ")} name role "${role}", which is not in harness.roles.`,
-        action: `declare harness.roles.${role} in .kf/config.json, or change the Role of ${ids.join(", ")} in the plan`,
-      });
-    }
-  }
-  return findings;
-}
-
-/** A run is live while its worker or supervisor pid answers; a drive records the same pids. */
-function hasLiveRunOrDrive(meta: ReturnType<typeof readFeatureMeta>): boolean {
-  if (!meta) return false;
-  if ((meta.runs ?? []).some((r) => r.status === "running" && (isPidAlive(r.pid) || isPidAlive(r.supervisorPid)))) return true;
-  return driveLive(meta.drive);
-}
-
-/** Task worktrees left behind by a drive or run that is no longer alive. */
-function staleTaskWorktrees(root: string, cfg: ReturnType<typeof readProjectConfig>): DoctorFinding[] {
-  const wt = worktreeConfig(root, cfg.worktree);
-  const baseDir = dirname(worktreeDir(wt, "x"));
-  const dirs = existsSync(baseDir) ? readdirSync(baseDir).filter((n) => n.endsWith(".tasks")) : [];
-  if (dirs.length === 0 || !isGitRepo(root)) return [];
-  const items = listFeatures(root);
-  const findings: DoctorFinding[] = [];
-  for (const dir of dirs) {
-    const feature = dir.slice(0, -".tasks".length);
-    const item = items.find((i) => i.name === feature && i.stage !== "done");
-    if (item && hasLiveRunOrDrive(item.meta)) continue;
-    for (const entry of taskWorktreeEntries(root, wt, feature)) {
-      findings.push({
-        level: "WARNING",
-        area: entry.path,
-        message: `task worktree of ${feature} has no live run or drive.`,
-        action: item ? `kf worktree remove ${feature} --force` : `git worktree remove ${entry.path}`,
-      });
-    }
-  }
-  return findings;
 }
 
 /** A lock whose holder died is taken over by the next writer, but it keeps showing up until then. */
@@ -591,35 +321,20 @@ function deadLocks(root: string): DoctorFinding[] {
   return findings;
 }
 
-/** Harness readiness; the verify check applies only once a stage is assigned, the rest whenever a harness exists. */
-function checkHarness(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
-  const harness = cfg?.harness;
-  if (!cfg || !harness) return [];
-  const findings: DoctorFinding[] = [];
-  const assigned = Object.values(harness.stages).some((chain) => Array.isArray(chain) && chain.length > 0);
-  if (assigned && !harness.verify?.stage?.length) {
-    findings.push({
-      level: "WARNING",
-      area: ".kf/config.json",
-      message: "harness.verify.stage is not set; kf drive refuses to start without it.",
-      action: 'set harness.verify.stage in .kf/config.json, e.g. [["npm", "test"]]',
-    });
-  }
-  findings.push(...plannedRolesMissing(root, harness.roles));
-  findings.push(...staleTaskWorktrees(root, cfg));
-  findings.push(...deadLocks(root));
-  return findings;
-}
-
-/** The file as written, not as normalised by readProjectConfig, which fills stacks in from stack. */
-function readRawConfig(root: string): Record<string, unknown> | null {
+/** The file as written, not as normalised by readProjectConfig, which fills stacks in from stack; with its text, for the indent. */
+function readRawConfigText(root: string): { raw: Record<string, unknown>; text: string } | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(configPath(root), "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    const text = readFileSync(configPath(root), "utf8");
+    const parsed: unknown = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { raw: parsed as Record<string, unknown>, text } : null;
   } catch {
     // checkConfig already reported an unreadable config; a second finding would be noise.
     return null;
   }
+}
+
+function readRawConfig(root: string): Record<string, unknown> | null {
+  return readRawConfigText(root)?.raw ?? null;
 }
 
 /** Diagnose a project. Read-only: nothing here writes, moves or deletes. */
@@ -647,13 +362,14 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkDocsBranches(root));
   findings.push(...checkStatusMap(config.cfg));
   findings.push(...checkStatusMapLegacy(config.cfg));
-  findings.push(...checkHarnessStagesLegacy(root, config.cfg));
-  findings.push(...checkHarness(root, config.cfg));
+  findings.push(...(config.cfg ? checkHarnessLegacyKeys(readRawConfig(root)) : []));
+  findings.push(...checkLegacyRunState(root));
+  findings.push(...deadLocks(root));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
   // reported but deliberately kept out of `findings` — they must not decide the verdict.
   const items = listFeatures(root);
-  const invalidItems = items.filter((f) => !validateFeature(f, false, true, config.cfg?.harness).valid).length;
+  const invalidItems = items.filter((f) => !validateFeature(f, false, true).valid).length;
 
   return {
     root,
@@ -670,8 +386,9 @@ export function runDoctor(root: string): DoctorReport {
  * unreadable JSON and unreadable item metadata are judgment calls, and the worktree infra
  * needs sudo.
  */
-export async function applyDoctorFixes(root: string): Promise<string[]> {
+export async function runDoctorFixes(root: string): Promise<DoctorFixResult> {
   const fixed: string[] = [];
+  const failures: DoctorFinding[] = [];
 
   for (const stage of STAGES) {
     const dir = join(root, ".works", stage);
@@ -686,18 +403,20 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
     fixed.push("wrote .kf/config.json defaults (as kf init --defaults does)");
   } else {
     // Field-level repairs on the raw file: keys we do not touch keep their spelling and order.
-    const raw = readRawConfig(root);
-    if (raw) {
+    const read = readRawConfigText(root);
+    if (read) {
+      const { raw, text } = read;
       let changed = false;
+      const configFixed: string[] = [];
       const cfg = checkConfig(root).cfg;
       if (raw.stack !== undefined && raw.stacks !== undefined) {
         delete raw.stack;
-        fixed.push('removed legacy "stack" (stacks is already set)');
+        configFixed.push('removed legacy "stack" (stacks is already set)');
         changed = true;
       }
       if (raw.defaultContext !== undefined && cfg?.contexts && cfg.contexts.length > 0) {
         delete raw.defaultContext;
-        fixed.push(`removed "defaultContext" (ignored; contexts[0] is "${cfg.contexts[0]}")`);
+        configFixed.push(`removed "defaultContext" (ignored; contexts[0] is "${cfg.contexts[0]}")`);
         changed = true;
       }
       const project = raw.project as Record<string, unknown> | undefined;
@@ -707,94 +426,42 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
         if (statusMap.dones !== undefined && statusMap.done === undefined) statusMap.done = statusMap.dones;
         delete statusMap.dones;
         delete statusMap.shipping;
-        fixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
+        configFixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
         changed = true;
       }
-      const harnessStages = (raw.harness as Record<string, unknown> | undefined)?.stages as Record<string, unknown> | undefined;
-      if (cfg && harnessStages && legacyHarnessStageKeys(raw.harness).length > 0) {
-        // An explicit `done` beside the legacy `dones` wins, the same choice the reader makes.
-        if (harnessStages.dones !== undefined && harnessStages.done === undefined) harnessStages.done = harnessStages.dones;
-        delete harnessStages.dones;
-        delete harnessStages.shipping;
-        fixed.push("rewrote harness.stages legacy keys (dones → done, shipping dropped)");
+      const harnessFixed = cfg ? removeLegacyHarnessKeys(raw) : null;
+      if (harnessFixed) {
+        configFixed.push(harnessFixed);
         changed = true;
       }
       if (raw.repository === undefined && cfg) {
         const detected = detectRepository(root);
         if (detected) {
           raw.repository = detected;
-          fixed.push(`set "repository": "${detected}" (from the origin remote)`);
+          configFixed.push(`set "repository": "${detected}" (from the origin remote)`);
           changed = true;
         }
       }
-      if (changed) writeFileSync(configPath(root), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+      if (changed) {
+        try {
+          await writeFileAtomic(configPath(root), `${JSON.stringify(raw, null, jsonIndent(text))}\n`);
+          fixed.push(...configFixed);
+        } catch (err) {
+          if (!(err instanceof Error && "code" in err)) throw err;
+          failures.push(fixFailure(".kf/config.json", err));
+        }
+      }
     }
   }
+  await stripLegacyRunState(root, fixed, failures);
 
-  const { agents, scope, declaredScope } = (() => {
-    try {
-      const cfg = readProjectConfig(root);
-      const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
-      return {
-        agents: parsed.length > 0 ? parsed : [DEFAULT_AGENT],
-        scope: effectiveSkillsScope(cfg),
-        declaredScope: cfg.skills?.scope,
-      };
-    } catch {
-      return { agents: [DEFAULT_AGENT], scope: "global" as SkillScope, declaredScope: undefined };
-    }
-  })();
   if (ignoreEntriesMissing(root).missing.includes(TRAVEL_IGNORE_ENTRY)) {
     appendIgnoreWorks(root, [TRAVEL_IGNORE_ENTRY]);
     fixed.push(`added ${TRAVEL_IGNORE_ENTRY} to .gitignore`);
   }
 
-  const hooksDir = join(root, ".kf", "hooks");
-  const optedIn = scanHookPack(hooksDir).optedIn;
-  // A dones.sh standing in for done.sh is the project's own gate: it is renamed, never replaced by the
-  // pack's done.sh, which the restore below would otherwise copy in and so silence it.
-  if (existsSync(join(hooksDir, "dones.sh")) && !existsSync(join(hooksDir, "done.sh"))) {
-    renameSync(join(hooksDir, "dones.sh"), join(hooksDir, "done.sh"));
-    fixed.push("renamed .kf/hooks/dones.sh to done.sh (content kept)");
-  }
-  // Restore missing pack files only when the project opted in; divergent
-  // files stay warnings — a hook the project edited is not ours to overwrite.
-  if (optedIn) {
-    const missing = GITHUB_HOOK_PACK.filter((f) => !existsSync(join(hooksDir, f)) && existsSync(join(PKG_GITHUB_HOOKS_DIR, f)));
-    for (const f of missing) {
-      mkdirSync(hooksDir, { recursive: true });
-      spawnSync("cp", [join(PKG_GITHUB_HOOKS_DIR, f), join(hooksDir, f)]);
-      fixed.push(`restored .kf/hooks/${f} from the packaged hook pack`);
-    }
-  }
+  repairHooks(root, fixed);
+  await repairSkills(root, fixed, failures);
 
-  const missingFor = agents.filter((id) => {
-    const adapter = AGENTS.find((a) => a.id === id);
-    if (!adapter) return false;
-    const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
-    return unhealthySkills(dir, foreignSkills(dir)).length > 0;
-  });
-  if (missingFor.length > 0) {
-    const res = await installSkills(root, missingFor, scope, { declaredScope });
-    if (res.code === 0) fixed.push(`installed kanban skills for ${missingFor.join(", ")} (scope: ${scope})`);
-    else fixed.push(`skill install reported a problem: ${res.stdout}`);
-  }
-  // installSkills carries the agents along for the agents it (re)installed; the others may still
-  // be missing theirs (an npm upgrade relinks skills, not agents). A foreign file is not repaired.
-  for (const id of agents) {
-    if (missingFor.includes(id)) continue;
-    const adapter = AGENTS.find((a) => a.id === id);
-    if (!adapter) continue;
-    const agentsDir = scope === "global" ? userAgentsDir(adapter) : projectAgentsDir(adapter, root);
-    if (!agentsDir) continue;
-    // installAgentsTo skips a user's file on its own, so a foreign entry never blocks the repair
-    // of the absent or stale ones beside it.
-    const needsRepair = MANAGED_AGENTS.some((a) => ["absent", "stale"].includes(agentEntryState(agentsDir, a)));
-    if (!needsRepair) continue;
-    const res = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy");
-    if (res.code === 0) fixed.push(`installed kanban agents for ${id} (scope: ${scope})`);
-    else fixed.push(`agent install reported a problem: ${res.stdout}`);
-  }
-
-  return fixed;
+  return { fixed, failures };
 }

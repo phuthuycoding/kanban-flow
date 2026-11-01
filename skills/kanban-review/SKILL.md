@@ -9,8 +9,6 @@ Argument: `<feature_name>`.
 
 Stand on quality, not survivor. The orchestrator produces **facts** and a **pack**; an independent reviewer that did not write the code produces the **findings**; the report's `status:` is the truth `kf` trusts. The orchestrator never writes a finding of its own except the mechanical ones in step 2 — an orchestrator grading the work it supervised is the failure this split exists to remove.
 
-**Invoked through `kf run`?** If your prompt starts with `kf-run:`, you are a worker for this stage only: skip the "move to stage" step below, never run `kf stage` / `kf approve` / `kf archive` / `kf run`, never edit approved contract artifacts, commit only the docs reconcile of step 2b, push and open the PR only as step 8 says, never merge, and end your final message with two lines exactly: `STATUS: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` and `Summary: <one or two sentences>`. The main agent reads them and decides the transition. The reviewer dispatch below still applies to you: a worker reviews through `code-reviewer`, not by reading the diff itself.
-
 **Every step leaves a named line.** `Agent(code-reviewer)` in the transcript is auditable; "I reviewed the diff" is not. A missing line is a skipped step.
 
 ---
@@ -25,7 +23,7 @@ kf stage {feature_name} review
 
 Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `Worktree:`/`Domain:` block. **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, so uncommitted review-relevant changes are a finding, not a footnote.
 
-Create the run folder: `<item>/reviews/<executionId>/`. Every file this review produces goes there; a re-review after a repair loop gets a new execution id and a new folder, so old evidence is never mistaken for current. **A `kf run` worker** writes its start time there first (`date +%s > <item>/reviews/<id>/started-at`, overwritten by every new run — each run has its own timeout): the CI watch budgets against it (`references/ci-watch.md`, Step 2).
+Create the run folder: `<item>/reviews/<executionId>/`. Every file this review produces goes there; a re-review after a repair loop gets a new execution id and a new folder, so old evidence is never mistaken for current.
 
 **Re-run on the same execution after a CI watch stopped without a result** (no current report, the folder holds a board whose fingerprint equals `fp` now and that HEAD is pushed): resume at step 9 on that sha — the review, the board and `docs-reconciled.md` (step 2b) are still current; step 10 reads the docs result from that file.
 
@@ -33,7 +31,7 @@ Create the run folder: `<item>/reviews/<executionId>/`. Every file this review p
 
 Facts are what the reviewer judges from; they are never a verdict.
 
-**Baseline.** Read the `## Baseline` section of `tasks.md` (starting HEAD plus pre-existing working-tree changes); under `kf drive`, kf wrote it. `BASE` is that HEAD, else the branch point (`git merge-base origin/<default> HEAD`). The review covers `BASE..HEAD` plus untracked, non-ignored files. Preserve unrelated pre-existing changes; they are not this item's.
+**Baseline.** Read the `## Baseline` section of `tasks.md` (starting HEAD plus pre-existing working-tree changes). `BASE` is that HEAD, else the branch point (`git merge-base origin/<default> HEAD`). The review covers `BASE..HEAD` plus untracked, non-ignored files. Preserve unrelated pre-existing changes; they are not this item's.
 
 **Static checks.** Detect the real tooling from the repository (never assume `npm`), then run lint, build/typecheck and the suite in the worktree, recording each command, its exit code and the counts it printed. A suite that ran nothing is not a pass — report the count. Confirm the testing report is `PASS` for the current execution id.
 
@@ -54,9 +52,9 @@ A failing build, lint or suite, or a conflict marker, **short-circuits**: write 
 
 ## 2b. Reconcile docs — after the mechanical checks pass, before any reviewer
 
-The docs commit goes into the reviewed diff, so the reviewers see it and the board's fingerprint covers what was reviewed. Read `<skills dir>/kanban-archive/reconcile.md` and follow it in the item worktree — it branches on `kind`. Its edits are one commit on the item branch, `docs({context}): reconcile docs superseded by {feature_name}`; nothing to change → no commit. Write its rows to `<item>/reviews/<id>/docs-reconciled.md` (reconcile.md, section 4); step 10 and a resume read that file, never memory. An open question on a doc: a `kf run` / `kf drive` worker stops with `NEEDS_CONTEXT` and writes no report; in session, ask the human (reconcile.md, section 3).
+The docs commit goes into the reviewed diff, so the reviewers see it and the board's fingerprint covers what was reviewed. Read `<skills dir>/kanban-archive/reconcile.md` and follow it in the item worktree — it branches on `kind`. Its edits are one commit on the item branch, `docs({context}): reconcile docs superseded by {feature_name}`; nothing to change → no commit. Write its rows to `<item>/reviews/<id>/docs-reconciled.md` (reconcile.md, section 4); step 10 and a resume read that file, never memory. An open question on a doc: ask the human (reconcile.md, section 3).
 
-**Every run of 2b** (a later execution after a repair loop, and a re-run of the same execution after a worker timeout, a `kf drive` resume or a `NEEDS_CONTEXT`) first reads the existing `<item>/reviews/<id>/docs-reconciled.md` when present and never replaces rows already there. It then adds a row for each commit that `git log --format='%h %s' --grep 'reconcile docs superseded by' "$BASE"..HEAD` lists and the file lacks (by commit sha; take the row text from the earlier `<item>/reviews/*/docs-reconciled.md` when it has one), and reconciles only what is new. Docs already bannered are not a reason to write `None`. A review that ends `FAIL` keeps its docs commit on the branch.
+**Every run of 2b** (a later execution after a repair loop, and a re-run of the same execution after an interrupted run or the human's answer to an open question) first reads the existing `<item>/reviews/<id>/docs-reconciled.md` when present and never replaces rows already there. It then adds a row for each commit that `git log --format='%h %s' --grep 'reconcile docs superseded by' "$BASE"..HEAD` lists and the file lacks (by commit sha; take the row text from the earlier `<item>/reviews/*/docs-reconciled.md` when it has one), and reconciles only what is new. Docs already bannered are not a reason to write `None`. A review that ends `FAIL` keeps its docs commit on the branch.
 
 The commit changes the tree after step 2's checks: the board (step 7a) runs lint, build and the suite again at the final fingerprint.
 
@@ -91,7 +89,7 @@ Follow `references/reviewer-brief.md` exactly: the doctrine path to read first, 
 
 Collect each reply **by name**; a reviewer that finishes without one is an incomplete gate — ask it for the report, and if none comes, the review is incomplete, not clean. Never review the diff yourself in parallel "to be safe"; never pre-judge a finding in the brief.
 
-**Stand-ins.** When the runtime has subagents but no `code-reviewer` registered (an upgrade that relinked the skills before `kf install`, or a non-Claude runtime), dispatch a general-purpose subagent whose brief pastes the agent body from `<skills dir>/kanban-flow/agents/code-reviewer.md` verbatim and states that it must not write, edit or run anything; record `stand-in: general-purpose` for that reviewer in the report's `## Reviewer` section, because a stand-in's read-only limit is a request, not a guarantee. **When the runtime has no subagent tool at all, this session cannot complete the review**: a session does not grade its own work. Hand the stage to a runner role (`kf run <feature> --role reviewer`, configured in `harness.stages.review`) or stop and tell the human; a report written without an independent reviewer is never `PASS`.
+**Stand-ins.** When the runtime has subagents but no `code-reviewer` registered (an upgrade that relinked the skills before `kf install`, or a non-Claude runtime), dispatch a general-purpose subagent whose brief pastes the agent body from `<skills dir>/kanban-flow/agents/code-reviewer.md` verbatim and states that it must not write, edit or run anything; record `stand-in: general-purpose` for that reviewer in the report's `## Reviewer` section, because a stand-in's read-only limit is a request, not a guarantee. **When the runtime has no subagent tool at all, this session cannot complete the review**: a session does not grade its own work. Stop and tell the human that the review cannot complete in this session; a report written without an independent reviewer is never `PASS`.
 
 For `kind: bug`, the brief adds: review against the bug report and existing feature behaviour; check reproduction evidence, regression tests and fix scope; list the sibling entry points and whether the fix covers each; state a claim you tried to break. Do not demand feature planning artifacts for a bug.
 
@@ -167,14 +165,14 @@ A repair loop with a recorded PR pushes to the same branch, which updates that P
 
 ## 9. Watch CI on the pushed commit
 
-Follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run the watcher as a background command that wakes the session (a `kf run` worker: foreground, within its time budget), say in one line what is watched, then act on its exit. Only CI decides the report:
+Follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run the watcher as a background command that wakes the session, say in one line what is watched, then act on its exit. Only CI decides the report:
 
 | CI outcome | `ci:` | What happens |
 |---|---|---|
 | all runs green | `green` | append the `CI` line to the board; write the report now (step 10) |
 | a run failed | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. A second red round → hand back to the human with both rounds' failed runs |
 | no `.github/workflows` | `none` | nothing to watch; the report says "no CI" |
-| `gh` kept failing, no run appeared while workflows exist, runs still pending (or finished but not yet held still for 60s) at the deadline, or, once the run set held still for 60s, a run was `cancelled` with no later successful run of that workflow file on the sha | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line verbatim (for the deadline, whichever of `ci-watch: CI still running at <time>` and `ci-watch: every run finished but the run set had not held still for 60s at <time>` it printed, then `re-run the review to watch again`); a worker ends `STATUS: BLOCKED`. Not `FAIL` — the code is not failing (the reference says why no report is written) |
+| `gh` kept failing, no run appeared while workflows exist, runs still pending (or finished but not yet held still for 60s) at the deadline, or, once the run set held still for 60s, a run was `cancelled` with no later successful run of that workflow file on the sha | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line verbatim (for the deadline, whichever of `ci-watch: CI still running at <time>` and `ci-watch: every run finished but the run set had not held still for 60s at <time>` it printed, then `re-run the review to watch again`). Not `FAIL` — the code is not failing (the reference says why no report is written) |
 
 Never re-run, cancel or approve a workflow, never resolve a review thread, never update the branch from its base and never merge the PR.
 

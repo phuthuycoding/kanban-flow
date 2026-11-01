@@ -8,6 +8,8 @@ status: PASS
 
 # Testing Result
 
+> **Superseded by `drive-retire`.** `kf drive`, `kf run --task`, `kf runs` and `kf harness`, per-task worktrees, the plan `Role` column and the `harness.roles`/`stages`/`runners`/`main`/`parallel`/`retries`/`maxLoops`/`budget` keys are removed; only `harness.verify.task`/`stage` remain and the in-session loop runs each task. Kept for history.
+
 ## Feature
 task-harness
 

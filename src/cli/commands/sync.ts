@@ -53,11 +53,7 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
         break;
       case "refused":
         // An unmerged or unverifiable PR is the normal state of a sweep, not a failure.
-        if (outcome.reason === "run-in-progress") {
-          lines.push(`- ${f.name}: skipped (a worker run is in progress)`);
-        } else if (outcome.reason === "drive-live") {
-          lines.push(`- ${f.name}: skipped (a drive is running)`);
-        } else if (outcome.reason === "close-in-progress") {
+        if (outcome.reason === "close-in-progress") {
           // Another kf status / kf archive is closing it right now; that close reports its own result.
           lines.push(`- ${f.name}: skipped (another close of it is running)`);
         } else if (outcome.merge?.reason === "not-merged") {

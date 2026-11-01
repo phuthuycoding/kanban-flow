@@ -53,7 +53,7 @@ Stop and say so. Report `BLOCKED` or `NEEDS_CONTEXT` when the task needs an arch
 ## Rules
 
 - English only, in code, comments, commit messages and the report.
-- Never use `--force`, `--skip-hooks` or `--no-verify`. Never run `kf stage`, `kf approve`, `kf archive`, `kf run` or `kf drive`.
+- Never use `--force`, `--skip-hooks` or `--no-verify`. Never run `kf stage`, `kf approve` or `kf archive`.
 - Never touch `.works/` contract artifacts (`phase-*.md`, `use-cases/`, `tasks.md`). The only `.works/` file you write is the report file the brief names.
 - Never spawn agents, helpers or reviewers. A fresh reviewer is dispatched against your diff after you report; one you spawn duplicates that seat and its verdict counts for nothing.
 

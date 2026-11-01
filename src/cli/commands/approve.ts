@@ -1,12 +1,9 @@
 import { updateFeatureMeta, executionContractHash, findFeature, type FeatureMeta } from "../../workflow/features.js";
 import { validateFeature, renderValidateText } from "../../workflow/validate.js";
 import { FORCE_RETRY_HINT, stageRetryHint, transitionItem, type TransitionOutcome } from "../../workflow/transition.js";
-import { driveConfigReady } from "../../harness/drive/claim.js";
-import { ProjectConfigError, readProjectConfig, resolveDriveConfig } from "../../project/config.js";
-import { worktreeConfig } from "../../worktree/config.js";
+import { readProjectConfig } from "../../project/config.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { resolveItem } from "./helpers.js";
-import { taskHarnessNeedsWorktreeMessage } from "./inspect.js";
 import type { Stage } from "../../workflow/schema.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -31,7 +28,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
     };
   }
 
-  const check = validateFeature(f, false, false, readProjectConfig(root.root).harness);
+  const check = validateFeature(f, false, false);
   if (!check.valid) {
     return { code: 1, stdout: `Cannot approve an incomplete execution contract:\n${renderValidateText(check)}`, stderr: "invalid contract" };
   }
@@ -41,21 +38,6 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const by = typeof args.options.by === "string" ? args.options.by : (cfg.reviewer ?? "human");
   if (!by.trim()) return { code: 1, stdout: "Approver name must not be empty.", stderr: "missing approver" };
   const to = args.options.backlog ? "backlog" : "implementation";
-  // The drive reads the resolved config (no item worktree yet: origin/<default>, else the primary), but the worktree
-  // itself is provisioned from the primary's worktree.enabled, so the drive needs both on.
-  let warning = "";
-  try {
-    const driveCfg = resolveDriveConfig(root.root, f).cfg;
-    const worktreesOn = worktreeConfig(root.root, cfg.worktree).enabled && worktreeConfig(root.root, driveCfg.worktree).enabled;
-    if (!worktreesOn && (driveCfg.harness?.verify?.stage?.length ?? 0) > 0) {
-      warning = `⚠ ${taskHarnessNeedsWorktreeMessage(f.name)} (task_harness_needs_worktree)\n`;
-    }
-  } catch (err) {
-    // A drive config that does not parse does not block the approval; it is reported, and kf drive refuses on it.
-    if (!(err instanceof ProjectConfigError)) throw err;
-    warning = `⚠ The drive config of '${f.name}' does not parse: ${err.message}\n`;
-  }
-
   const previous = { approval: f.meta.approval, executionId: f.meta.executionId };
   const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash };
   await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined }));
@@ -74,18 +56,15 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
     }
     return {
       code: 1,
-      stdout: `${warning}✗ Approval of '${name}' was not kept: the move planning → ${to} was refused.\n\n${failureDetail(outcome, name, to)}${notRestored ? `\n\n⚠ ${notRestored}` : ""}\n\nFix that, then re-run: kf approve ${name}${to === "backlog" ? " --backlog" : ""}`,
+      stdout: `✗ Approval of '${name}' was not kept: the move planning → ${to} was refused.\n\n${failureDetail(outcome, name, to)}${notRestored ? `\n\n⚠ ${notRestored}` : ""}\n\nFix that, then re-run: kf approve ${name}${to === "backlog" ? " --backlog" : ""}`,
       stderr: outcome.stderrTag,
     };
   }
 
-  const moved = findFeature(root.root, f.name);
-  const next = to === "backlog"
-    ? `kf stage ${name} implementation`
-    : moved && driveConfigReady(root.root, moved) ? `kf drive ${name}` : `load the kanban-implement skill for '${name}'`;
+  const next = to === "backlog" ? `kf stage ${name} implementation` : `load the kanban-implement skill for '${name}'`;
   return {
     code: 0,
-    stdout: `${warning}✓ Approved '${name}' (by ${by} at ${approval.at}) → ${to}\n  Execution contract is now the binding scope for autonomous phases.\n${outcome.stdout}\nNext: ${next}`,
+    stdout: `✓ Approved '${name}' (by ${by} at ${approval.at}) → ${to}\n  Execution contract is now the binding scope for autonomous phases.\n${outcome.stdout}\nNext: ${next}`,
   };
 }
 

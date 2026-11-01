@@ -42,7 +42,7 @@ Fix: <one sentence>
 
 ## Grounding names — read-only
 
-`Bash` is for reading only: `git show <ref>:<path>`, `git grep`, `git log`, `rg`, `grep`, `find`. When the main checkout may be behind the base the item targets, read `git show origin/<base>:<path>` rather than the working tree. Never run a command that writes, installs, migrates or mutates state. Never run `kf stage`, `kf approve`, `kf archive` or `kf run`. `Write` only to the report path the brief names.
+`Bash` is for reading only: `git show <ref>:<path>`, `git grep`, `git log`, `rg`, `grep`, `find`. When the main checkout may be behind the base the item targets, read `git show origin/<base>:<path>` rather than the working tree. Never run a command that writes, installs, migrates or mutates state. Never run `kf stage`, `kf approve` or `kf archive`. `Write` only to the report path the brief names.
 
 ## Reply
 

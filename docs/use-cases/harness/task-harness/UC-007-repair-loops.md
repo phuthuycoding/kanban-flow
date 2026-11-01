@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Superseded by `drive-retire`.** `kf drive`, `kf run --task`, `kf runs` and `kf harness`, per-task worktrees, the plan `Role` column and the `harness.roles`/`stages`/`runners`/`main`/`parallel`/`retries`/`maxLoops`/`budget` keys are removed; only `harness.verify.task`/`stage` remain and the in-session loop runs each task. Kept for history.
+
 > **Partly superseded by `workflow-slim`:** there is no separate start decision or ship gate — `kf approve` starts the item (`--backlog` parks it; `kf drive` on an approved item still in planning names `kf approve <feature>`), and a drive that reaches review PASS stops `ready` with "merge the PR, kf status --change <feature> closes the item" instead of "ready for ship decision"; review has opened the PR, the human merges it on GitHub and the close moves the item to `done`. Kept for history.
 
 ## Overview

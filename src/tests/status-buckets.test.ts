@@ -33,7 +33,7 @@ describe("Needs you bucket", () => {
     await legacyPassReviewItem("legacy");
     const status = { ...computeStatus(findFeature(root, "legacy")!), close: { kind: "refused" as const, detail: "Cannot archive 'legacy': the review report has no landing" } };
 
-    const buckets = computeBuckets([status], [], 0);
+    const buckets = computeBuckets([status], []);
 
     expect(buckets.needsYou).toEqual([{ feature: "legacy", decision: "review PASS but not closed: Cannot archive 'legacy': the review report has no landing" }]);
     expect(buckets.waitingToMerge).toEqual([]);
@@ -59,7 +59,7 @@ describe("Waiting to merge bucket", () => {
     const buckets = computeBuckets([], [
       { feature: "a", branch: "docs/app-a", reason: "no merged PR has docs/app-a at 0123456789ab as its head" },
       { feature: "b", branch: "docs/app-b" },
-    ], 0);
+    ]);
 
     expect(buckets.waitingToMerge).toEqual([
       { feature: "a", docsBranch: "docs/app-a", command: "git push -u origin docs/app-a", reason: "no merged PR has docs/app-a at 0123456789ab as its head" },
@@ -71,7 +71,7 @@ describe("Waiting to merge bucket", () => {
   });
 
   it("puts a gone docs branch under Needs you as a re-land-or-leave decision with no command", () => {
-    const buckets = computeBuckets([], [{ feature: "a", branch: "docs/app-a", reason: "no merged PR has docs/app-a as its head", gone: true }], 0);
+    const buckets = computeBuckets([], [{ feature: "a", branch: "docs/app-a", reason: "no merged PR has docs/app-a as its head", gone: true }]);
 
     expect(buckets.waitingToMerge).toEqual([]);
     expect(buckets.needsYou).toEqual([{
@@ -83,7 +83,7 @@ describe("Waiting to merge bucket", () => {
   it("names the remedy first and calls the docs not proven landed when a gone docs branch could not be looked up", () => {
     const buckets = computeBuckets([], [
       { feature: "a", branch: "docs/app-a", reason: "origin/HEAD is not set", remedy: "git remote set-head origin -a", gone: true },
-    ], 0);
+    ]);
 
     expect(buckets.needsYou).toEqual([{
       feature: "a",
@@ -95,7 +95,7 @@ describe("Waiting to merge bucket", () => {
   it("keeps kf status --all as the command of a gone docs branch whose lookup could not run, and renders the next step it carries", () => {
     const buckets = computeBuckets([], [
       { feature: "a", branch: "docs/app-a", reason: "gh is not installed", kind: "lookup-rerun" },
-    ], 0);
+    ]);
     const next = "re-run kf status --all once the merged-PR lookup can run, or re-land them on a fresh docs branch with kf archive a";
 
     expect(buckets.waitingToMerge).toEqual([{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "gh is not installed", kind: "lookup-rerun", next }]);
@@ -113,7 +113,6 @@ describe("Waiting to merge bucket", () => {
     const text = renderBuckets({
       needsYou: [],
       waitingToMerge: [{ feature: "a", docsBranch: "docs/app-a", command: "kf status --all", reason: "still on origin" }],
-      running: 0,
     });
 
     expect(text).toContain("  a — docs/app-a not proven merged (still on origin): kf status --all");

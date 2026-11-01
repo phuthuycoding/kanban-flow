@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Index
 
+> **Superseded by `drive-retire`.** `kf run`, `kf runs` and `kf harness` are removed and the `harness.roles`, `harness.stages`, `harness.runners` and `harness.main` config is gone (`kf doctor --fix` clears it), so the role chains, per-role sessions and role-to-runner mapping this doc describes no longer exist; the in-session loop of `kanban-implement` is the only path. Kept for history.
+
 Mỗi use case là một file riêng trong thư mục `use-cases/`, không viết narrative gộp trong file này.
 
 ## Use Case Files

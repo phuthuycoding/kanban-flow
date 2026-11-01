@@ -4,12 +4,11 @@ import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectConfig, detectStacks, writeProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
-import { seedHarness } from "../../harness/config.js";
+import { readProjectConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
-import { installSkills } from "../../integrations/install.js";
+import { globalLinkRefusal, installSkills } from "../../integrations/install.js";
 import { hasWorkItems, bootstrapDefaults, onboardAnswers, seedOverrides, seedGithubHooks, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
@@ -34,6 +33,8 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   }
 
   const cfg = readProjectConfig(target);
+  const refusal = effectiveSkillsScope(cfg) === "global" ? globalLinkRefusal() : null;
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const ctx = typeof args.options.context === "string" ? args.options.context : effectiveDefaultContext(cfg);
   // Same rule as the bootstrap path: an explicit --context on a genuinely new project is a
   // decision and gets declared. --minimal writes a config anyway, so leaving it out here would
@@ -47,18 +48,26 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   // `defaultContext` is ignored, so writing it would leave a config contradicting itself: the
   // file naming one default while `kf new` and `kf contexts` use another.
   const recordContext = typeof args.options.context === "string" && cfg.contexts === undefined;
-  // The write sits OUTSIDE the harness check on purpose. Every project kf init has already
-  // touched carries a harness, so guarding it on `!cfg.harness` meant the record never happened
-  // on any real project — only on the two config shapes a real init never produces.
-  if (!cfg.harness || recordContext) {
+  const repository = cfg.repository ?? detectRepository(target) ?? undefined;
+  if (!existsSync(configPath(target))) {
     await mkdir(join(target, ".kf"), { recursive: true });
     writeProjectConfig(target, {
       ...cfg, schema: "kanban-flow", created: cfg.created ?? nowTimestamp(),
       ...(declareHere ? { contexts: [ctx] } : {}),
       ...(!declareHere && recordContext ? { defaultContext: ctx } : {}),
-      repository: cfg.repository ?? detectRepository(target) ?? undefined,
-      harness: cfg.harness ?? seedHarness(agents.length ? agents : parseAgentIds(cfg.agents)),
+      repository,
     });
+  } else {
+    // An existing config is patched as written, never rewritten from the normalised read, which drops
+    // ship, renames legacy statusMap keys and loses the indent: only a recorded context and a missing
+    // schema, created or detectable repository are added.
+    const additions: Record<string, unknown> = {
+      ...(cfg.schema === undefined ? { schema: "kanban-flow" } : {}),
+      ...(cfg.created === undefined ? { created: nowTimestamp() } : {}),
+      ...(recordContext ? { defaultContext: ctx } : {}),
+      ...(repository !== cfg.repository ? { repository } : {}),
+    };
+    if (Object.keys(additions).length > 0) await patchProjectConfig(target, additions);
   }
   await mkdir(join(target, ".kf", "templates"), { recursive: true });
   await mkdir(join(target, ".kf", "hooks"), { recursive: true });
@@ -81,6 +90,10 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
 
   const explicitContext = typeof args.options.context === "string" ? args.options.context : undefined;
 
+  // A declared global scope is refused before the user answers anything; an undeclared one may still be answered "project".
+  const early = readProjectConfig(target).skills?.scope === "global" ? globalLinkRefusal() : null;
+  if (early) return { code: 1, stdout: "", stderr: early };
+
   let answers: BootstrapAnswers;
   if (interactive && !tty) {
     answers = bootstrapDefaults(target, explicitContext);
@@ -92,6 +105,9 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
 
   const flagged = parseAgentIds(args.options.agent);
   if (flagged.length > 0) answers.agents = flagged;
+  // A global scope chosen in the prompts is refused here, still before the first write.
+  const refusal = answers.skillScope === "global" ? globalLinkRefusal() : null;
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
 
   // Name validity lives in saveConfig, the one point every set of answers passes through;
   // repeating it here would be a guard that can never fire.

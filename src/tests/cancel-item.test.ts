@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +13,6 @@ import type { ParsedArgs } from "../cli/args.js";
 
 const args = (positionals: string[], options: Record<string, unknown> = {}): ParsedArgs => ({ command: "cancel", positionals, options });
 let root: string;
-let sleeper: ChildProcess | null = null;
 
 async function addItem(name: string, stage: Stage, extra: Record<string, unknown> = {}): Promise<string> {
   const dir = join(root, ".works", stage, `${name}_20260919_1200`);
@@ -23,13 +22,6 @@ async function addItem(name: string, stage: Stage, extra: Record<string, unknown
   return dir;
 }
 
-async function addLiveRun(name: string): Promise<void> {
-  sleeper = spawn("sleep", ["30"], { stdio: "ignore" });
-  await addItem(name, "implementation", {
-    runs: [{ id: "live", role: "coder", runner: "claude", stage: "implementation", mode: "start", at: "2026-09-19T10:00:00Z", log: "runs/live.log", status: "running", pid: sleeper.pid }],
-  });
-}
-
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "kf-cancel-item-"));
   ensureWorksStructure(root);
@@ -37,8 +29,6 @@ beforeEach(async () => {
   await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: false } }));
 });
 afterEach(async () => {
-  sleeper?.kill();
-  sleeper = null;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -72,23 +62,6 @@ describe("cancelItem returns a typed outcome", () => {
       });
     }
     expect(findFeature(root, "demo")!.stage).toBe("implementation");
-  });
-
-  it("refuses while a worker run is live, and records the bypass when forced", async () => {
-    await addLiveRun("busy");
-    expect(await cancelItem(root, "busy", { reason: "stop" })).toEqual({
-      kind: "refused",
-      reason: "run-in-progress",
-      stderrTag: "run in progress",
-      stdout: "Run live (coder @ implementation) is still running for 'busy'. Wait for it, or re-run with --force.",
-    });
-    expect(findFeature(root, "busy")!.stage).toBe("implementation");
-
-    const forced = await cancelItem(root, "busy", { reason: "stop", force: true });
-    expect(forced.kind).toBe("cancelled");
-    if (forced.kind !== "cancelled") return;
-    expect(forced.bypasses).toHaveLength(1);
-    expect(forced.bypasses[0]).toMatchObject({ flag: "force", to: "cancelled", codes: ["run_in_progress"] });
   });
 
   it("reports a teardown failure that is not a dirty worktree as its own refusal", async () => {
@@ -212,20 +185,6 @@ describe("kf cancel output is unchanged", () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
-  });
-
-  it("live run refusal, and the bypass note once forced", async () => {
-    await addLiveRun("busy");
-    expect(await cmdCancel(args(["busy"], { reason: "stop" }), root)).toEqual({
-      code: 1,
-      stdout: "Run live (coder @ implementation) is still running for 'busy'. Wait for it, or re-run with --force.",
-      stderr: "run in progress",
-    });
-    const forced = await cmdCancel(args(["busy"], { reason: "stop", force: true, "skip-hooks": true }), root);
-    expect({ ...forced, stdout: render(forced.stdout) }).toEqual({
-      code: 0,
-      stdout: "✓ Cancelled 'busy' (was implementation) by human\n  Reason: stop\n  <root>/.works/cancelled/busy_20260919_1200\n  Reopen with: kf stage busy implementation\n  ⚠ Bypass recorded: --force (run_in_progress)",
-    });
   });
 
   it("canonical docs left in place and deleted", async () => {

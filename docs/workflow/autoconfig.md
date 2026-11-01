@@ -34,7 +34,7 @@ Four sections, in order:
 1. **Project context** — the resolved root, the stacks (configured in `.kf/config.json`, or detected), a one-line config summary (default context, reviewer, agents) and which agents already have the skills at project scope.
 2. **Setup checklist** — every setup item, marked done or missing. Each missing item carries the command that fixes it.
 3. **Review rules to enforce** — the full text of the effective review rules, each labelled with its source. The agent adopts them as coding conventions *now*, not only when the review phase reads them.
-4. **Workflow guide** — the pipeline, the three human gates (requirement, plan approval, merging the PR), what `kf drive` does when a task harness is configured, and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
+4. **Workflow guide** — the pipeline, the three human gates (requirement, plan approval, merging the PR), the in-session task loop and `kf verify`, and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
 
 ## The checklist, item by item
 
@@ -49,7 +49,6 @@ Four sections, in order:
 | `.works/` ignored | `.gitignore` lists `.works/` — only checked when `.git` exists | `echo '.works/' >> .gitignore` |
 | Agent file | `AGENTS.md` or `CLAUDE.md` at the root | create `AGENTS.md` documenting the commands and conventions |
 | Declared contexts | `contexts` in `.kf/config.json` | optional — `kf contexts` prints a survey brief for an agent to propose a list, a human confirms it. Without a list, `kf new` accepts any context |
-| Harness | a `harness` block in `.kf/config.json` | optional — `kf init --defaults` seeds the runner presets; with no stages assigned the harness stays out of the way |
 | Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — add shell hooks named after stages (see below) |
 | GitHub link | `repository` in `.kf/config.json` | optional — `kf doctor --fix` fills it from the GitHub origin remote, or set `repository` by hand |
 
@@ -59,7 +58,7 @@ Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
 
 - `statusmap_legacy` — `project.statusMap` still uses the `dones` or `shipping` keys; `kf doctor --fix` renames `dones` to `done` and drops `shipping`.
 - A warning that the `ship` block in `.kf/config.json` is ignored (`kf ship` is deprecated); delete the block.
-- `harness_stages_legacy` — `harness.stages` still uses the `dones` or `shipping` keys (`dones` is read as `done`, `shipping` is ignored); `kf doctor --fix` rewrites them (`dones` → `done` unless `done` is already set, `shipping` dropped).
+- `harness_legacy_key` — a removed `harness` key (`main`, `roles`, `stages`, `runners`, `parallel`, `retries`, `maxLoops`, `budget`) is still in `.kf/config.json`; `kf doctor --fix` removes it and keeps `harness.verify`. `meta_legacy_run_state` — an item's `.kfw.json` still holds `drive`, `runs`, `sessions` or `tasks`; `--fix` strips them.
 - A `.kf/hooks/dones.sh` or an orphaned `shipping.sh`. `kf doctor --fix` renames `dones.sh` to `done.sh` when `done.sh` is missing, keeping its content; delete `shipping.sh` by hand. When `done.sh` already exists, port any local edits from `dones.sh` into it and delete `dones.sh`.
 - Missing hook-pack files, only in a project that uses the pack (`.kf/hooks/lib-github.sh` is present or a stage hook sources it): `kf doctor --fix` restores them from the package and never overwrites a hook the project edited.
 - Leftover legacy folders `.works/dones/` or `.works/shipping/`; the next `kf status` (or `kf sync`) migrates them.
@@ -93,7 +92,7 @@ Two **event hooks** sit outside stage transitions and only exist under worktrees
 
 They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
 
-A third event hook, `drive-stop.sh`, runs whenever a [`kf drive`](harness.md#task-harness-kf-drive) ends — at review PASS or at any stop — with `KFW_EVENT=drive-stop`, `KFW_DRIVE_RESULT` (`ready` or `stopped`) and `KFW_DRIVE_REASON` on top of the standard set; use it to send yourself a notification. It is opt-in: `kf init` does not seed it. A failing `drive-stop.sh` is recorded as a warning on the drive and never changes its result.
+The `drive-stop.sh` hook was removed together with `kf drive`; delete it if your project has one.
 
 ```bash
 #!/usr/bin/env bash
