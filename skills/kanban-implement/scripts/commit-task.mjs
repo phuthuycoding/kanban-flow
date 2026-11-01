@@ -52,12 +52,19 @@ function runGit(args) {
     process.stderr.write(`BLOCKED: index.lock held\n${result.stderr}`);
     process.exit(5);
   }
-  process.stderr.write(result.stderr);
+  process.stderr.write(result.stdout + result.stderr);
   process.exit(result.status ?? 1);
 }
 
 const { message, allows, paths } = parseArgs(process.argv.slice(2));
-const { pathAllowed } = await import(new URL("../../../dist/workflow/allowlist.js", import.meta.url).href);
+let pathAllowed;
+try {
+  ({ pathAllowed } = await import(new URL("../../../dist/workflow/allowlist.js", import.meta.url).href));
+} catch (error) {
+  if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
+  process.stderr.write("commit-task: dist/workflow/allowlist.js not found — run npm run build\n");
+  process.exit(1);
+}
 
 for (const path of paths) {
   if (!pathAllowed(path, allows)) {

@@ -83,6 +83,18 @@ describe("commit-task.mjs", () => {
     expect(git("show", "--name-only", "--pretty=format:", "HEAD")).toBe("src/new.ts");
   });
 
+  it("forwards git's own diagnostic on stderr and its exit status when there is nothing to commit", () => {
+    const headBefore = git("rev-parse", "HEAD");
+    const direct = spawnSync("git", ["commit", "-m", "msg", "--", "mine.txt"], { cwd: repo, encoding: "utf8" });
+
+    const r = run(["-m", "msg", "--allow", "mine.txt", "--", "mine.txt"]);
+
+    expect(direct.status).not.toBe(0);
+    expect(r.status).toBe(direct.status);
+    expect(r.stderr).toMatch(/nothing to commit|no changes added/);
+    expect(git("rev-parse", "HEAD")).toBe(headBefore);
+  });
+
   it("prints usage on stderr and exits 2 when -m is missing", () => {
     const r = run(["--allow", "x", "--", "x"]);
 
