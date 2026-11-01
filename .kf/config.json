@@ -40,6 +40,10 @@
           "npm",
           "run",
           "typecheck"
+        ],
+        [
+          "npm",
+          "test"
         ]
       ],
       "stage": [

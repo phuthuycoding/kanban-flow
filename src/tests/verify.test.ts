@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { mkdtemp, mkdir, readdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,7 +39,7 @@ interface Item {
 
 /** A real item `f` approved through the real commands; its single task TASK-001 owns `files` ("-" for none). */
 async function makeItem(opts: { files: string; worktree: boolean }): Promise<Item> {
-  const scratch = realpathSync(await mkdtemp(join(tmpdir(), "kf-verify-")));
+  const scratch = realpathSync(await mkdtemp(join(tmpdir(), "kf-vtest-")));
   const root = join(scratch, "repo");
   await mkdir(root, { recursive: true });
   gitIn(root, "init", "-q");
@@ -421,5 +421,188 @@ describe("kf verify when preparation fails unexpectedly", () => {
 
     expect(res.code).toBe(1);
     expect(res.out).not.toContain("kf verify could not run:");
+  });
+});
+
+describe("kf verify --task --commits", () => {
+  /** A per-test tmp dir the CLI is pointed at, so "nothing left behind" is an exact check. */
+  let tmp: string;
+  let c0: string;
+  let c2: string;
+  let c1: string;
+
+  const kfTmp = (tmpDir: string, ...argv: string[]): { code: number; out: string } => {
+    const r = spawnSync(process.execPath, [KF, ...argv], { cwd: item.root, encoding: "utf8", env: { ...process.env, TMPDIR: tmpDir } });
+    if (r.error) throw r.error;
+    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+  };
+  const run = (...argv: string[]) => kfTmp(tmp, "verify", "f", "--task", "TASK-001", ...argv);
+  const worktreeList = (): string => gitIn(item.dir, "worktree", "list", "--porcelain");
+  const expectNothingLeft = async (): Promise<void> => {
+    expect(await readdir(tmp)).toEqual([]);
+    expect(worktreeList()).not.toContain(tmp);
+  };
+
+  beforeEach(async () => {
+    // The task owns src/b.ts only; c2 (src/b.ts) is older than c1 (src/a.ts).
+    item = await makeItem({ files: "src/b.ts", worktree: true });
+    tmp = join(item.scratch, "tmp");
+    await mkdir(tmp, { recursive: true });
+    c0 = item.head();
+    await item.commit({ "src/b.ts": "b" });
+    c2 = item.head();
+    await item.commit({ "src/a.ts": "a" });
+    c1 = item.head();
+    await item.configure({ task: [touch(item.marker)] });
+  });
+
+  it("checks only the listed commits against the task's files", () => {
+    const only = run("--commits", c2);
+    expect(only.code).toBe(0);
+    expect(existsSync(item.marker)).toBe(true);
+  });
+
+  it("exits 2 naming a file changed by a listed commit outside the task's files and runs no verify command", () => {
+    const res = run("--commits", `${c2},${c1}`);
+
+    expect(res.code).toBe(2);
+    expect(res.out).toContain("src/a.ts");
+    expect(res.out).not.toContain("src/b.ts");
+    expect(existsSync(item.marker)).toBe(false);
+  });
+
+  describe("bad input exits 3 naming the cause and runs nothing", () => {
+    const cases: Array<[string, () => string[], RegExp]> = [
+      ["--commits together with --base", () => ["--commits", c2, "--base", c0], /not both/i],
+      ["an empty list", () => ["--commits", ""], /empty/i],
+      ["an empty element", () => ["--commits", `${c2},`], /empty/i],
+      ["a sha that does not resolve", () => ["--commits", "nope"], /nope.*does not resolve to a commit/i],
+      ["a list not in history order", () => ["--commits", `${c1},${c2}`], /not in history order/i],
+      ["the same commit twice", () => ["--commits", `${c2},${c2}`], /twice/i],
+      ["--commits together with --stage", () => ["--commits", c2, "--stage"], /--commits goes with --task, not --stage/i],
+    ];
+    it.each(cases)("for %s", (_name, argv, cause) => {
+      const res = run(...argv());
+      expect(res.code).toBe(3);
+      expect(res.out).toMatch(cause);
+      expect(existsSync(item.marker)).toBe(false);
+    });
+
+    it("for a merge commit", () => {
+      const side = gitIn(item.dir, "commit-tree", `${c0}^{tree}`, "-p", c0, "-m", "side");
+      const merge = gitIn(item.dir, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-p", side, "-m", "merge");
+      gitIn(item.dir, "reset", "-q", "--hard", merge);
+
+      const res = run("--commits", merge);
+
+      expect(res.code).toBe(3);
+      expect(res.out).toMatch(/is a merge commit/i);
+      expect(existsSync(item.marker)).toBe(false);
+    });
+
+    it("for a commit on another branch", () => {
+      const other = gitIn(item.dir, "commit-tree", `${c0}^{tree}`, "-p", c0, "-m", "other branch");
+
+      const res = run("--commits", other);
+
+      expect(res.code).toBe(3);
+      expect(res.out).toMatch(/is not an ancestor of HEAD/i);
+      expect(existsSync(item.marker)).toBe(false);
+    });
+
+    it("for a task with neither --base nor --commits, naming both options", () => {
+      const res = run();
+      expect(res.code).toBe(3);
+      expect(res.out).toContain("--base");
+      expect(res.out).toContain("--commits");
+      expect(existsSync(item.marker)).toBe(false);
+    });
+  });
+
+  it("runs the verify commands in a clean checkout of the newest commit, not in the item worktree, and --base still runs in the item worktree", async () => {
+    // c is the task's own green commit at HEAD, so the --base range holds only files inside the task's files.
+    await item.commit({ "src/b.ts": "b again" });
+    const c = item.head();
+    await writeFile(join(item.dir, "t.fail"), "uncommitted");
+    await item.configure({ task: [["node", "-e", "process.exit(require('fs').existsSync('t.fail')?1:0)"]] });
+
+    expect(run("--commits", c).code).toBe(0);
+    expect(run("--base", `${c}^`).code).toBe(1);
+  });
+
+  describe("removes the detached worktree on every exit path", () => {
+    it.each([
+      ["a passing command", [["true"]], 0],
+      ["a failing command", [["false"]], 1],
+      ["a command that is not found", [["kf-no-such-binary-xyz"]], 1],
+    ] as Array<[string, string[][], number]>)("after %s", async (_name, task, code) => {
+      await item.configure({ task });
+
+      const res = run("--commits", c2);
+
+      expect(res.code).toBe(code);
+      await expectNothingLeft();
+    });
+  });
+
+  it("exits 3 saying kf verify could not run, runs no command and leaves nothing behind when the worktree cannot be created", async () => {
+    const missing = join(item.scratch, "no-such-tmp");
+
+    const res = kfTmp(missing, "verify", "f", "--task", "TASK-001", "--commits", c2);
+
+    expect(res.code).toBe(3);
+    expect(res.out).toContain("kf verify could not run:");
+    expect(existsSync(item.marker)).toBe(false);
+    expect(worktreeList()).not.toContain(missing);
+    expect(await readdir(tmp)).toEqual([]);
+  });
+
+  describe("node_modules", () => {
+    beforeEach(async () => {
+      await mkdir(join(item.dir, "node_modules", "dep"), { recursive: true });
+      await writeFile(join(item.dir, "node_modules", "dep", "index.js"), "module.exports = 1;");
+      await item.configure({ task: [["node", "-e", "require('dep')"]] });
+    });
+
+    it("links the item's node_modules into the detached worktree and leaves it intact afterwards", async () => {
+      const res = run("--commits", c2);
+
+      expect(res.code).toBe(0);
+      expect(existsSync(join(item.dir, "node_modules", "dep", "index.js"))).toBe(true);
+      await expectNothingLeft();
+    });
+
+    it("makes no link when the item has no node_modules, and reports the command's own result", async () => {
+      await rm(join(item.dir, "node_modules"), { recursive: true });
+
+      expect(run("--commits", c2).code).toBe(1);
+
+      await item.configure({ task: [["node", "-e", "process.exit(require('fs').existsSync('node_modules')?1:0)"]] });
+      expect(run("--commits", c2).code).toBe(0);
+    });
+  });
+});
+
+describe("kf verify --commits documentation", () => {
+  const LINE = "--commits <sha>[,<sha>\u2026]";
+
+  it("names --commits in the usage printed by kf verify", async () => {
+    item = await makeItem({ files: "src/a.ts", worktree: true });
+    const res = item.kf("verify");
+    expect(res.out).toContain(LINE);
+  });
+
+  it("names --commits in kf -h while keeping the verify line", async () => {
+    item = await makeItem({ files: "src/a.ts", worktree: true });
+    const res = item.kf("-h");
+    expect(res.out).toContain(LINE);
+    expect(res.out).toMatch(/^\s+verify\s+Usage: kf verify/m);
+  });
+});
+
+describe("this repository's verify configuration", () => {
+  it("runs typecheck then the test suite for a task", () => {
+    const config = JSON.parse(readFileSync(join(PKG_ROOT, ".kf", "config.json"), "utf8"));
+    expect(config.harness.verify.task).toEqual([["npm", "run", "typecheck"], ["npm", "test"]]);
   });
 });

@@ -167,6 +167,12 @@ export function addWorktree(root: string, path: string, branch: string, startRef
   git(root, ["worktree", "add", "-b", branch, path, startRef]);
 }
 
+export function addDetachedWorktree(repoDir: string, path: string, sha: string): void {
+  assertSafeArg("path", path);
+  assertSafeArg("ref", sha);
+  git(repoDir, ["worktree", "add", "--detach", path, sha]);
+}
+
 export function removeWorktree(root: string, path: string, opts: { force?: boolean } = {}): void {
   assertSafeArg("path", path);
   git(root, ["worktree", "remove", ...(opts.force ? ["--force"] : []), path]);
