@@ -156,7 +156,7 @@
           <p>Once you approve the plan, which starts the item, the session you work in runs the
              rest. It dispatches a <strong>test-writer</strong>, a <strong>developer</strong> and a
              <strong>code-reviewer</strong> per task, running up to 4 developers at once in one
-             worktree on tasks with disjoint files, and the plan's task table names a
+             worktree on tasks whose files overlap no open task, and the plan's task table names a
              <strong>file allowlist</strong> for every task. Approval seals it.</p>
           <p class="quiet" style="margin-top:14px">After each task commit, <code>kf verify</code>
              decides the mechanical part, not the developer's report: it checks the files the task
