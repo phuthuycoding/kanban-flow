@@ -45,10 +45,10 @@ A row without `estmin` (written before it existed) ends at `gap`; it still count
 | id, feature, kind | the ledger line |
 | est | the line's `est0`: the size approved when the line was first planned, not a carried line's re-size |
 | actual | computed by the script with the **default** thresholds (never the learned ones, so learning cannot feed on itself): the size of `work` and `files`, higher of the two; `-` with `--cancelled` |
-| work | minutes of seat work on the item, summed across every day: from each seat dispatch to its report in the item's `loop/progress.md`, for the implementation, testing and review phases; time waiting on the human is not counted. Recorded as `work=<n>` on the ledger line at review PASS; measure from that |
-| review | minutes of the review seats within `work`, recorded as `review=<n>` beside `work=<n>` |
+| work | minutes of seat work on the item, summed across every day: the duration of each seat run (implementation, testing and review phases) as travel observes it in the seat's completion notification, added to the `work=<n>` already on the item's line in `.kf/travel/progress.md`; time waiting on the human is not counted. The line carries the running sum, and `work=<n>` at review PASS is what `measure` takes |
+| review | the part of `work` spent in review seats, summed the same way and kept as `review=<n>` beside `work=<n>` on the travel line |
 | files | `git diff --shortstat <base>...HEAD` in the item worktree, recorded as `files=<n>` on the ledger line at `ready` (the worktree is gone after the merge); else `gh pr view <n> --json changedFiles` |
-| rounds | the fix-loop rounds the item's `loop/progress.md` records |
+| rounds | the number of `fix round` lines in the item's `loop/progress.md` |
 | path | the distinct phases the item ran, in the order they first ran, e.g. `implementation→testing→review` |
 | tier | the review tier in the review report (`T1`, `T1C`, `T2`, `T3`), or `-` |
 | gap | computed: sizes between est and actual, signed (`+1` = estimated one size low) |
