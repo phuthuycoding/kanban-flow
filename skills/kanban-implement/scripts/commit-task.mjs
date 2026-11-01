@@ -33,16 +33,60 @@ function parseArgs(argv) {
   return { message, allows, paths };
 }
 
+// Mirrors src/workflow/allowlist.ts pathAllowed; the parity test in src/tests/commit-task.test.ts guards drift.
+const GLOB_CHARS = /[*?]/;
+
+function normalise(pattern) {
+  let p = pattern.replace(/`/g, "").trim();
+  while (p.startsWith("./")) p = p.slice(2);
+  while (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+  return p;
+}
+
+function globToRegExp(glob) {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*" && glob[i + 1] === "*") {
+      if (glob[i + 2] === "/") { re += "(?:.*/)?"; i += 2; } else { re += ".*"; i += 1; }
+    } else if (c === "*") re += "[^/]*";
+    else if (c === "?") re += "[^/]";
+    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`);
+}
+
+function pathAllowed(path, patterns) {
+  const segments = path.split("/");
+  const prefixes = segments.map((_, i) => segments.slice(0, i + 1).join("/"));
+  return patterns.some((raw) => {
+    const p = normalise(raw);
+    if (p === "" || p === "." || p === "**") return true;
+    if (!GLOB_CHARS.test(p)) return path === p || path.startsWith(`${p}/`);
+    const re = globToRegExp(p);
+    return prefixes.some((x) => re.test(x));
+  });
+}
+
+function unsafeReason(path, allows) {
+  if (allows.some((a) => a === "")) return "cannot be checked: an --allow value is empty";
+  if (path.startsWith("/")) return "is an absolute path";
+  if (path.startsWith(":")) return "starts with a colon pathspec magic";
+  if (path.split("/").includes("..")) return "contains a .. segment";
+  return null;
+}
+
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function runGit(args) {
-  const command = `git ${args.join(" ")}`;
+  const gitArgs = ["--literal-pathspecs", ...args];
+  const command = `git ${gitArgs.join(" ")}`;
   let result;
   for (let attempt = 1; attempt <= RETRIES + 1; attempt++) {
     process.stderr.write(`attempt ${attempt}: ${command}\n`);
-    result = spawnSync("git", args, { encoding: "utf8" });
+    result = spawnSync("git", gitArgs, { encoding: "utf8" });
     if (result.error) throw result.error;
     if (result.status === 0) return result;
     if (!result.stderr.includes("index.lock")) break;
@@ -57,16 +101,13 @@ function runGit(args) {
 }
 
 const { message, allows, paths } = parseArgs(process.argv.slice(2));
-let pathAllowed;
-try {
-  ({ pathAllowed } = await import(new URL("../../../dist/workflow/allowlist.js", import.meta.url).href));
-} catch (error) {
-  if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
-  process.stderr.write("commit-task: dist/workflow/allowlist.js not found — run npm run build\n");
-  process.exit(1);
-}
 
 for (const path of paths) {
+  const reason = unsafeReason(path, allows);
+  if (reason) {
+    process.stderr.write(`BLOCKED: ${path} ${reason}\n`);
+    process.exit(4);
+  }
   if (!pathAllowed(path, allows)) {
     process.stdout.write(`BLOCKED: ${path} is outside the allowlist\n`);
     process.exit(4);
