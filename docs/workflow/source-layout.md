@@ -21,6 +21,7 @@ src/
 │       ├── autoconfig.ts # agent-facing setup briefing (context, checklist, rules, workflow)
 │       ├── tasks.ts      # kf tasks (the plan's task graph)
 │       ├── verify.ts     # kf verify (task allowlist check and harness.verify)
+│       ├── loop-stats.ts # kf loop-stats (src/cli/commands/loop-stats.ts: ledger report, --record, --all)
 │       ├── ship.ts       # kf ship — deprecated alias, prints a pointer and exits 1
 │       ├── cancel.ts     # kf cancel (argument parsing and output over workflow/cancel)
 │       └── archive.ts    # kf archive (argument parsing and output over workflow/archive)
@@ -34,6 +35,7 @@ src/
 │   ├── tasks.ts          # the plan's task graph
 │   ├── allowlist.ts      # task Files allowlist matching
 │   ├── verify.ts         # verifyTask / verifyStage behind kf verify
+│   ├── loop-stats.ts     # src/workflow/loop-stats.ts: ledger parsing and loop measurements behind kf loop-stats
 │   ├── migrate.ts        # one-time move of legacy dones/shipping items to done/review
 │   ├── status.ts         # artifact checklist rendering
 │   ├── findings.ts       # Finding/ValidationResult types

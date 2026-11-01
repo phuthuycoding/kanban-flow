@@ -199,6 +199,8 @@ role, runner and stage configuration behind them. The only `harness` keys left a
 ```bash
 kf tasks user-login                                   # the task graph: waves, states, files
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
+kf verify user-login --task TASK-002 --commits <sha>[,<sha>…]  # exactly those commits, in a detached worktree at the newest (pipelined loop)
+kf loop-stats user-login --record                     # where the loop's time went; appends .works/loop-metrics.md
 kf verify user-login --stage                          # runs harness.verify.stage
 kf doctor --fix                                       # strips the removed harness keys and leftover run state
 ```
@@ -244,7 +246,11 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
   `harness.verify.stage`.
 - Testing and review run through the normal gates and stop at **review PASS:
   merge the PR**, or earlier with a blocker that names the human step.
-- A new session resumes from the ledger at `<item>/loop/progress.md`.
+- The loop is pipelined: one developer at a time per worktree, while the next task's
+  `test-writer` runs beside the head task's developer; a task whose `Files` overlap
+  an earlier one waits (`kf tasks --json` `overlaps`).
+- A new session resumes from the ledger at `<item>/loop/progress.md`; its lines end
+  in ` @ <ISO>`, and `kf loop-stats` turns them into the loop's measurements.
 
 ## Releasing
 

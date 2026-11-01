@@ -24,10 +24,11 @@ The only `harness` keys are the two verify lists in `.kf/config.json`. Each entr
 
 ```
 kf verify <feature> --task TASK-### --base <sha>
+kf verify <feature> --task TASK-### --commits <sha>[,<sha>…]
 kf verify <feature> --stage
 ```
 
-`--task` runs `harness.verify.task` and checks that the task changed only files inside its **Files** allowlist in the approved plan, comparing `HEAD` against `--base` (the commit before the task). `--stage` runs `harness.verify.stage`. Neither moves a stage, commits or edits anything.
+`--task` runs `harness.verify.task` and checks that the task changed only files inside its **Files** allowlist in the approved plan, comparing `HEAD` against `--base` (the commit before the task). `--commits` takes the exact commit list instead: those commits are checked against the allowlist and the commands run in a temporary detached worktree at the newest of them, which is how the pipelined loop verifies a task while the next one is being written (`--base` stays the single-task form). `--stage` runs `harness.verify.stage`. Neither moves a stage, commits or edits anything.
 
 | Exit | Meaning |
 |---|---|
@@ -37,6 +38,8 @@ kf verify <feature> --stage
 | 3 | bad input (missing feature, `--task` without `--base`, both or neither of `--task` and `--stage`), or `kf verify could not run: …` (an unexpected error while preparing; the stack is on stderr); nothing was run |
 
 The task loop in `kanban-implement` runs `kf verify --task` after each task commit and `kf verify --stage` before it moves on; the exit code, not the developer's report, decides whether the task is done.
+
+The loop is **pipelined**: the head task and the next task share one worktree with one developer seat at a time. The next task's `test-writer` runs during the head's developer when their Files are disjoint (`kf tasks --json` `overlaps`), the next task's developer waits for the head's, and `kf verify --commits` checks the head's commits in a detached worktree so the other task's uncommitted files cannot leak in. The ledger stays the resume truth: each line ends in ` @ <ISO>` (grammar in `skills/kanban-implement/references/task-loop.md` § The ledger), and `kf loop-stats <feature> [--record]` measures it into `.works/loop-metrics.md`.
 
 ## Migrating from the removed commands
 
@@ -67,4 +70,4 @@ The session is the controller: it dispatches these agents, runs `kf verify` afte
 - Every read-modify-write of `.kfw.json` holds a per-item lock in `.works/.locks/<feature>.lock`; a lock whose pid is dead is taken over, a live one is waited on for 30 seconds. `kf doctor` reports dead locks.
 - kf commits nothing for the loop: the developer commits the task, so the repository's own git hooks and signing apply to those commits.
 - A verify command that leaves untracked files behind does not block merges; one that modifies tracked files does, until they are committed or reverted.
-- `kf verify --task` takes only a planned `TASK-###`, not ad-hoc work.
+- `kf verify --task` (with `--base` or `--commits`) takes only a planned `TASK-###`, not ad-hoc work.

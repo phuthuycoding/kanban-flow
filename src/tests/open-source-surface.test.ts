@@ -327,3 +327,85 @@ describe("the docs describe only the in-session path", () => {
     }
   });
 });
+
+describe("the docs name the commit-list form beside the range form", () => {
+  // Explicit list on purpose: a glob would grow silently. The two whole-branch review-stage
+  // calls in the kanban-review skill keep range mode for one contiguous diff and are left out.
+  const SURFACES = [
+    "README.md",
+    "kanban-flow/README.md",
+    ".github/pages/index.html",
+    "CHANGELOG.md",
+    "docs/workflow/README.md",
+    "docs/workflow/cli-reference.md",
+    "docs/workflow/harness.md",
+    "docs/workflow/lifecycle.md",
+    "docs/workflow/gates.md",
+    "docs/workflow/artifacts.md",
+    "docs/workflow/skills.md",
+    "docs/workflow/autoconfig.md",
+    "docs/workflow/source-layout.md",
+    "kanban-flow/templates/phase-2-implementation-plan.md",
+    "skills/kanban-flow/SKILL.md",
+    "skills/kanban-flow/references/harness-tools.md",
+    "skills/kanban-flow/agents/developer.md",
+    "skills/kanban-plan/SKILL.md",
+    "skills/kanban-implement/SKILL.md",
+    "skills/kanban-implement/references/task-loop.md",
+    "skills/kanban-implement/references/test-writer-brief.md",
+    "skills/kanban-implement/references/developer-brief.md",
+    "skills/kanban-implement/references/task-reviewer-brief.md",
+    "skills/kanban-implement/references/re-review-brief.md",
+    "skills/travel/SKILL.md",
+    "skills/travel/references/estimation.md",
+  ];
+
+  it("pairs every kf verify --base mention with --commits in the same file", () => {
+    const unpaired = SURFACES.filter((file) => {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      return /kf verify[^\n]*--base/.test(text) && !text.includes("--commits");
+    });
+    expect(unpaired).toEqual([]);
+  });
+
+  it("pairs every review-package BASE HEAD mention with --commits in the same file", () => {
+    const unpaired = SURFACES.filter((file) => {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      return /review-package "?\$?BASE"? HEAD/.test(text) && !text.includes("--commits");
+    });
+    expect(unpaired).toEqual([]);
+  });
+
+  it("documents kf loop-stats and the tasks overlaps field in the CLI reference", () => {
+    const text = readFileSync(join(ROOT, "docs", "workflow", "cli-reference.md"), "utf8");
+    expect(text).toContain("kf loop-stats <feature> [--json] [--record]");
+    expect(text).toContain("kf loop-stats --all [--json]");
+    expect(text).toContain(".works/loop-metrics.md");
+    expect(text).toContain("overlaps");
+    expect(text).toContain("--commits");
+  });
+
+  it("describes the pipelined loop and the loop metrics file in the workflow guides", () => {
+    for (const file of ["harness.md", "lifecycle.md"]) {
+      const text = readFileSync(join(ROOT, "docs", "workflow", file), "utf8");
+      expect(text, file).toMatch(/pipelin/i);
+    }
+    const artifacts = readFileSync(join(ROOT, "docs", "workflow", "artifacts.md"), "utf8");
+    expect(artifacts).toContain("loop-metrics.md");
+  });
+
+  it("lists the loop-stats sources in the source layout", () => {
+    const text = readFileSync(join(ROOT, "docs", "workflow", "source-layout.md"), "utf8");
+    expect(text).toContain("src/workflow/loop-stats.ts");
+    expect(text).toContain("src/cli/commands/loop-stats.ts");
+  });
+
+  it("records the commit lists, overlaps, loop-stats and the pipelined loop in the unreleased changelog", () => {
+    const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
+    const unreleased = changelog.split(/^## \[/m)[1] ?? "";
+    for (const needle of ["kf verify --commits", "review-package --commits", "overlaps", "kf loop-stats"]) {
+      expect(unreleased, needle).toContain(needle);
+    }
+    expect(unreleased).toMatch(/pipelin/i);
+  });
+});
