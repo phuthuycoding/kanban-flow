@@ -240,7 +240,7 @@ const PLAN = "# Implementation Plan\nUC-001: Create a task\n\n## Task Breakdown\
 /**
  * A git project with `harness.verify` set and an item `f` in planning with a complete contract:
  * the configuration under which earlier releases sent the human to `kf drive` after approval.
- * The runner and role sit next to `verify` because the current harness validation still demands them.
+ * The runner and role beside `verify` are legacy keys an earlier release required; they load and are ignored.
  */
 async function plannedProject(worktrees: boolean): Promise<string> {
   const scratch = await scratchDir("kf-retired-next-");

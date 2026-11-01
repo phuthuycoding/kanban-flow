@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -176,6 +176,13 @@ describe("kf doctor --fix on removed harness keys", () => {
     expect(after).toEqual(rest);
   });
 
+  it("keeps a config's four-space indentation", async () => {
+    const cfg = await projectWithHarness({ ...fullLegacyBlock(), verify: VERIFY });
+    await writeFile(configFile(), JSON.stringify(cfg, null, 4));
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect((await readFile(configFile(), "utf8")).trimEnd()).toBe(JSON.stringify({ ...cfg, harness: { verify: VERIFY } }, null, 4));
+  });
+
   it("changes nothing on a verify-only config", async () => {
     await projectWithHarness({ verify: VERIFY });
     const before = await readFile(configFile(), "utf8");
@@ -319,5 +326,37 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(res.stdout).toContain(`broken_${TS}`);
     expect(await readFile(join(broken, ".kfw.json"), "utf8")).toBe(brokenText);
     expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual(ok.kept);
+  });
+
+  it.skipIf(process.getuid?.() === 0)("kf doctor --fix reports an item it cannot rewrite as an error, not as fixed, and still fixes the others", async () => {
+    await projectWithHarness(undefined);
+    const ok = await item("alpha", leftovers(DEAD_PID, DEAD_PID));
+    const locked = await item("bravo", leftovers(DEAD_PID, DEAD_PID));
+    const lockedDir = join(root, ".works", "implementation", `bravo_${TS}`);
+    const lockedText = await readFile(locked.file, "utf8");
+
+    // A read-only folder makes the temp-file-and-rename write fail while the file itself stays readable.
+    await chmod(lockedDir, 0o555);
+    let res: { code: number; out: string };
+    try {
+      res = kf(root, "doctor", "--fix");
+    } finally {
+      await chmod(lockedDir, 0o755);
+    }
+
+    expect(res.code, res.out).toBe(1);
+    expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual(ok.kept);
+    expect(await readFile(locked.file, "utf8")).toBe(lockedText);
+
+    const lines = res.out.split("\n");
+    const fixedAt = lines.findIndex((l) => l.startsWith("Fixed ("));
+    if (fixedAt !== -1) {
+      const end = lines.findIndex((l, i) => i > fixedAt && l.trim() === "");
+      const fixedBlock = lines.slice(fixedAt, end === -1 ? undefined : end).join("\n");
+      expect(fixedBlock).not.toContain(`bravo_${TS}`);
+    }
+    const errors = lines.filter((l) => l.includes("[ERROR]") && l.includes(`bravo_${TS}/.kfw.json`));
+    expect(errors, res.out).toHaveLength(1);
+    expect(errors[0]).toContain("EACCES");
   });
 });

@@ -7,7 +7,7 @@ import { LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { isPidAlive } from "../shared/process.js";
 import { branchPushed, revParse, type LandedRun } from "../shared/git.js";
 import { docsLandedProof } from "../workflow/canonical-docs.js";
-import { listFeatures, readFeatureMeta } from "../workflow/features.js";
+import { findFeature, listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { docsLookupRerunDecision, docsNeverLandedDecision, reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
@@ -15,7 +15,8 @@ import { LEGACY_HARNESS_KEYS } from "./harness-config.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
-import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
+import { PKG_GITHUB_HOOKS_DIR, writeFileAtomic } from "../shared/paths.js";
+import { LockTimeoutError, withLock } from "../shared/lock.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
 import { agentSkillsState, agentsAreHealthy, agentsState, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, unhealthySkills } from "../integrations/install.js";
 
@@ -583,30 +584,49 @@ function jsonIndent(text: string): string | number {
   return /^[ \t]+(?=")/m.exec(text)?.[0] ?? 2;
 }
 
+/** A failure --fix reports and moves past: bad JSON, a file-system error, or an item lock it could not take. */
+function isFixFailure(err: unknown): err is Error {
+  return err instanceof SyntaxError || err instanceof LockTimeoutError || (err instanceof Error && "code" in err);
+}
+
+function fixFailure(area: string, err: Error): DoctorFinding {
+  return {
+    level: "ERROR",
+    area,
+    message: `kf doctor --fix could not rewrite this file and left it unchanged: ${err.message}`,
+    action: `repair ${area} by hand (or its permissions), then re-run kf doctor --fix`,
+  };
+}
+
 /**
- * Remove the drive runtime's leftover keys from every item's .kfw.json. A file that cannot be read,
- * parsed or written is named with its error and left as it was; the other items are still fixed.
+ * Remove the drive runtime's leftover keys from every item's .kfw.json, under the item lock and with
+ * an atomic write like every other meta write. A file that cannot be read, parsed or written becomes
+ * an ERROR finding and is left as it was; the other items are still fixed.
  */
-function stripLegacyRunState(root: string): string[] {
-  const out: string[] = [];
-  for (const f of listFeatures(root)) {
-    const file = join(f.dir, ".kfw.json");
-    if (!existsSync(file)) continue;
+async function stripLegacyRunState(root: string, fixed: string[], failures: DoctorFinding[]): Promise<void> {
+  for (const listed of listFeatures(root)) {
+    const area = `${listed.stage}/${listed.folder}/.kfw.json`;
     try {
-      const text = readFileSync(file, "utf8");
-      const meta: unknown = JSON.parse(text);
-      if (!meta || typeof meta !== "object" || Array.isArray(meta)) continue;
-      const keys = LEGACY_META_KEYS.filter((key) => Object.hasOwn(meta, key));
-      if (keys.length === 0) continue;
-      for (const key of keys) delete (meta as Record<string, unknown>)[key];
-      writeFileSync(file, `${JSON.stringify(meta, null, jsonIndent(text))}${text.endsWith("\n") ? "\n" : ""}`, "utf8");
-      out.push(`removed ${keys.join(", ")} from ${f.stage}/${f.folder}/.kfw.json`);
+      await withLock(root, listed.name, async () => {
+        // Re-found inside the lock: a stage move may have renamed the folder since it was listed.
+        const f = findFeature(root, listed.folder);
+        if (!f) return;
+        const file = join(f.dir, ".kfw.json");
+        if (!existsSync(file)) return;
+        const text = readFileSync(file, "utf8");
+        const meta: unknown = JSON.parse(text);
+        if (!meta || typeof meta !== "object" || Array.isArray(meta)) return;
+        const keys = LEGACY_META_KEYS.filter((key) => Object.hasOwn(meta, key));
+        if (keys.length === 0) return;
+        for (const key of keys) delete (meta as Record<string, unknown>)[key];
+        await writeFileAtomic(file, `${JSON.stringify(meta, null, jsonIndent(text))}${text.endsWith("\n") ? "\n" : ""}`);
+        fixed.push(`removed ${keys.join(", ")} from ${f.stage}/${f.folder}/.kfw.json`);
+      });
     } catch (err) {
-      if (!(err instanceof SyntaxError || (err instanceof Error && "code" in err))) throw err;
-      out.push(`left ${f.stage}/${f.folder}/.kfw.json unchanged, it could not be rewritten: ${err.message}`);
+      if (!isFixFailure(err)) throw err;
+      failures.push(fixFailure(area, err));
     }
   }
-  return out;
 }
 
 /** Diagnose a project. Read-only: nothing here writes, moves or deletes. */
@@ -652,14 +672,28 @@ export function runDoctor(root: string): DoctorReport {
   };
 }
 
+export interface DoctorFixResult {
+  fixed: string[];
+  /** Rewrites that failed; the caller reports them as ERROR findings, so the run exits non-zero. */
+  failures: DoctorFinding[];
+}
+
+/** applyDoctorFixes for callers that only read the fix lines; a failed rewrite throws instead of vanishing. */
+export async function applyDoctorFixes(root: string): Promise<string[]> {
+  const { fixed, failures } = await runDoctorFixes(root);
+  if (failures.length > 0) throw new Error(failures.map((f) => `${f.area}: ${f.message}`).join("\n"));
+  return fixed;
+}
+
 /**
  * `kf doctor --fix`: apply every repair that needs no human decision, then let the caller
  * re-run runDoctor for the after-state. What is not fixed stays unfixed deliberately —
  * unreadable JSON and unreadable item metadata are judgment calls, and the worktree infra
  * needs sudo.
  */
-export async function applyDoctorFixes(root: string): Promise<string[]> {
+export async function runDoctorFixes(root: string): Promise<DoctorFixResult> {
   const fixed: string[] = [];
+  const failures: DoctorFinding[] = [];
 
   for (const stage of STAGES) {
     const dir = join(root, ".works", stage);
@@ -677,15 +711,16 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
     const raw = readRawConfig(root);
     if (raw) {
       let changed = false;
+      const configFixed: string[] = [];
       const cfg = checkConfig(root).cfg;
       if (raw.stack !== undefined && raw.stacks !== undefined) {
         delete raw.stack;
-        fixed.push('removed legacy "stack" (stacks is already set)');
+        configFixed.push('removed legacy "stack" (stacks is already set)');
         changed = true;
       }
       if (raw.defaultContext !== undefined && cfg?.contexts && cfg.contexts.length > 0) {
         delete raw.defaultContext;
-        fixed.push(`removed "defaultContext" (ignored; contexts[0] is "${cfg.contexts[0]}")`);
+        configFixed.push(`removed "defaultContext" (ignored; contexts[0] is "${cfg.contexts[0]}")`);
         changed = true;
       }
       const project = raw.project as Record<string, unknown> | undefined;
@@ -695,7 +730,7 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
         if (statusMap.dones !== undefined && statusMap.done === undefined) statusMap.done = statusMap.dones;
         delete statusMap.dones;
         delete statusMap.shipping;
-        fixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
+        configFixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
         changed = true;
       }
       const legacyKeys = cfg ? legacyHarnessKeys(raw.harness) : [];
@@ -703,21 +738,29 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
         const harness = raw.harness as Record<string, unknown>;
         for (const key of legacyKeys) delete harness[key];
         if (Object.keys(harness).length === 0) delete raw.harness;
-        fixed.push(`removed legacy harness keys: ${legacyKeys.map((k) => `harness.${k}`).join(", ")}`);
+        configFixed.push(`removed legacy harness keys: ${legacyKeys.map((k) => `harness.${k}`).join(", ")}`);
         changed = true;
       }
       if (raw.repository === undefined && cfg) {
         const detected = detectRepository(root);
         if (detected) {
           raw.repository = detected;
-          fixed.push(`set "repository": "${detected}" (from the origin remote)`);
+          configFixed.push(`set "repository": "${detected}" (from the origin remote)`);
           changed = true;
         }
       }
-      if (changed) writeFileSync(configPath(root), `${JSON.stringify(raw, null, jsonIndent(readFileSync(configPath(root), "utf8")))}\n`, "utf8");
+      if (changed) {
+        try {
+          writeFileSync(configPath(root), `${JSON.stringify(raw, null, jsonIndent(readFileSync(configPath(root), "utf8")))}\n`, "utf8");
+          fixed.push(...configFixed);
+        } catch (err) {
+          if (!(err instanceof Error && "code" in err)) throw err;
+          failures.push(fixFailure(".kf/config.json", err));
+        }
+      }
     }
   }
-  fixed.push(...stripLegacyRunState(root));
+  await stripLegacyRunState(root, fixed, failures);
 
   const { agents, scope, declaredScope } = (() => {
     try {
@@ -784,5 +827,5 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
     else fixed.push(`agent install reported a problem: ${res.stdout}`);
   }
 
-  return fixed;
+  return { fixed, failures };
 }
