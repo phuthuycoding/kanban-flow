@@ -3,8 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import { ARTIFACTS, LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
-import { parseTaskGraph } from "../workflow/tasks.js";
+import { LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
 import { isPidAlive } from "../shared/process.js";
 import { branchPushed, revParse, type LandedRun } from "../shared/git.js";
 import { docsLandedProof } from "../workflow/canonical-docs.js";
@@ -516,29 +515,6 @@ function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): 
   return [];
 }
 
-/** Roles an open item's plan names that `harness.roles` does not declare. */
-function plannedRolesMissing(root: string, roles: Record<string, unknown>): DoctorFinding[] {
-  const findings: DoctorFinding[] = [];
-  for (const f of listFeatures(root).filter((x) => x.stage !== "done")) {
-    const planFile = join(f.dir, ARTIFACTS["implementation-plan"].file);
-    if (!existsSync(planFile)) continue;
-    const missing = new Map<string, string[]>();
-    for (const t of parseTaskGraph(readFileSync(planFile, "utf8")).tasks) {
-      if (t.role === "-" || t.role in roles) continue;
-      missing.set(t.role, [...(missing.get(t.role) ?? []), t.id]);
-    }
-    for (const [role, ids] of missing) {
-      findings.push({
-        level: "ERROR",
-        area: `${f.stage}/${f.folder}`,
-        message: `${f.name}: ${ids.join(", ")} name role "${role}", which is not in harness.roles.`,
-        action: `declare harness.roles.${role} in .kf/config.json, or change the Role of ${ids.join(", ")} in the plan`,
-      });
-    }
-  }
-  return findings;
-}
-
 /** A lock whose holder died is taken over by the next writer, but it keeps showing up until then. */
 function deadLocks(root: string): DoctorFinding[] {
   const dir = join(root, ".works", ".locks");
@@ -563,7 +539,6 @@ function checkHarness(root: string, cfg: ReturnType<typeof readProjectConfig> | 
   const harness = cfg?.harness;
   if (!cfg || !harness) return [];
   const findings: DoctorFinding[] = [];
-  findings.push(...plannedRolesMissing(root, harness.roles));
   findings.push(...deadLocks(root));
   return findings;
 }

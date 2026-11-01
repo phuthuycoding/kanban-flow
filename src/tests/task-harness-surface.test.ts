@@ -8,18 +8,19 @@ import { parseTaskGraph } from "../workflow/tasks.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
 
-describe("task harness surfaces (TC-005)", () => {
-  it("the plan template's Task Breakdown carries Role and Files and parses", () => {
+describe("task harness surfaces", () => {
+  it("the plan template's Task Breakdown carries Files and no Role column and parses", () => {
     const body = splitFrontmatter(read("kanban-flow", "templates", "phase-2-implementation-plan.md")).body;
     const section = readMarkdownSection(body, "Task Breakdown") ?? "";
-    expect(section).toMatch(/\|\s*Role\s*\|\s*Files\s*\|/);
+    expect(section).toMatch(/\|\s*Files\s*\|/);
+    expect(section).not.toMatch(/\|\s*Role\s*\|/);
     const { tasks } = parseTaskGraph(body);
     expect(tasks.map((t) => t.id)).toEqual(["TASK-001"]);
   });
 
-  it("kanban-plan asks for Role and Files", () => {
+  it("kanban-plan asks for Files and no Role", () => {
     const plan = read("skills", "kanban-plan", "SKILL.md");
-    expect(plan).toContain("Role");
+    expect(plan).not.toMatch(/\bRole\b/);
     expect(plan).toContain("Files");
     expect(plan).toContain("worktree.enabled");
   });

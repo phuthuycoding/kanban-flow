@@ -62,16 +62,17 @@ afterEach(async () => {
 });
 
 describe("kf tasks", () => {
-  it("reports state from the tasks.md checkboxes, wave, role, deps and files as JSON", async () => {
+  it("reports state from the tasks.md checkboxes, wave, deps and files as JSON, with no role", async () => {
     const res = await cmdTasks(args({ json: true }), root);
     expect(res.code).toBe(0);
     const out = JSON.parse(res.stdout) as { feature: string; tasks: Array<TaskViewRow & { state: string }> };
     expect(out.feature).toBe("demo");
-    expect(out.tasks.map((t) => [t.id, t.state, t.wave, t.role])).toEqual([
-      ["TASK-001", "done", 1, "coder"],
-      ["TASK-002", "ready", 2, "coder"],
-      ["TASK-003", "pending", 3, "coder"],
+    expect(out.tasks.map((t) => [t.id, t.state, t.wave])).toEqual([
+      ["TASK-001", "done", 1],
+      ["TASK-002", "ready", 2],
+      ["TASK-003", "pending", 3],
     ]);
+    for (const t of out.tasks) expect(t).not.toHaveProperty("role");
     expect(out.tasks[1].files).toEqual(["src/b.ts", "src/c.ts"]);
     expect(out.tasks[1].dependencies).toEqual(["TASK-001"]);
     expect(out.tasks[2].files).toBeNull();
@@ -82,9 +83,18 @@ describe("kf tasks", () => {
     expect(res.code).toBe(0);
     const lines = res.stdout.split("\n");
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^TASK-001 +wave 1 +done +coder +deps: - +files: src\/a\.ts$/);
-    expect(lines[1]).toMatch(/^TASK-002 +wave 2 +ready +coder +deps: TASK-001 +files: src\/b\.ts, src\/c\.ts$/);
-    expect(lines[2]).toMatch(/^TASK-003 +wave 3 +pending +coder +deps: TASK-001, TASK-002 +files: files unknown$/);
+    expect(lines[0]).toMatch(/^TASK-001 +wave 1 +done +deps: - +files: src\/a\.ts$/);
+    expect(lines[1]).toMatch(/^TASK-002 +wave 2 +ready +deps: TASK-001 +files: src\/b\.ts, src\/c\.ts$/);
+    expect(lines[2]).toMatch(/^TASK-003 +wave 3 +pending +deps: TASK-001, TASK-002 +files: files unknown$/);
+  });
+
+  it("accepts a plan whose Role column names an unknown role and prints no role", async () => {
+    await writeFile(join(itemDir, ARTIFACTS["implementation-plan"].file), `# Implementation Plan\n\n## Task Breakdown\n\n${TABLE_HEADER}\n`
+      + "| TASK-001 | Do it | Core | - | Done | FR-001 / UC-001 | ghost-role | src/a.ts |\n");
+    const res = await cmdTasks(args(), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout).not.toContain("ghost-role");
+    expect(res.stdout).toMatch(/^TASK-001 +wave 1 +done +deps: - +files: src\/a\.ts$/);
   });
 
   it("reads tasks.md without writing it", async () => {

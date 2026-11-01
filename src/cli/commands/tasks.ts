@@ -3,13 +3,9 @@ import { join } from "node:path";
 
 import type { Feature } from "../../workflow/features.js";
 import { checkTaskGraph, taskView, type TaskViewRow } from "../../workflow/tasks.js";
-import { readProjectConfig } from "../../project/config.js";
-import type { HarnessConfig } from "../../harness/config.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
-
-const NO_HARNESS: HarnessConfig = { main: "main", roles: {}, stages: {}, runners: {} };
 
 interface ShownTask extends TaskViewRow {
   /** `done` when its `tasks.md` checkbox is ticked; otherwise `ready` once every dependency is done. */
@@ -40,7 +36,7 @@ function showTasks(feature: Feature, view: TaskViewRow[]): ShownTask[] {
 function renderRow(t: ShownTask): string {
   const deps = t.dependencies.length > 0 ? t.dependencies.join(", ") : "-";
   const files = t.files ? t.files.join(", ") : "files unknown";
-  return `${t.id}  wave ${t.wave}  ${t.state.padEnd(9)}  ${t.role}  deps: ${deps}  files: ${files}`;
+  return `${t.id}  wave ${t.wave}  ${t.state.padEnd(9)}  deps: ${deps}  files: ${files}`;
 }
 
 export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -49,9 +45,8 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
   const root = await resolveItem(cwd, name);
   if (!root.ok) return root.refusal;
   const feature = root.item;
-  const harness = readProjectConfig(root.root).harness ?? NO_HARNESS;
 
-  const errors = checkTaskGraph(feature, harness).filter((f) => f.severity === "ERROR");
+  const errors = checkTaskGraph(feature).filter((f) => f.severity === "ERROR");
   if (errors.length > 0) {
     return {
       code: 1,
@@ -60,7 +55,7 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
     };
   }
 
-  const view = showTasks(feature, taskView(feature, harness));
+  const view = showTasks(feature, taskView(feature));
   if (args.options.json) {
     return { code: 0, stdout: JSON.stringify({ feature: feature.name, tasks: view }, null, 2) };
   }

@@ -577,7 +577,7 @@ describe("kf doctor --fix", () => {
 });
 
 describe("kf doctor harness checks", () => {
-  it("reports a role the plan names that harness.roles lacks and a dead lock, and no harness.verify.stage warning", async () => {
+  it("reports a dead lock, no harness.verify.stage warning and no finding for a role the plan names that harness.roles lacks", async () => {
     await mkdir(join(root, ".kf"), { recursive: true });
     await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
       schema: "kanban-flow", created: "20260919_1200", defaultContext: "app",
@@ -600,7 +600,8 @@ describe("kf doctor harness checks", () => {
     await writeFile(lock, "999999");
 
     const findings = runDoctor(root).findings;
-    expect(findings.find((f) => f.level === "ERROR" && f.message.includes("designer"))?.message).toMatch(/demo.*TASK-002/);
+    expect(findings.some((f) => f.message.includes("designer"))).toBe(false);
+    expect(findings.some((f) => f.message.includes("harness.roles"))).toBe(false);
     expect(findings.find((f) => f.area === lock)).toMatchObject({ level: "WARNING", action: `rm ${lock}` });
     expect(findings.some((f) => f.message.includes("harness.verify.stage"))).toBe(false);
   });
