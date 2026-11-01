@@ -212,7 +212,7 @@ kf stage {feature_name} implementation
 - `references/review-tiers.md` — `ADDED`/`SHARED`/`CRITICAL`, the tier rule, bundling, why tiers.
 - `references/reviewer-brief.md` — the dispatch template and the pack layout.
 - `references/ci-watch.md` — the CI watcher after the PR push and the mergeability line after the report.
-- `scripts/review-package`, `scripts/select-tier`, `scripts/verify-findings.mjs` — run with `bash`/`node`; installs do not set the exec bit.
+- `scripts/review-package`, `scripts/select-tier`, `scripts/verify-findings.mjs` — run with `bash`/`node`; installs do not set the exec bit; `review-package --commits <sha>[,…] OUTFILE` packages exactly those commits.
 
 ## Done
 

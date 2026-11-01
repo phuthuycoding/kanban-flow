@@ -65,3 +65,14 @@ export function filesOverlap(a: string[] | null, b: string[] | null): boolean {
   if (a === null || b === null) return true;
   return a.some((x) => b.some((y) => patternsOverlap(x, y)));
 }
+
+/** The first (a-entry, b-entry) pair, a-major, that overlaps; null when either side is unknown or none overlap. */
+export function firstOverlap(a: string[] | null, b: string[] | null): [string, string] | null {
+  if (a === null || b === null) return null;
+  for (const x of a) {
+    for (const y of b) {
+      if (patternsOverlap(x, y)) return [x, y];
+    }
+  }
+  return null;
+}

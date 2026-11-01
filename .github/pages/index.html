@@ -159,7 +159,8 @@
              <strong>file allowlist</strong> for every task. Approval seals it.</p>
           <p class="quiet" style="margin-top:14px">After each task commit, <code>kf verify</code>
              decides the mechanical part, not the developer's report: it checks the files the task
-             changed against the allowlist and runs the verify commands you pinned in config. The
+             changed against the allowlist (<code>--commits</code> for the pipelined loop) and runs the verify commands you pinned in config;
+             <code>kf loop-stats</code> measures where the loop's time went. The
              work stops when a review PASS waits for its merge, or earlier with a named reason.
              The commands <code>kf drive</code>, <code>kf run</code>, <code>kf runs</code>, <code>kf harness</code> were removed.</p>
         </div>

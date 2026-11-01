@@ -67,6 +67,10 @@ Snapshots alone go stale when a later feature changes the same behavior, so revi
 
 When the primary checkout is on a clean, current default branch, the canonical docs are written into its working tree. Otherwise they are committed to an unpushed `docs/<context>-<feature>` branch cut from `origin/<default>`, the name is stamped in the work item's `meta.docsBranch`, and `kf status --all` lists it under **Waiting to merge** until it is pushed (`kf doctor` warns `docs_branch_unpushed`).
 
+## The loop metrics file `.works/loop-metrics.md`
+
+`kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `skills/kanban-implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. Lines that cannot be parsed or have no time are counted in the row, not dropped.
+
 ## The day files under `.kf/travel/`
 
 The `travel` skill keeps its state outside any work item, in two plain files under `.kf/travel/`. `kf init` adds the folder to `.gitignore`, so neither is committed.
@@ -89,7 +93,7 @@ Sizes are S=1, M=2, L=4, XL=8 points. The morning budget is the median daily tot
 
 ## The implementation plan's Task Breakdown
 
-The `## Task Breakdown` table in `phase-2-implementation-plan.md` is what the [task loop](harness.md#kf-verify) schedules:
+The `## Task Breakdown` table in `phase-2-implementation-plan.md` is what the [pipelined task loop](harness.md#kf-verify) schedules:
 
 | Column | Meaning |
 | --- | --- |

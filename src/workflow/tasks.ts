@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ARTIFACTS, STAGE_INDEX } from "./schema.js";
 import { parseMarkdownTable, readMarkdownSection, splitFrontmatter } from "../shared/frontmatter.js";
 import { finding, type Finding } from "./findings.js";
+import { filesOverlap, firstOverlap } from "./allowlist.js";
 import type { Feature } from "./features.js";
 
 export interface PlannedTask {
@@ -142,6 +143,7 @@ export interface TaskViewRow {
   dependencies: string[];
   files: string[] | null;
   wave: number;
+  overlaps: { task: string; entries: [string, string] | null }[];
 }
 
 /** The planned tasks of an item with their wave. */
@@ -157,5 +159,8 @@ export function taskView(feature: Feature): TaskViewRow[] {
     dependencies: t.dependencies,
     files: t.files,
     wave: waves[t.id],
+    overlaps: tasks
+      .filter((o) => o.id !== t.id && filesOverlap(t.files, o.files))
+      .map((o) => ({ task: o.id, entries: firstOverlap(t.files, o.files) })),
   }));
 }

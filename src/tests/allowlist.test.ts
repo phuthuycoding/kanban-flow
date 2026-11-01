@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { filesOverlap, pathAllowed, patternsOverlap } from "../workflow/allowlist.js";
+import { filesOverlap, firstOverlap, pathAllowed, patternsOverlap } from "../workflow/allowlist.js";
 
 describe("pathAllowed", () => {
   it("matches exact paths, directory prefixes and globs", () => {
@@ -49,6 +49,28 @@ describe("filesOverlap", () => {
     expect(filesOverlap(["a/x.ts", "b/y.ts"], ["c/z.ts", "b/"])).toBe(true);
     expect(filesOverlap(["a/x.ts"], ["b/y.ts"])).toBe(false);
     expect(filesOverlap([], ["b/y.ts"])).toBe(false);
+  });
+});
+
+describe("firstOverlap", () => {
+  it.each([
+    [["src/"], ["src/a.ts"], ["src/", "src/a.ts"]],
+    [["src/**/*.ts"], ["src/x"], ["src/**/*.ts", "src/x"]],
+    [["src/*.ts"], ["docs/**"], null],
+    [["src/a.ts"], ["src/b.ts"], null],
+  ])("%j against %j gives %j and agrees with filesOverlap", (a, b, expected) => {
+    expect(firstOverlap(a, b)).toEqual(expected);
+    expect(filesOverlap(a, b)).toBe(expected !== null);
+  });
+
+  it("gives null when either side has unknown files", () => {
+    expect(firstOverlap(null, ["src/a.ts"])).toBeNull();
+    expect(firstOverlap(["src/a.ts"], null)).toBeNull();
+    expect(firstOverlap(null, null)).toBeNull();
+  });
+
+  it("returns the first pair in this-side-major order with the original entries", () => {
+    expect(firstOverlap(["a/x.ts", "./b/", "c/"], ["c/z.ts", "`b/y.ts`"])).toEqual(["./b/", "`b/y.ts`"]);
   });
 });
 

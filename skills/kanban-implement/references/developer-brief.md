@@ -19,6 +19,8 @@ Agent:
 
     ## Where you work
     Worktree: [WORKTREE] on branch [BRANCH]. Never touch the main checkout.
+    Seats in flight: [IN_FLIGHT]
+    Test-writer run advisory: [ADVISORY]
     Files allowlist: [FILES]. Only change files inside it; needing another file is a
     BLOCKED report naming the file and why, not an edit.
 
@@ -35,7 +37,15 @@ Agent:
     ## Commit
     The loop commits this task: you commit the test-writer's tests and your code in one
     commit on [BRANCH], message in the repository's convention, no attribution trailers.
-    Stage files by path, never everything, so no spec file lands in it. Never push.
+    Stage by path, never everything, so no spec file lands in it. Before committing, check
+    `git diff --cached --name-only` against [FILES] plus [TEST_FILES]; any other staged path → `BLOCKED` naming it, no commit.
+    The same check holds for every commit you make; the same rule applies to fix rounds. Never push.
+
+    ## Checks while another seat is in flight
+    Your typecheck, lint, build and test runs are advisory while another seat is in flight:
+    focused tests only, no full suite while another seat is in flight; a failure in a file you
+    neither wrote nor were handed is reported as `not mine: <file>`. `kf verify --commits` is
+    the task's authoritative check.
 
     ## You do not dispatch subagents
     Never spawn a helper or a reviewer; a fresh reviewer is dispatched against your diff.
@@ -60,6 +70,8 @@ Agent:
 - `[REPORT_FILE]` — `<item>/loop/task-NNN-report.md`.
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
+- `[IN_FLIGHT]` — `none`, or the other seats in flight at dispatch (e.g. `developer TASK-002`).
+- `[ADVISORY]` — `yes` when the test-writer's run was advisory (it ran while a developer was in flight), otherwise `no`.
 - `[SPEC_FILES]` — the spec files the automation-writer's report lists when it ran before the developer against a `data-testid` contract; otherwise "none".
 - `[FILES_TO_COMMIT]` — the files the test-writer's (or automation-writer's) fix report lists.
 
