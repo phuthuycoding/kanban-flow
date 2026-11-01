@@ -199,7 +199,8 @@ export function globalLinkRefusal(): string | null {
   } catch (err) {
     // An unreadable .git leaves the question open; refusing is the safe answer, and the code says why.
     if (!(err instanceof Error && "code" in err)) throw err;
-    return `kf cannot read ${join(PKG_ROOT, ".git")} (${String(err.code)}) to tell whether it runs from a linked git worktree; a global install would link into it — run it from the primary checkout`;
+    const path = "path" in err && typeof err.path === "string" ? err.path : join(PKG_ROOT, ".git");
+    return `kf cannot read ${path} (${String(err.code)}) to tell whether it runs from a linked git worktree; a global install would link into it — run it from the primary checkout`;
   }
   if (!linked) return null;
   return `kf runs from a linked git worktree (${PKG_ROOT}); a global install would link into it and dangle once it is removed — run it from the primary checkout`;

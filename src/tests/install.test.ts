@@ -455,6 +455,29 @@ describe("a linked git worktree as the package root", () => {
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("kf install --global refuses and names the path when the worktree's gitdir cannot be read", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const cwd = join(dir, "cwd");
+    await mkdir(home, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    stagePackage(pkg, "file");
+    // Exactly as stagePackage writes it into the .git file; the refusal reports the path as git recorded it.
+    const gitdir = join(dirname(pkg), "common-git", "worktrees", "transient");
+    chmodSync(gitdir, 0o000);
+    try {
+      const res = kfFrom(pkg, cwd, home, "install", "--global");
+      expect(res.code, res.out).toBe(1);
+      expect(res.err).toContain(join(gitdir, "commondir"));
+      expect(res.err).toContain("EACCES");
+      expect(res.err).toContain("primary checkout");
+      expect(res.err).not.toContain(join(pkg, ".git"));
+      expect(existsSync(join(home, ".claude"))).toBe(false);
+    } finally {
+      chmodSync(gitdir, 0o755);
+    }
+  });
+
   it("kf doctor --fix with an unreadable project config links nothing and still reports the config error", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");
