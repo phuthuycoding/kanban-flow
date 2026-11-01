@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Feature } from "../../workflow/features.js";
-import { checkTaskGraph, taskView, type TaskViewRow } from "../../workflow/tasks.js";
+import { checkTaskGraph, taskGraphSummary, taskView, type TaskViewRow } from "../../workflow/tasks.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -41,7 +41,7 @@ function renderRow(t: ShownTask): string {
 
 export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
-  if (!name) return { code: 1, stdout: "Usage: kf tasks <feature> [--json]", stderr: "missing feature" };
+  if (!name) return { code: 1, stdout: "Usage: kf tasks <feature> [--json] [--graph]", stderr: "missing feature" };
   const root = await resolveItem(cwd, name);
   if (!root.ok) return root.refusal;
   const feature = root.item;
@@ -53,6 +53,20 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
       stdout: [`Task graph of '${feature.name}' is invalid; fix the plan:`, ...errors.map((f) => `ERROR ${f.code}: ${f.message}`)].join("\n"),
       stderr: "invalid task graph",
     };
+  }
+
+  if (args.options.graph) {
+    const summary = taskGraphSummary(taskView(feature));
+    if (args.options.json) {
+      return { code: 0, stdout: JSON.stringify({ feature: feature.name, ...summary }, null, 2) };
+    }
+    const path = summary.length === 0 ? "none" : summary.criticalPath.join(" \u2192 ");
+    const width = summary.maxWidth === 0 ? "max width: 0" : `max width: ${summary.maxWidth} (${summary.widthSet.join(", ")})`;
+    const lines = [`critical path: ${path} (length ${summary.length})`, width];
+    if (summary.length > 0) {
+      lines.push(`earliest start: ${Object.entries(summary.earliestStart).map(([id, w]) => `${id} ${w}`).join(", ")}`);
+    }
+    return { code: 0, stdout: lines.join("\n") };
   }
 
   const view = showTasks(feature, taskView(feature));

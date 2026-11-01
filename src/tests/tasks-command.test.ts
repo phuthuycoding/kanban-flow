@@ -180,3 +180,82 @@ describe("kf tasks overlaps", () => {
     expect(lines[3]).toMatch(/^TASK-004 +wave 1 +\w+ +deps: - +files: files unknown$/);
   });
 });
+
+describe("kf tasks --graph", () => {
+  const graphPlan: PlanTask[] = [
+    { id: "TASK-001", files: ["src/a.ts"] },
+    { id: "TASK-002", deps: ["TASK-001"], files: ["src/b.ts"] },
+    { id: "TASK-003", deps: ["TASK-002"], files: ["src/c.ts"] },
+    { id: "TASK-004", files: ["src/d.ts"] },
+    { id: "TASK-005", files: ["src/e.ts"] },
+    { id: "TASK-006", files: ["src/f.ts"] },
+  ];
+
+  it("prints the critical path, the max width and the earliest starts", async () => {
+    await writePlan(graphPlan);
+    const res = await cmdTasks(args({ graph: true }), root);
+    expect(res.code).toBe(0);
+    expect(res.stdout.split("\n")).toEqual([
+      "critical path: TASK-001 \u2192 TASK-002 \u2192 TASK-003 (length 3)",
+      "max width: 4 (TASK-001, TASK-004, TASK-005, TASK-006)",
+      "earliest start: TASK-001 1, TASK-002 2, TASK-003 3, TASK-004 1, TASK-005 1, TASK-006 1",
+    ]);
+  });
+
+  it("prints the graph as JSON with the six keys", async () => {
+    await writePlan(graphPlan);
+    const res = await cmdTasks(args({ graph: true, json: true }), root);
+    expect(res.code).toBe(0);
+    const out = JSON.parse(res.stdout) as Record<string, unknown>;
+    expect(Object.keys(out).sort()).toEqual(["criticalPath", "earliestStart", "feature", "length", "maxWidth", "widthSet"]);
+    expect(out).toEqual({
+      feature: "demo",
+      criticalPath: ["TASK-001", "TASK-002", "TASK-003"],
+      length: 3,
+      maxWidth: 4,
+      widthSet: ["TASK-001", "TASK-004", "TASK-005", "TASK-006"],
+      earliestStart: { "TASK-001": 1, "TASK-002": 2, "TASK-003": 3, "TASK-004": 1, "TASK-005": 1, "TASK-006": 1 },
+    });
+  });
+
+  it("leaves --json without --graph byte-identical to the task listing", async () => {
+    await writePlan(graphPlan);
+    const task = (id: string, description: string, dependencies: string[], files: string[], wave: number, state: string) =>
+      ({ id, description, dependencies, files, wave, overlaps: [], state });
+    const expected = JSON.stringify({
+      feature: "demo",
+      tasks: [
+        task("TASK-001", "Do TASK-001", [], ["src/a.ts"], 1, "done"),
+        task("TASK-002", "Do TASK-002", ["TASK-001"], ["src/b.ts"], 2, "ready"),
+        task("TASK-003", "Do TASK-003", ["TASK-002"], ["src/c.ts"], 3, "pending"),
+        task("TASK-004", "Do TASK-004", [], ["src/d.ts"], 1, "ready"),
+        task("TASK-005", "Do TASK-005", [], ["src/e.ts"], 1, "ready"),
+        task("TASK-006", "Do TASK-006", [], ["src/f.ts"], 1, "ready"),
+      ],
+    }, null, 2);
+    expect((await cmdTasks(args({ json: true }), root)).stdout).toBe(expected);
+  });
+
+  it("prints none and zero for a plan without tasks", async () => {
+    await writePlan([]);
+    const res = await cmdTasks(args({ graph: true }), root);
+    expect(res.code).toBe(0);
+    const lines = res.stdout.split("\n");
+    expect(lines).toContain("critical path: none (length 0)");
+    expect(lines).toContain("max width: 0");
+  });
+
+  it("exits 1 printing task_dep_cycle on a cyclic plan", async () => {
+    await writePlan([{ id: "TASK-001", deps: ["TASK-002"] }, { id: "TASK-002", deps: ["TASK-001"] }]);
+    const res = await cmdTasks(args({ graph: true }), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("task_dep_cycle");
+    expect(res.stdout).not.toContain("critical path");
+  });
+
+  it("exits 1 for an unknown feature", async () => {
+    const res = await cmdTasks({ command: "tasks", positionals: ["ghost"], options: { graph: true } }, root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("Unknown feature 'ghost'");
+  });
+});

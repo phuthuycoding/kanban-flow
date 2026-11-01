@@ -191,3 +191,80 @@ describe("taskView", () => {
     ]);
   });
 });
+
+describe("taskGraphSummary", () => {
+  type Row = ReturnType<typeof taskView>[number];
+  const row = (id: string, wave: number, dependencies: string[], files: string[] | null, overlaps: string[] = []): Row => ({
+    id,
+    description: `Do ${id}`,
+    dependencies,
+    files,
+    wave,
+    overlaps: overlaps.map((task) => ({ task, entries: null })),
+  });
+
+  it("keeps a task with unknown files out of any width set larger than one", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/a.ts"], ["TASK-003"]),
+      row("TASK-002", 1, [], ["src/b.ts"], ["TASK-003"]),
+      row("TASK-003", 1, [], null, ["TASK-001", "TASK-002"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidth).toBe(2);
+    expect(summary.widthSet).toEqual(["TASK-001", "TASK-002"]);
+    expect(summary.widthSet).not.toContain("TASK-003");
+  });
+
+  it("never puts a task and its transitive dependency in the same width set", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/a.ts"]),
+      row("TASK-002", 2, ["TASK-001"], ["src/b.ts"]),
+      row("TASK-003", 3, ["TASK-002"], ["src/c.ts"]),
+      row("TASK-004", 1, [], ["src/d.ts"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidth).toBe(2);
+    expect(summary.widthSet).toHaveLength(2);
+    expect(summary.widthSet.includes("TASK-001") && summary.widthSet.includes("TASK-003")).toBe(false);
+    expect(summary.widthSet).toEqual(["TASK-001", "TASK-004"]);
+    expect(summary.criticalPath).toEqual(["TASK-001", "TASK-002", "TASK-003"]);
+    expect(summary.length).toBe(3);
+    expect(summary.earliestStart).toEqual({ "TASK-001": 1, "TASK-002": 2, "TASK-003": 3, "TASK-004": 1 });
+  });
+
+  it("excludes tasks whose files overlap from the same width set", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/"], ["TASK-002"]),
+      row("TASK-002", 1, [], ["src/a.ts"], ["TASK-001"]),
+      row("TASK-003", 1, [], ["lib/x.ts"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidth).toBe(2);
+    expect(summary.widthSet).toEqual(["TASK-001", "TASK-003"]);
+  });
+
+  it("breaks critical path ties toward the lowest task id", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/a.ts"]),
+      row("TASK-002", 1, [], ["src/b.ts"]),
+      row("TASK-003", 2, ["TASK-001"], ["src/c.ts"]),
+      row("TASK-004", 2, ["TASK-002"], ["src/d.ts"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.criticalPath).toEqual(["TASK-001", "TASK-003"]);
+    expect(summary.length).toBe(2);
+  });
+
+  it("ignores a dependency that is not in the plan", () => {
+    const summary = taskModule.taskGraphSummary([row("TASK-001", 1, ["TASK-099"], ["src/a.ts"])]);
+    expect(summary.criticalPath).toEqual(["TASK-001"]);
+    expect(summary.length).toBe(1);
+    expect(summary.maxWidth).toBe(1);
+    expect(summary.widthSet).toEqual(["TASK-001"]);
+    expect(summary.earliestStart).toEqual({ "TASK-001": 1 });
+  });
+
+  it("reports an empty summary for no tasks", () => {
+    expect(taskModule.taskGraphSummary([])).toEqual({ criticalPath: [], length: 0, maxWidth: 0, widthSet: [], earliestStart: {} });
+  });
+});

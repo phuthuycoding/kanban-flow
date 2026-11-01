@@ -204,10 +204,11 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   tasks: {
-    help: "Usage: kf tasks <feature> [--json]  — list the planned tasks of a work item with wave, state, dependencies and files (read-only)",
+    help: "Usage: kf tasks <feature> [--json] [--graph]  — list the planned tasks of a work item with wave, state, dependencies and files (read-only); --graph prints the critical path, the max width and the earliest starts",
     allowPositionals: true,
     options: {
       json: { type: "boolean" },
+      graph: { type: "boolean" },
     },
   },
   "loop-stats": {
