@@ -139,7 +139,7 @@ kf validate --change {feature}  # gate + traceability issues
 kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
 kf tasks {feature} [--json]    # tasks parsed from the approved plan, with state
 kf verify {feature} --task TASK-### --base <sha> | --commits <sha>[,<sha>…] | --stage   # harness.verify commands + the task's Files allowlist check
-kf loop-stats {feature} [--json] [--record] | --all [--json]   # measure a task loop from its ledger; --record appends .works/loop-metrics.md
+kf loop-stats {feature} [--json] [--record] | --all [--json]   # measure a task loop from its ledger; --record writes (replacing any earlier) the item's row in .works/loop-metrics.md
 kf archive {feature}           # explicit, idempotent close: merged-PR (or landing: none) check → review → done + docs + issue close + board + delivered stamp; kf status / kf sync run it after the merge
 ```
 

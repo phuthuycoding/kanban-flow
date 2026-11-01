@@ -200,7 +200,7 @@ role, runner and stage configuration behind them. The only `harness` keys left a
 kf tasks user-login                                   # the task graph: waves, states, files
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
 kf verify user-login --task TASK-002 --commits <sha>[,<sha>…]  # exactly those commits, in a detached worktree at the newest (pipelined loop)
-kf loop-stats user-login --record                     # where the loop's time went; appends .works/loop-metrics.md
+kf loop-stats user-login --record                     # where the loop's time went; writes (replacing any earlier) the item's row in .works/loop-metrics.md
 kf verify user-login --stage                          # runs harness.verify.stage
 kf doctor --fix                                       # strips the removed harness keys and leftover run state
 ```
