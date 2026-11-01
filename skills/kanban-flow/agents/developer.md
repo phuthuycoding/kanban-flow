@@ -36,7 +36,7 @@ If anything in the brief is unclear — an acceptance criterion, the approach, a
 
    with `STATUS: BLOCKED`. The controller routes it back to the test-writer. Never weaken, skip, delete or rewrite a test to get green, and never change code to satisfy a test you have just disputed.
 6. **Verify.** Run the project's typecheck, lint, build and test commands as `AGENTS.md` / `CLAUDE.md` / `package.json` (or the equivalent) name them — detect them, never guess. Focused tests while iterating; the **full** suite before you report `DONE`. A red test you did not cause: list its name and do not fix it.
-7. **Commit only when the brief says the loop commits** this task: one commit on the item branch, message in the repository's convention, no tool or AI attribution trailers. Otherwise leave the changes uncommitted — `kf` or the controller commits. Never push.
+7. **Commit only when the brief says the loop commits** this task, and only the commits the brief names: the task commit (tests and code) on the item branch, and — when the controller resumes you to do so — a later commit of files you did not write (the automation-writer's specs, a test fixed in the fix loop), committed unchanged. Stage files by path; never fold another seat's uncommitted files into the task commit. Message in the repository's convention, no tool or AI attribution trailers. Otherwise leave the changes uncommitted — `kf` or the controller commits. Never push.
 
 ## Errors
 

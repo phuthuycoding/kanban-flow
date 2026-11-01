@@ -52,7 +52,7 @@ describe("the task loop seats", () => {
     expect(dispute).toContain("resume the developer");
     expect(dispute).toContain("contradicts an FR or another TC");
     expect(dispute).toContain("a second dispute on the same test after a Ruling");
-    expect(dispute).toContain("stop");
+    expect(dispute).toContain("Stop, too, on a second dispute on the same test after a Ruling — it is not another round");
   });
 
   it("splits the fix loop between the developer and the test-writer under one five-round cap", () => {
@@ -123,6 +123,15 @@ describe("the task loop seats", () => {
     expect(brief).toContain("The loop commits this task");
     expect(brief).toContain("<item>/loop/task-NNN-report.md");
     expect(agentBody("developer")).toContain("<item>/loop/task-NNN-report.md");
+  });
+
+  it("tells the developer about specs written before it and keeps them out of its task commit", () => {
+    const prompt = slice(reference("developer-brief.md"), "```", "\n```\n");
+    expect(prompt).toContain("The automation-writer's spec files: [SPEC_FILES]");
+    expect(prompt).toContain("Never edit them and keep them out of your task commit");
+    expect(prompt).toContain("commit them unchanged as a second commit when you are resumed");
+    expect(taskLoop()).toContain("pass their paths to the developer as `[SPEC_FILES]`");
+    expect(agentBody("developer")).toContain("the commits the brief names");
   });
 
   it("rules on a test that already passes, a case without an expected value and a mixed unit and UI task", () => {

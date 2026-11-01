@@ -26,11 +26,13 @@ Agent:
     The test-writer's test files: [TEST_FILES]. Never edit those test files. Make them pass;
     a test you believe is wrong is a `TEST_DISPUTE: <file:line> <why>` line with BLOCKED.
     With no test-writer for this task, report `No TDD: <why>` plus the real-run output.
+    The automation-writer's spec files: [SPEC_FILES]. Never edit them and keep them out of your task commit;
+    you commit them unchanged as a second commit when you are resumed to do so.
 
     ## Commit
     The loop commits this task: you commit the test-writer's tests and your code in one
     commit on [BRANCH], message in the repository's convention, no attribution trailers.
-    Never push.
+    Stage files by path, never everything, so no spec file lands in it. Never push.
 
     ## You do not dispatch subagents
     Never spawn a helper or a reviewer; a fresh reviewer is dispatched against your diff.
@@ -55,6 +57,7 @@ Agent:
 - `[REPORT_FILE]` — `<item>/loop/task-NNN-report.md`.
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
-- `[FILES_TO_COMMIT]`, `[SPEC_FILES]` — the files the test-writer's fix report or the automation-writer's report lists.
+- `[SPEC_FILES]` — the spec files the automation-writer's report lists when it ran before the developer against a `data-testid` contract; otherwise "none".
+- `[FILES_TO_COMMIT]` — the files the test-writer's (or automation-writer's) fix report lists.
 
 **What never goes in the dispatch:** the session's history, the whole plan, another task's findings.
