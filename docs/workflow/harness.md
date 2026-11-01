@@ -40,7 +40,7 @@ The task loop in `kanban-implement` runs `kf verify --task` after each task comm
 
 ## Migrating from the removed commands
 
-Run `kf doctor` to see what is left behind: it warns `harness_legacy_key` for each removed config key (`harness.main`, `harness.roles`, `harness.stages`, `harness.runners`, `harness.parallel`, `harness.retries`, `harness.maxLoops`, `harness.budget`) and `meta_legacy_run_state` for each item whose `.kfw.json` still holds `drive`, `runs`, `sessions` or `tasks`. When such state names a pid, the warning says so: stop that process yourself, kf never kills it.
+Run `kf doctor` to see what is left behind: it warns `harness_legacy_key` for each removed config key (`harness.main`, `harness.roles`, `harness.stages`, `harness.runners`, `harness.parallel`, `harness.retries`, `harness.maxLoops`, `harness.budget`) and `meta_legacy_run_state` for each item whose `.kfw.json` still holds `drive`, `runs`, `sessions` or `tasks`. When such state names a pid, the warning reports it only while that process still looks like kf (its command line names `kanban-flow` or `dist/index.js`); when kf cannot check (no `ps`), it reports the pid and says it could not confirm. Stop that process yourself, kf never kills it, and `--fix` leaves such an item untouched until the process stops.
 
 `kf doctor --fix` removes the legacy config keys, keeps `harness.verify`, and strips the leftover item metadata under the item lock. A rewrite that fails is reported as an error and the command exits 1. Nothing else removes those keys.
 
