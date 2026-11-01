@@ -33,7 +33,7 @@ Every wake-up of the travel loop (a drive stop, a poll tick, the human typing `t
 |---|---|---|---|
 | 1 | Travel | Counts live drives (`driving` lines whose `kf drive --status` is running) against SLOTS | `running: A/SLOTS` |
 | 2 | Travel | Collects every pending human **decision**: spec to confirm, plan to approve (or `--backlog`), destructive question, XL to split, a blocked line's question | `⏸ Needs you (decide)` lines: decision + item id + question |
-| 3 | Travel | Collects every **Do**: review PASS + CI green items with an unmerged PR | `✓ Waiting to merge` lines: PR URL + `! gh pr merge <n> --squash` (the repo's merge style) |
+| 3 | Travel | Collects every **Do**: review PASS + CI green items with an unmerged PR | `✓ Waiting to merge` lines: PR URL + `! gh pr merge <n>` (kf does not know the repo's merge style; the human picks it) |
 | 4 | Travel | Lists running items with their worktree paths | `▶ Running` lines |
 | 5 | Travel | Prints the block: `Tick N — running: A/SLOTS \| done: X \| blocked: Z \| queued: R \| points: P` then the three buckets | One block, always complete, even when SLOTS is full |
 

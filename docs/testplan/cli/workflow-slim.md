@@ -687,7 +687,7 @@ This is the planned contract: execution outcomes belong in the testing-result re
 | Preconditions | Fixture with: item A in brainstorm (spec pending), item B in planning (approval pending), item C in review with PASS reports and an unmerged PR (stub `gh` OPEN, PR number 7), item D in review with `meta.docsBranch: docs/cli-d` and no upstream, item E with a live drive record |
 | Input | `kf status --all` |
 | Steps | See steps table below |
-| Expected outcome | Output ends with `Needs you` listing A ("confirm spec") and B ("approve plan (or --backlog)"), `Waiting to merge` listing C with its PR URL and `gh pr merge 7 --squash` and D with `docs/cli-d awaiting push`, and `Running: 1`; items with nothing pending appear in neither bucket; `--json` carries the same buckets |
+| Expected outcome | Output ends with `Needs you` listing A ("confirm spec") and B ("approve plan (or --backlog)"), `Waiting to merge` listing C with its PR URL and `gh pr merge 7` and D with `docs/cli-d awaiting push`, and `Running: 1`; items with nothing pending appear in neither bucket; `--json` carries the same buckets |
 | Status | PENDING |
 
 ### Steps

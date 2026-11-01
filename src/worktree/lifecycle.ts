@@ -264,7 +264,14 @@ function keptDetail(root: string, branch: string, proof: Exclude<LandedProof, { 
 
 /** A branch kept without proof is "kept" on origin only when it is there; a read-only probe says so. */
 function keptRemote(root: string, branch: string, detail: string): BranchDeletion["remote"] {
-  if (!hasRemote(root, "origin")) return { kind: "no-remote" };
+  let remoteExists: boolean;
+  try {
+    remoteExists = hasRemote(root, "origin");
+  } catch (err) {
+    // Reported like a failed probe below: the branch is kept either way, and the close must not throw.
+    return { kind: "kept", detail: `${detail} (origin could not be probed: ${(err as Error).message})` };
+  }
+  if (!remoteExists) return { kind: "no-remote" };
   const probe = runRemoteGit(root, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
   // --exit-code: 2 means the ref is not there.
   if (probe.code === 2) return { kind: "absent" };

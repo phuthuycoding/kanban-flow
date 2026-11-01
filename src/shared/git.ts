@@ -455,7 +455,15 @@ export type RemoteBranchDeletion =
 export function deleteRemoteBranch(dir: string, remote: string, branch: string, expectedSha: string): RemoteBranchDeletion {
   assertSafeArg("branch", branch);
   assertSafeArg("ref", expectedSha);
-  if (!hasRemote(dir, remote)) return { kind: "no-remote" };
+  assertSafeArg("remote", remote);
+  // The close path reports a failure on either side rather than throwing, so a failing `git remote` is "refused".
+  let remoteExists: boolean;
+  try {
+    remoteExists = hasRemote(dir, remote);
+  } catch (err) {
+    return { kind: "refused", detail: (err as Error).message };
+  }
+  if (!remoteExists) return { kind: "no-remote" };
   const probe = runRemoteGit(dir, ["ls-remote", "--exit-code", "--heads", remote, `refs/heads/${branch}`]);
   // --exit-code: 2 means the ref is not there.
   if (probe.code === 2) return { kind: "absent" };

@@ -37,7 +37,7 @@ Tick N — running: A/SLOTS | done: X | blocked: Z | queued: R | points: P
   - t1 workflow-slim implementation (.worktrees/workflow-slim)
   - t3 cli-refactor review / CI
 ✓ Waiting to merge (do this on GitHub)
-  - t5 https://github.com/…/pull/104 — ! gh pr merge 104 --squash
+  - t5 https://github.com/…/pull/104 — ! gh pr merge 104
 ```
 
 | Human | When |

@@ -147,7 +147,7 @@
     "retries": 1,
     "maxLoops": 2,
     "budget": {
-      "maxRuns": 10
+      "maxRuns": 40
     }
   }
 }
