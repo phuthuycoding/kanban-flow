@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Index
 
+> **Partly superseded by `parallel-developers`:** the one-developer seat and the head/next two-task window no longer hold — up to 4 developers run under the dispatch conditions. Kept for history.
+
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md`. Do not write a combined narrative here.
 
 ## Use Case Files

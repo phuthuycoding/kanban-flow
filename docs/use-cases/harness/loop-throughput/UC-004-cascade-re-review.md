@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `parallel-developers`:** a cascade re-review is owed only by tasks that depend on the fixed task, directly or transitively, not by the next task in plan order. Kept for history.
+
 ## Overview
 
 | Field | Value |

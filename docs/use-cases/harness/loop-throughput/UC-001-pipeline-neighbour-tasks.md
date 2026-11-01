@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `parallel-developers`:** pipelining is no longer limited to the head task and the next one — any ready task with disjoint Files gets a developer, up to 4. Kept for history.
+
 ## Overview
 
 | Field | Value |

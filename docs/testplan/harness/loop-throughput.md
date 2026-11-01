@@ -6,6 +6,8 @@ status: archived
 ---
 # Test Plan
 
+> **Partly superseded by `parallel-developers`:** test cases asserting one developer seat per worktree or the head/next two-task window no longer describe the loop. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md`: `unit+integration`. Skill and doc behaviour is pinned by surface tests (Unit); the loop behaviour is also run for real at testing (TC-021, TC-025, TC-028, TC-029, TC-030, TC-032).
 
 ## Feature Test Summary
