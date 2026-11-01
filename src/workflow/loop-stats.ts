@@ -199,12 +199,16 @@ function lagFigures(lags: number[]): LagFigures {
 
 /**
  * Minutes from the latest gate line before each plain dispatch (no `round=`, no `cascade=`) of the seat
- * to the dispatch; a dispatch with no gate line is not counted.
+ * to the dispatch; a dispatch with no gate line is not counted. Only a task's first plain dispatch counts.
  */
 function dispatchLags(shapes: LedgerLine[], seat: Seat, gatesOf: (d: LedgerLine, before: LedgerLine[]) => LedgerLine[]): number[] {
   const lags: number[] = [];
+  const seen = new Set<string>();
   shapes.forEach((d, i) => {
     if (d.shape !== "dispatched" || d.seat !== seat || d.round !== undefined || d.cascade !== undefined) return;
+    // A resume re-dispatches an in-flight seat; only the first plain dispatch of a task has a gate worth measuring.
+    if (seen.has(d.task!)) return;
+    seen.add(d.task!);
     const gates = gatesOf(d, shapes.slice(0, i)).filter((g) => g.ts! <= d.ts!);
     if (gates.length === 0) return;
     lags.push((d.ts! - Math.max(...gates.map((g) => g.ts!))) / MINUTE);
