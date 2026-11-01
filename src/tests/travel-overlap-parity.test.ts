@@ -18,7 +18,7 @@ const CASES: Array<[string[], string[]]> = [
   [["src/a.ts"], ["src/a.ts"]],
   [["src/a.ts"], ["src/b.ts"]],
   [["src/**"], ["src/cli/x.ts"]],
-  [["src/cli/*.ts"], ["src/harness/*.ts"]],
+  [["src/cli/*.ts"], ["src/workflow/*.ts"]],
   [["src/cli/*.ts"], ["src/cli/commands/x.ts"]],
   [["./src/a.ts"], ["src/a.ts"]],
   [["src/"], ["src/a.ts"]],

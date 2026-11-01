@@ -55,13 +55,45 @@ describe("the travel skill", () => {
     expect(skill).toContain("estimates overlap");
   });
 
-  it("handles the drive states", () => {
-    expect(skill).toContain("waiting-to-merge");
-    expect(skill).toContain("blocked");
-    expect(skill).toMatch(/one retry/);
+  it("defines driving, blocked and waiting-to-merge without any drive status", () => {
+    const ledger = read("references", "ledger-format.md");
+    expect(skill).toMatch(/`driving`[^\n]*(travel session|this session)[^\n]*(running|runs)[^\n]*phases/i);
+    expect(skill).toMatch(/`blocked`[^\n]*reason[^\n]*next command/i);
+    expect(skill).toMatch(/`waiting-to-merge`[^\n]*review[^\n]*PASS[^\n]*PR[^\n]*open/i);
+    for (const stop of ["REQUIREMENT_BUG", "plan change", "fix-loop breaker"]) expect(skill, stop).toContain(stop);
+    expect(ledger).toMatch(/`blocked`[^\n]*reason[^\n]*next command/i);
+    expect(ledger).toMatch(/`waiting-to-merge`[^\n]*review[^\n]*PASS[^\n]*PR[^\n]*open/i);
   });
 
-  it("only starts and reads drives: no approve, archive, stage, ship or merge among the commands it runs, and never --watch", () => {
+  it("never calls kf drive anywhere in the skill, its references or its script", () => {
+    const texts = [skill, read("references", "daily-plan.md"), read("references", "ledger-format.md"), read("references", "estimation.md"), read("scripts", "estimates")];
+    for (const text of texts) {
+      expect(text).not.toMatch(/kf drive/);
+      expect(text).not.toMatch(/--status --json/);
+      expect(text).not.toContain("re-adopt");
+    }
+  });
+
+  it("runs the phase skills itself, up to slots=N items, each in its own worktree, dispatching seats in the background", () => {
+    expect(skill).toMatch(/slots=N/);
+    expect(skill).toMatch(/up to `?slots=N`? (started )?items/i);
+    expect(skill).toMatch(/own (item )?worktree/i);
+    expect(skill).toMatch(/runs? (each|every) item's phase skills (itself|itself\b)|phase skills itself/i);
+    expect(skill).toMatch(/background/i);
+    expect(skill).toMatch(/advance[^\n]*another item[^\n]*(while|run)|while[^\n]*(seats?|subagents?)[^\n]*(run|running)[^\n]*advance/i);
+  });
+
+  it("makes slots=1 behave like one kanban-flow session", () => {
+    expect(skill).toMatch(/`slots=1`[^\n]*one kanban-flow session/i);
+  });
+
+  it("resumes after compaction from the travel ledger then the item's loop ledger, restarting no item", () => {
+    expect(skill).toMatch(/compaction/i);
+    expect(skill).toMatch(/\.kf\/travel\/progress\.md[\s\S]{0,400}loop\/progress\.md/);
+    expect(skill).toMatch(/restarts? no item|never restarts? an item|does not restart/i);
+  });
+
+  it("never approves, archives, merges or pushes to main: no approve, archive, stage, ship or merge among the commands it runs, and never --watch", () => {
     const blocks = bashBlocks(skill);
     expect(blocks.length).toBeGreaterThan(0);
     for (const block of blocks) {
@@ -70,8 +102,6 @@ describe("the travel skill", () => {
       expect(block).not.toMatch(/--watch|--follow/);
     }
     for (const forbidden of ["`kf approve`", "`kf archive`", "`kf stage`", "`gh pr merge`"]) expect(skill).toContain(forbidden);
-    for (const line of skill.split("\n").filter((l) => l.includes("--watch"))) expect(line).toMatch(/do not pass|Never/);
-    expect(skill).toContain("do not pass `--watch`");
     expect(skill).not.toContain("kf travel");
   });
 
@@ -89,20 +119,12 @@ describe("the travel skill", () => {
     const measure = bashBlocks(skill).find((b) => b.includes("estimates measure")) ?? "";
     expect(measure).toContain("--est <est0>");
     expect(measure).toContain("--estmin <n>");
-    expect(skill).toContain("A carried line keeps its first `est0`, `estmin` and `learn=no`");
-    expect(skill).toContain("A `learn=no` line omits `--estmin`");
+    expect(skill).toContain("A carried line keeps its first `est0` and `estmin`");
+    expect(skill).not.toContain("learn=no");
     for (const ref of ["ledger-format.md", "estimation.md"]) {
       const text = read("references", ref);
-      for (const s of ["est0=<size>", "learn=no"]) expect(text, `${ref} ${s}`).toContain(s);
+      for (const s of ["est0=<size>"]) expect(text, `${ref} ${s}`).toContain(s);
     }
-  });
-
-  it("leaves a drive it did not start to whoever runs it", () => {
-    expect(skill).toContain("the line stays `queued` with note `driven elsewhere`, is never dispatched by travel again");
-    expect(skill).toContain("any stop code → the line goes to Needs you with kf's `nextCommand`");
-    expect(skill).toContain("travel never retries, resumes or stops that drive");
-    expect(skill).not.toMatch(/adopt the drive|note `adopted`/);
-    expect(read("references", "ledger-format.md")).not.toContain("`adopted`");
   });
 
   it("ships its references and an executable estimates script", () => {
@@ -122,19 +144,8 @@ describe("the travel skill", () => {
       "clamped to 0.5–3", "file count is not corrected", "10 tasks"]) {
       expect(estimation, s).toContain(s);
     }
+    expect(estimation).not.toContain("runs[]");
     const ledger = read("references", "ledger-format.md");
     for (const state of ["queued", "driving", "waiting-to-merge", "blocked", "done", "carry-over"]) expect(ledger, state).toContain(`\`${state}\``);
-  });
-});
-
-describe("the travel refill pre-start check", () => {
-  it("treats a never-driven item as not started, and leaves a human-stopped drive alone", () => {
-    expect(skill).toContain("has no drive");
-    expect(skill).toContain("not started, dispatch it");
-    expect(skill).toMatch(/`state` `stopped` with `stopCode` `stopped_by_user`, or with any code §4 maps to `blocked`: do not run `kf drive`/);
-  });
-
-  it("keeps a sequential partner blocking until its line is done", () => {
-    expect(skill).toMatch(/sequential` partners \(if any\) are all `done`/);
   });
 });
