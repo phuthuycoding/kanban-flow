@@ -442,6 +442,52 @@ describe("committing a task whose Files are unknown, and the commit script's exi
   });
 });
 
+describe("a commit that was made but whose sha could not be read, and the full-suite rule", () => {
+  const COMMIT_MADE =
+    "When the output says `commit made`, the commit exists: report `BLOCKED` quoting it with the sha from `git log -1 -- <paths>`, and never commit those paths again.";
+  const FULL_SUITE =
+    "Run the full suite only when Seats in flight is `none` and `git status --porcelain` lists no path outside your own files; otherwise run focused tests only.";
+
+  // The script no longer compares subjects, so exit 4 never means an unconfirmed sha.
+  it("does not list an unconfirmed commit sha among the commit script's exit-4 causes", () => {
+    expect(reference("developer-brief.md")).not.toContain("a commit sha it could not confirm");
+    expect(developerAgent()).not.toContain("a commit sha it could not confirm");
+  });
+
+  it("lists a path that is . or a directory among the exit-4 causes", () => {
+    for (const [name, text] of [
+      ["developer-brief.md", reference("developer-brief.md")],
+      ["developer.md", developerAgent()],
+    ] as const) {
+      expect(lineWith(text, "exit 4 or 5"), name).toContain("a path that is `.` or a directory");
+    }
+  });
+
+  it("tells the developer that after `commit made` the commit exists and must not be repeated", () => {
+    expect(reference("developer-brief.md")).toContain(COMMIT_MADE);
+    expect(developerAgent()).toContain(COMMIT_MADE);
+  });
+
+  it("tells the developer and the controller to name each changed file, never . or a directory", () => {
+    expect(reference("developer-brief.md")).toContain("name each file you changed, never `.` or a directory");
+    expect(implement()).toContain("name each file you changed, never `.` or a directory");
+  });
+
+  it("limits the full suite to a developer with no seat in flight and no foreign path in the working tree", () => {
+    expect(reference("developer-brief.md")).toContain(FULL_SUITE);
+    expect(developerStep(6)).toContain(FULL_SUITE);
+  });
+
+  it("has the controller fill the seats-in-flight slot with every seat dispatched in the same turn", () => {
+    expect(implement()).toContain("fill `[IN_FLIGHT]` with every seat dispatched in the same turn");
+    const entry = reference("developer-brief.md")
+      .split("\n")
+      .find((l) => l.startsWith("- `[IN_FLIGHT]`"));
+    expect(entry, "placeholder entry").toBeDefined();
+    expect(entry).toContain("every other seat in flight at dispatch, including the seats dispatched in the same turn");
+  });
+});
+
 describe("same-wave developers follow the dispatch conditions", () => {
   it("keeps same-wave developers under the dispatch conditions, not a one-developer rule", () => {
     const wave = paragraphWith(taskLoop(), "wave <w>: parallel test-writers");
