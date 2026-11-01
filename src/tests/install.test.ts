@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, readdir, writeFile, readFile, symlink } from "node:fs/promises";
 import { existsSync, lstatSync, statSync, cpSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 import { copySkillsTo, removeSkillsFrom, removeRetiredSkills, MANAGED_SKILLS, RETIRED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
@@ -281,14 +281,38 @@ describe("agents adapter", () => {
 });
 
 describe("a linked git worktree as the package root", () => {
-  it("is not mistaken for a submodule, whose .git file points into .git/modules", () => {
+  it("is not mistaken for a submodule, even one whose gitdir path contains worktrees", () => {
     const sub = join(dir, "sub");
-    const wt = join(dir, "wt");
-    for (const d of [sub, wt]) mkdirSync(d, { recursive: true });
-    writeFileSync(join(sub, ".git"), "gitdir: ../.git/modules/x\n");
-    writeFileSync(join(wt, ".git"), "gitdir: /repo/.git/worktrees/wt\n");
+    const nested = join(dir, "nested");
+    for (const d of [sub, nested]) mkdirSync(d, { recursive: true });
+    mkdirSync(join(dir, ".git", "modules", "x"), { recursive: true });
+    writeFileSync(join(sub, ".git"), `gitdir: ${join(dir, ".git", "modules", "x")}\n`);
+    mkdirSync(join(dir, ".git", "modules", "foo", "worktrees", "bar"), { recursive: true });
+    writeFileSync(join(nested, ".git"), `gitdir: ${join(dir, ".git", "modules", "foo", "worktrees", "bar")}\n`);
     expect(isLinkedWorktree(sub)).toBe(false);
+    expect(isLinkedWorktree(nested)).toBe(false);
+  });
+
+  it("is recognised for a gitdir that holds a commondir file", () => {
+    const wt = join(dir, "wt");
+    const gitdir = join(dir, "main", ".git", "worktrees", "wt");
+    mkdirSync(wt, { recursive: true });
+    mkdirSync(gitdir, { recursive: true });
+    writeFileSync(join(gitdir, "commondir"), "../..\n");
+    writeFileSync(join(wt, ".git"), `gitdir: ${gitdir}\n`);
     expect(isLinkedWorktree(wt)).toBe(true);
+  });
+
+  it("is recognised for a real git worktree add worktree", () => {
+    const main = join(dir, "real");
+    const wt = join(dir, "real-wt");
+    const git = (...a: string[]) => execFileSync("git", ["-C", main, ...a], { stdio: "pipe" });
+    mkdirSync(main, { recursive: true });
+    git("init", "-q");
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init");
+    git("worktree", "add", "-q", wt);
+    expect(isLinkedWorktree(wt)).toBe(true);
+    expect(isLinkedWorktree(main)).toBe(false);
   });
 
   it("is recognised by a .git file and not by a .git directory or no .git", () => {
@@ -296,7 +320,10 @@ describe("a linked git worktree as the package root", () => {
     const primary = join(dir, "primary");
     const bare = join(dir, "bare");
     for (const d of [linked, primary, bare]) mkdirSync(d, { recursive: true });
-    writeFileSync(join(linked, ".git"), "gitdir: /somewhere/.git/worktrees/linked\n");
+    const gitdir = join(dir, "common", ".git", "worktrees", "linked");
+    mkdirSync(gitdir, { recursive: true });
+    writeFileSync(join(gitdir, "commondir"), "../..\n");
+    writeFileSync(join(linked, ".git"), `gitdir: ${gitdir}\n`);
     mkdirSync(join(primary, ".git"));
     expect(isLinkedWorktree(linked)).toBe(true);
     expect(isLinkedWorktree(primary)).toBe(false);
@@ -310,7 +337,12 @@ describe("a linked git worktree as the package root", () => {
     cpSync(join(PKG_ROOT, "skills"), join(pkg, "skills"), { recursive: true });
     cpSync(join(PKG_ROOT, "package.json"), join(pkg, "package.json"));
     symlinkSync(join(PKG_ROOT, "node_modules"), join(pkg, "node_modules"), "dir");
-    if (gitMarker === "file") writeFileSync(join(pkg, ".git"), "gitdir: /somewhere/.git/worktrees/transient\n");
+    if (gitMarker === "file") {
+      const gitdir = join(dirname(pkg), "common-git", "worktrees", "transient");
+      mkdirSync(gitdir, { recursive: true });
+      writeFileSync(join(gitdir, "commondir"), "../..\n");
+      writeFileSync(join(pkg, ".git"), `gitdir: ${gitdir}\n`);
+    }
     else mkdirSync(join(pkg, ".git"));
   }
 

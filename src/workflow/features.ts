@@ -343,10 +343,10 @@ export function listFeatures(root: string): Feature[] {
   return out;
 }
 
-/** Find a single feature by name across all stages. */
 /** More than one work item answers to the name; the caller has to ask for a full folder name. */
 export class AmbiguousFeatureError extends Error {}
 
+/** Find a single feature by name across all stages. */
 export function findFeature(root: string, name: string): Feature | null {
   const matches = listFeatures(root).filter((f) => f.name === name || f.folder === name);
   if (matches.length > 1) {
