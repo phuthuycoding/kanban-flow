@@ -125,14 +125,15 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   if (!parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done")) {
     return refused(`ledger is untimed: ${ledgerPath}`, "untimed ledger");
   }
-  const dependencies = Object.fromEntries(taskView(item).map((t) => [t.id, t.dependencies]));
+  const tasks = taskView(item);
+  const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
   const stats = loopStats(parsed, dependencies);
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
   if (!record) return { code: 0, stdout: report };
 
   const completed = new Set(parsed.lines.filter((l) => l.shape === "complete").map((l) => l.task));
   // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
-  const planned = taskView(item).map((t) => t.id);
+  const planned = tasks.map((t) => t.id);
   const ids = planned.length > 0 ? planned : [...new Set(parsed.lines.filter((l) => l.shape === "dispatched").map((l) => l.task!))];
   const missing = ids.filter((id) => !completed.has(id));
   if (missing.length > 0) {

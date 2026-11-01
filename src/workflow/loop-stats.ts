@@ -222,12 +222,11 @@ const isDone = (l: LedgerLine, task: string, seat: Seat): boolean => l.shape ===
 function developerGates(d: LedgerLine, before: LedgerLine[], deps: Record<string, string[]> | undefined): LedgerLine[] {
   const gates = before.filter((l) => isDone(l, d.task!, "test-writer"));
   for (const dep of deps?.[d.task!] ?? []) gates.push(...before.filter((l) => isDone(l, dep, "developer")));
-  const wait = before.filter((l) => l.shape === "developerWaits" && l.task === d.task).pop();
-  if (wait) {
+  for (const wait of before.filter((l) => l.shape === "developerWaits" && l.task === d.task)) {
     const after = before.slice(before.indexOf(wait) + 1);
     const overlap = /\((TASK-\d+)\)$/.exec(wait.reason!);
     if (overlap) gates.push(...after.filter((l) => l.shape === "complete" && l.task === overlap[1]));
-    else if (wait.reason!.startsWith("4 developers in flight")) {
+    else if (/^\d+ developers in flight/.test(wait.reason!)) {
       const first = after.find((l) => l.shape === "done" && l.seat === "developer");
       if (first) gates.push(first);
     }

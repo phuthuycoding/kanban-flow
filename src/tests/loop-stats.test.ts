@@ -270,6 +270,40 @@ describe("developer concurrency and dispatch lag", () => {
     });
   });
 
+  it("measures developer lag from the latest of every gate when a task waits on a file overlap and then on the cap", async () => {
+    // Gates of TASK-005: the cap wait is followed by the first developer done (TASK-002, 10:20), but the overlapping
+    // TASK-001 completes later (10:30). Lag from the latest gate is 10:34 - 10:30 = 4; reading only the last wait line gives 14.
+    const ledger = [
+      "# Task loop ledger — two gates",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:00:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T10:01:00Z",
+      "TASK-005: developer waits — Files overlap x / x (TASK-001) @ 2026-11-01T10:05:00Z",
+      "TASK-005: developer waits — 4 developers in flight @ 2026-11-01T10:10:00Z",
+      "TASK-002: developer done status=DONE @ 2026-11-01T10:20:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:22:00Z",
+      "TASK-001: complete (commits a000001) @ 2026-11-01T10:30:00Z",
+      "TASK-005: developer dispatched model=opus @ 2026-11-01T10:34:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 4, max: 4, n: 1 });
+  });
+
+  it("gates developer lag on the first developer done after a cap wait whatever the cap number is", async () => {
+    // A cap of 3 still gates: first developer done after the wait is 10:20, dispatch at 10:23 gives a lag of 3.
+    const ledger = [
+      "# Task loop ledger — other cap",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:00:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T10:01:00Z",
+      "TASK-003: developer waits — 3 developers in flight @ 2026-11-01T10:05:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:20:00Z",
+      "TASK-003: developer dispatched model=opus @ 2026-11-01T10:23:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 3, max: 3, n: 1 });
+  });
+
   it("reports peak 1 and overlap 0 when one developer ends exactly when another starts", async () => {
     const ledger = [
       "# Task loop ledger — touching",
