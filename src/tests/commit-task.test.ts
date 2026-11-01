@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, rm, access, copyFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, access, copyFile, chmod, readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathAllowed } from "../workflow/allowlist.js";
@@ -297,5 +297,81 @@ describe("commit-task.mjs", () => {
         expect(git("show", "--name-only", "--pretty=format:", "HEAD")).toBe("other.txt");
       });
     }
+  });
+
+  describe("sha confirmation by path identity", () => {
+    it("prints HEAD's sha and commits only the named path when a commit-msg hook rewrites the subject", async () => {
+      const hook = join(repo, ".git", "hooks", "commit-msg");
+      await writeFile(hook, ["#!/bin/sh", 'sed -i.bak "1s/^/[ABC-1] /" "$1"', ""].join("\n"));
+      await chmod(hook, 0o755);
+      await writeFile(join(repo, "mine.txt"), "changed\n");
+      await writeFile(join(repo, "other.txt"), "changed\n");
+
+      const r = run(["-m", "feat: a", "--allow", "mine.txt", "--", "mine.txt"]);
+
+      expect(r.status).toBe(0);
+      expect(git("log", "-1", "--format=%s")).toBe("[ABC-1] feat: a");
+      expect(r.stdout.trim()).toBe(git("rev-parse", "HEAD"));
+      expect(git("show", "--name-only", "--pretty=format:", "HEAD")).toBe("mine.txt");
+    });
+
+    it("no longer carries the subject comparison that rejected rewritten subjects", async () => {
+      const source = await readFile(SCRIPT, "utf8");
+
+      expect(source).not.toContain("could not be confirmed against the message");
+    });
+  });
+
+  describe("refuses directories and the repository root as paths", () => {
+    it("blocks a dot path even when the allowlist is a dot, committing and staging nothing", async () => {
+      await writeFile(join(repo, "mine.txt"), "changed\n");
+      await writeFile(join(repo, "other.txt"), "changed\n");
+      const headBefore = git("rev-parse", "HEAD");
+      const cachedBefore = git("diff", "--cached");
+
+      const r = run(["-m", "msg", "--allow", ".", "--", "."]);
+
+      expect(r.status).toBe(4);
+      expect(r.stderr).toContain("BLOCKED: . is a directory; name each file");
+      expect(git("rev-parse", "HEAD")).toBe(headBefore);
+      expect(git("rev-list", "--count", "HEAD")).toBe("1");
+      expect(git("diff", "--cached")).toBe(cachedBefore);
+      expect(git("diff", "--cached", "--name-only")).toBe("");
+    });
+
+    it("blocks an existing directory path, committing and staging nothing", async () => {
+      await mkdir(join(repo, "src"));
+      await writeFile(join(repo, "src", "new.txt"), "new\n");
+      const headBefore = git("rev-parse", "HEAD");
+
+      const r = run(["-m", "msg", "--allow", "src", "--", "src"]);
+
+      expect(r.status).toBe(4);
+      expect(r.stderr).toContain("BLOCKED: src is a directory; name each file");
+      expect(git("rev-parse", "HEAD")).toBe(headBefore);
+      expect(git("rev-list", "--count", "HEAD")).toBe("1");
+      expect(git("diff", "--cached", "--name-only")).toBe("");
+    });
+
+    it("commits a named file when the allowlist is a dot", async () => {
+      await writeFile(join(repo, "mine.txt"), "changed\n");
+      await writeFile(join(repo, "other.txt"), "changed\n");
+
+      const r = run(["-m", "msg", "--allow", ".", "--", "mine.txt"]);
+
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe(git("rev-parse", "HEAD"));
+      expect(git("show", "--name-only", "--pretty=format:", "HEAD")).toBe("mine.txt");
+    });
+
+    it("commits the deletion of a tracked file that no longer exists", async () => {
+      await unlink(join(repo, "mine.txt"));
+
+      const r = run(["-m", "msg", "--allow", "mine.txt", "--", "mine.txt"]);
+
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe(git("rev-parse", "HEAD"));
+      expect(git("show", "--name-status", "--pretty=format:", "HEAD")).toBe("D\tmine.txt");
+    });
   });
 });

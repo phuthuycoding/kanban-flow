@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Path-limited, lock-safe task commit: node commit-task.mjs -m <message> --allow <entry>... -- <path>...
 import { spawnSync } from "node:child_process";
+import { statSync } from "node:fs";
 
 const USAGE = "usage: commit-task.mjs -m <message> --allow <entry> [--allow <entry>...] -- <path>...";
 const RETRIES = 3;
@@ -109,6 +110,10 @@ for (const path of paths) {
     process.stderr.write(`BLOCKED: ${path} ${reason}\n`);
     process.exit(4);
   }
+  if (normalise(path) === "." || statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
+    process.stderr.write(`BLOCKED: ${path} is a directory; name each file\n`);
+    process.exit(4);
+  }
   if (!pathAllowed(path, allows)) {
     process.stderr.write(`BLOCKED: ${path} is outside the allowlist\n`);
     process.exit(4);
@@ -129,12 +134,11 @@ if (prefix !== "") {
 
 runGit(["add", "--", ...paths]);
 runGit(["commit", "-m", message, "--", ...paths]);
-// HEAD may already have moved on (a hook, another seat), so read the commit this call made by its paths.
-const [sha, subject] = runGit(["log", "-1", "--format=%H%n%s", "--", ...paths]).stdout.trim().split("\n");
-const collapse = (text) => text.replace(/\s+/g, " ").trim();
-const expected = collapse(message.trim().split(/\n\s*\n/)[0]);
-if (collapse(subject) !== expected) {
-  process.stderr.write(`BLOCKED: commit ${sha} made but its sha could not be confirmed against the message; check git log\n`);
+// HEAD may already have moved on (a hook, another seat); disjoint open-task Files make the latest commit on these paths this one.
+const log = spawnSync("git", ["--literal-pathspecs", "log", "-1", "--no-show-signature", "--format=%H", "--", ...paths], { encoding: "utf8" });
+const sha = (log.stdout ?? "").trim();
+if (log.error || log.status !== 0 || !/^[0-9a-f]{40}$/.test(sha)) {
+  process.stderr.write(`BLOCKED: commit made but its sha could not be read; check git log\n${log.error ? `${log.error.message}\n` : log.stderr}`);
   process.exit(4);
 }
 process.stdout.write(`${sha}\n`);
