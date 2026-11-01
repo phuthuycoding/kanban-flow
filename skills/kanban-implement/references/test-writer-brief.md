@@ -22,6 +22,7 @@ Agent:
 
     ## Where you work
     Worktree: [WORKTREE] on branch [BRANCH]. Never touch the main checkout.
+    Seats in flight: [IN_FLIGHT]
     Files allowlist: [FILES]. Write only test files and fixtures inside it, never production
     code; needing another file is a BLOCKED report naming the file and why.
 
@@ -57,5 +58,6 @@ Agent:
 - `[REPORT_FILE]` — `<item>/loop/task-NNN-tests-report.md`.
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
+- `[IN_FLIGHT]` — `none`, or the other seats in flight at dispatch (e.g. `developer TASK-002`).
 
 **What never goes in the dispatch:** the session's history, the whole plan, the developer's code, another task's findings.
