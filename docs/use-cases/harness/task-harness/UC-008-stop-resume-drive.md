@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Superseded by `drive-retire`.** `kf drive`, `kf run --task`, `kf runs` and `kf harness`, per-task worktrees, the plan `Role` column and the `harness.roles`/`stages`/`runners`/`main`/`parallel`/`retries`/`maxLoops`/`budget` keys are removed; only `harness.verify.task`/`stage` remain and the in-session loop runs each task. Kept for history.
+
 > **Partly superseded by `workflow-slim`:** the config is no longer simply re-taken at resume — a changed runner or verify argv, or a drive stopped on `config_changed`, is refused until `kf drive <feature> --accept-config` re-pins it. Kept for history.
 
 ## Overview

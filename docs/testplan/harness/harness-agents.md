@@ -6,6 +6,8 @@ status: archived
 ---
 # Test Plan
 
+> **Partly superseded by `drive-retire`:** the statements that `kf drive`, `kf run --task`, `harness.roles` and the `kf-run:` worker paragraphs of `kanban-implement` stay unchanged no longer hold — all are removed; the in-session loop is the only path. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
 

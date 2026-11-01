@@ -8,6 +8,8 @@ status: PASS
 
 # Testing Result
 
+> **Superseded by `drive-retire`.** `kf run`, `kf runs` and `kf harness` are removed and the `harness.roles`, `harness.stages`, `harness.runners` and `harness.main` config is gone (`kf doctor --fix` clears it), so the role chains, per-role sessions and role-to-runner mapping this doc describes no longer exist; the in-session loop of `kanban-implement` is the only path. Kept for history.
+
 ## Feature
 agent-roles
 

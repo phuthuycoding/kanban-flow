@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `drive-retire`:** the `src/harness/drive` modules this refactor split, and the `kf drive` run it describes, no longer exist — `kf drive` is removed. Kept for history.
+
 > **Partly superseded by `workflow-slim`:** `kf stage <feature> dones` no longer routes through archive — it is refused with a hint, because the stage is now `done` and is reached through the close (`kf status`, `kf sync` or `kf archive` after the merge); a reopen to legacy `dones` targets `done`. Kept for history.
 
 ## Feature

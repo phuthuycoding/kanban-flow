@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `drive-retire`:** the rule or check that involves `kf run`, `kf runs` or a `running` run no longer holds — those commands and run records are removed, so cancel has no run to block on. Kept for history.
+
 > **Partly superseded by `workflow-slim`:** the stage `dones` is now `done` (`STAGES[6] === "done"`; a legacy `dones` reopen target maps to `done`), so the rules here about cancelling, reopening or counting a `dones` item refer to `done`. Kept for history.
 
 ## Overview

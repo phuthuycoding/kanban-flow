@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Diagram
 
+> **Partly superseded by `drive-retire`:** the parts that use `kf drive` (config resolution, `--status`/`--watch`, drive supervisor and workers) or `kf run` no longer hold — both are removed; `travel` runs items itself in the session and the in-session loop is the only implementation path. Kept for history.
+
 ```mermaid
 flowchart LR
   M[Maintainer] --> UC1[UC-001 Approve starts; --backlog defers]

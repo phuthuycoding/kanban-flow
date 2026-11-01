@@ -8,6 +8,8 @@ status: PASS
 
 # Testing Result
 
+> **Partly superseded by `drive-retire`:** the rule or check that involves `kf run`, `kf runs` or a `running` run no longer holds — those commands and run records are removed, so cancel has no run to block on. Kept for history.
+
 ## Feature
 cancel-work-item
 
