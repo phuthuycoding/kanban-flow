@@ -33,6 +33,8 @@ Agent:
        fails for the right reason before the developer is dispatched:
        the behaviour is missing or wrong, not a syntax error, a wrong import path or a
        broken fixture. A test that already passes is a concern to report.
+       Your run is advisory while a developer is in flight in this worktree: say so in
+       your report; the developer's step-3 run then confirms the failures.
     3. Do not commit; the developer commits the task with your tests unchanged.
     4. Never spawn agents or reviewers.
 

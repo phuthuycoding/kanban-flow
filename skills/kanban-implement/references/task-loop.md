@@ -61,4 +61,4 @@ Every `Ruling:` line is a decision you took on the human's behalf. Collect them 
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. |
 | "The developer spawned its own reviewer — free extra assurance" | A duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigour. |
-| "Two tasks touch different files, run them in parallel" | Same git history: task A's review package contains task B's commits and the reviewer grades the wrong diff, silently. Tasks in one worktree run one after another. |
+| "Two tasks touch different files, run them all in parallel" | One developer seat per worktree and at most two tasks in flight — the head and the next — and only when `overlaps` in `kf tasks <f> --json` says their Files are disjoint. Each task's package and `kf verify` take its own commit list, never a range: a range would carry the other task's commits and the reviewer would grade the wrong diff, silently. |

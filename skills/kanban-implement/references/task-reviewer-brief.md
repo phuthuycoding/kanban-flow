@@ -34,6 +34,8 @@ Agent:
     judge is cut off mid-function, and say so. Inspect code outside the diff only for a
     concrete named risk (a changed contract, shared state, lock ordering), one focused check
     per risk, both named in your report.
+    Beside this task, the working tree may hold another task's uncommitted edits in its Files:
+    only the package is graded; files outside this task's Files are context only.
 
     ## Tests
     The developer ran the tests and reported TDD evidence for exactly this code. Do not
@@ -82,7 +84,7 @@ Agent:
 - `[RULE_FILES]` — the rule files resolved once by the controller, project → user → package (`.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, the package's `kanban-flow/review/rules/*.md`) plus `AGENTS.md`/`CLAUDE.md` when present.
 - `[BRIEF_FILE]`, `[REPORT_FILE]` — the brief the developer worked from and the `<item>/loop/task-NNN-report.md` it wrote.
 - `[GLOBAL_CONSTRAINTS]` — copied verbatim from the plan's `## Global Constraints` (exact values, formats, relationships) — not process rules, which the template already carries.
-- `[BASE_SHA]`, `[HEAD_SHA]`, `[DIFF_FILE]` — the recorded `BASE`, the current head, and the package `review-package` wrote.
+- `[BASE_SHA]`, `[HEAD_SHA]`, `[DIFF_FILE]` — the recorded `BASE`, the task's last commit, and the package `review-package --commits <sha>[,<sha>…]` wrote from the task's commit list.
 - `[REVIEW_REPORT_FILE]` — `<item>/loop/task-NNN-review.md`, written by the controller from the reply, verbatim.
 
 **Never in the brief:** "check all uses", "run the race tests if useful" without a task-specific reason; "do not flag X"; "at most LOW". If you believe a finding would be a false positive, let the reviewer raise it and adjudicate it in the loop.

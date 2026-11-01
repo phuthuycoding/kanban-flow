@@ -35,7 +35,15 @@ Agent:
     ## Commit
     The loop commits this task: you commit the test-writer's tests and your code in one
     commit on [BRANCH], message in the repository's convention, no attribution trailers.
-    Stage files by path, never everything, so no spec file lands in it. Never push.
+    Stage by path, never everything, so no spec file lands in it. Before committing, check
+    `git diff --cached --name-only` against [FILES] plus [TEST_FILES]; any other staged path → `BLOCKED` naming it, no commit.
+    The same check holds for every commit you make; the same rule applies to fix rounds. Never push.
+
+    ## Checks while another seat is in flight
+    Your typecheck, lint, build and test runs are advisory while another seat is in flight:
+    focused tests only, no full suite while another seat is in flight; a failure in a file you
+    neither wrote nor were handed is reported as `not mine: <file>`. `kf verify --commits` is
+    the task's authoritative check.
 
     ## You do not dispatch subagents
     Never spawn a helper or a reviewer; a fresh reviewer is dispatched against your diff.

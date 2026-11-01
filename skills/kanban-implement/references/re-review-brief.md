@@ -23,6 +23,13 @@ Agent:
     Read the fixing seat's report (fix reports are appended at the end): [REPORT_FILE]
     Fix base: [FIX_BASE_SHA] (the head the previous review saw)  Head: [HEAD_SHA]
     Diff file: [DIFF_FILE] — read it once; do not re-run git commands.
+    Beside this task, the working tree may hold another task's uncommitted edits in its Files:
+    only the package is graded; files outside this task's Files are context only.
+
+    ## The head task's fix (cascade re-review only)
+    [CASCADE_FIX_DIFF]
+    For a cascade re-review, the head task's fix landed after this task's developer was
+    dispatched: check this task's commits still hold against it.
 
     ## Scope
     Your scope is the findings list and the fix diff. Verdict every finding. Inspect the fix
@@ -52,5 +59,6 @@ Agent:
 
 - `[MODEL]` — REQUIRED; `sonnet` for a small fix diff.
 - `[FINDINGS]` — copied verbatim from the previous review, one bullet each.
-- `[FIX_BASE_SHA]` — the head the previous review saw; `[HEAD_SHA]` the current head; `[DIFF_FILE]` the package `review-package FIX_BASE HEAD …` wrote.
+- `[FIX_BASE_SHA]` — the head the previous review saw; `[HEAD_SHA]` the current head; `[DIFF_FILE]` the package `review-package --commits <fix sha>[,<fix sha>…] …` wrote from the round's fix commits (for a cascade re-review, from this task's own commits).
+- `[CASCADE_FIX_DIFF]` — for a cascade re-review (`cascade=<sha7>`), the path of the package `review-package --commits <sha7>` wrote from the head task's fix commit; "none" otherwise.
 - `[REVIEW_REPORT_FILE]` — `<item>/loop/task-NNN-review-r<R>.md`, written by the controller from the reply, verbatim.
