@@ -494,6 +494,68 @@ describe("a linked git worktree as the package root", () => {
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("kf doctor --fix with a project config it cannot read does not crash, links nothing and reports the config", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    stagePackage(pkg, "dir");
+    await projectAt(root);
+    chmodSync(join(root, ".kf", "config.json"), 0o000);
+    try {
+      const res = kfFrom(pkg, root, home, "doctor", "--fix");
+      expect(res.code, res.out).toBe(1);
+      expect(res.out).not.toMatch(/^\s+at /m);
+      expect(res.out.split("\n").some((l) => l.includes("[ERROR]") && l.includes(".kf/config.json")), res.out).toBe(true);
+      expect(existsSync(join(home, ".claude"))).toBe(false);
+    } finally {
+      chmodSync(join(root, ".kf", "config.json"), 0o644);
+    }
+  });
+
+  /** The interactive path needs a terminal on both ends; a pty from python gives one while stdin stays closed. */
+  function kfOnTerminal(pkg: string, cwd: string, home: string, ...argv: string[]): { code: number; out: string } {
+    const prog = "import os,pty,sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))";
+    const { KF_ALLOW_WORKTREE_LINK: _optOut, ...base } = process.env;
+    const r = spawnSync("python3", ["-I", "-c", prog, process.execPath, join(pkg, "dist", "index.js"), ...argv], {
+      cwd, encoding: "utf8", input: "", timeout: 8_000, env: { ...base, HOME: home, USERPROFILE: home },
+    });
+    // A kf that waits at a prompt never exits; the timeout is the signal, and the output shows the prompt.
+    if (r.error && (r.error as NodeJS.ErrnoException).code !== "ETIMEDOUT") throw r.error;
+    return { code: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+  }
+
+  it.skipIf(process.platform === "win32")("interactive kf init from a linked worktree at the default global scope refuses before it prompts", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    await mkdir(root, { recursive: true });
+    stagePackage(pkg, "file");
+
+    const res = kfOnTerminal(pkg, root, home, "init");
+    expect(res.out).not.toContain("Setup mode");
+    expect(res.out).toContain("primary checkout");
+    expect(res.code, res.out).toBe(1);
+    expect(await readdir(root)).toEqual([]);
+  });
+
+  it.skipIf(process.platform === "win32")("interactive kf init from a linked worktree refuses before it prompts when the config declares global", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    stagePackage(pkg, "file");
+    await projectAt(root);
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", skills: { scope: "global" } }));
+
+    const res = kfOnTerminal(pkg, root, home, "init");
+    expect(res.out).not.toContain("Setup mode");
+    expect(res.out).toContain("primary checkout");
+    expect(res.code, res.out).toBe(1);
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+
   it("kf doctor without --fix tells a linked-worktree user to run from the primary checkout", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");

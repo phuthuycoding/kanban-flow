@@ -91,8 +91,8 @@ export async function repairSkills(root: string, fixed: string[], failures: Doct
   try {
     cfg = readProjectConfig(root);
   } catch (err) {
-    // runDoctor reports the broken config as an ERROR; without it the scope is unknown, so nothing is installed.
-    if (err instanceof ProjectConfigError) return;
+    // runDoctor reports the broken or unreadable config as an ERROR; without it the scope is unknown, so nothing is installed.
+    if (err instanceof ProjectConfigError || (err instanceof Error && "code" in err)) return;
     throw err;
   }
   const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];

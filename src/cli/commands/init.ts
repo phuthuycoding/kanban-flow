@@ -90,6 +90,11 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
 
   const explicitContext = typeof args.options.context === "string" ? args.options.context : undefined;
 
+  // A scope known before the prompts (declared, or the global default) is refused before the user answers anything.
+  const declared = readProjectConfig(target).skills?.scope;
+  const early = (declared ?? "global") === "global" ? globalLinkRefusal() : null;
+  if (early) return { code: 1, stdout: "", stderr: early };
+
   let answers: BootstrapAnswers;
   if (interactive && !tty) {
     answers = bootstrapDefaults(target, explicitContext);
@@ -101,7 +106,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
 
   const flagged = parseAgentIds(args.options.agent);
   if (flagged.length > 0) answers.agents = flagged;
-  // Refused before the first write, so a refused init leaves nothing half-made behind.
+  // A global scope chosen in the prompts is refused here, still before the first write.
   const refusal = answers.skillScope === "global" ? globalLinkRefusal() : null;
   if (refusal) return { code: 1, stdout: "", stderr: refusal };
 

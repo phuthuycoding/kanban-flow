@@ -348,6 +348,19 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(isAlive(unrelated.pid!)).toBe(true);
   });
 
+  it("kf doctor --fix strips an item whose recorded pid runs another app's dist/index.js", async () => {
+    await projectWithHarness(undefined);
+    const other = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "dist/index.js", "serve"], { stdio: "ignore" });
+    children.push(other);
+    const recycled = await item("recycled", leftovers(DEAD_PID, other.pid!));
+
+    const res = await runDoctorFixes(root);
+
+    expect(res.failures).toEqual([]);
+    const after = JSON.parse(await readFile(recycled.file, "utf8")) as Record<string, unknown>;
+    for (const key of META_LEFTOVERS) expect(after, key).not.toHaveProperty(key);
+  });
+
   it("kf doctor reports no live pid for an unrelated process holding a recorded pid", async () => {
     await projectWithHarness(undefined);
     const unrelated = spawn("sleep", ["30"], { stdio: "ignore" });
