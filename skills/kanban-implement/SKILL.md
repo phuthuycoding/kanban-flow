@@ -23,13 +23,13 @@ kf stage {feature_name} implementation
 
 **Worktree:** when the project opted in with `worktree.enabled: true`, entering implementation provisions a git worktree + a `.<tld>` domain for the item — `kf status --change {feature_name}` prints `Worktree:` (path), `Domain:` (`http://<feature>.<baseDomain>`) and the direct `127.0.0.1:<port>` fallback. **All code work happens inside that worktree on its branch (`<prefix>/<feature>`, printed as `Worktree: … (branch …)`) — never on the user's main checkout.** Commit your changes there; the merge back is the human's call, not yours. `.works/` artifacts and `kf` commands keep working from inside the worktree (project root resolves through the git common dir). If domain DNS is not set up on the machine yet, the direct `127.0.0.1:<port>` URL always works; `kf worktree setup` (sudo, once) fixes the domain. A project `worktree-create.sh` hook may already have installed deps and seeded `.env` — check before re-installing.
 
-**Owner rule:** a `driving` or `blocked` line for this item in `.kf/travel/progress.md` means travel owns it — never run its task loop a second time from here. A `blocked` item the human opened in this session is yours to fix until they say it is done; travel takes it back after that.
+**Owner rule:** a `driving` or `blocked` line for this item in `.kf/travel/progress.md` means travel owns it — a session other than the travel session that wrote the line never runs its task loop a second time from here. A `blocked` item the human opened in this session is yours to fix until they say it is done; travel takes it back after that.
 
 Create tasks.md if missing: `- [ ] 1. ...` checkboxes mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. Preserve completed tasks on resume; add the required fix tasks when looping. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes. When a worktree exists, the baseline HEAD is the worktree branch's branch point, recorded from inside the worktree.
 
 ## 2. Read the verify configuration
 
-Read `.kf/config.json`. `harness.verify.task` lists the commands `kf verify <f> --task` runs after each task commit (3.2); `harness.verify.stage` lists the commands `kf verify <f> --stage` runs at the build gate (section 4). With no commands configured, `kf verify` exits 0 and prints `No task verify configured`.
+Read `.kf/config.json`. `harness.verify.task` lists the commands `kf verify <f> --task` runs after each task commit (3.2); `harness.verify.stage` lists the commands `kf verify <f> --stage` runs at the build gate (section 4). With no commands configured, `kf verify` still checks the task's Files allowlist on `--task`; exit 0 then means only that nothing was run, so call it unconditionally.
 
 ## 3. The subagent-driven task loop
 
@@ -68,7 +68,7 @@ The developer writes its full report to `<item>/loop/task-NNN-report.md` and ret
 
 - **DONE** → for a UI task under `Level: full`, the automation-writer step above first; then run `kf verify <f> --task TASK-### --base <BASE>` in the worktree and act on its exit code:
   - exit 0 → `bash <kanban-review skill dir>/scripts/review-package "$BASE" HEAD <item>/loop/review-<base7>..<head7>.diff` (exit 3 "empty commit range" means it committed nothing: send it back — DONE requires a commit), then 3.3.
-  - exit 2 (a changed file is outside the task's Files; the output lists them) → stop: this is a plan change — edit the plan's Files with the human and have them re-approve (`kf approve`), then re-run `kf verify`. Never a fix round.
+  - exit 2 (a changed file is outside the task's Files; the output lists them) → stop: this is a plan change — `kf stage <f> planning`, edit the plan's Files, have the human re-approve with `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`. Never a fix round.
   - exit 1 (a `harness.verify.task` command failed) → resume the developer for a fix round (3.4) with the verify output as the finding, then re-run `kf verify`.
   - exit 3 (bad input: unknown task, `BASE` not a commit or not an ancestor, missing worktree; nothing ran) → your call is wrong: fix the call and re-run it, never a fix round.
 - **DONE_WITH_CONCERNS** → read the concerns; correctness or scope concerns are addressed before review, observations are noted and reviewed.

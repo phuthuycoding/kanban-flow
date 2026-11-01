@@ -33,6 +33,16 @@ describe("task harness surfaces", () => {
     expect(impl).not.toContain("Pick the agent that fits");
   });
 
+  it("kanban-implement's exit-2 line sends the plan back to planning before the human re-approves", () => {
+    const impl = read("skills", "kanban-implement", "SKILL.md");
+    const line = impl.split("\n").find((l) => /exit 2/.test(l) && /outside/.test(l)) ?? "";
+    expect(line).not.toBe("");
+    const stage = line.indexOf("kf stage <f> planning");
+    const approve = line.indexOf("kf approve");
+    expect(stage).toBeGreaterThanOrEqual(0);
+    expect(approve).toBeGreaterThan(stage);
+  });
+
   it("kanban-flow checks worktrees at the start decision and hands off to no drive", () => {
     const flow = read("skills", "kanban-flow", "SKILL.md");
     expect(flow).not.toMatch(/`kf drive <f>`|kf drive when/);

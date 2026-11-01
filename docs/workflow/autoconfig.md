@@ -49,7 +49,6 @@ Four sections, in order:
 | `.works/` ignored | `.gitignore` lists `.works/` — only checked when `.git` exists | `echo '.works/' >> .gitignore` |
 | Agent file | `AGENTS.md` or `CLAUDE.md` at the root | create `AGENTS.md` documenting the commands and conventions |
 | Declared contexts | `contexts` in `.kf/config.json` | optional — `kf contexts` prints a survey brief for an agent to propose a list, a human confirms it. Without a list, `kf new` accepts any context |
-| Harness | a `harness` block in `.kf/config.json` | optional — `harness.verify.task` and `.stage` are the argv lists `kf verify` runs; `kf init --defaults` seeds them |
 | Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — add shell hooks named after stages (see below) |
 | GitHub link | `repository` in `.kf/config.json` | optional — `kf doctor --fix` fills it from the GitHub origin remote, or set `repository` by hand |
 

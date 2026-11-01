@@ -31,9 +31,9 @@ kf verify <feature> --stage
 
 | Exit | Meaning |
 |---|---|
-| 0 | the verify commands passed (and, for `--task`, every changed file is inside the allowlist) |
+| 0 | the verify commands passed or none are configured (nothing is run), and, for `--task`, every changed file is inside the allowlist |
 | 1 | a verify command failed |
-| 2 | a file outside the task's allowlist changed: edit the plan's Files and re-approve, or revert the file |
+| 2 | a file outside the task's allowlist changed: `kf stage <f> planning`, edit the plan's Files, the human approves, `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`; or revert the file |
 | 3 | bad input (missing feature, `--task` without `--base`, both or neither of `--task` and `--stage`); nothing was run |
 
 The task loop in `kanban-implement` runs `kf verify --task` after each task commit and `kf verify --stage` before it moves on; the exit code, not the developer's report, decides whether the task is done.

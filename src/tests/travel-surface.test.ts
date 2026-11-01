@@ -93,16 +93,30 @@ describe("the travel skill", () => {
     expect(skill).toMatch(/restarts? no item|never restarts? an item|does not restart/i);
   });
 
-  it("never approves, archives, merges or pushes to main: no approve, archive, stage, ship or merge among the commands it runs, and never --watch", () => {
+  it("never approves, archives, merges or pushes to main, and runs no backward, planning or backlog stage move, and never --watch", () => {
     const blocks = bashBlocks(skill);
     expect(blocks.length).toBeGreaterThan(0);
     for (const block of blocks) {
-      expect(block).not.toMatch(/kf (approve|archive|stage|ship|cancel)\b/);
-      expect(block).not.toMatch(/gh pr merge|git merge|git push/);
+      expect(block).not.toMatch(/kf (approve|archive|ship|cancel)\b/);
+      expect(block).not.toMatch(/kf stage\s+\S+\s+(planning|backlog)\b/);
+      expect(block).not.toMatch(/gh pr merge|git merge/);
+      expect(block).not.toMatch(/git push[^\n]*\b(main|master)\b/);
       expect(block).not.toMatch(/--watch|--follow/);
     }
-    for (const forbidden of ["`kf approve`", "`kf archive`", "`kf stage`", "`gh pr merge`"]) expect(skill).toContain(forbidden);
+    for (const forbidden of ["`kf approve`", "`kf archive`", "`gh pr merge`"]) expect(skill).toContain(forbidden);
     expect(skill).not.toContain("kf travel");
+  });
+
+  it("allows the forward stage moves and the item-branch push and pull request inside the item worktree", () => {
+    const rule = skill.split("\n").find((l) => /never approves, archives, merges/.test(l)) ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).not.toMatch(/never runs[^.]*`kf stage`/);
+    expect(rule).not.toMatch(/never runs[^.]*`git push`/);
+    expect(skill).toMatch(/forward[^\n]*`kf stage`|`kf stage`[^\n]*forward/i);
+    expect(skill).toContain("gh pr create");
+    expect(skill).toMatch(/item branch/i);
+    expect(skill).toMatch(/push(es)? (to|of) (the )?(default branch|main)|push to main/i);
+    expect(skill).toMatch(/(backward|planning|backlog)[^\n]*`kf stage|`kf stage[^\n]*(backward|planning|backlog)/i);
   });
 
   it("states the ownership rule, and the phase skills honour it", () => {
@@ -111,6 +125,13 @@ describe("the travel skill", () => {
       const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
       expect(text, other).toMatch(/`driving` or `blocked`/);
       expect(text, other).toContain(".kf/travel/progress.md");
+    }
+  });
+
+  it("names the owner as a session other than the travel session that wrote the line", () => {
+    for (const other of ["kanban-flow", "kanban-implement"]) {
+      const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
+      expect(text, other).toContain("a session other than the travel session that wrote the line");
     }
   });
 

@@ -95,7 +95,7 @@ The `## Task Breakdown` table in `phase-2-implementation-plan.md` is what the [t
 | --- | --- |
 | `Task` | `TASK-###`, unique |
 | `Dependencies` | `TASK-###` ids this task waits for; `-`, `none` or empty for none |
-| `Files` | comma-separated paths, directories or globs the task may change — its allowlist. A directory allows everything under it, and so does a glob that matches a directory: `src/*` also allows `src/x/y.ts`. Tasks whose Files overlap are not run side by side; an empty cell means "files unknown" and `kf verify --task` refuses nothing for that task |
+| `Files` | comma-separated paths, directories or globs the task may change — its allowlist. A directory allows everything under it, and so does a glob that matches a directory: `src/*` also allows `src/x/y.ts`. The controller should not run tasks whose Files overlap side by side; an empty cell means "files unknown" and `kf verify --task` refuses nothing for that task |
 
 Two sections after the table bind the reviewers rather than the scheduler. `## Global Constraints` lists the spec's project-wide requirements verbatim (version floors, dependency limits, naming and copy rules, exact values); the task reviewer in `kanban-implement` receives it word for word, so a constraint missing here is a constraint nobody checks. `## Review Focus` lists up to five inputs or failure modes the spec implies but no task's tests exercise, each as the condition and the behaviour expected; each line's pinning test belongs to the task that owns the behaviour. Both take `None` — the first when the spec states none, the second only after checking.
 
