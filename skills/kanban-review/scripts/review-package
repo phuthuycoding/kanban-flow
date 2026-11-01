@@ -4,6 +4,7 @@
 # through the orchestrator's context.
 #
 # Usage: review-package BASE HEAD OUTFILE [--untracked] [-- <pathspec>...]
+#        review-package --commits <sha>[,<sha>...] OUTFILE [-- <pathspec>...]
 #   BASE         the commit the work started from (the ## Baseline of tasks.md, or the
 #                task's recorded BASE); never HEAD~1, which truncates multi-commit work
 #   HEAD         the commit to review up to (usually HEAD)
@@ -13,16 +14,92 @@
 #                binaries, files under the kanban work dirs (.works/, .worktrees/) and
 #                anything over MAX_LINES lines are skipped or truncated, and listed
 #   -- <pathspec>...  limit the package to these paths (one bundle of an oversized diff)
+#   --commits    package exactly the listed commits, each diffed against its first parent,
+#                in the given order (a commit list, not a range); must be the first
+#                argument and cannot be combined with --untracked
 #
-# Exit 2: bad arguments. Exit 3: HEAD is not a descendant of BASE, or the range is
-# empty and nothing is untracked (a wrong branch, or an implementer that committed
-# nothing — send it back; DONE requires a commit).
+# Exit 2: bad arguments, or with --commits a sha that is not a commit, a merge or root
+# commit, a repeated sha, or --untracked. Exit 3: HEAD is not a descendant of BASE, or the
+# range is empty and nothing is untracked (a wrong branch, or an implementer that
+# committed nothing — send it back; DONE requires a commit); with --commits, the listed
+# commits have an empty diff.
 set -euo pipefail
 
 MAX_LINES=400
 
+usage="usage: review-package BASE HEAD OUTFILE [--untracked] [-- <pathspec>...] | review-package --commits <sha>[,<sha>...] OUTFILE [-- <pathspec>...]"
+
+if [ "${1:-}" = "--commits" ]; then
+  if [ $# -lt 3 ]; then
+    echo "$usage" >&2
+    exit 2
+  fi
+  list=$2
+  out=$3
+  shift 3
+  pathspec=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --untracked) echo "--untracked cannot be used with --commits" >&2; exit 2 ;;
+      --) shift; pathspec=("$@"); break ;;
+      *) echo "unknown argument: $1 (expected -- <pathspec>)" >&2; exit 2 ;;
+    esac
+  done
+
+  given=()
+  full=()
+  rest="${list},"
+  while [ -n "$rest" ]; do
+    sha=${rest%%,*}
+    rest=${rest#*,}
+    [ -n "$sha" ] || { echo "bad commit: " >&2; exit 2; }
+    resolved=$(git rev-parse --verify --quiet "${sha}^{commit}") || { echo "bad commit: $sha" >&2; exit 2; }
+    parents=$(git rev-list --parents -n 1 "$resolved" | wc -w | tr -d ' ')
+    [ "$parents" -le 2 ] || { echo "merge commit: $sha" >&2; exit 2; }
+    [ "$parents" -ge 2 ] || { echo "root commit: $sha" >&2; exit 2; }
+    for seen in ${full[@]+"${full[@]}"}; do
+      [ "$seen" != "$resolved" ] || { echo "repeated commit: $sha" >&2; exit 2; }
+    done
+    given+=("$sha")
+    full+=("$resolved")
+  done
+  [ ${#full[@]} -gt 0 ] || { echo "bad commit: " >&2; exit 2; }
+
+  nonempty=0
+  for c in "${full[@]}"; do
+    if ! git diff --quiet "${c}^" "$c" -- ${pathspec[@]+"${pathspec[@]}"}; then nonempty=1; fi
+  done
+  if [ "$nonempty" -eq 0 ]; then
+    echo "empty commit list diff: ${list}" >&2
+    exit 3
+  fi
+
+  shorts=()
+  for c in "${full[@]}"; do shorts+=("$(git rev-parse --short=7 "$c")"); done
+  mkdir -p "$(dirname "$out")"
+  {
+    echo "# Review package: commits $(IFS=,; echo "${shorts[*]}")"
+    if [ ${#pathspec[@]} -gt 0 ]; then echo "Pathspec: ${pathspec[*]}"; fi
+    echo
+    echo "## Commits"
+    for c in "${full[@]}"; do git log -1 --oneline "$c"; done
+    echo
+    echo "## Files changed"
+    for c in "${full[@]}"; do
+      git -c core.quotePath=false diff --name-only "${c}^" "$c" -- ${pathspec[@]+"${pathspec[@]}"}
+    done | LC_ALL=C sort -u
+    echo
+    echo "## Diff"
+    for c in "${full[@]}"; do
+      git diff -U10 "${c}^" "$c" -- ${pathspec[@]+"${pathspec[@]}"}
+    done
+  } > "$out"
+  echo "wrote ${out}: ${#full[@]} commit(s), 0 untracked file(s) (0 skipped), $(wc -c < "$out" | tr -d ' ') bytes"
+  exit 0
+fi
+
 if [ $# -lt 3 ]; then
-  echo "usage: review-package BASE HEAD OUTFILE [--untracked] [-- <pathspec>...]" >&2
+  echo "$usage" >&2
   exit 2
 fi
 

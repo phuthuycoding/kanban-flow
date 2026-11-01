@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Write a review package — commit list, stat summary and the net diff with extended
+# context — to one file a reviewer reads in a single call, so the diff never passes
+# through the orchestrator's context.
+#
+# Usage: review-package BASE HEAD OUTFILE [--untracked] [-- <pathspec>...]
+#   BASE         the commit the work started from (the ## Baseline of tasks.md, or the
+#                task's recorded BASE); never HEAD~1, which truncates multi-commit work
+#   HEAD         the commit to review up to (usually HEAD)
+#   OUTFILE      where to write; the parent directory is created
+#   --untracked  also append untracked, non-ignored text files — they are invisible to
+#                `git diff` and a worktree under review may still hold them. Symlinks,
+#                binaries, files under the kanban work dirs (.works/, .worktrees/) and
+#                anything over MAX_LINES lines are skipped or truncated, and listed
+#   -- <pathspec>...  limit the package to these paths (one bundle of an oversized diff)
+#
+# Exit 2: bad arguments. Exit 3: HEAD is not a descendant of BASE, or the range is
+# empty and nothing is untracked (a wrong branch, or an implementer that committed
+# nothing — send it back; DONE requires a commit).
+set -euo pipefail
+
+MAX_LINES=400
+
+if [ $# -lt 3 ]; then
+  echo "usage: review-package BASE HEAD OUTFILE [--untracked] [-- <pathspec>...]" >&2
+  exit 2
+fi
+
+base=$1
+head=$2
+out=$3
+shift 3
+untracked=0
+pathspec=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --untracked) untracked=1; shift ;;
+    --) shift; pathspec=("$@"); break ;;
+    *) echo "unknown argument: $1 (expected --untracked or -- <pathspec>)" >&2; exit 2 ;;
+  esac
+done
+
+git rev-parse --verify --quiet "$base" >/dev/null || { echo "bad BASE: $base" >&2; exit 2; }
+git rev-parse --verify --quiet "$head" >/dev/null || { echo "bad HEAD: $head" >&2; exit 2; }
+git merge-base --is-ancestor "$base" "$head" || { echo "HEAD is not a descendant of BASE: ${base}..${head}" >&2; exit 3; }
+
+commits=$(git rev-list --count "${base}..${head}")
+new=""
+if [ "$untracked" = "1" ]; then
+  if [ ${#pathspec[@]} -gt 0 ]; then
+    new=$(git -c core.quotePath=false ls-files --others --exclude-standard -- "${pathspec[@]}")
+  else
+    new=$(git -c core.quotePath=false ls-files --others --exclude-standard)
+  fi
+fi
+if [ "$commits" -eq 0 ] && [ -z "$new" ]; then
+  echo "empty commit range: ${base}..${head} (and nothing untracked)" >&2
+  exit 3
+fi
+
+mkdir -p "$(dirname "$out")"
+skipped=()
+{
+  echo "# Review package: ${base}..${head}"
+  if [ ${#pathspec[@]} -gt 0 ]; then echo "Pathspec: ${pathspec[*]}"; fi
+  echo
+  echo "## Commits"
+  git log --oneline "${base}..${head}" -- ${pathspec[@]+"${pathspec[@]}"}
+  echo
+  echo "## Files changed"
+  git diff --stat "${base}..${head}" -- ${pathspec[@]+"${pathspec[@]}"}
+  echo
+  echo "## Diff"
+  git diff -U10 "${base}..${head}" -- ${pathspec[@]+"${pathspec[@]}"}
+  if [ -n "$new" ]; then
+    echo
+    echo "## Untracked new files"
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      case "$f" in .works/*|.worktrees/*) skipped+=("$f (kanban work dir)"); continue ;; esac
+      if [ -L "$f" ]; then skipped+=("$f (symlink)"); continue; fi
+      [ -f "$f" ] || { skipped+=("$f (not a regular file)"); continue; }
+      if ! grep -Iq . -- "$f" 2>/dev/null; then skipped+=("$f (binary or empty)"); continue; fi
+      total=$(wc -l < "$f" | tr -d ' ')
+      echo
+      echo "### $f"
+      if [ "$total" -gt "$MAX_LINES" ]; then
+        head -n "$MAX_LINES" -- "$f"
+        echo
+        echo "[truncated: ${total} lines, first ${MAX_LINES} shown]"
+      else
+        cat -- "$f"
+      fi
+    done <<< "$new"
+    if [ ${#skipped[@]} -gt 0 ]; then
+      echo
+      echo "### Skipped untracked files (listed by name only)"
+      printf -- '- %s\n' "${skipped[@]}"
+    fi
+  fi
+} > "$out"
+
+echo "wrote ${out}: ${commits} commit(s), $(printf '%s\n' "$new" | grep -c . || true) untracked file(s) (${#skipped[@]} skipped), $(wc -c < "$out" | tr -d ' ') bytes"
