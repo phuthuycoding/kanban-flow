@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { MANAGED_AGENTS, PKG_AGENTS_DIR, agentsState, installAgentsTo, removeAgentsFrom, cmdInstall, cmdUninstall } from "../integrations/install.js";
+import { commandHelp } from "../cli/args.js";
 import { PKG_ROOT } from "../shared/paths.js";
 
 let dir: string;
@@ -142,7 +143,7 @@ describe("kf install / uninstall carry the agents", () => {
     const res = await cmdInstall(["claude", "codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("Claude Code agents:");
-    for (const name of MANAGED_AGENTS) {
+    for (const name of ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
       expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(true);
     }
     expect(existsSync(join(dir, ".agents", "agents"))).toBe(false);
@@ -189,5 +190,18 @@ describe("kf install / uninstall carry the agents", () => {
     }
     expect(existsSync(join(dir, ".claude", "agents", "mine.md"))).toBe(true);
     expect(await readFile(join(dir, ".claude", "agents", "scout.md"), "utf8")).toBe(FOREIGN);
+  });
+});
+
+describe("kf install / uninstall help", () => {
+  it("names the six agents", () => {
+    for (const command of ["install", "uninstall"]) {
+      const help = commandHelp(command);
+      expect(help).toContain("6 kanban agents");
+    }
+    const install = commandHelp("install");
+    for (const name of ["developer", "test-writer", "automation-writer"]) {
+      expect(install).toContain(name);
+    }
   });
 });
