@@ -25,6 +25,8 @@ Agent:
     ## The tests
     The test-writer's test files: [TEST_FILES]. Never edit those test files. Make them pass;
     a test you believe is wrong is a `TEST_DISPUTE: <file:line> <why>` line with BLOCKED.
+    The controller hashes these test files before you start and compares the hashes after you report;
+    a changed test file goes back to the test-writer like a dispute.
     With no test-writer for this task, report `No TDD: <why>` plus the real-run output.
     The automation-writer's spec files: [SPEC_FILES]. Never edit them and keep them out of your task commit;
     you commit them unchanged as a second commit when you are resumed to do so.

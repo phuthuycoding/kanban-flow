@@ -40,10 +40,10 @@ Agent:
 **Placeholders**
 
 - `[MODEL]` — REQUIRED. See `references/task-loop.md` § Model selection.
-- `[BRIEF_FILE]` — `<item>/loop/task-NNN-brief.md` in the task loop, carrying the task's UI/E2E TC blocks; kanban-test section 2 names its own.
-- `[REPORT_FILE]` — `<item>/loop/task-NNN-e2e-report.md` in the task loop; kanban-test section 2 names its own.
+- `[BRIEF_FILE]` — `<item>/loop/task-NNN-brief.md` in the task loop, carrying the task's UI/E2E TC blocks; `<item>/loop/testing-e2e-brief.md` at the testing stage (kanban-test section 2).
+- `[REPORT_FILE]` — `<item>/loop/task-NNN-e2e-report.md` in the task loop; `<item>/loop/testing-e2e-report.md` at the testing stage.
 - `[WORKTREE]`, `[BRANCH]`, `[DOMAIN_URL]`, `[FALLBACK_URL]` — the `Worktree:` and `Domain:` lines and the `127.0.0.1:<port>` fallback from `kf status --change <feature>`.
-- `[FILES]` — the task row's Files allowlist, or the spec paths kanban-test section 2 names.
+- `[FILES]` — the task row's Files allowlist in the task loop; the Playwright `testDir` at the testing stage (the spec paths when the config sets none).
 - `[PRECONDITION]` — which of the two holds; neither holding is a BLOCKED, not a dispatch.
 
 **What never goes in the dispatch:** the session's history, the whole plan, another task's findings.

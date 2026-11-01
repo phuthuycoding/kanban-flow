@@ -143,6 +143,15 @@ describe("the task loop seats", () => {
     expect(loop).toContain("never goes to the developer");
     expect(loop).toContain("the Unit TCs go to the test-writer and the UI TCs to the automation-writer; neither edits the other's files");
   });
+
+  it("hashes the test-writer's files before the developer runs and sends a changed hash back to the test-writer", () => {
+    const loop = taskLoop();
+    expect(loop).toContain("`git hash-object <test files>`");
+    expect(loop).toContain("`TASK-NNN: test hashes <file>=<sha> …`");
+    expect(loop).toContain("a mismatch is handled like a `TEST_DISPUTE` — back to the test-writer — never accepted silently");
+    expect(reference("developer-brief.md")).toContain("The controller hashes these test files before you start and compares the hashes after you report");
+    expect(agentBody("developer")).toContain("The controller hashes the test-writer's files before you start and compares the hashes after you report");
+  });
 });
 
 describe("the testing stage dispatch", () => {
@@ -163,6 +172,25 @@ describe("the testing stage dispatch", () => {
     expect(text).toContain("`npx playwright test`");
     expect(text).toContain("real exit code");
     expect(text).toContain("non-zero row means the report is not PASS");
+  });
+
+  it("names the brief, the report and the allowlist the testing-stage dispatch fills", () => {
+    const text = section();
+    expect(text).toContain("`<item>/loop/testing-e2e-brief.md`");
+    expect(text).toContain("`<item>/loop/testing-e2e-report.md`");
+    expect(text).toContain("the Playwright `testDir` as the Files allowlist");
+    const brief = reference("automation-writer-brief.md");
+    expect(brief).toContain("`<item>/loop/testing-e2e-brief.md` at the testing stage");
+    expect(brief).toContain("`<item>/loop/testing-e2e-report.md` at the testing stage");
+    expect(brief).toContain("the Playwright `testDir` at the testing stage");
+  });
+
+  it("has the in-session controller commit the testing-stage specs before the testing report", () => {
+    const text = section();
+    expect(text).toContain("the in-session controller commits the automation-writer's spec files unchanged in one commit on the item branch before writing the testing report");
+    expect(text).toContain("A `kf run` worker does not commit");
+    expect(agentBody("automation-writer")).toContain("the in-session testing controller commits your spec files unchanged in one commit on the item branch before the testing report");
+    expect(read("docs", "workflow", "harness.md")).toContain("committed unchanged by the developer in the task loop and by the in-session controller at the testing stage");
   });
 
   it("limits the Playwright MCP to selector discovery, one agent at a time", () => {

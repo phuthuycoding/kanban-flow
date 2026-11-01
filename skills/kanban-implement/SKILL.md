@@ -107,7 +107,7 @@ Read the approved plan once: `kf tasks {feature_name} --json` gives the task gra
 
 ### 3.2 Dispatch the developer and handle its report
 
-**Dispatch** `Agent(developer)` with `references/developer-brief.md` verbatim, naming the model per `references/task-loop.md` § Model selection. Append the test-writer's test files and their failing output to the brief file first. The developer never edits those test files, makes them pass and commits the task — tests and code — on the item branch. Record the developer's agent identity — rounds 1–3 of the fix loop resume it.
+**Dispatch** `Agent(developer)` with `references/developer-brief.md` verbatim, naming the model per `references/task-loop.md` § Model selection. Append the test-writer's test files and their failing output to the brief file first, and run `git hash-object <test files>` and ledger the result as `TASK-NNN: test hashes <file>=<sha> …`. The developer never edits those test files, makes them pass and commits the task — tests and code — on the item branch. When it reports, hash the same files again (in its commit, or in the worktree when it did not commit): a mismatch is handled like a `TEST_DISPUTE` — back to the test-writer — never accepted silently. Record the developer's agent identity — rounds 1–3 of the fix loop resume it.
 
 The developer writes its full report to `<item>/loop/task-NNN-report.md` and returns only status, commits, a one-line test summary and concerns. It never dispatches subagents and never spawns a reviewer.
 
