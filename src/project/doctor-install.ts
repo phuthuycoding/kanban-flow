@@ -1,4 +1,4 @@
-import { readProjectConfig, effectiveSkillsScope } from "./config.js";
+import { readProjectConfig, effectiveSkillsScope, ProjectConfigError } from "./config.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
 import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, unhealthySkills } from "../integrations/install.js";
 import type { DoctorFinding } from "./doctor-types.js";
@@ -6,6 +6,13 @@ import type { DoctorFinding } from "./doctor-types.js";
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
 export function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
+  // From a linked worktree the suggested repair would itself be refused; the refusal says where to run it.
+  let refusal: string | null | undefined;
+  const repairAction = (fallback: string): string => {
+    if (scope !== "global") return fallback;
+    if (refusal === undefined) refusal = globalLinkRefusal();
+    return refusal ?? fallback;
+  };
   for (const id of agents) {
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) continue;
@@ -27,7 +34,7 @@ export function checkSkills(root: string, agents: AgentId[], scope: SkillScope):
       level: "ERROR",
       area: dir,
       message: `skills ${state} (scope: ${scope}): ${bad.join(", ")}`,
-      action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
+      action: repairAction(`kf install --agent ${id} --scope ${scope}, or kf doctor --fix`),
     });
   }
   // The skills dispatch agents by name; an upgrade that relinks the skills without the agents
@@ -56,7 +63,7 @@ export function checkSkills(root: string, agents: AgentId[], scope: SkillScope):
         level: "ERROR",
         area: agentsDir,
         message: `agents ${theirs.length > 0 ? "partial" : state} (scope: ${scope}): ${missing.join(", ")}`,
-        action: `kf install --agent ${id} --scope ${scope}, or kf doctor --fix`,
+        action: repairAction(`kf install --agent ${id} --scope ${scope}, or kf doctor --fix`),
       });
     }
   }
@@ -80,20 +87,18 @@ export function checkSkills(root: string, agents: AgentId[], scope: SkillScope):
 
 /** The skills and agents repair of `kf doctor --fix`; a global link from a linked worktree is a failure, not a repair. */
 export async function repairSkills(root: string, fixed: string[], failures: DoctorFinding[]): Promise<void> {
-  const { agents, scope, declaredScope } = (() => {
-    try {
-      const cfg = readProjectConfig(root);
-      const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
-      return {
-        agents: parsed.length > 0 ? parsed : [DEFAULT_AGENT],
-        scope: effectiveSkillsScope(cfg),
-        declaredScope: cfg.skills?.scope,
-      };
-    } catch {
-      return { agents: [DEFAULT_AGENT], scope: "global" as SkillScope, declaredScope: undefined };
-    }
-  })();
-  const refusal = scope === "global" ? globalLinkRefusal() : null;
+  let cfg: ReturnType<typeof readProjectConfig>;
+  try {
+    cfg = readProjectConfig(root);
+  } catch (err) {
+    // runDoctor reports the broken config as an ERROR; without it the scope is unknown, so nothing is installed.
+    if (err instanceof ProjectConfigError) return;
+    throw err;
+  }
+  const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
+  const agents = parsed.length > 0 ? parsed : [DEFAULT_AGENT];
+  const scope = effectiveSkillsScope(cfg);
+  const declaredScope = cfg.skills?.scope;
   const refusalFinding = (message: string): DoctorFinding => ({ level: "ERROR", area: "skills", message, action: "run kf doctor --fix from the primary checkout's kf" });
   const missingFor = agents.filter((id) => {
     const adapter = AGENTS.find((a) => a.id === id);
@@ -101,7 +106,8 @@ export async function repairSkills(root: string, fixed: string[], failures: Doct
     const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
     return unhealthySkills(dir, foreignSkills(dir)).length > 0;
   });
-  if (missingFor.length > 0 && refusal) {
+  const refusal = missingFor.length > 0 && scope === "global" ? globalLinkRefusal() : null;
+  if (refusal) {
     failures.push(refusalFinding(refusal));
     return;
   }
@@ -122,8 +128,9 @@ export async function repairSkills(root: string, fixed: string[], failures: Doct
     // of the absent or stale ones beside it.
     const needsRepair = MANAGED_AGENTS.some((a) => ["absent", "stale"].includes(agentEntryState(agentsDir, a)));
     if (!needsRepair) continue;
-    if (refusal) {
-      failures.push(refusalFinding(refusal));
+    const agentsRefusal = scope === "global" ? globalLinkRefusal() : null;
+    if (agentsRefusal) {
+      failures.push(refusalFinding(agentsRefusal));
       break;
     }
     const res = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy");

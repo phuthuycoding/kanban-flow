@@ -8,7 +8,7 @@ import { readProjectConfig, detectStacks, writeProjectConfig, patchProjectConfig
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
-import { installSkills } from "../../integrations/install.js";
+import { globalLinkRefusal, installSkills } from "../../integrations/install.js";
 import { hasWorkItems, bootstrapDefaults, onboardAnswers, seedOverrides, seedGithubHooks, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
@@ -33,6 +33,8 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   }
 
   const cfg = readProjectConfig(target);
+  const refusal = effectiveSkillsScope(cfg) === "global" ? globalLinkRefusal() : null;
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const ctx = typeof args.options.context === "string" ? args.options.context : effectiveDefaultContext(cfg);
   // Same rule as the bootstrap path: an explicit --context on a genuinely new project is a
   // decision and gets declared. --minimal writes a config anyway, so leaving it out here would
@@ -99,6 +101,9 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
 
   const flagged = parseAgentIds(args.options.agent);
   if (flagged.length > 0) answers.agents = flagged;
+  // Refused before the first write, so a refused init leaves nothing half-made behind.
+  const refusal = answers.skillScope === "global" ? globalLinkRefusal() : null;
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
 
   // Name validity lives in saveConfig, the one point every set of answers passes through;
   // repeating it here would be a guard that can never fire.

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, readdir, writeFile, readFile, symlink } from "node:fs/promises";
-import { existsSync, lstatSync, statSync, cpSync, symlinkSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, statSync, cpSync, symlinkSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { spawnSync, execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -435,6 +435,73 @@ describe("a linked git worktree as the package root", () => {
     const res = kfFrom(pkg, root, home, "install", "--project");
     expect(res.code, res.out).toBe(0);
     expect(existsSync(join(root, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("kf install --global refuses and names the .git file it cannot read", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const cwd = join(dir, "cwd");
+    await mkdir(home, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    stagePackage(pkg, "file");
+    chmodSync(join(pkg, ".git"), 0o000);
+
+    const res = kfFrom(pkg, cwd, home, "install", "--global");
+    expect(res.code, res.out).toBe(1);
+    expect(res.err).toContain(join(pkg, ".git"));
+    expect(res.err).toContain("EACCES");
+    expect(res.err).toContain("primary checkout");
+    expect(res.err).not.toMatch(/^\s+at /m);
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+
+  it("kf doctor --fix with an unreadable project config links nothing and still reports the config error", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    stagePackage(pkg, "dir");
+    await mkdir(join(root, ".works"), { recursive: true });
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(join(root, ".kf", "config.json"), "{ not json");
+
+    const res = kfFrom(pkg, root, home, "doctor", "--fix");
+    expect(res.code, res.out).toBe(1);
+    expect(res.out.split("\n").some((l) => l.includes("[ERROR]") && l.includes("Cannot read the project config")), res.out).toBe(true);
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+
+  it("kf doctor without --fix tells a linked-worktree user to run from the primary checkout", async () => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    stagePackage(pkg, "file");
+    await projectAt(root);
+
+    const res = kfFrom(pkg, root, home, "doctor");
+    const lines = res.out.split("\n");
+    const at = lines.findIndex((l) => l.includes("[ERROR]") && l.includes("skills"));
+    expect(at, res.out).toBeGreaterThanOrEqual(0);
+    expect(lines[at + 1], res.out).toContain("primary checkout");
+  });
+
+  it.each([
+    ["kf init --minimal", ["init", "--minimal"]],
+    ["kf init --defaults", ["init", "--defaults"]],
+  ])("%s at global scope from a linked worktree refuses on stderr and writes nothing", async (_name, argv) => {
+    const pkg = join(dir, "pkg");
+    const home = join(dir, "home");
+    const root = join(dir, "proj");
+    await mkdir(home, { recursive: true });
+    await mkdir(root, { recursive: true });
+    stagePackage(pkg, "file");
+
+    const res = kfFrom(pkg, root, home, ...argv);
+    expect(res.code, res.out).toBe(1);
+    expect(res.err).toContain("primary checkout");
+    expect(await readdir(root)).toEqual([]);
+    expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
   it("kf install --global from a linked worktree still links when KF_ALLOW_WORKTREE_LINK=1", async () => {

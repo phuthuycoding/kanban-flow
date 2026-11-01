@@ -26,6 +26,7 @@ export interface VerifyResult {
  */
 export function runVerify(commands: string[][], cwd: string): string | null {
   for (const argv of commands) {
+    // No timeout on purpose: the loop that calls kf verify owns the time budget, and a test command's own timeout still applies.
     const res = spawnSync(argv[0], argv.slice(1), {
       cwd, encoding: "utf8", maxBuffer: VERIFY_MAX_BUFFER, stdio: ["ignore", "pipe", "pipe"],
     });

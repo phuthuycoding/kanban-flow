@@ -249,7 +249,8 @@ async function item(name: string, extra: Record<string, unknown>): Promise<{ fil
 
 /** A process that stays alive until the test kills it, standing in for a pre-upgrade worker. */
 function liveWorker(): ChildProcess {
-  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  // The extra argv makes its command line look like a kf drive; a bare node process would not.
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "dist/index.js", "drive"], { stdio: "ignore" });
   children.push(child);
   return child;
 }
@@ -268,7 +269,8 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
   it("kf doctor warns once per item and names each live pid with stop this process yourself", async () => {
     await projectWithHarness(undefined);
     const worker = liveWorker();
-    await item("alpha", leftovers(process.pid, worker.pid!));
+    const supervisor = liveWorker();
+    await item("alpha", leftovers(supervisor.pid!, worker.pid!));
     await item("bravo", leftovers(DEAD_PID, DEAD_PID));
     await item("clean", {});
 
@@ -280,9 +282,10 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     }
     const liveFinding = findings.filter((f) => `${f.area} ${f.message}`.includes("alpha"));
     expect(liveFinding, JSON.stringify(findings)).toHaveLength(1);
-    expect(liveFinding[0].message).toContain(String(process.pid));
+    expect(liveFinding[0].message).toContain(String(supervisor.pid));
     expect(liveFinding[0].message).toContain(String(worker.pid));
-    expect(liveFinding[0].message).toContain("stop this process yourself");
+    expect(liveFinding[0].message).toContain("looks like a kf drive from before the upgrade");
+    expect(liveFinding[0].message).toContain("stop it");
     const deadFinding = findings.filter((f) => `${f.area} ${f.message}`.includes("bravo"));
     expect(deadFinding, JSON.stringify(findings)).toHaveLength(1);
   });
@@ -327,6 +330,33 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(isAlive(worker.pid!)).toBe(true);
     expect(worker.exitCode).toBeNull();
     expect(worker.signalCode).toBeNull();
+  });
+
+  it("kf doctor --fix strips an item whose recorded pid now belongs to an unrelated process", async () => {
+    await projectWithHarness(undefined);
+    // A recycled pid: alive, but not kf, so nothing there needs stopping first.
+    const unrelated = spawn("sleep", ["30"], { stdio: "ignore" });
+    children.push(unrelated);
+    const recycled = await item("recycled", leftovers(DEAD_PID, unrelated.pid!));
+
+    const res = await runDoctorFixes(root);
+
+    expect(res.failures).toEqual([]);
+    const after = JSON.parse(await readFile(recycled.file, "utf8")) as Record<string, unknown>;
+    for (const key of META_LEFTOVERS) expect(after, key).not.toHaveProperty(key);
+    expect(after).toEqual(recycled.kept);
+    expect(isAlive(unrelated.pid!)).toBe(true);
+  });
+
+  it("kf doctor reports no live pid for an unrelated process holding a recorded pid", async () => {
+    await projectWithHarness(undefined);
+    const unrelated = spawn("sleep", ["30"], { stdio: "ignore" });
+    children.push(unrelated);
+    await item("recycled", leftovers(DEAD_PID, unrelated.pid!));
+
+    const finding = withCode(runDoctor(root).findings, "meta_legacy_run_state")[0];
+    expect(finding.message).not.toContain("looks like a kf drive");
+    expect(finding.message).not.toContain(String(unrelated.pid));
   });
 
   it("kf doctor --fix exits 1 for an item naming a live pid", async () => {

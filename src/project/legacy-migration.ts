@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isPidAlive } from "../shared/process.js";
+import { commandLooksLikeKf, isPidAlive } from "../shared/process.js";
 import { AmbiguousFeatureError, findFeature, listFeatures } from "../workflow/features.js";
 import { LEGACY_HARNESS_KEYS } from "./harness-config.js";
 import { writeFileAtomic } from "../shared/paths.js";
@@ -37,12 +37,37 @@ export function removeLegacyHarnessKeys(raw: Record<string, unknown>): string | 
 /** Item meta keys the removed drive runtime wrote; they pass through every other write untouched. */
 const LEGACY_META_KEYS = ["drive", "runs", "sessions", "tasks"] as const;
 
-/** Pids a pre-upgrade supervisor or worker recorded that still exist. kf never signals them. */
-function liveLegacyPids(meta: Record<string, unknown>): number[] {
+interface LivePid {
+  pid: number;
+  /** False when ps could not read the command line, so only the pid's existence is known. */
+  confirmed: boolean;
+}
+
+/**
+ * Pids a pre-upgrade supervisor or worker recorded that still run kf. A live pid whose command line is
+ * not kf was recycled by the OS and counts as dead. kf never signals them.
+ */
+function liveLegacyPids(meta: Record<string, unknown>): LivePid[] {
   const pids: unknown[] = [(meta.drive as { supervisorPid?: unknown } | undefined)?.supervisorPid];
   if (Array.isArray(meta.runs)) pids.push(...meta.runs.map((r) => (r as { pid?: unknown } | null)?.pid));
   const numeric = pids.filter((p): p is number => typeof p === "number" && Number.isInteger(p) && p > 0);
-  return [...new Set(numeric)].filter((pid) => isPidAlive(pid));
+  return [...new Set(numeric)].filter((pid) => isPidAlive(pid)).flatMap((pid) => {
+    const kf = commandLooksLikeKf(pid);
+    return kf === false ? [] : [{ pid, confirmed: kf === true }];
+  });
+}
+
+function pidList(live: LivePid[]): string {
+  return live.map((l) => l.pid).join(", ");
+}
+
+function liveNote(live: LivePid[]): string {
+  const sure = live.filter((l) => l.confirmed);
+  const unsure = live.filter((l) => !l.confirmed);
+  return [
+    sure.length > 0 ? `pid ${pidList(sure)} looks like a kf drive from before the upgrade — stop it, then re-run kf doctor --fix.` : "",
+    unsure.length > 0 ? `pid ${pidList(unsure)} is alive and kf could not confirm it is kf — stop it if it is, then re-run kf doctor --fix.` : "",
+  ].filter(Boolean).join(" ");
 }
 
 export function checkLegacyRunState(root: string): DoctorFinding[] {
@@ -52,15 +77,13 @@ export function checkLegacyRunState(root: string): DoctorFinding[] {
     const keys = LEGACY_META_KEYS.filter((key) => Object.hasOwn(meta, key));
     if (keys.length === 0) return [];
     const live = liveLegacyPids(meta);
-    const liveNote = live.length > 0
-      ? ` Pid ${live.join(", ")} recorded there is still alive: stop this process yourself before closing the item, or its worktree is torn down under it.`
-      : "";
+    const note = live.length > 0 ? ` ${liveNote(live)}` : "";
     return [{
       level: "WARNING" as const,
       area: `${f.stage}/${f.folder}`,
-      message: `meta_legacy_run_state: .kfw.json still holds ${keys.join(", ")} from the removed task harness runtime.${liveNote}`,
+      message: `meta_legacy_run_state: .kfw.json still holds ${keys.join(", ")} from the removed task harness runtime.${note}`,
       action: live.length > 0
-        ? `stop pid ${live.join(", ")}, then kf doctor --fix`
+        ? `stop pid ${pidList(live)}, then kf doctor --fix`
         : `kf doctor --fix (removes ${keys.join(", ")} from .kfw.json; it never stops a process)`,
     }];
   });
@@ -88,6 +111,9 @@ export function fixFailure(area: string, err: Error): DoctorFinding {
  */
 export async function stripLegacyRunState(root: string, fixed: string[], failures: DoctorFinding[]): Promise<void> {
   for (const listed of listFeatures(root)) {
+    // Only an item whose listed meta holds a legacy key is worth its lock; the meta is re-read inside it.
+    const listedMeta = listed.meta as unknown as Record<string, unknown> | null;
+    if (!listedMeta || !LEGACY_META_KEYS.some((key) => Object.hasOwn(listedMeta, key))) continue;
     const area = `${listed.stage}/${listed.folder}/.kfw.json`;
     try {
       await withLock(root, listed.name, async () => {
@@ -113,8 +139,8 @@ export async function stripLegacyRunState(root: string, fixed: string[], failure
           failures.push({
             level: "ERROR",
             area: `${f.stage}/${f.folder}/.kfw.json`,
-            message: `kf doctor --fix left ${keys.join(", ")} in place: pid ${live.join(", ")} recorded there is still alive — stop it yourself first.`,
-            action: `stop pid ${live.join(", ")}, then re-run kf doctor --fix`,
+            message: `kf doctor --fix left ${keys.join(", ")} in place: ${liveNote(live)}`,
+            action: `stop pid ${pidList(live)}, then re-run kf doctor --fix`,
           });
           return;
         }

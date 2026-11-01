@@ -192,7 +192,16 @@ export function packageIsEphemeral(): boolean {
  */
 export function globalLinkRefusal(): string | null {
   // The test suite runs inside item worktrees and links into a throwaway HOME, so it opts out.
-  if (process.env.KF_ALLOW_WORKTREE_LINK === "1" || !isLinkedWorktree(PKG_ROOT)) return null;
+  if (process.env.KF_ALLOW_WORKTREE_LINK === "1") return null;
+  let linked: boolean;
+  try {
+    linked = isLinkedWorktree(PKG_ROOT);
+  } catch (err) {
+    // An unreadable .git leaves the question open; refusing is the safe answer, and the code says why.
+    if (!(err instanceof Error && "code" in err)) throw err;
+    return `kf cannot read ${join(PKG_ROOT, ".git")} (${String(err.code)}) to tell whether it runs from a linked git worktree; a global install would link into it — run it from the primary checkout`;
+  }
+  if (!linked) return null;
   return `kf runs from a linked git worktree (${PKG_ROOT}); a global install would link into it and dangle once it is removed — run it from the primary checkout`;
 }
 
