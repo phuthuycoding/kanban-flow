@@ -1,5 +1,8 @@
 import type { PlannedTask } from "../workflow/tasks.js";
 import type { TaskState, TaskStateName } from "../workflow/features.js";
+import { filesOverlap, patternsOverlap } from "../workflow/allowlist.js";
+
+export { filesOverlap, patternsOverlap };
 
 export interface ScheduleInput {
   tasks: PlannedTask[];
@@ -15,7 +18,6 @@ export type Progress = "done" | "running" | "stuck";
 const IN_FLIGHT: ReadonlySet<TaskStateName> = new Set(["running", "verifying", "merging"]);
 const STARTABLE: ReadonlySet<TaskStateName> = new Set(["pending", "ready"]);
 const TERMINAL: ReadonlySet<TaskStateName> = new Set(["failed", "blocked"]);
-const GLOB_CHARS = /[*?[]/;
 
 function normalise(pattern: string): string {
   let p = pattern.replace(/`/g, "").trim();
@@ -26,33 +28,6 @@ function normalise(pattern: string): string {
 
 function matchesAll(p: string): boolean {
   return p === "**" || p === "*" || p === "." || p === "";
-}
-
-/** Directory portion that is fixed before the first glob char; a partially-written segment is dropped so the prefix stays segment-aligned. */
-function staticPrefix(p: string): string {
-  const at = p.search(GLOB_CHARS);
-  if (at === -1) return p;
-  const head = p.slice(0, at);
-  return head.slice(0, head.lastIndexOf("/") + 1).replace(/\/+$/, "");
-}
-
-function isPathPrefix(prefix: string, path: string): boolean {
-  return prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
-}
-
-export function patternsOverlap(a: string, b: string): boolean {
-  const x = normalise(a);
-  const y = normalise(b);
-  if (x === y || matchesAll(x) || matchesAll(y)) return true;
-  const px = staticPrefix(x);
-  const py = staticPrefix(y);
-  return isPathPrefix(px, py) || isPathPrefix(py, px);
-}
-
-/** A task whose files are unknown (null) may touch anything, so it overlaps every other task. */
-export function filesOverlap(a: string[] | null, b: string[] | null): boolean {
-  if (a === null || b === null) return true;
-  return a.some((x) => b.some((y) => patternsOverlap(x, y)));
 }
 
 function stateOf(input: Pick<ScheduleInput, "states">, id: string): TaskStateName {

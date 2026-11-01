@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { cmdRun } from "../cli/commands/run.js";
 import { readProjectConfig } from "../project/config.js";
 import { executeTaskRun, prepareTaskRun, setTaskState } from "../harness/task-run.js";
-import { pathAllowed, recoverItemMerge, mergeLockWait } from "../harness/task-pipeline.js";
+import { recoverItemMerge, mergeLockWait } from "../harness/task-pipeline.js";
 import { LOCK_TIMEOUT_MS } from "../shared/lock.js";
 import { gitDriveProject, type DriveTask, type GitDriveProject } from "./helpers/git-fixture.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -46,21 +46,6 @@ async function exec(id = "TASK-001") {
   if (!res.started) throw new Error(res.reason);
   return res;
 }
-
-describe("pathAllowed", () => {
-  it("matches exact paths, directory prefixes and globs", () => {
-    expect(pathAllowed("src/a.ts", ["src/a.ts"])).toBe(true);
-    expect(pathAllowed("src/x/a.ts", ["src"])).toBe(true);
-    expect(pathAllowed("src/x/a.ts", ["./src/"])).toBe(true);
-    expect(pathAllowed("srcs/a.ts", ["src"])).toBe(false);
-    expect(pathAllowed("src/x/a.ts", ["src/**/*.ts"])).toBe(true);
-    expect(pathAllowed("src/a.ts", ["src/**/*.ts"])).toBe(true);
-    expect(pathAllowed("src/x/a.ts", ["src/*.ts"])).toBe(false);
-    expect(pathAllowed("src/a.ts", ["src/?.ts"])).toBe(true);
-    expect(pathAllowed("src/ab.ts", ["src/?.ts"])).toBe(false);
-    expect(pathAllowed("docs/a.md", ["src/**", "`docs/*.md`"])).toBe(true);
-  });
-});
 
 describe("completion merges the task (TC-009)", () => {
   it("commits task(TASK-###) with a subject of at most 72 chars, merges, removes the worktree and keeps the branch", async () => {

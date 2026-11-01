@@ -1,5 +1,3 @@
-import { spawnSync } from "node:child_process";
-
 import { findFeature, type TaskState } from "../workflow/features.js";
 import type { PlannedTask } from "../workflow/tasks.js";
 import type { HarnessConfig } from "./config.js";
@@ -11,10 +9,12 @@ import {
 import { removeTaskWorktree, taskBranch, taskWorktreePath, type TaskWorktree } from "../worktree/tasks.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { setTaskState, type CompleteTaskInput, type TaskCompletion } from "./task-state.js";
+import { pathAllowed } from "../workflow/allowlist.js";
+import { runVerify } from "../workflow/verify.js";
+
+export { pathAllowed, runVerify };
 
 const SUBJECT_MAX = 72;
-const OUTPUT_TAIL = 2000;
-const VERIFY_MAX_BUFFER = 64 * 1024 * 1024;
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -27,59 +27,7 @@ export function mergeLockWait(runTimeoutMs: number): number {
   return runTimeoutMs > 0 ? runTimeoutMs + LOCK_TIMEOUT_MS : Number.MAX_SAFE_INTEGER;
 }
 
-const normalise = (pattern: string): string => {
-  let p = pattern.replace(/`/g, "").trim();
-  while (p.startsWith("./")) p = p.slice(2);
-  while (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
-  return p;
-};
-
-// A single star or question mark stays inside one path segment; a double star crosses segments, and a double star followed by a slash may match nothing.
-function globToRegExp(glob: string): RegExp {
-  let re = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*" && glob[i + 1] === "*") {
-      if (glob[i + 2] === "/") { re += "(?:.*/)?"; i += 2; } else { re += ".*"; i += 1; }
-    } else if (c === "*") re += "[^/]*";
-    else if (c === "?") re += "[^/]";
-    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  }
-  return new RegExp(`^${re}$`);
-}
-
-/** Exact path, directory prefix, or glob; a glob that matches a parent directory also allows what is inside it. */
-export function pathAllowed(path: string, patterns: string[]): boolean {
-  const segments = path.split("/");
-  const prefixes = segments.map((_, i) => segments.slice(0, i + 1).join("/"));
-  return patterns.some((raw) => {
-    const p = normalise(raw);
-    if (p === "" || p === "." || p === "**") return true;
-    if (!/[*?]/.test(p)) return path === p || path.startsWith(`${p}/`);
-    const re = globToRegExp(p);
-    return prefixes.some((x) => re.test(x));
-  });
-}
-
 const subjectFor = (id: string, description: string): string => `task(${id}): ${description.replace(/\s+/g, " ").trim()}`.slice(0, SUBJECT_MAX).trimEnd();
-
-/** Run the verify argv list in `cwd`; returns a failure reason, or null when all pass. */
-export function runVerify(commands: string[][], cwd: string, timeoutMs: number): string | null {
-  for (const argv of commands) {
-    const res = spawnSync(argv[0], argv.slice(1), {
-      cwd, encoding: "utf8", maxBuffer: VERIFY_MAX_BUFFER, stdio: ["ignore", "pipe", "pipe"], ...(timeoutMs > 0 ? { timeout: timeoutMs } : {}),
-    });
-    if (res.error) {
-      const code = (res.error as NodeJS.ErrnoException).code;
-      return code === "ENOENT" ? `verify command not found: ${argv[0]}` : `verify command ${argv.join(" ")} could not finish: ${res.error.message}`;
-    }
-    if (res.status !== 0) {
-      const output = `${res.stdout ?? ""}${res.stderr ?? ""}`.trim();
-      return output ? output.slice(-OUTPUT_TAIL) : `verify command failed (exit ${res.status ?? res.signal}): ${argv.join(" ")}`;
-    }
-  }
-  return null;
-}
 
 /** Abort a merge left in progress; returns git's message when the abort itself fails. */
 function abortIfMerging(dir: string): string | null {

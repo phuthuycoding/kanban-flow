@@ -9,6 +9,7 @@ import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
 import { cmdDoctor } from "./cli/commands/doctor.js";
 import { cmdRun, cmdRuns } from "./cli/commands/run.js";
 import { cmdTasks } from "./cli/commands/tasks.js";
+import { cmdVerify } from "./cli/commands/verify.js";
 import { cmdDrive } from "./cli/commands/drive.js";
 import { cmdHarness } from "./cli/commands/harness.js";
 import { cmdContexts } from "./cli/commands/contexts.js";
@@ -114,6 +115,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdRuns(parsed, cwd);
     case "tasks":
       return cmdTasks(parsed, cwd);
+    case "verify":
+      return cmdVerify(parsed, cwd);
     case "drive":
       return cmdDrive(parsed, cwd);
     case "harness":
