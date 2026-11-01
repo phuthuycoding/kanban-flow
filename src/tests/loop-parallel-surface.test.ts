@@ -222,3 +222,48 @@ describe("staging by path", () => {
     }
   });
 });
+
+describe("telling each seat what else is in flight", () => {
+  it("gives the developer and test-writer prompts a seats-in-flight slot with a placeholder entry", () => {
+    for (const name of ["developer-brief.md", "test-writer-brief.md"]) {
+      const brief = reference(name);
+      const prompt = slice(brief, "```", "\n```\n");
+      expect(prompt, name).toContain("Seats in flight: [IN_FLIGHT]");
+      const entry = brief.split("\n").find((l) => l.startsWith("- `[IN_FLIGHT]`"));
+      expect(entry, `${name} placeholder entry`).toBeDefined();
+    }
+  });
+
+  it("fills the seats-in-flight slot at the test-writer and the developer dispatch", () => {
+    const brief = section("\n### 3.1", "\n### 3.2");
+    expect(lineWith(brief, "4. **Dispatch**")).toContain("[IN_FLIGHT]");
+    const dispatch = section("\n### 3.2", "\n### 3.3");
+    expect(paragraphWith(dispatch, "**Dispatch** `Agent(developer)`")).toContain("[IN_FLIGHT]");
+  });
+});
+
+describe("the next task's completion and early-passing tests", () => {
+  it("holds the next task's completion on the head's completion in the completion check", () => {
+    const loop = taskLoop();
+    const at = loop.indexOf("\n### 3.5");
+    expect(at, "### 3.5").toBeGreaterThanOrEqual(0);
+    expect(paragraphWith(loop.slice(at), "H is complete when")).toContain("and, for X, H is complete");
+  });
+
+  it("stops with NEEDS_CONTEXT on an advisory test-writer run that the developer's run contradicts", () => {
+    const step5 = section("\n5. **Check that each test fails for the right reason**", "\n### 3.2");
+    const line = lineWith(step5, "advisory");
+    expect(line).toMatch(/stops with `?NEEDS_CONTEXT`?/);
+    expect(developerStep(3)).toMatch(/stops with `?NEEDS_CONTEXT`?/);
+  });
+});
+
+describe("the one-developer rule covers every developer seat", () => {
+  it("counts the developer resumed for specs or fixed tests as a developer seat", () => {
+    expect(paragraphWith(taskLoop(), "one developer seat in flight per worktree")).toMatch(/spec[^\n]*fixed[ -]tests?/i);
+  });
+
+  it("keeps same-wave developers under the one-developer rule", () => {
+    expect(paragraphWith(taskLoop(), "wave <w>: parallel test-writers")).toMatch(/one-developer rule/i);
+  });
+});
