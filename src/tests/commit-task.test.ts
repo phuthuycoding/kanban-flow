@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, rm, access, copyFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, access, copyFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathAllowed } from "../workflow/allowlist.js";
@@ -52,7 +52,8 @@ describe("commit-task.mjs", () => {
     const r = run(["-m", "msg", "--allow", "src", "--", "outside.txt"]);
 
     expect(r.status).toBe(4);
-    expect(r.stdout + r.stderr).toContain("BLOCKED: outside.txt is outside the allowlist");
+    expect(r.stderr).toContain("BLOCKED: outside.txt is outside the allowlist");
+    expect(r.stdout).not.toContain("BLOCKED");
     expect(git("rev-parse", "HEAD")).toBe(headBefore);
     expect(git("diff", "--cached")).toBe(cachedBefore);
   });
@@ -121,6 +122,49 @@ describe("commit-task.mjs", () => {
     } finally {
       await rm(install, { recursive: true, force: true });
     }
+  });
+
+  describe("repository root and commit identity", () => {
+    it("refuses to run from a subdirectory, committing and staging nothing", async () => {
+      await mkdir(join(repo, "docs"));
+      await writeFile(join(repo, "docs", "README.md"), "base\n");
+      await writeFile(join(repo, "README.md"), "base\n");
+      git("add", "-A");
+      git("commit", "-q", "-m", "readmes");
+      await writeFile(join(repo, "README.md"), "changed\n");
+      await writeFile(join(repo, "docs", "README.md"), "changed\n");
+      const headBefore = git("rev-parse", "HEAD");
+
+      const r = spawnSync(process.execPath, [SCRIPT, "-m", "msg", "--allow", "README.md", "--", "README.md"], { cwd: join(repo, "docs"), encoding: "utf8" });
+
+      expect(r.status).toBe(4);
+      expect(r.stderr).toContain("BLOCKED: run from the repository root");
+      expect(git("rev-parse", "HEAD")).toBe(headBefore);
+      expect(git("diff", "--cached", "--name-only")).toBe("");
+    });
+
+    it("prints the sha of its own commit even when a post-commit hook moves HEAD on", async () => {
+      const hook = join(repo, ".git", "hooks", "post-commit");
+      await writeFile(hook, [
+        "#!/bin/sh",
+        '[ "$(git log -1 --format=%s)" = "task A" ] || exit 0',
+        "echo moved >> other.txt",
+        "git add other.txt",
+        'git commit -q -m "task B" -- other.txt',
+        "",
+      ].join("\n"));
+      await chmod(hook, 0o755);
+      await writeFile(join(repo, "mine.txt"), "changed\n");
+
+      const r = run(["-m", "task A", "--allow", "mine.txt", "--", "mine.txt"]);
+
+      expect(r.status).toBe(0);
+      expect(git("log", "-1", "--format=%s")).toBe("task B");
+      const own = git("log", "-1", "--format=%H", "--", "mine.txt");
+      expect(r.stdout.trim()).toBe(own);
+      expect(r.stdout.trim()).not.toBe(git("rev-parse", "HEAD"));
+      expect(git("log", "-1", "--format=%s", own)).toBe("task A");
+    });
   });
 
   describe("allowlist decision matches the shared matcher", () => {

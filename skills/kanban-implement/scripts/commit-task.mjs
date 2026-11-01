@@ -110,17 +110,30 @@ for (const path of paths) {
     process.exit(4);
   }
   if (!pathAllowed(path, allows)) {
-    process.stdout.write(`BLOCKED: ${path} is outside the allowlist\n`);
+    process.stderr.write(`BLOCKED: ${path} is outside the allowlist\n`);
     process.exit(4);
   }
 }
 
+const top = spawnSync("git", ["rev-parse", "--show-prefix"], { encoding: "utf8" });
+if (top.error) throw top.error;
+if (top.status !== 0) {
+  process.stderr.write(top.stderr);
+  process.exit(top.status ?? 1);
+}
+const prefix = top.stdout.trim();
+if (prefix !== "") {
+  process.stderr.write(`BLOCKED: run from the repository root (cwd is ${prefix})\n`);
+  process.exit(4);
+}
+
 runGit(["add", "--", ...paths]);
 runGit(["commit", "-m", message, "--", ...paths]);
-const head = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" });
-if (head.error) throw head.error;
-if (head.status !== 0) {
-  process.stderr.write(head.stderr);
-  process.exit(head.status ?? 1);
+// HEAD may already have moved on (a hook, another seat), so read the commit this call made by its paths.
+const [sha, subject] = runGit(["log", "-1", "--format=%H%n%s", "--", ...paths]).stdout.trim().split("\n");
+const expected = message.trim().split(/\n\s*\n/)[0].split("\n").map((l) => l.trim()).join(" ");
+if (subject !== expected) {
+  process.stderr.write("BLOCKED: commit sha could not be confirmed\n");
+  process.exit(4);
 }
-process.stdout.write(head.stdout);
+process.stdout.write(`${sha}\n`);
