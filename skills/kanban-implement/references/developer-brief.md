@@ -41,10 +41,11 @@ Agent:
     `node <skills dir>/kanban-implement/scripts/commit-task.mjs -m <message> --allow <entry> … -- <paths>`,
     with one `--allow` per entry of [FILES] and [TEST_FILES] (plus [SPEC_FILES] for the spec commit).
     Other seats' staged or unstaged paths are not your concern.
-    Its exit 4 or 5 (a path outside the allowlist, or `index.lock` still held) → `BLOCKED` quoting its output, no commit; never delete the lock.
+    On any non-zero exit of the script — exit 4 or 5 (a path outside the allowlist, or `index.lock` still held), 2 (bad usage), 1 (no dist build) or git's own status → `BLOCKED` quoting its output, no commit; never delete the lock.
     The same holds for every commit you make, fix rounds included. Never push.
-    While another seat is in flight, `git add -- <paths>` and `git commit -m <msg> -- <paths>` are the only
-    index-writing git commands you run. Never run `checkout`, `switch`, `reset`, `restore --staged` on
+    `git add -- <paths>` and `git commit -m <msg> -- <paths>` run only through the script, for paths inside
+    the allowlist; a raw git commit as a fallback is forbidden. While another seat is in flight, they are
+    the only index-writing git commands you run. Never run `checkout`, `switch`, `reset`, `restore --staged` on
     another seat's paths, `stash`, `rebase`, `merge`, `cherry-pick`, `commit` without a pathspec,
     `commit -a`, `add -A`, `add .`, `clean`, or anything with `GIT_INDEX_FILE`; needing one is a
     `BLOCKED` report naming the command.
@@ -53,8 +54,11 @@ Agent:
     Your typecheck, lint, build and test runs are advisory while another seat is in flight:
     focused tests only, no full suite while another seat is in flight; a failure in a file you
     neither wrote nor were handed is reported as `not mine: <file>`. The build setup's warning on
-    tsc exit 2 is expected then. `kf verify --task TASK-NNN --commits <your commits>` is the task's
-    authoritative check.
+    tsc exit 2 is expected then, unless a diagnostic names a file in your Files.
+    `kf verify --task TASK-NNN --commits <your commits>` is the task's authoritative check.
+    Run every command in the foreground and wait for it: never start a background command —
+    no `&`, `nohup`, `run_in_background` or detached shell; a long command gets a timeout.
+    When you report, nothing you started is still running.
 
     ## You do not dispatch subagents
     Never spawn a helper or a reviewer; a fresh reviewer is dispatched against your diff.

@@ -37,7 +37,7 @@ TASK-NNN: complete (…) @ <ts>
 
 `fix queued` is a legacy shape: the loop no longer writes it — a fix round held by the cap writes `developer waits — 4 developers in flight` instead — but older ledgers carry it, and `kf loop-stats` still reads it.
 
-One example of each shape — in the grammar's order, from different points of one loop, with both wait lines — then a ruling and a hashes line:
+One example of each shape — in the grammar's order, from different points of one loop, with both wait lines and the `fix queued` line as a legacy line from an older ledger — then a ruling and a hashes line:
 
 ```ledger-example
 TASK-001: developer dispatched model=sonnet @ 2026-11-01T18:41:26+07:00
@@ -74,7 +74,7 @@ When `.works/` is gitignored (the default `kf init` answer), the ledger travels 
 
 ## Parallel developers
 
-A worktree runs up to the **cap of 4** developer seats at once — a task's developer, a fix-round developer and a resume-commit developer (the one resumed to commit specs or fixed tests) each count one. A task's developer is dispatched only under the three dispatch conditions: every dependency's developer has reported DONE, so its task commit exists; the task's test-writer is done and its test hashes are ledgered; and its Files overlap no open task. An **open task** is a task whose developer has been dispatched and that has no `complete` line yet, checked against the `overlaps` list of `kf tasks <f> --json`; a task with unknown Files overlaps everything. The cap rests on a probe: 4 full suites in one worktree all passed, at about 1.8× the throughput of one. Gating on open tasks rather than running developers keeps a later fix round of one task out of files another developer is changing.
+A worktree runs up to the **cap of 4** developer seats at once — a task's developer, a fix-round developer and a resume-commit developer (the one resumed to commit specs or fixed tests) each count one. A task's developer is dispatched only under the three dispatch conditions: every dependency's developer has reported DONE, so its task commit exists; the task's test-writer is done and its test hashes are ledgered; and its Files overlap no open task. An **open task** is a task whose developer has been dispatched and that has no `complete` line yet (a task whose test-writer is in flight counts as open), checked against the `overlaps` list of `kf tasks <f> --json`; a task with unknown Files overlaps everything. The cap rests on a probe: 4 full suites in one worktree all passed, at about 1.8× the throughput of one. Gating on open tasks rather than running developers keeps a later fix round of one task out of files another developer is changing.
 
 The two wait lines:
 
@@ -83,7 +83,7 @@ TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)
 TASK-NNN: developer waits — 4 developers in flight
 ```
 
-The first waits for `TASK-MMM: complete`; the second, a fix round's included, waits for the next `developer done`.
+The first waits for `TASK-MMM: complete`; the second, a fix round's included, waits for the next `developer done`. When a seat frees up, a freed seat goes first to waiting fix-round and resume-commit developers, then to new task developers in plan order: finishing an open task closes it sooner than opening another.
 
 ## The fix loop
 

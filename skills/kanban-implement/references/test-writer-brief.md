@@ -39,6 +39,9 @@ Agent:
        your report; the developer's step-3 run then confirms the failures.
     3. Do not commit; the developer commits the task with your tests unchanged.
     4. Never spawn agents or reviewers.
+    5. Run every command in the foreground and wait for it: never start a background command —
+       no `&`, `nohup`, `run_in_background` or detached shell; a long command gets a timeout.
+       When you report, nothing you started is still running.
 
     ## After review findings or a test dispute
     You may be resumed with findings about a test, or with a developer's

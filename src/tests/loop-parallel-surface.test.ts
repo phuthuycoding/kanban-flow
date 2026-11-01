@@ -137,7 +137,7 @@ describe("the parallel task loop window", () => {
     const loop = taskLoop();
     expect(loop).toMatch(/next 4 tasks[^\n]*`?test-writer done`?/);
     expect(loop).toContain("another open task's Files");
-    expect(loop).toContain("advisory");
+    expect(paragraphWith(implement(), "next 4 tasks")).toContain("advisory");
     const brief = reference("test-writer-brief.md");
     expect(brief).toContain("another open task's Files");
     expect(brief).toContain("advisory while a developer is in flight");
@@ -384,6 +384,37 @@ describe("early-passing tests under an advisory test-writer run", () => {
     const line = lineWith(step5, "advisory");
     expect(line).toMatch(/stops with `?NEEDS_CONTEXT`?/);
     expect(developerStep(3)).toMatch(/stops with `?NEEDS_CONTEXT`?/);
+  });
+});
+
+describe("binding phrases of the parallel loop", () => {
+  it("treats any non-zero exit of a developer's commit as BLOCKED in the developer agent and brief", () => {
+    expect(developerAgent()).toContain("any non-zero exit");
+    expect(reference("developer-brief.md")).toContain("any non-zero exit");
+  });
+
+  it("counts a task whose test-writer is in flight as open", () => {
+    expect(implement()).toContain("a task whose test-writer is in flight counts as open");
+  });
+
+  it("gives a freed seat first to a named claimant in the skill and the loop reference", () => {
+    expect(implement()).toContain("a freed seat goes first to");
+    expect(reference("task-loop.md")).toContain("a freed seat goes first to");
+  });
+
+  it("has the controller re-run the handed tests", () => {
+    expect(implement()).toContain("re-runs the handed tests");
+  });
+
+  // A test-writer once left a backgrounded run alive for ~29 minutes after reporting.
+  it("forbids a seat from starting a background command in both briefs and the developer agent", () => {
+    for (const [name, text] of [
+      ["developer-brief.md", reference("developer-brief.md")],
+      ["test-writer-brief.md", reference("test-writer-brief.md")],
+      ["developer.md", developerAgent()],
+    ] as const) {
+      expect(text, name).toContain("never start a background command");
+    }
   });
 });
 
