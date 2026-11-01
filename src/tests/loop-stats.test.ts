@@ -183,6 +183,36 @@ describe("ledger line classification", () => {
   });
 });
 
+describe("waits and doubled suffixes", () => {
+  /*
+   * wait-backwards.ledger.md (Z): L4 TASK-001 waits at 09:20, and the next later developer dispatched of
+   * TASK-001 is L5 at 09:15 (earlier). L8 TASK-002 fix queued at 09:40, then L9 dispatched at 09:35.
+   * Each pair would be negative, so all four lines are unparsed and no wait is counted.
+   */
+  it("lists a wait whose next developer dispatch is timestamped earlier as unparsed and counts no wait", async () => {
+    const stats = await statsOf("wait-backwards");
+    expect(stats.unparsed).toEqual([4, 5, 8, 9]);
+    expect(stats.waitMinutes).toBe(0);
+  });
+
+  it("classifies a line with a second suffix as unparsed for every shape, waits included", async () => {
+    const { parseLedger } = await loopStatsModule();
+    const parsed = parseLedger(fixture("double-suffix.ledger.md"));
+    expect(parsed.lines.map((l) => [l.line, l.kind])).toEqual(
+      [2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, "unparsed"]),
+    );
+  });
+
+  it("counts nothing from doubled-suffix lines and lists each of them as unparsed", async () => {
+    const stats = await statsOf("double-suffix");
+    expect(stats.unparsed).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(stats.waitMinutes).toBe(0);
+    expect(stats.openWaits).toEqual([]);
+    expect(stats.rounds).toBe(0);
+    expect(stats.cascades).toBe(0);
+  });
+});
+
 describe("history file helpers", () => {
   it("reads no history when the file is missing", async () => {
     const dir = realpathSync(await mkdtemp(join(tmpdir(), "kf-loop-history-")));
@@ -325,6 +355,12 @@ describe("kf loop-stats <feature>", () => {
     expect(usage.status).toBe(3);
     expect(`${usage.stdout}${usage.stderr}`).toContain("Usage: kf loop-stats <feature>");
   });
+
+  it("exits 3 with the usage line on an unknown option", () => {
+    const res = spawnSync(process.execPath, [CLI, "loop-stats", "f", "--bogus"], { cwd: root, encoding: "utf8" });
+    expect(res.status).toBe(3);
+    expect(`${res.stdout}${res.stderr}`).toContain("Usage: kf loop-stats <feature>");
+  });
 });
 
 describe("kf loop-stats <feature> --record", () => {
@@ -364,6 +400,39 @@ describe("kf loop-stats <feature> --record", () => {
     expect(res.code).toBe(1);
     expect(res.out).toContain(historyPath());
     expect(await readFile(historyPath(), "utf8")).toBe(old);
+  });
+
+  it("refuses with exit 1 naming the lock while another record holds it, leaving the history byte-unchanged", async () => {
+    const before = `${HEADER}\n2026-10-20 · alpha · 2 · 100 · 60 · 40 · 10 · 8 · 20 · 30 · 0 · 16 · 6 · 1 · 0 · 3\n`;
+    await writeFile(historyPath(), before);
+    const lock = `${historyPath()}.lock`;
+    await writeFile(lock, "");
+    const res = await run(["f"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain(lock);
+    expect(await readFile(historyPath(), "utf8")).toBe(before);
+  });
+
+  it("leaves no lock file behind after a successful record", async () => {
+    const res = await run(["f"], { record: true });
+    expect(res.code).toBe(0);
+    expect(existsSync(`${historyPath()}.lock`)).toBe(false);
+  });
+
+  it("falls back to the ledger's dispatched tasks when the plan lists none, refusing those without a complete line", async () => {
+    await item("m", [], "mid-loop.ledger.md");
+    const res = await run(["m"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("cannot record m: no complete line for TASK-001, TASK-002");
+    expect(existsSync(historyPath())).toBe(false);
+  });
+
+  it("records the row when the plan lists no tasks and every dispatched task is complete", async () => {
+    await item("n", [], "two-tasks.ledger.md");
+    const res = await run(["n"], { record: true });
+    expect(res.code).toBe(0);
+    // Same ledger as f, so the same figures under the feature name n.
+    expect(nonBlank(await readFile(historyPath(), "utf8"))).toEqual([HEADER, F_ROW.replace(" · f · ", " · n · ")]);
   });
 });
 
