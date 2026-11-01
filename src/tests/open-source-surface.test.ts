@@ -169,10 +169,12 @@ describe("the workflow docs quote the CLI as it prints", () => {
     }
   });
 
-  it("shows the claude runner streaming its log, as the preset does", () => {
+  it("shows a harness.verify argv example and no runner config", () => {
     const harness = readFileSync(join(ROOT, "docs", "workflow", "harness.md"), "utf8");
-    expect(harness).not.toContain('"--output-format", "json"');
-    expect(harness.match(/"--output-format", "stream-json", "--verbose"\]/g)?.length).toBe(2);
+    expect(harness).toMatch(/"verify"\s*:\s*\{/);
+    expect(harness).toMatch(/"(task|stage)"\s*:\s*\[\s*\[/);
+    expect(harness).not.toContain('"--output-format"');
+    expect(harness).not.toContain('"runners"');
   });
 });
 
@@ -272,5 +274,56 @@ describe("documentation links", () => {
     }
     expect(checked).toBeGreaterThan(10);
     expect(broken).toEqual([]);
+  });
+});
+
+describe("the docs describe only the in-session path", () => {
+  const REMOVED_COMMAND = /\bkf (drive|run|runs|harness)\b/;
+  const REMOVAL_NOTE = /\b(removed|retired|no longer|gone)\b/i;
+
+  function docSurface(): string[] {
+    return [
+      join(ROOT, "README.md"),
+      join(ROOT, "kanban-flow", "README.md"),
+      join(ROOT, ".github", "pages", "index.html"),
+      ...walk(join(ROOT, ".kf", "hooks"), () => true),
+      ...walk(join(ROOT, "docs", "workflow"), (p) => p.endsWith(".md")),
+    ];
+  }
+
+  it("names kf drive, kf run, kf runs and kf harness only on lines that say they were removed", () => {
+    const files = docSurface();
+    expect(files.length).toBeGreaterThan(10);
+    const offending: string[] = [];
+    for (const file of files) {
+      readFileSync(file, "utf8").split("\n").forEach((line, i) => {
+        if (REMOVED_COMMAND.test(line) && !REMOVAL_NOTE.test(line)) {
+          offending.push(`${relative(ROOT, file)}:${i + 1}: ${line.trim().slice(0, 120)}`);
+        }
+      });
+    }
+    expect(offending).toEqual([]);
+  });
+
+  it("documents kf verify and the kf doctor --fix migration in the harness guide", () => {
+    const harness = readFileSync(join(ROOT, "docs", "workflow", "harness.md"), "utf8");
+    expect(harness).toContain("kf verify");
+    expect(harness).toContain("harness.verify");
+    expect(harness).toContain("kf doctor --fix");
+  });
+
+  it("keeps only harness.verify in this repository's config", () => {
+    const config = JSON.parse(readFileSync(join(ROOT, ".kf", "config.json"), "utf8")) as { harness?: Record<string, unknown> };
+    expect(Object.keys(config.harness ?? {})).toEqual(["verify"]);
+  });
+
+  it("records the removal as a breaking change in the changelog", () => {
+    const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
+    const unreleased = changelog.split(/^## \[/m)[1] ?? "";
+    const entry = unreleased.split("\n").find((line) => /breaking/i.test(line) && line.includes("kf doctor --fix"));
+    expect(entry).toBeDefined();
+    for (const needle of ["kf drive", "kf run", "kf runs", "kf harness", "harness.verify", "src/"]) {
+      expect(entry).toContain(needle);
+    }
   });
 });

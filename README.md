@@ -28,21 +28,21 @@ safely, the canonical docs are synced, and the folder moves to `.works/done/`. I
 that deliver no code (`landing: none`) close the same way once nothing is ahead of
 the default branch. `kf ship` is deprecated and exits 1 with that explanation. `kf
 status --all` ends with **Needs you**, **Waiting to merge** (PR URL and the
-`gh pr merge` command) and **Running: N**.
+`gh pr merge` command).
 
 Two layers run a day. The human lives on the **day**: the `travel` skill plans the
-morning from yesterday's ledger and `kf status --all`, keeps a few worker slots busy
-with `kf drive`, and sorts what comes back into decisions (approve a spec) and
+morning from yesterday's ledger and `kf status --all`, keeps a few item slots busy
+in its own session, and sorts what comes back into decisions (approve a spec) and
 actions (merge this PR). Each ticket still walks the **item** ladder above, one
 worktree per started item. Travel never approves, merges or archives.
 
-Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | finish | drop | run`); the flat commands remain permanent aliases.
+Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop`); the flat commands remain permanent aliases.
 
 Upgrading: the first `kf status` or `kf sync` moves any `.works/dones/*` item to
 `done` and any `.works/shipping/*` item back to `review` (a shipping item whose PR
 already merged is closed). Then run `kf doctor --fix`: it rewrites the legacy
-`statusMap` and `harness.stages` keys in `.kf/config.json` (`dones` → `done`,
-`shipping` dropped), renames `.kf/hooks/dones.sh` to `done.sh` when `done.sh` is
+`statusMap` key in `.kf/config.json` (`dones` → `done`,
+`shipping` dropped), removes the retired `harness` keys and run state left by `kf drive`, renames `.kf/hooks/dones.sh` to `done.sh` when `done.sh` is
 missing (content kept), and adds a missing `.kf/travel/` `.gitignore` entry. `KFW_PROJECT_STATUS_DONES` is
 still exported to done hooks, so a legacy board move keeps working. Until then
 `dones.sh` runs as the done hook; `kf doctor` flags leftovers.
@@ -136,9 +136,6 @@ kf approve user-login               # decision two; fingerprints all of it and s
                                     # (`worktree.enabled: true`) this also provisions a git
                                     # worktree on <git-user>/user-login with its own
                                     # <feature>.<repo>.test domain — see docs/workflow
-kf drive user-login                 # optional, with a task harness configured: runs the plan's
-                                    # tasks in parallel worktrees, then testing and review, and
-                                    # stops at the merge gate — see docs/workflow/harness.md
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
 kf stage user-login review          # refused unless that report says PASS
@@ -185,49 +182,36 @@ matching, so passing again costs exactly one honest test run. The rest of the
 case is the combination: a gate reading files instead of claims, an approval
 bound to the bytes it approved, evidence that expires.
 
-## Multi-agent harness
+## In-session harness
 
-Stages route to **roles**, roles point at **runners**. A runner is one way to
-invoke a CLI: its argv, its permission flags, how its session resumes. A role is
-a job such as researcher or tester. Pointing a role at an existing runner is one
-line; a runner nobody has declared yet is a few more.
+The session you work in is the controller. It runs the phase skills, dispatches
+the agents inside them and runs the mechanical checks through `kf verify`; kf
+spawns no worker process and keeps no run state.
+The commands `kf drive`, `kf run`, `kf runs` and `kf harness` were removed, together with the
+role, runner and stage configuration behind them. The only `harness` keys left are the two verify lists:
 
 ```json
 "harness": {
-  "main": "architect",
-  "roles": { "architect": "claude", "researcher": "codex", "writer": "gemini", "coder": "claude" },
-  "stages": { "brainstorm": ["researcher", "writer"], "implementation": "coder" },
-  "runners": {
-    "claude": { "start": ["claude", "-p", "{prompt}"] },
-    "codex":  { "start": ["codex", "exec", "{prompt}"] },
-    "gemini": { "start": ["gemini", "-p", "{prompt}"] }
-  }
+  "verify": { "task": [["npm", "run", "typecheck"]], "stage": [["npm", "run", "build"], ["npm", "test"]] }
 }
 ```
 
-```mermaid
-flowchart LR
-    S1[stage: brainstorm] --> R1[role: researcher] --> N2[runner: codex]
-    S1 --> R2[role: writer] --> N3[runner: gemini]
-    S2[stage: implementation] --> R3[role: coder] --> N1[runner: claude]
-```
-
-A stage runs its roles in order, and a role that declares an `output` file hands
-it to the next one. A role reporting neither `DONE` nor `DONE_WITH_CONCERNS`
-stops the chain. Sessions are kept per work item and per role, so two roles on
-one CLI never share context.
-
 ```bash
-kf harness                     # stage → role chain, role → runner, which CLIs are on PATH
-kf run user-login --detach     # run the current stage's chain; poll with kf runs
-kf runs user-login --json      # each run: role, runner, status, usage where reported
+kf tasks user-login                                   # the task graph: waves, states, files
+kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
+kf verify user-login --stage                          # runs harness.verify.stage
+kf doctor --fix                                       # strips the removed harness keys and leftover run state
 ```
 
-Presets ship for claude, codex, devin, gemini and opencode. Assign no stages and the harness stays out of the way.
+`kf verify` exits 0 on a pass, 1 when a verify command failed, 2 when a file
+outside the task's `Files` changed, 3 on bad input (it runs nothing). kf never
+runs a command taken from an artifact. If your project still has the removed
+config keys or `drive`/`runs`/`sessions`/`tasks` in item metadata, `kf doctor`
+warns and `kf doctor --fix` removes them.
 
 ### Independent review, and a task loop that reviews every task
 
-Whoever runs a stage, the skills never let that session grade its own work.
+The skills never let the session that wrote the code grade its own work.
 `kanban-plan` dispatches a `scout` agent per thing that changes (consumers, covering
 tests, dual writes, why the code exists — a `file:line` map under 40 lines) and a
 `spec-reviewer` with a fresh context before the human approves. `kanban-implement`
@@ -247,43 +231,20 @@ review; the fix is pushed to the same PR and watched again. A second red round g
 the human with both rounds' failed runs, as does anything the watcher cannot settle (a
 conflict, a blocked or timed-out PR). It never re-runs, cancels or approves a workflow.
 
-### From approval to the merge gate: `kf drive`
+### From approval to the merge gate
 
-After the human approves the plan (which starts the item), `kf drive` runs the rest
-on its own. The plan's task table names a `Role` and a `Files` allowlist for every
-task, and `kf approve` seals it, so the same plan always produces the same dispatch.
+After the human approves the plan (which starts the item), the session runs the
+rest through `kanban-implement`, `kanban-test` and `kanban-review`. The plan's task
+table names a `Files` allowlist for every task, and `kf approve` seals it.
 
-```json
-"worktree": { "enabled": true },
-"harness": {
-  "verify": { "task": [["npm", "run", "typecheck"]], "stage": [["npm", "test"]] },
-  "parallel": 3, "retries": 1, "maxLoops": 2, "budget": { "maxRuns": 30 }
-}
-```
-
-- Each task runs in its own worktree with the role the plan declared. Up to
-  `parallel` run at once, and never two whose `Files` overlap.
-- kf, not the worker, decides a task is done. It checks the changed files against
-  the allowlist, commits, merges into the item branch, and runs the `verify`
-  commands you pinned. kf never runs a command taken from an artifact. A failing
-  verify resets the merge.
-- Testing and review then run through the normal gates, with bounded repair loops.
-  The drive stops at **ready — review PASS: merge the PR**, or earlier with a named
-  stop code and the next command to run. An API usage limit stops it with
-  `usage_limit` (the reason quotes the reset time) without spending a run; `kf drive`
-  resumes the kept session afterwards.
-- The drive reads its harness config from the item worktree, then `origin/<default>`,
-  then the primary checkout; `config_source` shows which. Workers run with streamed
-  output, so `--status` and the `--watch` heartbeat show each worker's last tool call
-  or text with its age, and `--tail` prints readable lines.
-
-```bash
-kf tasks user-login            # the task graph: waves, states, roles, files
-kf drive user-login            # detached; starts from implementation after approval
-kf drive user-login --status   # where it is, each live run, or why it stopped
-kf drive user-login --watch    # stream events and a heartbeat; Ctrl+C detaches only
-kf drive user-login --stop     # end it; worktrees and branches are kept
-```
+- Per task: a `test-writer`, a `developer`, then `kf verify --task` and a
+  `code-reviewer` on the task's diff. The exit code of `kf verify`, not the
+  developer's report, decides the task passed its mechanical checks.
+- Before testing, `kf verify --stage` runs the commands you pinned in
+  `harness.verify.stage`.
+- Testing and review run through the normal gates and stop at **review PASS:
+  merge the PR**, or earlier with a blocker that names the human step.
+- A new session resumes from the ledger at `<item>/loop/progress.md`.
 
 ## Releasing
 
@@ -296,7 +257,7 @@ The full reference lives in [docs/workflow](docs/workflow/README.md): the [state
 machine](docs/workflow/state-machine.md), every [gate](docs/workflow/gates.md), the
 [artifacts](docs/workflow/artifacts.md), the [CLI reference](docs/workflow/cli-reference.md),
 [agent onboarding](docs/workflow/autoconfig.md) including phase hooks, the
-[harness and `kf drive`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
+[in-session harness and `kf verify`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
 notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License — MIT

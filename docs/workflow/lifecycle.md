@@ -23,7 +23,7 @@ flowchart TD
     KB --> L
     L -- Not yet --> K
     L -- Yes --> M[kf approve: store the contract fingerprint and start]
-    M --> O[Implementation in the item worktree: kf drive, or the task loop - test-writer, developer, code-reviewer per task, ledger]
+    M --> O[Implementation in the item worktree: the task loop - test-writer, developer, code-reviewer per task, ledger]
     L -- "Approved, but later: kf approve --backlog" --> P[Backlog: hold the approved contract]
     P --> Q[Start it: kf stage item implementation]
     Q --> O
@@ -62,9 +62,9 @@ Phase 1 and the Phase 2 approval are the two points where the user decides; `kf 
 
 ## Two layers
 
-The flow above is the **item** layer: one work item, from brainstorm to `done`. Above it sits the **day** layer: travel (the day orchestrator) decides which items to start, runs several of them side by side, and reports what needs the human and what waits to merge. It only starts and watches `kf drive` runs — it never approves, merges or archives an item. `kf status --all` ends with the same buckets computed from kf state: `Needs you`, `Waiting to merge` (the PR URL and `gh pr merge <n>`, plus any docs branch awaiting push or not proven merged, with its `git push -u origin <branch>`) and `Running: N`. `Needs you` also lists a review PASS item whose close was refused, as `review PASS but not closed: <refusal heading> <failed check codes>`.
+The flow above is the **item** layer: one work item, from brainstorm to `done`. Above it sits the **day** layer: travel (the day orchestrator) decides which items to start, keeps several of them moving in its own session, and reports what needs the human and what waits to merge. It runs the phase skills itself, one slot per item — it never approves, merges or archives an item. `kf status --all` ends with the same buckets computed from kf state: `Needs you`, `Waiting to merge` (the PR URL and `gh pr merge <n>`, plus any docs branch awaiting push or not proven merged, with its `git push -u origin <branch>`). `Needs you` also lists a review PASS item whose close was refused, as `review PASS but not closed: <refusal heading> <failed check codes>`.
 
-When the project configures a task harness (`harness.verify.stage` set, worktrees on), "runs on its own" is `kf drive`: a detached supervisor takes the item from implementation through testing and review, ending in an open PR and a review report with `ci` and `landing`, or earlier with a stop code that names what the human must do. See [the task harness](harness.md#task-harness-kf-drive).
+"Runs on its own" is the in-session loop: the session dispatches the test-writer, developer and code-reviewer per task, runs `kf verify --task` after each task commit and `kf verify --stage` before testing, and carries the item through testing and review to an open PR and a review report with `ci` and `landing`, or stops earlier with a named blocker the human must act on. See [the harness guide](harness.md).
 
 ## Review and closing
 
@@ -74,7 +74,7 @@ The report is gated at review → done: a PASS needs `ci` green or none (`review
 
 Nobody is asked "archive?". An item with a PASS review closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged on GitHub, or, for `landing: none`, once it has 0 commits ahead of origin's default branch. Until then `kf status` says to merge the PR (its URL) and run `kf status --change <feature>` again. A PR that was closed unmerged is refused.
 
-The close runs in a binding order: gates, refusal while a drive or close is in progress, refusal while the worktree is dirty, the `done` hook, worktree teardown, branch deletion (local, then origin), canonical docs, the move into `.works/done/`, and the metadata stamp.
+The close runs in a binding order: gates, refusal while a close is in progress, refusal while the worktree is dirty, the `done` hook, worktree teardown, branch deletion (local, then origin), canonical docs, the move into `.works/done/`, and the metadata stamp.
 
 Branch deletion is conservative. The PR head must be the item branch. The local branch is deleted only when its tip equals the PR head, and the origin branch is deleted with a lease. A branch with commits past the merged head is kept and reported.
 

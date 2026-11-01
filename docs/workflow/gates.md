@@ -59,7 +59,7 @@ flowchart LR
 
 The review → done direction gate adds the delivery checks on a PASS report: `review_ci_missing` (no `ci: green` or `ci: none`), `review_ci_red` (`ci: red` cannot pass; write FAIL and return to implementation), `review_landing_missing` (no `landing: pr` or `landing: none`) and `review_pr_missing` (`landing: pr` without a recorded PR). Merging on GitHub then closes the item; see [Review and closing](lifecycle.md#review-and-closing) for the close order and the branch-deletion safety.
 
-`implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply. Under the task harness kf renders `tasks.md` from the task states, ticking a task only once it is merged and verified.
+`implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply. The task loop ticks a task only after its commit passes `kf verify --task`.
 
 ## Contract and traceability
 
@@ -79,17 +79,17 @@ The secret scan is the one check that ignores the stage entirely. It runs on **e
 
 A testing report with `status: PASS` must also carry a table under the `## Commands and Evidence` heading with at least one command line and every Exit code cell equal to `0`; breaking that is `testing_exit_code`. The rule does not prove the tests ran. It only stops a PASS report that has no numeric evidence behind it. FAIL, REJECT and BLOCKED reports are not bound by it.
 
-The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every use-case file for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval. That includes the plan's Task Breakdown — dependencies, `Role` and `Files` — so the dispatch `kf drive` performs is the one that was approved.
+The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every use-case file for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval. That includes the plan's Task Breakdown — dependencies and `Files` — so the allowlist `kf verify --task` enforces is the one that was approved.
 
 ## Cancelled
 
 `cancelled` is the one stage with **no artifact gate**. Its `STAGE_INDEX` is `-1`, so every "is this artifact due yet" and "are we past planning" comparison comes out false, and the validator skips artifacts, approval, traceability and report semantics entirely. In exchange it has exactly one requirement of its own: `cancellation.reason` must not be empty, and a missing one is `cancellation_missing`.
 
-`kf cancel` runs the `cancelled.sh` hook like any other transition, refuses while a worker run is live unless `--force`, and for an item in `done` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
+`kf cancel` runs the `cancelled.sh` hook like any other transition, and for an item in `done` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
 
 An item cancelled *out of* `done` reopens into `done`: `kf stage` restores its `archived` status and re-syncs the canonical docs through the archive path. When that sync is refused — changed docs included — the item still lands in `done` and the output says to finish with `kf archive`.
 
-On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate, and `kf runs` leaves out the runs of a dropped item unless you name it directly with `kf runs <feature>`, exactly as it treats an item in `done`.
+On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate.
 
 ## Force and recovery
 
