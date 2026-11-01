@@ -21,7 +21,7 @@ import { readProjectConfig, effectiveSkillsScope } from "../project/config.js";
 import { askAll, bootstrapDefaults, saveConfig } from "../project/bootstrap.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdAutoconfig } from "../cli/commands/autoconfig.js";
-import { runDoctor, applyDoctorFixes } from "../project/doctor.js";
+import { runDoctor, runDoctorFixes } from "../project/doctor.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -350,7 +350,7 @@ describe("status reporting (UC-006)", () => {
     const finding = runDoctor(dir).findings.find((f) => f.area.includes("skills"));
     expect(finding?.message).toContain("broken-link");
 
-    await applyDoctorFixes(dir);
+    expect((await runDoctorFixes(dir)).failures).toEqual([]);
     expect(skillEntryState(homeSkills(), "kanban-flow")).toBe("linked");
     expect(runDoctor(dir).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });
@@ -375,7 +375,8 @@ describe("status reporting (UC-006)", () => {
     expect(before.ok).toBe(false);
     expect(before.findings.some((f) => f.area.includes("skills") && f.message.includes("missing"))).toBe(true);
 
-    const fixed = await applyDoctorFixes(dir);
+    const { fixed, failures } = await runDoctorFixes(dir);
+    expect(failures).toEqual([]);
     expect(fixed.some((l) => l.includes("installed kanban skills for claude"))).toBe(true);
     expect(runDoctor(dir).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });

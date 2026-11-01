@@ -46,16 +46,18 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   // `defaultContext` is ignored, so writing it would leave a config contradicting itself: the
   // file naming one default while `kf new` and `kf contexts` use another.
   const recordContext = typeof args.options.context === "string" && cfg.contexts === undefined;
-  // An existing config is written only to record a context. The gate used to be `!cfg.harness`, which
-  // stood for "never initialised" while init seeded a harness; no harness is seeded any more, so it
-  // would rewrite every config that has none.
-  if (!existsSync(configPath(target)) || recordContext) {
+  // An existing config is written only to record a context or back-fill schema, created or a detectable
+  // repository. The gate used to be `!cfg.harness`, which stood for "never initialised" while init seeded
+  // a harness; no harness is seeded any more, so it would rewrite every config that has none.
+  const repository = cfg.repository ?? detectRepository(target) ?? undefined;
+  const backfill = cfg.schema === undefined || cfg.created === undefined || repository !== cfg.repository;
+  if (!existsSync(configPath(target)) || recordContext || backfill) {
     await mkdir(join(target, ".kf"), { recursive: true });
     writeProjectConfig(target, {
       ...cfg, schema: "kanban-flow", created: cfg.created ?? nowTimestamp(),
       ...(declareHere ? { contexts: [ctx] } : {}),
       ...(!declareHere && recordContext ? { defaultContext: ctx } : {}),
-      repository: cfg.repository ?? detectRepository(target) ?? undefined,
+      repository,
     });
   }
   await mkdir(join(target, ".kf", "templates"), { recursive: true });

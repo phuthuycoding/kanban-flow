@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runDoctor, type DoctorFinding } from "../project/doctor.js";
+import { runDoctor, runDoctorFixes, type DoctorFinding } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { readProjectConfig } from "../project/config.js";
@@ -294,24 +294,77 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(await snapshot(root)).toEqual(before);
   });
 
-  it("kf doctor --fix strips the four keys, keeps every other field and kills no process", async () => {
+  it("kf doctor --fix strips the four keys of an item with no live pid and keeps every other field", async () => {
     await projectWithHarness(undefined);
-    const worker = liveWorker();
-    const live = await item("alpha", leftovers(process.pid, worker.pid!));
     const dead = await item("bravo", leftovers(DEAD_PID, DEAD_PID));
 
     await cmdDoctor(args("doctor", [], { fix: true }), root);
 
-    for (const { file, kept } of [live, dead]) {
-      const after = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
-      for (const key of META_LEFTOVERS) expect(after, `${file} ${key}`).not.toHaveProperty(key);
-      expect(after, file).toEqual(kept);
-    }
+    const after = JSON.parse(await readFile(dead.file, "utf8")) as Record<string, unknown>;
+    for (const key of META_LEFTOVERS) expect(after, key).not.toHaveProperty(key);
+    expect(after).toEqual(dead.kept);
     expect(withCode(runDoctor(root).findings, "meta_legacy_run_state")).toEqual([]);
-    expect(isAlive(process.pid)).toBe(true);
+  });
+
+  it("kf doctor --fix leaves an item naming a live pid byte-identical, reports the pid and kills no process", async () => {
+    await projectWithHarness(undefined);
+    const worker = liveWorker();
+    const live = await item("alpha", leftovers(DEAD_PID, worker.pid!));
+    const dead = await item("bravo", leftovers(DEAD_PID, DEAD_PID));
+    const liveText = await readFile(live.file, "utf8");
+
+    const res = await runDoctorFixes(root);
+
+    expect(await readFile(live.file, "utf8")).toBe(liveText);
+    expect(res.fixed.some((l) => l.includes("alpha_"))).toBe(false);
+    expect(res.failures).toHaveLength(1);
+    expect(res.failures[0].level).toBe("ERROR");
+    expect(res.failures[0].area).toContain("alpha_");
+    expect(res.failures[0].message).toContain(String(worker.pid));
+    expect(res.failures[0].message).toContain("stop");
+    expect(JSON.parse(await readFile(dead.file, "utf8"))).toEqual(dead.kept);
+    expect(isAlive(worker.pid!)).toBe(true);
     expect(worker.exitCode).toBeNull();
     expect(worker.signalCode).toBeNull();
-    expect(isAlive(worker.pid!)).toBe(true);
+  });
+
+  it("kf doctor --fix exits 1 for an item naming a live pid", async () => {
+    await projectWithHarness(undefined);
+    await item("alpha", leftovers(DEAD_PID, liveWorker().pid!));
+    const res = kf(root, "doctor", "--fix");
+    expect(res.code, res.out).toBe(1);
+    expect(res.out.split("\n").filter((l) => l.includes("[ERROR]") && l.includes("alpha_")), res.out).toHaveLength(1);
+  });
+
+  it.each([
+    ["four spaces", "    "],
+    ["a tab", "\t"],
+  ])("kf doctor --fix keeps an item meta indented with %s", async (_name, indent) => {
+    await projectWithHarness(undefined);
+    const { file, kept } = await item("indented", leftovers(DEAD_PID, DEAD_PID));
+    const parsed = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    await writeFile(file, `${JSON.stringify(parsed, null, indent)}\n`);
+
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+
+    expect(await readFile(file, "utf8")).toBe(`${JSON.stringify(kept, null, indent)}\n`);
+  });
+
+  it("kf doctor --fix reports an ambiguous item as an error and still fixes the others", async () => {
+    await projectWithHarness(undefined);
+    // `a_<TS>_<TS>` parses to the name `a_<TS>`, which is also the folder of the item named `a`.
+    const first = await item("a", leftovers(DEAD_PID, DEAD_PID));
+    const second = await item(`a_${TS}`, leftovers(DEAD_PID, DEAD_PID));
+    const firstText = await readFile(first.file, "utf8");
+
+    const res = await runDoctorFixes(root);
+
+    expect(res.failures).toHaveLength(1);
+    expect(res.failures[0].level).toBe("ERROR");
+    expect(res.failures[0].area).toContain(`a_${TS}/.kfw.json`);
+    expect(res.failures[0].message).toContain("Ambiguous");
+    expect(await readFile(first.file, "utf8")).toBe(firstText);
+    expect(JSON.parse(await readFile(second.file, "utf8"))).toEqual(second.kept);
   });
 
   it("kf doctor --fix names an unparseable item meta, leaves it unchanged and still fixes the others", async () => {
@@ -322,8 +375,19 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     await writeFile(join(broken, ".kfw.json"), brokenText);
     const ok = await item("ok", leftovers(DEAD_PID, DEAD_PID));
 
+    let syntaxText = "";
+    try {
+      JSON.parse(brokenText);
+    } catch (err) {
+      syntaxText = (err as SyntaxError).message;
+    }
+    expect(syntaxText).not.toBe("");
+
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).toContain(`broken_${TS}`);
+    const errors = res.stdout.split("\n").filter((l) => l.includes("[ERROR]") && l.includes(`broken_${TS}`));
+    expect(errors, res.stdout).toHaveLength(1);
+    expect(errors[0]).toContain(syntaxText);
     expect(await readFile(join(broken, ".kfw.json"), "utf8")).toBe(brokenText);
     expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual(ok.kept);
   });
@@ -358,5 +422,49 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     const errors = lines.filter((l) => l.includes("[ERROR]") && l.includes(`bravo_${TS}/.kfw.json`));
     expect(errors, res.out).toHaveLength(1);
     expect(errors[0]).toContain("EACCES");
+  });
+});
+
+describe("kf init --minimal on an existing config", () => {
+  function gitWithOrigin(): void {
+    execFileSync("git", ["init", "-q", root], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://github.com/acme/widgets.git"], { stdio: "pipe" });
+  }
+
+  it("fills a missing repository from the origin remote and leaves legacy keys untouched", async () => {
+    gitWithOrigin();
+    const harness = { ...fullLegacyBlock(), verify: VERIFY };
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(configFile(), JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"], harness }, null, 2));
+
+    expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
+
+    const cfg = await readRaw();
+    expect(cfg.repository).toBe("acme/widgets");
+    expect(cfg.harness).toEqual(harness);
+    expect(cfg.created).toBe("x");
+  });
+
+  it("fills a missing schema and created alongside the repository", async () => {
+    gitWithOrigin();
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(configFile(), JSON.stringify({ agents: ["claude"] }, null, 2));
+
+    expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
+
+    const cfg = await readRaw();
+    expect(cfg.schema).toBe("kanban-flow");
+    expect(typeof cfg.created).toBe("string");
+    expect(cfg.repository).toBe("acme/widgets");
+  });
+
+  it("keeps a repository the config already names", async () => {
+    gitWithOrigin();
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(configFile(), JSON.stringify({ schema: "kanban-flow", created: "x", repository: "other/repo" }, null, 2));
+
+    expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
+
+    expect((await readRaw()).repository).toBe("other/repo");
   });
 });

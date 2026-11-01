@@ -20,6 +20,11 @@ function findPackageRoot(): string {
 }
 
 export const PKG_ROOT = findPackageRoot();
+
+/** A linked git worktree carries a `.git` file pointing into the primary checkout; the primary has a `.git` directory. */
+export function isLinkedWorktree(dir: string): boolean {
+  return statSync(join(dir, ".git"), { throwIfNoEntry: false })?.isFile() ?? false;
+}
 export const PKG_TEMPLATES_DIR = join(PKG_ROOT, "kanban-flow", "templates");
 export const PKG_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "rules");
 export const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");

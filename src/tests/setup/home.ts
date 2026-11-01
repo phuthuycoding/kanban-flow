@@ -12,6 +12,7 @@ import { afterEach, beforeEach } from "vitest";
 let home: string;
 let prevHome: string | undefined;
 let prevUserProfile: string | undefined;
+let prevAllowLink: string | undefined;
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "kfw-home-"));
@@ -19,6 +20,9 @@ beforeEach(() => {
   prevUserProfile = process.env.USERPROFILE;
   process.env.HOME = home;
   process.env.USERPROFILE = home;
+  prevAllowLink = process.env.KF_ALLOW_WORKTREE_LINK;
+  // Suites run inside linked item worktrees, whose package root the global link would otherwise refuse.
+  process.env.KF_ALLOW_WORKTREE_LINK = "1";
 });
 
 afterEach(() => {
@@ -26,5 +30,7 @@ afterEach(() => {
   else process.env.HOME = prevHome;
   if (prevUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = prevUserProfile;
+  if (prevAllowLink === undefined) delete process.env.KF_ALLOW_WORKTREE_LINK;
+  else process.env.KF_ALLOW_WORKTREE_LINK = prevAllowLink;
   rmSync(home, { recursive: true, force: true });
 });
