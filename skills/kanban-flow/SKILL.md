@@ -109,7 +109,7 @@ The approval is the start: `kf approve {feature}` moves the item to implementati
 
 **In-session agents** (`scout`, `spec-reviewer`, `test-writer`, `developer`, `automation-writer`, `code-reviewer`) are subagents the phase skills dispatch from the session running the skill, each for a bounded job with a fresh context and a short report back: `Agent(scout)` and `Agent(spec-reviewer)` at brainstorm and planning, `Agent(test-writer)` → `Agent(developer)` → `Agent(code-reviewer)` per task in `kanban-implement`, `Agent(automation-writer)` for UI tests, and `Agent(code-reviewer)` × the tier at review. The phase skill decides who fills each seat; a session never fills a review seat itself.
 
-**Mechanical verification:** `kf verify {feature} --task TASK-### --base <sha>` runs the `harness.verify.task` commands and checks the task's changed files against its Files allowlist; `kf verify {feature} --stage` runs `harness.verify.stage`. Exit 0 pass, 1 a verify command failed, 2 a changed file is outside the task's Files, 3 bad input (nothing ran). `kanban-implement` says where the loop calls them. `kf drive`, `kf run`, `kf runs` and `kf harness` were removed; `kf doctor --fix` clears the config keys they used.
+**Mechanical verification:** `kf verify {feature} --task TASK-### --base <sha>` runs the `harness.verify.task` commands and checks the task's changed files against its Files allowlist; `kf verify {feature} --stage` runs `harness.verify.stage`. Exit 0 pass, 1 a verify command failed, 2 a changed file is outside the task's Files, 3 bad input or kf verify could not run (nothing ran). `kanban-implement` says where the loop calls them. `kf drive`, `kf run`, `kf runs` and `kf harness` were removed; `kf doctor --fix` clears the config keys they used.
 
 ---
 
