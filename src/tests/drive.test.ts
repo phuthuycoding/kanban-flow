@@ -463,7 +463,8 @@ describe("detached drive", () => {
     expect([a.code, b.code].sort()).toEqual([0, 1]);
     expect((a.code === 1 ? a : b).stdout).toContain("already live");
 
-    await until(pr, (s) => s.runningTasks.includes("TASK-001"));
+    // The task is claimed as running before its worktree is added, so wait for the worktree itself.
+    await until(pr, (s) => s.runningTasks.includes("TASK-001") && pr.git(pr.root, "worktree", "list").includes("demo.tasks/task-001"));
     const stopped = await cmdDrive(args(["demo"], { stop: true }), pr.root);
     expect(stopped.code, stopped.stdout).toBe(0);
     const s = await status(pr);
