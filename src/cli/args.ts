@@ -180,7 +180,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 9 skills (8 kanban phase skills and travel) and the 6 kanban agents at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 9 skills (8 kanban phase skills and travel) and the 6 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer) at the given scope (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },

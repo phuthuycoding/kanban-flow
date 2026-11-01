@@ -175,6 +175,17 @@ describe("kf install / uninstall carry the agents", () => {
     expect(await readFile(join(dir, ".claude", "agents", "scout.md"), "utf8")).toBe(FOREIGN);
   });
 
+  it("uninstall removes all six agents when none is foreign", async () => {
+    await mkdir(join(dir, ".works"), { recursive: true });
+    await cmdInstall([], { cwd: dir, scope: "project" });
+
+    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("removed 6 agents");
+    for (const name of ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
+      expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(false);
+    }
+  });
   it("uninstall removes the agents with the skills and keeps a foreign file", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     await cmdInstall([], { cwd: dir, scope: "project" });
@@ -198,10 +209,9 @@ describe("kf install / uninstall help", () => {
     for (const command of ["install", "uninstall"]) {
       const help = commandHelp(command);
       expect(help).toContain("6 kanban agents");
-    }
-    const install = commandHelp("install");
-    for (const name of ["developer", "test-writer", "automation-writer"]) {
-      expect(install).toContain(name);
+      for (const name of ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
+        expect(help).toContain(name);
+      }
     }
   });
 });
