@@ -26,5 +26,11 @@
   "orphans": [3],
   "openWaits": [],
   "otherTimed": 2,
-  "untimed": 2
+  "untimed": 2,
+  "developersPeak": 1,
+  "developerOverlapMinutes": 0,
+  "dispatchLag": {
+    "developer": { "median": 3, "max": 3, "n": 1 },
+    "codeReviewer": { "median": 2, "max": 2, "n": 1 }
+  }
 }

@@ -127,6 +127,17 @@ export interface LoopStats {
   openWaits: number[];
   otherTimed: number;
   untimed: number;
+  /** The largest number of developer seat intervals open at the same instant. */
+  developersPeak: number;
+  /** Minutes during which two or more developer intervals were open. */
+  developerOverlapMinutes: number;
+  dispatchLag: { developer: LagFigures; codeReviewer: LagFigures };
+}
+
+export interface LagFigures {
+  median: number | null;
+  max: number | null;
+  n: number;
 }
 
 interface Interval {
@@ -165,6 +176,61 @@ function unionMs(intervals: Interval[]): number {
   return total;
 }
 
+/** Sweep the intervals: the peak count open at once, and the ms with two or more open; an end at t and a start at t do not overlap. */
+function concurrency(intervals: Interval[]): { peak: number; overlapMs: number } {
+  const edges = intervals.flatMap((iv) => [{ at: iv.start, d: 1 }, { at: iv.end, d: -1 }]).sort((a, b) => a.at - b.at || a.d - b.d);
+  let open = 0;
+  let peak = 0;
+  let overlapMs = 0;
+  let prev = 0;
+  for (const e of edges) {
+    if (open >= 2) overlapMs += e.at - prev;
+    open += e.d;
+    peak = Math.max(peak, open);
+    prev = e.at;
+  }
+  return { peak, overlapMs };
+}
+
+function lagFigures(lags: number[]): LagFigures {
+  if (lags.length === 0) return { median: null, max: null, n: 0 };
+  return { median: round1(median(lags)), max: round1(Math.max(...lags)), n: lags.length };
+}
+
+/**
+ * Minutes from the latest gate line before each plain dispatch (no `round=`, no `cascade=`) of the seat
+ * to the dispatch; a dispatch with no gate line is not counted.
+ */
+function dispatchLags(shapes: LedgerLine[], seat: Seat, gatesOf: (d: LedgerLine, before: LedgerLine[]) => LedgerLine[]): number[] {
+  const lags: number[] = [];
+  shapes.forEach((d, i) => {
+    if (d.shape !== "dispatched" || d.seat !== seat || d.round !== undefined || d.cascade !== undefined) return;
+    const gates = gatesOf(d, shapes.slice(0, i)).filter((g) => g.ts! <= d.ts!);
+    if (gates.length === 0) return;
+    lags.push((d.ts! - Math.max(...gates.map((g) => g.ts!))) / MINUTE);
+  });
+  return lags;
+}
+
+const isDone = (l: LedgerLine, task: string, seat: Seat): boolean => l.shape === "done" && l.task === task && l.seat === seat;
+
+/** The latest gate lines a developer dispatch could have waited on: its test-writer, its dependencies, the overlapping task, the cap. */
+function developerGates(d: LedgerLine, before: LedgerLine[], deps: Record<string, string[]> | undefined): LedgerLine[] {
+  const gates = before.filter((l) => isDone(l, d.task!, "test-writer"));
+  for (const dep of deps?.[d.task!] ?? []) gates.push(...before.filter((l) => isDone(l, dep, "developer")));
+  const wait = before.filter((l) => l.shape === "developerWaits" && l.task === d.task).pop();
+  if (wait) {
+    const after = before.slice(before.indexOf(wait) + 1);
+    const overlap = /\((TASK-\d+)\)$/.exec(wait.reason!);
+    if (overlap) gates.push(...after.filter((l) => l.shape === "complete" && l.task === overlap[1]));
+    else if (wait.reason!.startsWith("4 developers in flight")) {
+      const first = after.find((l) => l.shape === "done" && l.seat === "developer");
+      if (first) gates.push(first);
+    }
+  }
+  return gates;
+}
+
 /**
  * Pair each closing line with the latest still-open opening line of the same key before it. A close
  * with no open line, and a pair whose close is earlier than its open, go to `unparsed`; opens still
@@ -197,7 +263,7 @@ function pairLines(
 }
 
 /** Every FR-012 figure of a parsed ledger; minutes are exact until rounded to one decimal here. */
-export function loopStats(parsed: ParsedLedger): LoopStats {
+export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>): LoopStats {
   const shapes = parsed.lines.filter((l) => l.kind === "shape");
   const of = (shape: ShapeName): LedgerLine[] => shapes.filter((l) => l.shape === shape);
   const unparsed = parsed.lines.filter((l) => l.kind === "unparsed").map((l) => l.line);
@@ -257,6 +323,15 @@ export function loopStats(parsed: ParsedLedger): LoopStats {
     else waitMs += next.ts! - l.ts!;
   });
 
+  const developerIntervals = seatIntervals.filter((iv) => iv.seat === "developer");
+  const { peak, overlapMs } = concurrency(developerIntervals);
+  const dispatchLag = {
+    developer: lagFigures(dispatchLags(shapes, "developer", (d, before) => developerGates(d, before, deps))),
+    codeReviewer: lagFigures(
+      dispatchLags(shapes, "code-reviewer", (d, before) => before.filter((l) => isDone(l, d.task!, "developer") || isDone(l, d.task!, "automation-writer"))),
+    ),
+  };
+
   const seatMs = sum(seatIntervals.map((iv) => iv.end - iv.start));
   const verifyMs = sum(verifyIntervals.map((iv) => iv.end - iv.start));
   const busyMs = unionMs([...seatIntervals, ...verifyIntervals]);
@@ -281,6 +356,9 @@ export function loopStats(parsed: ParsedLedger): LoopStats {
     openWaits,
     otherTimed: parsed.lines.filter((l) => l.kind === "other-timed").length,
     untimed: parsed.lines.filter((l) => l.kind === "untimed").length,
+    developersPeak: peak,
+    developerOverlapMinutes: round1(overlapMs / MINUTE),
+    dispatchLag,
   };
 }
 
