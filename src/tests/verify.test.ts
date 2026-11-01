@@ -545,7 +545,7 @@ describe("kf verify --task --commits", () => {
     });
   });
 
-  it("exits 3 saying kf verify could not run, runs no command and leaves nothing behind when the worktree cannot be created", async () => {
+  it("exits 3 saying kf verify could not run and runs no command when the temp dir cannot be created", async () => {
     const missing = join(item.scratch, "no-such-tmp");
 
     const res = kfTmp(missing, "verify", "f", "--task", "TASK-001", "--commits", c2);
@@ -554,7 +554,29 @@ describe("kf verify --task --commits", () => {
     expect(res.out).toContain("kf verify could not run:");
     expect(existsSync(item.marker)).toBe(false);
     expect(worktreeList()).not.toContain(missing);
-    expect(await readdir(tmp)).toEqual([]);
+    expect(existsSync(missing)).toBe(false);
+  });
+
+  it("exits 3 saying kf verify could not run, runs no command and removes the worktree and temp dir when a step after the worktree is added fails", async () => {
+    // The newest commit tracks node_modules, so the checkout already has one and linking the item's node_modules there fails.
+    await item.commit({ "src/b.ts": "b2" });
+    await mkdir(join(item.dir, "node_modules"), { recursive: true });
+    await writeFile(join(item.dir, "node_modules", "tracked.js"), "x");
+    gitIn(item.dir, "add", "-f", "node_modules/tracked.js");
+    gitIn(item.dir, "commit", "-qm", "track node_modules");
+    const tracked = item.head();
+    await item.configure({ task: [touch(item.marker)] });
+    // Unknown files skip the allowlist check, so the failure under test is the one after the worktree is added.
+    const plan = join(findFeature(item.root, "f")!.dir, ARTIFACTS["implementation-plan"].file);
+    await writeFile(plan, readFileSync(plan, "utf8").replace("| src/b.ts |", "| - |"));
+
+    const res = run("--commits", `${c2},${tracked}`);
+
+    expect(res.code).toBe(3);
+    expect(res.out).toContain("kf verify could not run:");
+    expect(existsSync(item.marker)).toBe(false);
+    await expectNothingLeft();
+    expect(existsSync(join(item.dir, "node_modules", "tracked.js"))).toBe(true);
   });
 
   describe("node_modules", () => {
