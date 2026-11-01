@@ -169,3 +169,48 @@ describe("the testing stage dispatch", () => {
     expect(section()).toMatch(/the Playwright MCP is for selector discovery only, one agent at a time/i);
   });
 });
+
+describe("the documentation surfaces", () => {
+  const normalise = (text: string) => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
+  const doc = (...parts: string[]) => normalise(read(...parts));
+  const SIX = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"];
+  const SURFACES: string[][] = [
+    ["README.md"],
+    [".github", "pages", "index.html"],
+    ["docs", "workflow", "cli-reference.md"],
+    ["docs", "workflow", "autoconfig.md"],
+    ["docs", "workflow", "skills.md"],
+    ["docs", "workflow", "harness.md"],
+    ["docs", "workflow", "lifecycle.md"],
+    ["skills", "kanban-flow", "SKILL.md"],
+    ["skills", "kanban-flow", "references", "harness-tools.md"],
+  ];
+  const STALE_COUNT = /\b(3|three) (kanban )?(agents|agent definitions|agent bodies|subagents)\b/i;
+
+  it("states no count of three agents on any surface", () => {
+    for (const surface of SURFACES) {
+      expect(doc(...surface), surface.join("/")).not.toMatch(STALE_COUNT);
+    }
+  });
+
+  it("names all six agents in the README, the Pages site and the CLI reference", () => {
+    for (const surface of [["README.md"], [".github", "pages", "index.html"], ["docs", "workflow", "cli-reference.md"]]) {
+      const text = doc(...surface);
+      for (const name of SIX) expect(text, `${surface.join("/")} ${name}`).toContain(name);
+    }
+  });
+
+  it("describes no single implementer in the in-session task loop", () => {
+    for (const surface of [
+      ["README.md"],
+      ["docs", "workflow", "skills.md"],
+      ["docs", "workflow", "lifecycle.md"],
+      ["skills", "kanban-flow", "SKILL.md"],
+    ]) {
+      const text = doc(...surface);
+      expect(text, surface.join("/")).not.toMatch(/fresh implementer per task/i);
+      expect(text, surface.join("/")).toContain("test-writer");
+      expect(text, surface.join("/")).toContain("developer");
+    }
+  });
+});
