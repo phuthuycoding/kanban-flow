@@ -406,6 +406,9 @@ describe("kf verify when preparation fails unexpectedly", () => {
 
     expect(res.code).toBe(3);
     expect(res.out).toContain("kf verify could not run:");
+    // The failure keeps its cause and stack for diagnosis, not just a one-line message.
+    expect(res.out).toContain("EISDIR");
+    expect(res.out).toMatch(/\n\s+at /);
     expect(existsSync(item.marker)).toBe(false);
   });
 

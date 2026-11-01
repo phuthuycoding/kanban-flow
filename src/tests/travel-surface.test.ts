@@ -69,7 +69,11 @@ describe("the travel skill", () => {
   it("never force-pushes in any bash block of the skill or its references", () => {
     const texts = [skill, read("references", "daily-plan.md"), read("references", "ledger-format.md"), read("references", "estimation.md")];
     for (const text of texts) {
-      for (const block of bashBlocks(text)) expect(block).not.toMatch(/git push\b[^\n]*(--force|--force-with-lease|\s-f\b)/);
+      for (const block of bashBlocks(text)) {
+        // Join backslash-continued lines so a flag on a continuation line is still seen.
+        const joined = block.replace(/\\\r?\n/g, " ");
+        expect(joined).not.toMatch(/git push\b[^\n]*(--force|--force-with-lease|\s-f\b|\s\+[^\s]+)/);
+      }
     }
   });
 

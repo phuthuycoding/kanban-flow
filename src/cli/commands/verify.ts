@@ -27,7 +27,7 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
     res = task !== undefined ? verifyTask(item.root, item.item, task, base!) : verifyStage(item.root, item.item);
   } catch (err) {
     if (err instanceof ProjectConfigError) return badInput(err.message);
-    return { code: 3, stdout: `kf verify could not run: ${err instanceof Error ? err.message : String(err)}`, stderr: "could not run" };
+    return { code: 3, stdout: `kf verify could not run: ${err instanceof Error ? err.message : String(err)}`, stderr: err instanceof Error ? (err.stack ?? err.message) : String(err) };
   }
   return { code: res.code, stdout: res.lines.join("\n") };
 }

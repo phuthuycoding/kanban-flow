@@ -476,6 +476,26 @@ describe("worktrees left behind by the removed task runner", () => {
     expect(text.stdout).not.toContain("TASK-001");
   });
 
+  it("surfaces a leftover task worktree on a managed branch as an unmanaged orphan, not a tasks row", async () => {
+    await approvedItem();
+    await cmdStage(args("stage", ["demo", "implementation"]), root);
+    const path = join(scratch, "wts", "demo.tasks", "TASK-001");
+    await mkdir(join(scratch, "wts", "demo.tasks"), { recursive: true });
+    git(root, "worktree", "add", "-b", "t/demo--task-001", path);
+
+    const { items, orphans } = listWorktrees(root, wtCfg());
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).not.toHaveProperty("tasks");
+    const orphan = orphans.find((o) => o.kind === "unmanaged-worktree");
+    expect(orphan?.detail).toContain("t/demo--task-001");
+    expect(orphans.filter((o) => o.kind !== "unmanaged-worktree")).toEqual([]);
+
+    await teardownWorktree(root, feature(), wtCfg());
+    expect(existsSync(path)).toBe(true);
+    expect(git(root, "branch", "--list", "t/demo--task-001")).toContain("t/demo--task-001");
+  });
+
   it("teardown reports no task branches and leaves the leftover worktree alone", async () => {
     await approvedItem();
     await cmdStage(args("stage", ["demo", "implementation"]), root);

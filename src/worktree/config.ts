@@ -131,7 +131,6 @@ export function worktreeDir(cfg: WorktreeConfig, feature: string): string {
   return join(dir, feature);
 }
 
-
 export function worktreeDomain(cfg: WorktreeConfig, feature: string): string {
   return `${slugify(feature)}.${cfg.baseDomain}`;
 }
