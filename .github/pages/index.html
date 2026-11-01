@@ -163,7 +163,7 @@
              work stops when a review PASS waits for its merge, or earlier with a named reason.
              The commands <code>kf drive</code>, <code>kf run</code>, <code>kf runs</code>, <code>kf harness</code> were removed.</p>
         </div>
-        <div class="term" data-replay><span class="line">$ kf tasks auth</span><span class="line">TASK-001  wave 1  <span class="ok">done</span>  deps: -  files: auth/</span><span class="line">TASK-002  wave 1  <span class="ok">done</span>  deps: -  files: e2e/</span><span class="line"> </span><span class="line">$ kf verify auth --task TASK-002 --base 9f8e7d6</span><span class="line"><span class="ok">pass</span> <span class="c">(exit 0)</span></span><span class="line"> </span><span class="line">$ kf verify auth --stage</span><span class="line"><span class="ok">pass</span> <span class="c">(exit 0)</span></span></div>
+        <div class="term" data-replay><span class="line">$ kf tasks auth</span><span class="line">TASK-001  wave 1  <span class="ok">done</span>  deps: -  files: auth/</span><span class="line">TASK-002  wave 1  <span class="ok">done</span>  deps: -  files: e2e/</span><span class="line"> </span><span class="line">$ kf verify auth --task TASK-002 --base 9f8e7d6</span><span class="line"><span class="ok">Every changed file is inside TASK-002's Files.</span></span><span class="line"><span class="ok">All 1 task verify command(s) passed.</span></span><span class="line"> </span><span class="line">$ kf verify auth --stage</span><span class="line"><span class="ok">All 2 stage verify command(s) passed.</span></span></div>
       </div>
       <div class="grid">
         <div class="card reveal">
