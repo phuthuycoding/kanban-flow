@@ -303,9 +303,17 @@ describe("the skills tree after the runner and drive removal", () => {
     expect(hits).toEqual([]);
   });
 
-  it("names kf drive, kf run, kf runs and kf harness only to say they were removed", () => {
+  it("names kf drive, kf run, kf runs and kf harness only in the one removal note of the kanban-flow skill", () => {
     const hits = lines()
-      .filter((l) => /\bkf (drive|run|runs|harness)\b/.test(l.text) && !/removed/i.test(l.text))
+      .filter((l) => /\bkf (drive|run|runs|harness)\b/.test(l.text) && !(l.where.startsWith("kanban-flow/SKILL.md:") && /were removed/.test(l.text)))
+      .map((l) => l.where);
+    expect(hits).toEqual([]);
+  });
+
+  it("leaves no worker status contract in the skill files and references", () => {
+    // The agent bodies under agents/ legitimately end with STATUS lines for in-session subagents.
+    const hits = lines()
+      .filter((l) => !l.where.includes("/agents/") && (/STATUS: (DONE|BLOCKED|NEEDS_CONTEXT)/.test(l.text) || /a worker ends/i.test(l.text)))
       .map((l) => l.where);
     expect(hits).toEqual([]);
   });
