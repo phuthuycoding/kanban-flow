@@ -7,7 +7,7 @@ import { checkTasks, checkTestingResult, checkReviewReport, checkDonesArtifacts 
 import { checkTraceability, checkAffectedSurfaces } from "./validate-traceability.js";
 import { checkCancellation } from "./validate-cancel.js";
 import { checkTaskGraph } from "./tasks.js";
-import type { HarnessConfig } from "../harness/config.js";
+import type { HarnessConfig } from "../project/harness-config.js";
 
 export type { Severity, Finding, ValidationResult } from "./findings.js";
 export { findSecretLike } from "./secrets.js";

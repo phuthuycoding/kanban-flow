@@ -13,7 +13,7 @@ import {
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
 import { executionContractHash } from "./features.js";
-import type { HarnessConfig } from "../harness/config.js";
+import type { HarnessConfig } from "../project/harness-config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
 

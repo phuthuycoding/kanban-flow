@@ -11,7 +11,7 @@ import { listFeatures, readFeatureMeta } from "../workflow/features.js";
 import { docsLookupRerunDecision, docsNeverLandedDecision, reportStatus } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
 import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
-import { legacyHarnessStageKeys } from "../harness/config.js";
+import { LEGACY_HARNESS_KEYS } from "./harness-config.js";
 import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
@@ -252,17 +252,50 @@ function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null):
   }];
 }
 
-/** A 0.13 harness.stages still keyed `dones`/`shipping` is read as done / ignored; the file says otherwise until --fix rewrites it. */
-function checkHarnessStagesLegacy(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+/** The harness keys of the removed drive runtime still in the raw file; they load as ignored, so only doctor names them. */
+function legacyHarnessKeys(harness: unknown): string[] {
+  if (!harness || typeof harness !== "object" || Array.isArray(harness)) return [];
+  return LEGACY_HARNESS_KEYS.filter((key) => Object.hasOwn(harness, key));
+}
+
+function checkHarnessLegacyKeys(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
   if (!cfg) return [];
-  const legacy = legacyHarnessStageKeys(readRawConfig(root)?.harness);
-  if (legacy.length === 0) return [];
-  return [{
-    level: "WARNING",
+  return legacyHarnessKeys(readRawConfig(root)?.harness).map((key) => ({
+    level: "WARNING" as const,
     area: ".kf/config.json",
-    message: `harness_stages_legacy: harness.stages uses the legacy stage keys ${legacy.map((k) => `"${k}"`).join(", ")} ("dones" is read as "done", "shipping" is ignored).`,
-    action: "kf doctor --fix (renames dones to done and drops shipping)",
-  }];
+    message: `harness_legacy_key: harness.${key} belonged to the removed task harness runtime and is ignored.`,
+    action: `kf doctor --fix (removes harness.${key})`,
+  }));
+}
+
+/** Item meta keys the removed drive runtime wrote; they pass through every other write untouched. */
+const LEGACY_META_KEYS = ["drive", "runs", "sessions", "tasks"] as const;
+
+/** Pids a pre-upgrade supervisor or worker recorded that still exist. kf never signals them. */
+function liveLegacyPids(meta: Record<string, unknown>): number[] {
+  const pids: unknown[] = [(meta.drive as { supervisorPid?: unknown } | undefined)?.supervisorPid];
+  if (Array.isArray(meta.runs)) pids.push(...meta.runs.map((r) => (r as { pid?: unknown } | null)?.pid));
+  const numeric = pids.filter((p): p is number => typeof p === "number" && Number.isInteger(p) && p > 0);
+  return [...new Set(numeric)].filter((pid) => isPidAlive(pid));
+}
+
+function checkLegacyRunState(root: string): DoctorFinding[] {
+  return listFeatures(root).flatMap((f) => {
+    const meta = f.meta as unknown as Record<string, unknown> | null;
+    if (!meta) return [];
+    const keys = LEGACY_META_KEYS.filter((key) => Object.hasOwn(meta, key));
+    if (keys.length === 0) return [];
+    const live = liveLegacyPids(meta);
+    const liveNote = live.length > 0
+      ? ` Pid ${live.join(", ")} recorded there is still alive: stop this process yourself before closing the item, or its worktree is torn down under it.`
+      : "";
+    return [{
+      level: "WARNING" as const,
+      area: `${f.stage}/${f.folder}`,
+      message: `meta_legacy_run_state: .kfw.json still holds ${keys.join(", ")} from the removed task harness runtime.${liveNote}`,
+      action: `kf doctor --fix (removes ${keys.join(", ")} from .kfw.json; it never stops a process)`,
+    }];
+  });
 }
 
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
@@ -534,15 +567,6 @@ function deadLocks(root: string): DoctorFinding[] {
   return findings;
 }
 
-/** Harness readiness, whenever a harness exists. */
-function checkHarness(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
-  const harness = cfg?.harness;
-  if (!cfg || !harness) return [];
-  const findings: DoctorFinding[] = [];
-  findings.push(...deadLocks(root));
-  return findings;
-}
-
 /** The file as written, not as normalised by readProjectConfig, which fills stacks in from stack. */
 function readRawConfig(root: string): Record<string, unknown> | null {
   try {
@@ -552,6 +576,37 @@ function readRawConfig(root: string): Record<string, unknown> | null {
     // checkConfig already reported an unreadable config; a second finding would be noise.
     return null;
   }
+}
+
+/** The indentation a JSON file was written with, so a rewrite changes only the keys it removes. */
+function jsonIndent(text: string): string | number {
+  return /^[ \t]+(?=")/m.exec(text)?.[0] ?? 2;
+}
+
+/**
+ * Remove the drive runtime's leftover keys from every item's .kfw.json. A file that cannot be read,
+ * parsed or written is named with its error and left as it was; the other items are still fixed.
+ */
+function stripLegacyRunState(root: string): string[] {
+  const out: string[] = [];
+  for (const f of listFeatures(root)) {
+    const file = join(f.dir, ".kfw.json");
+    if (!existsSync(file)) continue;
+    try {
+      const text = readFileSync(file, "utf8");
+      const meta: unknown = JSON.parse(text);
+      if (!meta || typeof meta !== "object" || Array.isArray(meta)) continue;
+      const keys = LEGACY_META_KEYS.filter((key) => Object.hasOwn(meta, key));
+      if (keys.length === 0) continue;
+      for (const key of keys) delete (meta as Record<string, unknown>)[key];
+      writeFileSync(file, `${JSON.stringify(meta, null, jsonIndent(text))}${text.endsWith("\n") ? "\n" : ""}`, "utf8");
+      out.push(`removed ${keys.join(", ")} from ${f.stage}/${f.folder}/.kfw.json`);
+    } catch (err) {
+      if (!(err instanceof SyntaxError || (err instanceof Error && "code" in err))) throw err;
+      out.push(`left ${f.stage}/${f.folder}/.kfw.json unchanged, it could not be rewritten: ${err.message}`);
+    }
+  }
+  return out;
 }
 
 /** Diagnose a project. Read-only: nothing here writes, moves or deletes. */
@@ -579,8 +634,9 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkDocsBranches(root));
   findings.push(...checkStatusMap(config.cfg));
   findings.push(...checkStatusMapLegacy(config.cfg));
-  findings.push(...checkHarnessStagesLegacy(root, config.cfg));
-  findings.push(...checkHarness(root, config.cfg));
+  findings.push(...checkHarnessLegacyKeys(root, config.cfg));
+  findings.push(...checkLegacyRunState(root));
+  findings.push(...deadLocks(root));
 
   // Invalid work items are the normal state of a running pipeline, so they are counted and
   // reported but deliberately kept out of `findings` — they must not decide the verdict.
@@ -642,13 +698,12 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
         fixed.push("rewrote project.statusMap legacy keys (dones → done, shipping dropped)");
         changed = true;
       }
-      const harnessStages = (raw.harness as Record<string, unknown> | undefined)?.stages as Record<string, unknown> | undefined;
-      if (cfg && harnessStages && legacyHarnessStageKeys(raw.harness).length > 0) {
-        // An explicit `done` beside the legacy `dones` wins, the same choice the reader makes.
-        if (harnessStages.dones !== undefined && harnessStages.done === undefined) harnessStages.done = harnessStages.dones;
-        delete harnessStages.dones;
-        delete harnessStages.shipping;
-        fixed.push("rewrote harness.stages legacy keys (dones → done, shipping dropped)");
+      const legacyKeys = cfg ? legacyHarnessKeys(raw.harness) : [];
+      if (legacyKeys.length > 0) {
+        const harness = raw.harness as Record<string, unknown>;
+        for (const key of legacyKeys) delete harness[key];
+        if (Object.keys(harness).length === 0) delete raw.harness;
+        fixed.push(`removed legacy harness keys: ${legacyKeys.map((k) => `harness.${k}`).join(", ")}`);
         changed = true;
       }
       if (raw.repository === undefined && cfg) {
@@ -659,9 +714,10 @@ export async function applyDoctorFixes(root: string): Promise<string[]> {
           changed = true;
         }
       }
-      if (changed) writeFileSync(configPath(root), `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+      if (changed) writeFileSync(configPath(root), `${JSON.stringify(raw, null, jsonIndent(readFileSync(configPath(root), "utf8")))}\n`, "utf8");
     }
   }
+  fixed.push(...stripLegacyRunState(root));
 
   const { agents, scope, declaredScope } = (() => {
     try {

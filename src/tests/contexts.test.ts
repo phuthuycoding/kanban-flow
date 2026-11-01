@@ -11,7 +11,6 @@ import { ensureWorksStructure } from "../workflow/features.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdContexts } from "../cli/commands/contexts.js";
 import { cmdInit } from "../cli/commands/init.js";
-import { seedHarness } from "../harness/config.js";
 import { cmdAutoconfig } from "../cli/commands/autoconfig.js";
 import { askAll, saveConfig } from "../project/bootstrap.js";
 import * as bootstrap from "../project/bootstrap.js";
@@ -771,7 +770,7 @@ describe("edges nothing else reaches", () => {
     await mkdir(join(dir, ".kf"), { recursive: true });
     await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({
       schema: "kanban-flow", created: "20260920_1200", contexts: ["auth", "billing"],
-      harness: seedHarness(["claude"]),
+      harness: { verify: { task: [["npm", "test"]] } },
     }));
     expect((await cmdInit(args("init", [], { minimal: true, context: "billing" }), dir)).code).toBe(0);
     const cfg = readProjectConfig(dir);
@@ -784,17 +783,19 @@ describe("edges nothing else reaches", () => {
 
   it("records and seeds a named context on a project kf init has already touched", async () => {
     // The shape every earlier test missed: a config carrying a harness, which is what a real
-    // `kf init` writes. Guarding the config write on `!cfg.harness` made the record silently
+    // `kf init` used to write. Guarding the config write on `!cfg.harness` made the record silently
     // skip exactly the projects someone would run `kf init --minimal --context` on twice.
     ensureWorksStructure(dir);
     await mkdir(join(dir, ".kf"), { recursive: true });
+    const harness = { main: "architect", roles: { architect: "claude" }, verify: { task: [["npm", "test"]] } };
     await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({
-      schema: "kanban-flow", created: "20260920_1200", harness: seedHarness(["claude"]),
+      schema: "kanban-flow", created: "20260920_1200", harness,
     }));
     expect((await cmdInit(args("init", [], { minimal: true, context: "payments" }), dir)).code).toBe(0);
     const cfg = readProjectConfig(dir);
     expect(cfg.defaultContext, "the named context must survive on an already-initialised project").toBe("payments");
-    expect(cfg.harness, "and re-running init must not rebuild the harness under it").toBeDefined();
+    const raw = JSON.parse(readFileSync(join(dir, ".kf", "config.json"), "utf8")) as { harness?: unknown };
+    expect(raw.harness, "and re-running init must write the harness back as it was").toEqual(harness);
     // Where docs land and where new items go have to be the same place, or the tree is dead.
     for (const docsDir of ["requirement", "use-cases", "testplan"]) {
       expect(existsSync(join(dir, "docs", docsDir, "payments")), docsDir).toBe(true);

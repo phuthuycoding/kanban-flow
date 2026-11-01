@@ -5,7 +5,6 @@ import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, writeProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
-import { seedHarness } from "../../harness/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { parseAgentIds } from "../../integrations/agents.js";
@@ -47,17 +46,16 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   // `defaultContext` is ignored, so writing it would leave a config contradicting itself: the
   // file naming one default while `kf new` and `kf contexts` use another.
   const recordContext = typeof args.options.context === "string" && cfg.contexts === undefined;
-  // The write sits OUTSIDE the harness check on purpose. Every project kf init has already
-  // touched carries a harness, so guarding it on `!cfg.harness` meant the record never happened
-  // on any real project — only on the two config shapes a real init never produces.
-  if (!cfg.harness || recordContext) {
+  // An existing config is written only to record a context. The gate used to be `!cfg.harness`, which
+  // stood for "never initialised" while init seeded a harness; no harness is seeded any more, so it
+  // would rewrite every config that has none.
+  if (!existsSync(configPath(target)) || recordContext) {
     await mkdir(join(target, ".kf"), { recursive: true });
     writeProjectConfig(target, {
       ...cfg, schema: "kanban-flow", created: cfg.created ?? nowTimestamp(),
       ...(declareHere ? { contexts: [ctx] } : {}),
       ...(!declareHere && recordContext ? { defaultContext: ctx } : {}),
       repository: cfg.repository ?? detectRepository(target) ?? undefined,
-      harness: cfg.harness ?? seedHarness(agents.length ? agents : parseAgentIds(cfg.agents)),
     });
   }
   await mkdir(join(target, ".kf", "templates"), { recursive: true });

@@ -352,23 +352,21 @@ function specifiers(text: string): string[] {
 }
 
 describe("the drive runtime is gone from the source tree", () => {
-  it("src/harness holds only config.ts", () => {
-    // config.ts stays until the config schema is rewritten; every other harness module goes.
-    expect(readdirSync(join(SRC, "harness"))).toEqual(["config.ts"]);
+  it("src/harness does not exist", () => {
+    expect(existsSync(join(SRC, "harness"))).toBe(false);
   });
 
   it("the per-task worktree module is gone", () => {
     expect(existsSync(join(SRC, "worktree", "tasks.ts"))).toBe(false);
   });
 
-  it("no source file imports a harness module other than its config, or the per-task worktree module", () => {
+  it("no source file imports a harness module or the per-task worktree module", () => {
     const hits: string[] = [];
     for (const file of sourceFiles(SRC)) {
       for (const spec of specifiers(readFileSync(file, "utf8"))) {
         if (!spec.startsWith(".")) continue;
         const target = relative(SRC, resolve(dirname(file), spec));
-        const harnessModule = target.startsWith("harness/") && target !== "harness/config.js";
-        if (harnessModule || target === "worktree/tasks.js") hits.push(`${relative(SRC, file)}: ${spec}`);
+        if (target.startsWith("harness/") || target === "worktree/tasks.js") hits.push(`${relative(SRC, file)}: ${spec}`);
       }
     }
     expect(hits).toEqual([]);

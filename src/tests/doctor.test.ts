@@ -9,7 +9,6 @@ import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
-import { seedHarness } from "../harness/config.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
@@ -435,42 +434,6 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.some((f) => f.message.includes("statusmap_legacy"))).toBe(false);
   });
 
-  it("reports legacy harness.stages keys and --fix renames dones to done and drops shipping", async () => {
-    await project();
-    const path = join(root, ".kf", "config.json");
-    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-    const harness = seedHarness(["claude"]);
-    const role = Object.keys(harness.roles)[0];
-    cfg.harness = { ...harness, stages: { dones: [role], shipping: [role], testing: [role] } };
-    await writeFile(path, JSON.stringify(cfg, null, 2));
-
-    const legacy = runDoctor(root).findings.filter((f) => f.message.includes("harness_stages_legacy"));
-    expect(legacy).toHaveLength(1);
-    expect(legacy[0].level).toBe("WARNING");
-    expect(legacy[0].message).toContain('"shipping", "dones"');
-    expect(legacy[0].action).toBe("kf doctor --fix (renames dones to done and drops shipping)");
-
-    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
-    expect(res.stdout).toContain("rewrote harness.stages legacy keys");
-    const after = JSON.parse(await readFile(path, "utf8")) as { harness: { stages: Record<string, unknown> } };
-    expect(after.harness.stages).toEqual({ testing: [role], done: [role] });
-    expect(runDoctor(root).findings.some((f) => f.message.includes("harness_stages_legacy"))).toBe(false);
-  });
-
-  it("keeps an explicit harness.stages.done over the legacy dones on --fix", async () => {
-    await project();
-    const path = join(root, ".kf", "config.json");
-    const cfg = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-    const harness = seedHarness(["claude"]);
-    const [first, second] = Object.keys(harness.roles);
-    cfg.harness = { ...harness, stages: { done: [first], dones: [second] } };
-    await writeFile(path, JSON.stringify(cfg, null, 2));
-
-    await cmdDoctor(args("doctor", [], { fix: true }), root);
-    const after = JSON.parse(await readFile(path, "utf8")) as { harness: { stages: Record<string, unknown> } };
-    expect(after.harness.stages).toEqual({ done: [first] });
-  });
-
   it("names both legacy statusMap keys and the --fix action, and --fix leaves only done", async () => {
     await project();
     const path = join(root, ".kf", "config.json");
@@ -577,16 +540,11 @@ describe("kf doctor --fix", () => {
 });
 
 describe("kf doctor harness checks", () => {
-  it("reports a dead lock, no harness.verify.stage warning and no finding for a role the plan names that harness.roles lacks", async () => {
+  it("reports a dead lock, no harness.verify.stage warning and no finding for a role the plan names", async () => {
     await mkdir(join(root, ".kf"), { recursive: true });
     await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
       schema: "kanban-flow", created: "20260919_1200", defaultContext: "app",
-      harness: {
-        main: "lead",
-        roles: { lead: { runner: "claude" }, coder: { runner: "claude" } },
-        stages: { implementation: ["coder"] },
-        runners: { claude: { start: ["claude", "{prompt}"] } },
-      },
+      harness: { verify: { task: [["true"]] } },
     }));
     const item = join(root, ".works", "implementation", "demo_20260919_1200");
     await mkdir(item, { recursive: true });
@@ -604,5 +562,15 @@ describe("kf doctor harness checks", () => {
     expect(findings.some((f) => f.message.includes("harness.roles"))).toBe(false);
     expect(findings.find((f) => f.area === lock)).toMatchObject({ level: "WARNING", action: `rm ${lock}` });
     expect(findings.some((f) => f.message.includes("harness.verify.stage"))).toBe(false);
+  });
+
+  it("reports a dead lock on a project with no harness block", async () => {
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "20260919_1200", defaultContext: "app" }));
+    await mkdir(join(root, ".works", ".locks"), { recursive: true });
+    const lock = join(root, ".works", ".locks", "demo.lock");
+    await writeFile(lock, "999999");
+
+    expect(runDoctor(root).findings.find((f) => f.area === lock)).toMatchObject({ level: "WARNING", action: `rm ${lock}` });
   });
 });

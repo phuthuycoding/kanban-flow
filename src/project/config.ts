@@ -1,14 +1,12 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertPathName, type Feature } from "../workflow/features.js";
+import { assertPathName } from "../workflow/features.js";
 import { parseAgentIds, type SkillScope } from "../integrations/agents.js";
-import { validateHarness, type HarnessConfig } from "../harness/config.js";
+import { validateHarness, type HarnessConfig } from "./harness-config.js";
 import { normalizeContext } from "./contexts.js";
 import { normalizeRepository } from "./repository.js";
 import { STAGES, LEGACY_STAGE_NAMES, type Stage, type LegacyStageName } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
-import { runGit } from "../shared/git.js";
-import { GitCommandError } from "../worktree/manager.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -189,103 +187,6 @@ function parseConfigText(text: string, f: string): Partial<ProjectConfig> {
   cfg.skills = parseSkillsBlock(cfg.skills, f);
   cfg.project = parseProjectBlock(cfg.project, f);
   return cfg;
-}
-
-export type DriveConfigSource = "worktree" | "origin" | "primary";
-
-export interface DriveConfig {
-  cfg: Partial<ProjectConfig>;
-  source: DriveConfigSource;
-  /** Where the config was read: a file path, or `<ref>:.kf/config.json`. */
-  file: string;
-  /** Every place looked, in resolution order. */
-  looked: string[];
-}
-
-/** `ref` is origin's default branch (null when origin/HEAD is not set); `text` is null when that ref has no config. */
-export interface OriginConfig {
-  ref: string | null;
-  text: string | null;
-}
-
-export type OriginConfigReader = (root: string) => OriginConfig;
-
-const ORIGIN_CONFIG_PATH = "./.kf/config.json";
-
-/**
- * `git show <origin default>:.kf/config.json` from the primary repo. A missing origin, origin/HEAD, ref or file is
- * "no config there"; any other git failure throws with git's stderr.
- */
-function originGit(root: string, args: string[]): ReturnType<typeof runGit> {
-  try {
-    return runGit(root, args);
-  } catch (err) {
-    // runGit throws only when git could not be spawned.
-    throw new GitCommandError(err instanceof Error ? err.message : String(err), { cause: err });
-  }
-}
-
-export function readOriginConfig(root: string): OriginConfig {
-  const head = originGit(root, ["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]);
-  if (head.code !== 0) {
-    // -q makes "not a symbolic ref / no such ref" exit 1 silently; a project outside git has no origin either.
-    if (head.code === 1 || /not a git repository/i.test(head.stderr)) return { ref: null, text: null };
-    throw new GitCommandError(`git symbolic-ref refs/remotes/origin/HEAD failed (exit ${head.code}) in ${root}: ${head.stderr.trim()}`);
-  }
-  const ref = head.stdout.trim();
-  // `./` resolves the path against `-C root`, so a project in a subdirectory of the repository reads its own config.
-  const show = originGit(root, ["show", `${ref}:${ORIGIN_CONFIG_PATH}`]);
-  if (show.code === 0) return { ref, text: show.stdout };
-  if (/does not exist in|exists on disk, but not in|invalid object name|bad revision/i.test(show.stderr)) return { ref, text: null };
-  throw new GitCommandError(`git show ${ref}:${ORIGIN_CONFIG_PATH} failed (exit ${show.code}) in ${root}: ${show.stderr.trim()}`);
-}
-
-// The driver resolves the config at every step boundary; one rev-parse per call instead of a symbolic-ref + show pair.
-// Keyed on the commit origin/HEAD points at, so a fetch mid-drive is seen (and can raise config_changed).
-const originCache = new Map<string, { sha: string; config: OriginConfig }>();
-// A root without origin/HEAD would spawn rev-parse + symbolic-ref on every resolve, so the miss is remembered for the
-// process. A later `git remote set-head` is seen by the next process only (the next kf drive and its supervisor),
-// which also keeps a running drive from switching its config source mid-drive.
-const noOriginHead = new Set<string>();
-
-function cachedOriginConfig(root: string): OriginConfig {
-  if (noOriginHead.has(root)) return { ref: null, text: null };
-  const head = runGit(root, ["rev-parse", "-q", "--verify", "refs/remotes/origin/HEAD^{commit}"]);
-  // No origin/HEAD, or no repository: readOriginConfig tells "absent" from a real git failure.
-  if (head.code !== 0) {
-    const config = readOriginConfig(root);
-    if (config.ref === null) noOriginHead.add(root);
-    return config;
-  }
-  const sha = head.stdout.trim();
-  const hit = originCache.get(root);
-  if (hit?.sha === sha) return hit.config;
-  const config = readOriginConfig(root);
-  originCache.set(root, { sha, config });
-  return config;
-}
-
-/**
- * The config a drive or task run of `feature` works with, in a fixed order: the item worktree's `.kf/config.json`,
- * else the one on origin's default branch, else the primary checkout's. The primary can be a stale local `main`;
- * the item worktree is where the work happens. `worktree.baseDir` is not taken from here by callers that locate
- * worktrees: it is read from the primary, which is where the worktrees were created from.
- */
-export function resolveDriveConfig(root: string, feature: Pick<Feature, "meta">, readOrigin: OriginConfigReader = cachedOriginConfig): DriveConfig {
-  const looked: string[] = [];
-  const worktreePath = feature.meta?.worktree?.path;
-  if (worktreePath) {
-    const file = configPath(worktreePath);
-    looked.push(file);
-    if (existsSync(file)) return { cfg: readProjectConfig(worktreePath), source: "worktree", file, looked };
-  }
-  const origin = readOrigin(root);
-  const originFile = `${origin.ref ?? "origin/<default>"}:.kf/config.json`;
-  looked.push(origin.ref ? originFile : `${originFile} (origin/HEAD is not set)`);
-  if (origin.ref && origin.text !== null) return { cfg: parseProjectConfig(origin.text, originFile), source: "origin", file: originFile, looked };
-  const file = configPath(root);
-  looked.push(file);
-  return { cfg: readProjectConfig(root), source: "primary", file, looked };
 }
 
 export function writeProjectConfig(root: string, cfg: ProjectConfig): void {
