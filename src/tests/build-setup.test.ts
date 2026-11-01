@@ -74,7 +74,7 @@ describe("build setup as vitest globalSetup", () => {
   it("passes diagnostics through and lets the suite run when tsc exits 2", () => {
     copyFileSync(join(FIXTURES, "vitest.config.ts.txt"), join(scratch, "vitest.config.ts"));
     copyFileSync(join(FIXTURES, "tsconfig.build.json"), join(scratch, "tsconfig.build.json"));
-    copyFileSync(join(FIXTURES, "scratch.test.js"), join(scratch, "scratch.test.js"));
+    copyFileSync(join(FIXTURES, "scratch.test.js.txt"), join(scratch, "scratch.test.js"));
     mkdirSync(join(scratch, "src"));
     copyFileSync(join(FIXTURES, "bad.ts.txt"), join(scratch, "src", "bad.ts"));
 
