@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** The FR-014 ledger grammar, each shape matched against a line's body (the text before its ` @ <ts>` suffix). */
@@ -80,6 +80,8 @@ function classify(text: string, line: number): LedgerLine {
   const stamp = suffix[1];
   const ts = Date.parse(stamp);
   const body = text.slice(0, suffix.index);
+  // Only one suffix is stripped; a claimed shape still carrying one fails it (an open shape such as developerWaits would otherwise absorb it).
+  if (SHAPE_KEYWORD.test(body) && TS_SUFFIX.test(body)) return { line, kind: "unparsed", ts, stamp };
   for (const shape of Object.keys(LEDGER_SHAPES) as ShapeName[]) {
     const m = LEDGER_SHAPES[shape].exec(body);
     if (m) return { line, kind: "shape", shape, task: m[1], ts, stamp, ...shapeFields(shape, m) };
@@ -250,8 +252,9 @@ export function loopStats(parsed: ParsedLedger): LoopStats {
   shapes.forEach((l, i) => {
     if (l.shape !== "developerWaits" && l.shape !== "fixQueued") return;
     const next = shapes.slice(i + 1).find((n) => n.shape === "dispatched" && n.task === l.task && n.seat === "developer");
-    if (next) waitMs += next.ts! - l.ts!;
-    else openWaits.push(l.line);
+    if (!next) openWaits.push(l.line);
+    else if (next.ts! < l.ts!) unparsed.push(l.line, next.line);
+    else waitMs += next.ts! - l.ts!;
   });
 
   const seatMs = sum(seatIntervals.map((iv) => iv.end - iv.start));
@@ -273,7 +276,7 @@ export function loopStats(parsed: ParsedLedger): LoopStats {
     cascades: of("cascadeOwed").length,
     tasks: taskIds.size,
     byModel: Object.fromEntries(Object.entries(byModelExact).map(([k, v]) => [k, round1(v)])),
-    unparsed: [...unparsed].sort((a, b) => a - b),
+    unparsed: [...new Set(unparsed)].sort((a, b) => a - b),
     orphans: orphans.sort((a, b) => a - b),
     openWaits,
     otherTimed: parsed.lines.filter((l) => l.kind === "other-timed").length,
@@ -324,15 +327,33 @@ export function historyRow(feature: string, stats: LoopStats, date: string): str
 /** Write the item's row to `.works/loop-metrics.md`, replacing its earlier row; returns the file path. */
 export function recordRow(root: string, feature: string, stats: LoopStats, date: string): string {
   const path = historyPath(root);
-  const rows = existsSync(path) ? historyLines(path) : [];
-  const row = historyRow(feature, stats, date);
-  const at = rows.findIndex((r) => r.split(" · ")[1] === feature);
-  if (at >= 0) rows[at] = row;
-  else rows.push(row);
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${[HEADER, ...rows].join("\n")}\n`);
-  renameSync(tmp, path);
-  return path;
+  const lock = `${path}.lock`;
+  try {
+    closeSync(openSync(lock, "wx"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new HistoryFileError(`${lock} exists: another kf loop-stats --record is running; retry, or delete the lock when none is`);
+    }
+    throw err;
+  }
+  try {
+    const rows = existsSync(path) ? historyLines(path) : [];
+    const row = historyRow(feature, stats, date);
+    const at = rows.findIndex((r) => r.split(" · ")[1] === feature);
+    if (at >= 0) rows[at] = row;
+    else rows.push(row);
+    const tmp = `${path}.${process.pid}.tmp`;
+    try {
+      writeFileSync(tmp, `${[HEADER, ...rows].join("\n")}\n`);
+      renameSync(tmp, path);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
+    return path;
+  } finally {
+    unlinkSync(lock);
+  }
 }
 
 /** The history rows keyed by column name, or `null` when no loop was recorded yet. */

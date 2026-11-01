@@ -123,7 +123,10 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   if (!record) return { code: 0, stdout: report };
 
   const completed = new Set(parsed.lines.filter((l) => l.shape === "complete").map((l) => l.task));
-  const missing = taskView(item).map((t) => t.id).filter((id) => !completed.has(id));
+  // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
+  const planned = taskView(item).map((t) => t.id);
+  const ids = planned.length > 0 ? planned : [...new Set(parsed.lines.filter((l) => l.shape === "dispatched").map((l) => l.task!))];
+  const missing = ids.filter((id) => !completed.has(id));
   if (missing.length > 0) {
     return refused(`cannot record ${item.name}: no complete line for ${missing.join(", ")}`, "loop not complete");
   }
