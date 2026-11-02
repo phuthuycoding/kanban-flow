@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { renderDashboardHtml, dashboardData } from "../dashboard/dashboard.js";
 import { PHASE_NAMES, STAGES } from "../workflow/schema.js";
+import { MANAGED_AGENTS, MANAGED_SKILLS } from "../integrations/managed.js";
 import { cmdStage } from "../cli/commands/stage.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -51,10 +52,10 @@ describe("the user-facing surface is English", () => {
   it("leaves no Vietnamese in the skills, their references, the agents or the templates, and keeps every skill and agent intact", () => {
     const skillFiles = walk(join(ROOT, "skills"), (p) => p.endsWith("SKILL.md"));
     const skillReferences = walk(join(ROOT, "skills"), (p) => p.endsWith(".md") && !p.endsWith("SKILL.md"));
-    const agentFiles = walk(join(ROOT, "skills", "kanban-flow", "agents"), (p) => p.endsWith(".md"));
+    const agentFiles = walk(join(ROOT, "agents"), (p) => p.endsWith(".md"));
     const templates = walk(join(ROOT, "kanban-flow", "templates"), (p) => p.endsWith(".md"));
-    expect(skillFiles).toHaveLength(9);
-    expect(agentFiles).toHaveLength(6);
+    expect(skillFiles).toHaveLength(MANAGED_SKILLS.length);
+    expect(agentFiles).toHaveLength(MANAGED_AGENTS.length);
     expect(offenders([...skillFiles, ...skillReferences, ...agentFiles, ...templates])).toEqual([]);
     for (const file of [...skillFiles, ...agentFiles]) {
       const head = readFileSync(file, "utf8").split("---")[1] ?? "";
@@ -101,17 +102,17 @@ describe("the phase skills follow the merge-closes flow", () => {
   });
 
   it("opens the PR in review only after the independent reviewer, then watches CI before the report", () => {
-    const review = readFileSync(join(ROOT, "skills", "kanban-review", "SKILL.md"), "utf8");
+    const review = readFileSync(join(ROOT, "skills", "review", "SKILL.md"), "utf8");
     const order = ["## 5. Dispatch the independent reviewer", "## 8. Push and open the PR", "## 9. Watch CI", "## 10. Write review-report"].map((h) => review.indexOf(h));
     expect(order.every((i) => i >= 0), String(order)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(review).toContain("kf issues link {feature_name} <PR URL> --pr");
-    expect(existsSync(join(ROOT, "skills", "kanban-review", "references", "ci-watch.md"))).toBe(true);
+    expect(existsSync(join(ROOT, "skills", "review", "references", "ci-watch.md"))).toBe(true);
   });
 });
 
 describe("the review skill keeps the close possible", () => {
-  const review = readFileSync(join(ROOT, "skills", "kanban-review", "SKILL.md"), "utf8");
+  const review = readFileSync(join(ROOT, "skills", "review", "SKILL.md"), "utf8");
 
   it("logs the landing gate inside the ignored item folder, never in a tracked tree", () => {
     expect(review).toContain("Append one line per board to `<item>/reviews/review-gate.tsv`");
@@ -126,7 +127,7 @@ describe("the review skill keeps the close possible", () => {
 });
 
 describe("the CI watcher", () => {
-  const watchDoc = readFileSync(join(ROOT, "skills", "kanban-review", "references", "ci-watch.md"), "utf8");
+  const watchDoc = readFileSync(join(ROOT, "skills", "review", "references", "ci-watch.md"), "utf8");
   const start = watchDoc.indexOf("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;");
   const loop = watchDoc.slice(start, watchDoc.indexOf("\n```", start)).replace("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;", "REPO=o/r; SHA=abc123; WATCH=30;")
     .replaceAll("sleep 20", "sleep 1")
@@ -330,7 +331,7 @@ describe("the docs describe only the in-session path", () => {
 
 describe("the docs name the commit-list form beside the range form", () => {
   // Explicit list on purpose: a glob would grow silently. The two whole-branch review-stage
-  // calls in the kanban-review skill keep range mode for one contiguous diff and are left out.
+  // calls in the review skill keep range mode for one contiguous diff and are left out.
   const SURFACES = [
     "README.md",
     "kanban-flow/README.md",
@@ -346,16 +347,16 @@ describe("the docs name the commit-list form beside the range form", () => {
     "docs/workflow/autoconfig.md",
     "docs/workflow/source-layout.md",
     "kanban-flow/templates/phase-2-implementation-plan.md",
-    "skills/kanban-flow/SKILL.md",
-    "skills/kanban-flow/references/harness-tools.md",
-    "skills/kanban-flow/agents/developer.md",
-    "skills/kanban-plan/SKILL.md",
-    "skills/kanban-implement/SKILL.md",
-    "skills/kanban-implement/references/task-loop.md",
-    "skills/kanban-implement/references/test-writer-brief.md",
-    "skills/kanban-implement/references/developer-brief.md",
-    "skills/kanban-implement/references/task-reviewer-brief.md",
-    "skills/kanban-implement/references/re-review-brief.md",
+    "skills/flow/SKILL.md",
+    "skills/flow/references/harness-tools.md",
+    "agents/developer.md",
+    "skills/plan/SKILL.md",
+    "skills/implement/SKILL.md",
+    "skills/implement/references/task-loop.md",
+    "skills/implement/references/test-writer-brief.md",
+    "skills/implement/references/developer-brief.md",
+    "skills/implement/references/task-reviewer-brief.md",
+    "skills/implement/references/re-review-brief.md",
     "skills/travel/SKILL.md",
     "skills/travel/references/estimation.md",
   ];
@@ -458,9 +459,9 @@ describe("the docs describe concurrent developers in one worktree", () => {
     }
   });
 
-  it("lists --graph in the kanban-flow CLI block and in the kanban-plan approval summary", () => {
-    expect(read("skills/kanban-flow/SKILL.md")).toContain("kf tasks {feature} [--json] [--graph]");
-    expect(read("skills/kanban-plan/SKILL.md")).toContain("kf tasks <feature> --graph");
+  it("lists --graph in the flow CLI block and in the plan approval summary", () => {
+    expect(read("skills/flow/SKILL.md")).toContain("kf tasks {feature} [--json] [--graph]");
+    expect(read("skills/plan/SKILL.md")).toContain("kf tasks <feature> --graph");
   });
 
   it("records concurrent developers, --graph and the new loop-stats figures in the unreleased changelog", () => {

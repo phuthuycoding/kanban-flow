@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
+import { PKG_ROOT } from "../shared/paths.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -16,14 +17,30 @@ const args = (command: string, positionals: string[] = [], options: Record<strin
 
 let root: string;
 
+
+/** A `claude` first on PATH that reports the kf plugin registered at this package: current, enabled. */
+async function currentPluginStub(): Promise<void> {
+  const bin = join(root, "..", `${basename(root)}-bin`);
+  await mkdir(bin, { recursive: true });
+  const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true, readFromFolder: PKG_ROOT }]);
+  await writeFile(join(bin, "claude"), `#!/bin/sh\nif [ "$1 $2" = "plugin list" ]; then echo '${list}'; fi\nexit 0\n`);
+  await chmod(join(bin, "claude"), 0o755);
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+}
+
 async function project(): Promise<void> {
+  await currentPluginStub();
   expect((await cmdInit(args("init", [], { minimal: true, context: "app" }), root)).code).toBe(0);
 }
 
+let prevPath: string | undefined;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "kf-doctor-upgrade-"));
+  prevPath = process.env.PATH;
 });
 afterEach(async () => {
+  process.env.PATH = prevPath;
+  await rm(join(root, "..", `${basename(root)}-bin`), { recursive: true, force: true });
   await rm(root, { recursive: true, force: true });
 });
 

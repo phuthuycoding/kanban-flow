@@ -77,12 +77,12 @@
         <span class="line"> </span>
         <span class="line"><span class="t">$ kf init</span><span class="rest c">   # or --defaults on a non-TTY</span></span>
         <span class="line"><span class="ok">✓</span> .works/{brainstorm…done} · .kf/ seeded</span>
-        <span class="line"><span class="ok">✓</span> 9 skills → .claude/skills/ · 6 agents → .claude/agents/ · AGENTS.md created</span>
+        <span class="line"><span class="ok">✓</span> 10 skills and 7 agents → kf plugin (/kf:flow) · AGENTS.md created</span>
         <span class="line"> </span>
         <span class="line"><span class="t">$ kf autoconfig</span><span class="rest c">   # a briefing the agent finishes</span></span>
         <span class="line"><span class="k">## Setup checklist</span></span>
         <span class="line"><span class="ok">- [x]</span> Project config (.kf/config.json)</span>
-        <span class="line"><span class="ok">- [x]</span> Skills for Claude Code (.claude/skills/)</span>
+        <span class="line"><span class="ok">- [x]</span> kf plugin (kf@kanban-flow, Claude Code) — installed, enabled (scope: user)</span>
         <span class="line"><span class="ok">- [x]</span> Base review rules (.kf/review/rules/)</span>
         <span class="line"><span class="ok">- [x]</span> Stack rule packs: node</span>
         <span class="line">- [ ] Declared contexts <span class="c">— run: kf contexts</span></span>
@@ -191,9 +191,12 @@
     <div class="wrap">
       <h2>Start in one command</h2>
       <p>Needs Node 20 or newer. <code>kf init</code> seeds <code>.kf/</code>, installs the
-         agent skills and the <code>code-reviewer</code>, <code>scout</code>,
-         <code>spec-reviewer</code>, <code>developer</code>, <code>test-writer</code> and
-         <code>automation-writer</code> agents the skills dispatch, and leaves your existing
+         10 skills and 7 agents (<code>code-reviewer</code>, <code>scout</code>,
+         <code>spec-reviewer</code>, <code>developer</code>, <code>test-writer</code>,
+         <code>automation-writer</code> and <code>researcher</code>) the skills dispatch —
+         as the <code>kf</code> plugin in Claude Code (<code>/plugin marketplace add</code>,
+         <code>/plugin install kf@kanban-flow</code>; then start with <code>/kf:flow</code>),
+         as <code>kf-&lt;name&gt;</code> copies for other runtimes — and leaves your existing
          <code>AGENTS.md</code> alone.
          <code>kf autoconfig</code> then prints a briefing — context, a setup checklist
          with the command that fixes each missing item, the review rules — that the

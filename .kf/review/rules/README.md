@@ -7,7 +7,7 @@
 - `{stack}.md` — Stack-specific rules. Packs ship in the package at `kanban-flow/review/stacks/{stack}.md` (7 packs: `node`, `go`, `rust`, `python`, `php`, `ruby`, `java`) and are installed into this directory via `kf rules`.
 
 ## How to Use
-Skill `kanban-review` loads all rules in this directory at review time.
+Skill `/kf:review` loads all rules in this directory at review time.
 Project-specific rules override global rules when same filename exists.
 
 ## Installing Stack Rules

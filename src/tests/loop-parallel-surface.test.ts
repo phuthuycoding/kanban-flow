@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = () => read("skills", "kanban-implement", "SKILL.md");
-const reference = (name: string) => read("skills", "kanban-implement", "references", name);
-const developerAgent = () => read("skills", "kanban-flow", "agents", "developer.md");
+const implement = () => read("skills", "implement", "SKILL.md");
+const reference = (name: string) => read("skills", "implement", "references", name);
+const developerAgent = () => read("agents", "developer.md");
 
 /** The text between the first `from` and the next `to` after it. */
 function slice(text: string, from: string, to: string): string {
@@ -374,7 +374,7 @@ describe("telling each seat what else is in flight", () => {
     const brief = section("\n### 3.1", "\n### 3.2");
     expect(lineWith(brief, "4. **Dispatch**")).toContain("[IN_FLIGHT]");
     const dispatch = section("\n### 3.2", "\n### 3.3");
-    expect(paragraphWith(dispatch, "**Dispatch** `Agent(developer)`")).toContain("[IN_FLIGHT]");
+    expect(paragraphWith(dispatch, "**Dispatch** `Agent(kf:developer)`")).toContain("[IN_FLIGHT]");
   });
 });
 
@@ -497,9 +497,9 @@ describe("same-wave developers follow the dispatch conditions", () => {
 });
 
 describe("the commit script's path is filled at dispatch, and a commit that was made is routed", () => {
-  const OLD_INVOCATION = "node <skills dir>/kanban-implement/scripts/commit-task.mjs";
+  const OLD_INVOCATION = "node <skills dir>/";
   const PLACEHOLDER_ENTRY =
-    "- `[COMMIT_SCRIPT]` — the absolute path of `kanban-implement/scripts/commit-task.mjs` in the installed skills, filled at dispatch.";
+    "- `[COMMIT_SCRIPT]` — the absolute path of `${CLAUDE_PLUGIN_ROOT}/skills/implement/scripts/commit-task.mjs`, filled at dispatch.";
   const BLOCKED_ROUTE =
     "A BLOCKED that quotes `commit made` names a commit that exists: add its sha to the task's commit list and continue as for DONE, never a re-commit.";
   const NO_COMMIT_EXCEPTION = "no commit unless the output says `commit made`";

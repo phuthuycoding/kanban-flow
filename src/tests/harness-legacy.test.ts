@@ -150,7 +150,20 @@ describe("kf doctor --fix on removed harness keys", () => {
     cfg.reviewer = "someone";
     await writeFile(configFile(), JSON.stringify(cfg, null, 2));
 
-    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    // The project defaults to claude: doctor wants the kf plugin current, so the claude CLI reports it so.
+    const bin = await mkdtemp(join(tmpdir(), "kf-hlegacy-bin-"));
+    const prevPath = process.env.PATH;
+    const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true, readFromFolder: PKG_ROOT }]);
+    await writeFile(join(bin, "claude"), `#!/bin/sh\nif [ "$1 $2" = "plugin list" ]; then echo '${list}'; fi\nexit 0\n`);
+    await chmod(join(bin, "claude"), 0o755);
+    process.env.PATH = `${bin}:${prevPath}`;
+    let res;
+    try {
+      res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    } finally {
+      process.env.PATH = prevPath;
+      await rm(bin, { recursive: true, force: true });
+    }
     expect(res.code, res.stdout).toBe(0);
 
     const expected = { ...cfg, harness: { verify: VERIFY } };

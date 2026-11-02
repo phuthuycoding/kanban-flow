@@ -42,9 +42,9 @@ export const AGENTS: AgentAdapter[] = [
   {
     id: "gemini",
     label: "Gemini CLI",
-    projectRel: ".gemini/skills",
-    userRel: ".gemini/skills",
-    alsoReads: ["codex", "cursor", "opencode"],
+    projectRel: ".agents/skills",
+    userRel: ".agents/skills",
+    alsoReads: ["codex", "cursor", "opencode", "devin"],
   },
   {
     id: "kiro",
@@ -56,25 +56,23 @@ export const AGENTS: AgentAdapter[] = [
   {
     id: "cursor",
     label: "Cursor",
-    projectRel: ".cursor/skills",
-    userRel: ".cursor/skills",
+    projectRel: ".agents/skills",
+    userRel: ".agents/skills",
     alsoReads: ["codex", "gemini", "opencode", "devin"],
   },
   {
     id: "opencode",
     label: "OpenCode",
-    projectRel: ".opencode/skills",
-    // OpenCode's documented global dir lives under XDG config, not ~/.opencode.
-    userRel: ".config/opencode/skills",
-    alsoReads: ["codex", "gemini", "cursor"],
+    projectRel: ".agents/skills",
+    userRel: ".agents/skills",
+    alsoReads: ["codex", "gemini", "cursor", "devin"],
   },
   {
     id: "devin",
     label: "Devin",
-    projectRel: ".devin/skills",
-    // Devin reads the open-standard dir at user level (~/.agents/skills).
+    projectRel: ".agents/skills",
     userRel: ".agents/skills",
-    alsoReads: [],
+    alsoReads: ["codex", "gemini", "cursor", "opencode"],
   },
 ];
 

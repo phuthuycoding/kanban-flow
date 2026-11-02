@@ -95,18 +95,40 @@ cd kanban-flow && npm install && npm run build && npm link
 
 ## Onboard your agent
 
-`kf init` does the filesystem half: it installs the nine kanban skills into the
-agent's skills dir (`--agent codex|gemini|kiro|cursor|opencode|devin`; `claude` is
-the default, and several agents read each other's directories), installs the six
-kanban agents the skills dispatch by name — `code-reviewer`, `scout`,
-`spec-reviewer`, `developer`, `test-writer`, `automation-writer` — into the runtime's agents dir when it has one (Claude Code:
-`.claude/agents/`), and seeds `AGENTS.md` when the project does not already have one. By default the install is
-**global** — symlinked into `~/.<agent>/skills` so one set serves every project and
-tracks package upgrades (copied instead when linking is unavailable). A project
-that wants its own copies sets `skills.scope: "project"` in `.kf/config.json` (the
-onboarding question asks), and `kf install --scope` / `kf uninstall --scope`
-overrides it per run. `kf autoconfig` and `kf doctor` report the effective scope
-and flag stale or broken installs; `kf doctor --fix` repairs them.
+`kf init` does the filesystem half: it installs the 10 skills (`flow`,
+`brainstorm`, `plan`, `implement`, `test`, `review`, `archive`, `bug`, `spike`,
+`travel`) and the 7 agents they dispatch by name — `code-reviewer`, `scout`,
+`spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher` —
+and seeds `AGENTS.md` when the project does not already have one.
+
+**Claude Code gets them through the `kf` plugin.** `kf install` runs the two
+`claude plugin` commands for you; to do it by hand, inside Claude Code:
+
+```
+/plugin marketplace add <the kanban-flow package root>
+/plugin install kf@kanban-flow
+```
+
+The commands are then `/kf:flow` (the orchestrator), `/kf:brainstorm`, `/kf:plan`,
+`/kf:implement`, `/kf:test`, `/kf:review`, `/kf:archive`, `/kf:bug`, `/kf:spike` and
+`/kf:travel`, and the agents are dispatched as `kf:<agent>` (`kf:developer`, ...).
+The default scope is **global** (the plugin's `user` scope, so one install serves
+every project and tracks package upgrades); a project that wants its own sets
+`skills.scope: "project"` in `.kf/config.json` (the onboarding question asks), and
+`kf install --scope` / `kf uninstall --scope` overrides it per run.
+
+Other runtimes (`--agent codex|gemini|kiro|cursor|opencode|devin`) have no plugin
+system, so `kf install` copies the skills as `kf-<name>` directories (`kf-flow`,
+`kf-plan`, ...) into the runtime's skills dir (`.agents/skills` for codex, which
+follows the open standard), and the agents into its agents dir when it has one.
+`kf autoconfig` and `kf doctor` report the effective scope and flag a missing,
+stale or broken install; `kf doctor --fix` repairs it.
+
+> **Breaking change.** The kanban-prefixed skills of earlier releases are replaced by
+> the `kf` plugin and the `kf-<name>` copies; the old slash commands no longer exist.
+> Run `kf install` to migrate: it removes the old entries it owns, leaves your own
+> files alone, and installs the plugin. Use `/kf:flow` where you used the old
+> orchestrator command.
 
 The other half is `kf autoconfig`. It prints a briefing meant for the agent, not
 for you: the project context, a setup checklist where every missing item carries
@@ -125,7 +147,7 @@ template and path from `kf instruct`. `kf status` shows the artifact checklist;
 
 ```bash
 cd your-project
-kf init                             # asks a few questions, seeds .kf/, installs the skills
+kf init                             # asks a few questions, seeds .kf/, installs the skills and the kf plugin
 kf new user-login --context auth    # opens Phase 1 in brainstorm
 kf instruct spec-requirement --change user-login
 # write the requirement, set its frontmatter to status: confirmed — decision one
@@ -214,18 +236,18 @@ warns and `kf doctor --fix` removes them.
 ### Independent review, and a task loop that reviews every task
 
 The skills never let the session that wrote the code grade its own work.
-`kanban-plan` dispatches a `scout` agent per thing that changes (consumers, covering
+`/kf:plan` dispatches a `scout` agent per thing that changes (consumers, covering
 tests, dual writes, why the code exists — a `file:line` map under 40 lines) and a
-`spec-reviewer` with a fresh context before the human approves. `kanban-implement`
+`spec-reviewer` with a fresh context before the human approves. `/kf:implement`
 runs the plan task by task: a `test-writer` writes the failing tests, a `developer`
 makes them pass (an `automation-writer` adds the UI specs under the full level), a
 `code-reviewer` reads the diff, a fix loop capped at five rounds, every decision in a ledger that survives
-compaction. `kanban-review` establishes the facts mechanically — lint, build, the
+compaction. `/kf:review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
 surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
 area), and refutes any finding whose evidence quote is missing or not where the
-reviewer said it is before it reaches the report. After the review PASS, `kanban-review` pushes the branch, opens the PR and watches the
+reviewer said it is before it reaches the report. After the review PASS, `/kf:review` pushes the branch, opens the PR and watches the
 pushed commit's GitHub Actions runs and the PR's mergeability in the background. A red
 run is not handed to the human at first: it writes a `ci: red` / `FAIL` report with the
 failed run and its log tail and sends the item back through implementation, testing and
@@ -236,7 +258,7 @@ conflict, a blocked or timed-out PR). It never re-runs, cancels or approves a wo
 ### From approval to the merge gate
 
 After the human approves the plan (which starts the item), the session runs the
-rest through `kanban-implement`, `kanban-test` and `kanban-review`. The plan's task
+rest through `/kf:implement`, `/kf:test` and `/kf:review`. The plan's task
 table names a `Files` allowlist for every task, and `kf approve` seals it.
 
 - Per task: a `test-writer`, a `developer`, then `kf verify --task` and a

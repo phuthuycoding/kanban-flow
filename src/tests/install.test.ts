@@ -8,17 +8,18 @@ import { join, dirname } from "node:path";
 import { copySkillsTo, removeSkillsFrom, removeRetiredSkills, MANAGED_SKILLS, RETIRED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
 import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
+import { copyName } from "../integrations/managed.js";
 import type { Stage } from "../workflow/schema.js";
 
 /** Skill a worker loads for each stage; backlog has no work to hand off. */
 const STAGE_SKILL: Record<Stage, string | null> = {
-  brainstorm: "kanban-brainstorm",
-  planning: "kanban-plan",
+  brainstorm: "brainstorm",
+  planning: "plan",
   backlog: null,
-  implementation: "kanban-implement",
-  testing: "kanban-test",
-  review: "kanban-review",
-  done: "kanban-archive",
+  implementation: "implement",
+  testing: "test",
+  review: "review",
+  done: "archive",
   cancelled: null,
 };
 
@@ -35,22 +36,21 @@ afterEach(async () => {
 describe("managed skills", () => {
   it("no longer installs a ship stage skill and maps the done stage to the archive skill", () => {
     expect(MANAGED_SKILLS).not.toContain("kanban-ship");
-    expect(STAGE_SKILL.done).toBe("kanban-archive");
+    expect(STAGE_SKILL.done).toBe("archive");
     for (const skill of Object.values(STAGE_SKILL)) if (skill) expect(MANAGED_SKILLS).toContain(skill);
   });
 
-  it("manages the eight kanban skills plus travel and lists kanban-ship as retired", () => {
-    expect(MANAGED_SKILLS).toHaveLength(9);
+  it("manages the phase skills plus travel and lists kanban-ship as retired", () => {
     expect(MANAGED_SKILLS).toContain("travel");
     expect(RETIRED_SKILLS).toEqual(["kanban-ship"]);
   });
 
   it.skipIf(process.platform === "win32")("keeps the executable bit of travel's estimates script when copying", async () => {
     await copySkillsTo(dir);
-    const script = join(dir, "travel", "scripts", "estimates");
+    const script = join(dir, copyName("travel"), "scripts", "estimates");
     expect(existsSync(script)).toBe(true);
     expect(statSync(script).mode & 0o111).not.toBe(0);
-    expect(existsSync(join(dir, "travel", "references"))).toBe(true);
+    expect(existsSync(join(dir, copyName("travel"), "references"))).toBe(true);
   });
 });
 
@@ -80,11 +80,11 @@ describe("retired skills", () => {
 
   it("leaves a foreign kanban-ship directory untouched and warns on install", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const foreign = join(dir, ".claude", "skills", "kanban-ship");
+    const foreign = join(dir, ".agents", "skills", "kanban-ship");
     await mkdir(foreign, { recursive: true });
     await writeFile(join(foreign, "SKILL.md"), "mine");
 
-    const res = await cmdInstall([], { cwd: dir, scope: "project" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("kanban-ship");
     expect(res.stdout).toContain("left untouched");
@@ -109,9 +109,9 @@ describe("copySkillsTo / removeSkillsFrom", () => {
     const res = await copySkillsTo(dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`→ ${dir}/`);
-    expect(await readdir(dir)).toEqual(expect.arrayContaining(MANAGED_SKILLS));
+    expect(await readdir(dir)).toEqual(expect.arrayContaining(MANAGED_SKILLS.map(copyName)));
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, name, "SKILL.md"))).toBe(true);
+      expect(existsSync(join(dir, copyName(name), "SKILL.md"))).toBe(true);
     }
   });
 
@@ -122,7 +122,7 @@ describe("copySkillsTo / removeSkillsFrom", () => {
     const { removed } = await removeSkillsFrom(dir);
     expect(removed).toHaveLength(MANAGED_SKILLS.length);
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, name))).toBe(false);
+      expect(existsSync(join(dir, copyName(name)))).toBe(false);
     }
     expect(existsSync(join(dir, "unrelated"))).toBe(true);
   });
@@ -134,18 +134,18 @@ describe("copySkillsTo / removeSkillsFrom", () => {
 });
 
 describe("install/uninstall (project scope)", () => {
-  it("cmdInstall copies skills into {root}/.claude/skills", async () => {
+  it("cmdInstall copies skills into {root}/.agents/skills for a runtime without a plugin", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const res = await cmdInstall([], { cwd: dir, scope: "project" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain(join(dir, ".claude", "skills"));
+    expect(res.stdout).toContain(join(dir, ".agents", "skills"));
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, ".claude", "skills", name, "SKILL.md"))).toBe(true);
+      expect(existsSync(join(dir, ".agents", "skills", copyName(name), "SKILL.md"))).toBe(true);
     }
   });
 
   it("cmdInstall refuses outside a kanban project", async () => {
-    const res = await cmdInstall([], { cwd: dir, scope: "project" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("kf init");
     expect(existsSync(join(dir, ".claude"))).toBe(false);
@@ -153,15 +153,15 @@ describe("install/uninstall (project scope)", () => {
 
   it("cmdUninstall removes project-level skills, leaving unrelated dirs intact", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
-    await mkdir(join(dir, ".claude", "skills", "unrelated"), { recursive: true });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
+    await mkdir(join(dir, ".agents", "skills", "unrelated"), { recursive: true });
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`removed ${MANAGED_SKILLS.length} skills`);
-    expect(existsSync(join(dir, ".claude", "skills", "unrelated"))).toBe(true);
+    expect(existsSync(join(dir, ".agents", "skills", "unrelated"))).toBe(true);
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, ".claude", "skills", name))).toBe(false);
+      expect(existsSync(join(dir, ".agents", "skills", copyName(name)))).toBe(false);
     }
   });
 
@@ -170,46 +170,47 @@ describe("install/uninstall (project scope)", () => {
     const nested = join(dir, "services", "api");
     await mkdir(nested, { recursive: true });
 
-    await cmdInstall([], { cwd: nested, scope: "project" });
-    expect(existsSync(join(dir, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(nested, ".claude", "skills"))).toBe(false);
+    await cmdInstall(["codex"], { cwd: nested, scope: "project" });
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(nested, ".agents", "skills"))).toBe(false);
   });
 
-  it("cmdInstall with multiple agents installs each agent dir", async () => {
+  it("cmdInstall with claude and codex copies only for codex, claude goes through the plugin", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     const res = await cmdInstall(["claude", "codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(existsSync(join(dir, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(dir, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".claude", "skills"))).toBe(false);
+    expect(existsSync(join(dir, ".claude", "agents"))).toBe(false);
   });
 
   it("uninstall --purge --force removes skills plus .works/, .kf/ and kanban doc dirs", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     await mkdir(join(dir, ".works", "done", "x"), { recursive: true });
     await mkdir(join(dir, ".kf", "review", "rules"), { recursive: true });
     await mkdir(join(dir, "docs", "requirement"), { recursive: true });
     await mkdir(join(dir, "docs", "notes"), { recursive: true });
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("Purged project data");
     expect(existsSync(join(dir, ".works"))).toBe(false);
     expect(existsSync(join(dir, ".kf"))).toBe(false);
     expect(existsSync(join(dir, "docs", "requirement"))).toBe(false);
     expect(existsSync(join(dir, "docs", "notes"))).toBe(true);
-    expect(existsSync(join(dir, ".claude", "skills", "kanban-flow"))).toBe(false);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow")))).toBe(false);
   });
 
   it("uninstall --purge without --force refuses on non-TTY and deletes nothing", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true });
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("--force");
     expect(existsSync(join(dir, ".works"))).toBe(true);
-    expect(existsSync(join(dir, ".claude", "skills", "kanban-flow"))).toBe(true);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow")))).toBe(true);
   });
 
   it("says the .gitignore line is still there, and does not touch the file", async () => {
@@ -217,12 +218,12 @@ describe("install/uninstall (project scope)", () => {
     // file — but a command claiming to have purged the project data has to say what it left,
     // or the line only surfaces later when some unrelated .works/ is quietly ignored.
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     const gitignore = join(dir, ".gitignore");
     const before = "node_modules/\n\n# kanban-flow\n.works/\n";
     await writeFile(gitignore, before);
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.stdout).toContain(".gitignore still ignores .works/");
     expect(await readFile(gitignore, "utf8"), "the file must come out byte-identical").toBe(before);
   });
@@ -230,30 +231,30 @@ describe("install/uninstall (project scope)", () => {
   it("stays quiet when .gitignore does not mention .works/", async () => {
     // The notice is only worth anything because its absence means something.
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     await writeFile(join(dir, ".gitignore"), "node_modules/\ndist/\n");
-    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("stays quiet when there is no .gitignore at all", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
-    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.code).toBe(0);
     expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("does not mention .gitignore when uninstalling without --purge", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     await writeFile(join(dir, ".gitignore"), "# kanban-flow\n.works/\n");
-    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.stdout).not.toContain(".gitignore");
   });
 
   it("uninstall --purge --force reports when there is no project data", async () => {
-    const res = await cmdUninstall([], { cwd: dir, scope: "project", purge: true, force: true });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true, force: true });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("No project data");
   });
@@ -268,8 +269,8 @@ describe("agents adapter", () => {
     expect(projectSkillsDir(agentById("claude")!, dir)).toBe(join(dir, ".claude", "skills"));
     expect(projectSkillsDir(agentById("codex")!, dir)).toBe(join(dir, ".agents", "skills"));
     expect(projectSkillsDir(agentById("kiro")!, dir)).toBe(join(dir, ".kiro", "skills"));
-    expect(projectSkillsDir(agentById("opencode")!, dir)).toBe(join(dir, ".opencode", "skills"));
-    expect(projectSkillsDir(agentById("devin")!, dir)).toBe(join(dir, ".devin", "skills"));
+    expect(projectSkillsDir(agentById("opencode")!, dir)).toBe(join(dir, ".agents", "skills"));
+    expect(projectSkillsDir(agentById("devin")!, dir)).toBe(join(dir, ".agents", "skills"));
   });
 
   it("parseAgentIds de-dupes and rejects unknown ids", () => {
@@ -335,6 +336,7 @@ describe("a linked git worktree as the package root", () => {
     mkdirSync(pkg, { recursive: true });
     cpSync(join(PKG_ROOT, "dist"), join(pkg, "dist"), { recursive: true });
     cpSync(join(PKG_ROOT, "skills"), join(pkg, "skills"), { recursive: true });
+    cpSync(join(PKG_ROOT, "agents"), join(pkg, "agents"), { recursive: true });
     cpSync(join(PKG_ROOT, "package.json"), join(pkg, "package.json"));
     symlinkSync(join(PKG_ROOT, "node_modules"), join(pkg, "node_modules"), "dir");
     if (gitMarker === "file") {
@@ -374,7 +376,7 @@ describe("a linked git worktree as the package root", () => {
     await mkdir(cwd, { recursive: true });
     stagePackage(pkg, "file");
 
-    const res = kfFrom(pkg, cwd, home, "install", "--global");
+    const res = kfFrom(pkg, cwd, home, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).not.toBe(0);
     expect(res.out).toContain("primary checkout");
     expect(existsSync(join(home, ".claude"))).toBe(false);
@@ -388,26 +390,9 @@ describe("a linked git worktree as the package root", () => {
     await mkdir(cwd, { recursive: true });
     stagePackage(pkg, "file");
 
-    const res = kfFrom(pkg, cwd, home, "install", "--global");
+    const res = kfFrom(pkg, cwd, home, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).toBe(1);
     expect(res.err).toContain("primary checkout");
-  });
-
-  it("kf doctor --fix refuses to link only the agents when the skills are already healthy", async () => {
-    const pkg = join(dir, "pkg");
-    const home = join(dir, "home");
-    const root = join(dir, "proj");
-    await mkdir(home, { recursive: true });
-    stagePackage(pkg, "file");
-    await projectAt(root);
-    const seeded = kfWithEnv(pkg, root, home, { KF_ALLOW_WORKTREE_LINK: "1" }, "install", "--global");
-    expect(seeded.code, seeded.out).toBe(0);
-    await rm(join(home, ".claude", "agents"), { recursive: true, force: true });
-
-    const res = kfFrom(pkg, root, home, "doctor", "--fix");
-    expect(res.code, res.out).toBe(1);
-    expect(res.out.split("\n").some((l) => l.includes("[ERROR]") && l.includes("primary checkout")), res.out).toBe(true);
-    expect(existsSync(join(home, ".claude", "agents"))).toBe(false);
   });
 
   it("kf doctor --fix refuses the global link with an error finding and links nothing", async () => {
@@ -432,9 +417,9 @@ describe("a linked git worktree as the package root", () => {
     stagePackage(pkg, "file");
     await projectAt(root);
 
-    const res = kfFrom(pkg, root, home, "install", "--project");
+    const res = kfFrom(pkg, root, home, "install", "--project", "--agent", "codex");
     expect(res.code, res.out).toBe(0);
-    expect(existsSync(join(root, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("kf install --global refuses and names the .git file it cannot read", async () => {
@@ -446,7 +431,7 @@ describe("a linked git worktree as the package root", () => {
     stagePackage(pkg, "file");
     chmodSync(join(pkg, ".git"), 0o000);
 
-    const res = kfFrom(pkg, cwd, home, "install", "--global");
+    const res = kfFrom(pkg, cwd, home, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).toBe(1);
     expect(res.err).toContain(join(pkg, ".git"));
     expect(res.err).toContain("EACCES");
@@ -466,7 +451,7 @@ describe("a linked git worktree as the package root", () => {
     const gitdir = join(dirname(pkg), "common-git", "worktrees", "transient");
     chmodSync(gitdir, 0o000);
     try {
-      const res = kfFrom(pkg, cwd, home, "install", "--global");
+      const res = kfFrom(pkg, cwd, home, "install", "--global", "--agent", "codex");
       expect(res.code, res.out).toBe(1);
       expect(res.err).toContain(join(gitdir, "commondir"));
       expect(res.err).toContain("EACCES");
@@ -563,11 +548,11 @@ describe("a linked git worktree as the package root", () => {
     await mkdir(root, { recursive: true });
     stagePackage(pkg, "file");
 
-    const res = kfAnswering(pkg, root, home, "init");
+    const res = kfAnswering(pkg, root, home, "init", "--agent", "codex");
     expect(res.out).toContain("Setup mode");
     expect(res.out).not.toContain("primary checkout");
     expect(res.code, res.out).toBe(0);
-    expect(existsSync(join(root, ".claude", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
     expect(existsSync(join(home, ".claude"))).toBe(false);
   }, 70_000);
 
@@ -620,7 +605,7 @@ describe("a linked git worktree as the package root", () => {
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
-  it("kf install --global from a linked worktree still links when KF_ALLOW_WORKTREE_LINK=1", async () => {
+  it("kf install --global from a linked worktree still writes rendered copies when KF_ALLOW_WORKTREE_LINK=1", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");
     const cwd = join(dir, "cwd");
@@ -628,12 +613,13 @@ describe("a linked git worktree as the package root", () => {
     await mkdir(cwd, { recursive: true });
     stagePackage(pkg, "file");
 
-    const res = kfWithEnv(pkg, cwd, home, { KF_ALLOW_WORKTREE_LINK: "1" }, "install", "--global");
+    const res = kfWithEnv(pkg, cwd, home, { KF_ALLOW_WORKTREE_LINK: "1" }, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).toBe(0);
-    expect(lstatSync(join(home, ".claude", "skills", "kanban-flow")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(home, ".agents", "skills", copyName("flow"))).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(home, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 
-  it("kf install --global from a package in a primary checkout still links", async () => {
+  it("kf install --global from a package in a primary checkout still writes rendered copies", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");
     const cwd = join(dir, "cwd");
@@ -641,8 +627,9 @@ describe("a linked git worktree as the package root", () => {
     await mkdir(cwd, { recursive: true });
     stagePackage(pkg, "dir");
 
-    const res = kfFrom(pkg, cwd, home, "install", "--global");
+    const res = kfFrom(pkg, cwd, home, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).toBe(0);
-    expect(lstatSync(join(home, ".claude", "skills", "kanban-flow")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(home, ".agents", "skills", copyName("flow"))).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(home, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 });

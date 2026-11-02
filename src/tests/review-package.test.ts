@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const script = resolve(here, "../../skills/kanban-review/scripts/review-package");
+const script = resolve(here, "../../skills/review/scripts/review-package");
 const baseScript = resolve(here, "fixtures/review-package/review-package.base");
 
 let scratch: string;

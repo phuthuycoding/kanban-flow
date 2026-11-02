@@ -1,0 +1,256 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
+import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { renderForCopy, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
+import { cmdInstall, cmdUninstall, MANAGED_SKILLS, MANAGED_AGENTS } from "../integrations/install.js";
+import { ensureWorksStructure } from "../workflow/features.js";
+import { PKG_ROOT } from "../shared/paths.js";
+
+const ROOT = "/tmp/target/.agents/skills";
+const PLUGIN_VAR = "${CLAUDE_PLUGIN_ROOT}";
+
+describe("renderForCopy", () => {
+  it("rewrites a Skill dispatch to the kf-<name> copy", () => {
+    expect(renderForCopy("run Skill(kf:plan) now", ROOT)).toBe("run Skill(kf-plan) now");
+  });
+
+  it("rewrites a slash command to the kf-<name> copy name", () => {
+    expect(renderForCopy("type /kf:implement to continue", ROOT)).toBe("type kf-implement to continue");
+  });
+
+  it("rewrites a bare kf:<skill> hand-off in prose to the kf-<name> copy name", () => {
+    expect(renderForCopy("Load the kf:test skill and move the feature to testing.", ROOT)).toBe("Load the kf-test skill and move the feature to testing.");
+    expect(renderForCopy("kf:plan, then kf:review.", ROOT)).toBe("kf-plan, then kf-review.");
+    expect(renderForCopy("(kf:implement)", ROOT)).toBe("(kf-implement)");
+  });
+
+  it("leaves a bare kf:<managed agent> as written, since no copy runtime registers an agent by that name", () => {
+    expect(renderForCopy("hand the brief to kf:researcher first", ROOT)).toBe("hand the brief to kf:researcher first");
+    expect(renderForCopy("subagent_type: kf:code-reviewer", ROOT)).toBe("subagent_type: kf:code-reviewer");
+  });
+
+  it("still rewrites a bare skill name when an agent name sits beside it", () => {
+    expect(renderForCopy("kf:test then kf:scout", ROOT)).toBe("kf-test then kf:scout");
+  });
+
+  it("leaves kf:<unknown>, a longer name and a prefixed word alone", () => {
+    const text = "see kf:nonsense and xkf:test and kf:testing-notes";
+    expect(renderForCopy(text, ROOT)).toBe("see kf:nonsense and xkf:test and kf:testing-notes");
+  });
+
+  it("points a plugin skill path at the copy dir", () => {
+    expect(renderForCopy(`${PLUGIN_VAR}/skills/flow/references/harness-tools.md`, ROOT)).toBe(`${ROOT}/kf-flow/references/harness-tools.md`);
+  });
+
+  it("points the plugin agents dir at kf-flow/agents inside the copy dir", () => {
+    expect(renderForCopy(`${PLUGIN_VAR}/agents/scout.md`, ROOT)).toBe(`${ROOT}/kf-flow/agents/scout.md`);
+    expect(renderForCopy(`bodies at ${PLUGIN_VAR}/agents`, ROOT)).toBe(`bodies at ${ROOT}/kf-flow/agents`);
+  });
+
+  it("turns an Agent dispatch into an instruction to paste the agent body", () => {
+    const out = renderForCopy("dispatch Agent(kf:scout) with the brief", ROOT);
+    expect(out).toContain(`${ROOT}/kf-flow/agents/scout.md`);
+    expect(out).toMatch(/paste/i);
+    expect(out).not.toContain("Agent(kf:");
+    expect(out.startsWith("dispatch ")).toBe(true);
+    expect(out.endsWith(" with the brief")).toBe(true);
+  });
+
+  it("points any other plugin-root path at the package root", () => {
+    expect(renderForCopy(`${PLUGIN_VAR}/kanban-flow/review/rules`, ROOT)).toBe(`${PKG_ROOT}/kanban-flow/review/rules`);
+  });
+
+  it("leaves text without plugin patterns unchanged", () => {
+    const text = "# Title\n\nPlain prose with `code`, a kf: mention in passing and a path /usr/kf/bin.\n";
+    expect(renderForCopy(text, ROOT)).toBe(text);
+  });
+
+  it("never leaves the plugin root variable in its output", () => {
+    const text = [`${PLUGIN_VAR}/skills/a/b.md`, `${PLUGIN_VAR}/agents`, `${PLUGIN_VAR}/other-dir/x`, `${PLUGIN_VAR}/other/y`].join("\n");
+    expect(renderForCopy(text, ROOT)).not.toContain("CLAUDE_PLUGIN_ROOT");
+  });
+
+  it("is idempotent on its own output", () => {
+    const text = `Skill(kf:plan) /kf:review Agent(kf:developer) ${PLUGIN_VAR}/skills/flow/SKILL.md ${PLUGIN_VAR}/agents ${PLUGIN_VAR}/kanban-flow/review/rules`;
+    const once = renderForCopy(text, ROOT);
+    expect(renderForCopy(once, ROOT)).toBe(once);
+  });
+
+  it("renders every shipped skill and agent body without a plugin root or a kf: dispatch", () => {
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".md")) files.push(p);
+      }
+    };
+    walk(join(PKG_ROOT, "skills"));
+    walk(join(PKG_ROOT, "agents"));
+    expect(files.length).toBeGreaterThan(10);
+    for (const f of files) {
+      const out = renderForCopy(readFileSync(f, "utf8"), ROOT);
+      expect(out, f).not.toContain("CLAUDE_PLUGIN_ROOT");
+      expect(out, f).not.toMatch(/Skill\(kf:|Agent\(kf:|\/kf:[a-z]/);
+      expect(out, f).not.toMatch(new RegExp(`(?<![\\w/.:-])kf:(${MANAGED_SKILLS.join("|")})(?![\\w-])`));
+    }
+  });
+});
+
+describe("renderSkillMd", () => {
+  it("renames the frontmatter name of an LF skill to kf-<name>", () => {
+    const out = renderSkillMd("---\nname: plan\ndescription: Plans work\n---\n# Plan\n", ROOT, "plan");
+    expect(out).toBe("---\nname: kf-plan\ndescription: Plans work\n---\n# Plan\n");
+  });
+
+  it("renames the name of a CRLF skill and keeps its line endings", () => {
+    const out = renderSkillMd("---\r\nname: plan\r\ndescription: Plans work\r\n---\r\n# Plan\r\n", ROOT, "plan");
+    expect(out).toBe("---\r\nname: kf-plan\r\ndescription: Plans work\r\n---\r\n# Plan\r\n");
+  });
+
+  it("renames a quoted name", () => {
+    const out = renderSkillMd('---\nname: "plan"\ndescription: x\n---\nbody\n', ROOT, "plan");
+    expect(out).toMatch(/^name:\s*["']?kf-plan["']?\s*$/m);
+    expect(out).not.toContain('name: "plan"');
+    expect(out).toContain("description: x");
+  });
+
+  it("returns text without frontmatter unchanged", () => {
+    const text = "# Plan\n\nname: plan\n";
+    expect(renderSkillMd(text, ROOT, "plan")).toBe(text);
+  });
+
+  it("leaves a name: line that sits only in the body alone", () => {
+    const text = "---\ndescription: Plans work\n---\n# Plan\n\nname: plan\n";
+    expect(renderSkillMd(text, ROOT, "plan")).toBe(text);
+  });
+
+  it("still renders the plugin patterns in the body", () => {
+    const out = renderSkillMd("---\nname: plan\n---\nrun Skill(kf:review)\n", ROOT, "plan");
+    expect(out).toContain("Skill(kf-review)");
+  });
+});
+
+describe("ephemeralPackageWarning", () => {
+  it("names the copy dirs and the package root", () => {
+    const warning = ephemeralPackageWarning("/home/a/.agents/skills, /home/a/.kiro/skills");
+    expect(warning).toContain("/home/a/.agents/skills, /home/a/.kiro/skills");
+    expect(warning).toContain(PKG_ROOT);
+  });
+});
+
+describe("shared kf-* copies for the other runtimes", () => {
+  let dir: string;
+  const home = () => process.env.HOME!;
+  const shared = () => join(dir, ".agents", "skills");
+
+  async function project(agents: string[]): Promise<void> {
+    ensureWorksStructure(dir);
+    await mkdir(join(dir, ".kf"), { recursive: true });
+    await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", agents }));
+  }
+  const kfDirs = async (skills: string): Promise<string[]> =>
+    existsSync(skills) ? (await readdir(skills)).filter((n) => n.startsWith("kf-")).sort() : [];
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-render-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("writes one rendered kf-* dir per managed skill into .agents/skills for codex and gemini together", async () => {
+    await project(["codex", "gemini"]);
+    const res = await cmdInstall(["codex", "gemini"], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    expect(await kfDirs(shared())).toEqual(MANAGED_SKILLS.map((n) => `kf-${n}`).sort());
+    for (const n of MANAGED_SKILLS) {
+      const skillMd = join(shared(), `kf-${n}`, "SKILL.md");
+      expect(lstatSync(join(shared(), `kf-${n}`)).isSymbolicLink(), n).toBe(false);
+      expect(lstatSync(skillMd).isSymbolicLink(), n).toBe(false);
+      expect(readFileSync(skillMd, "utf8"), n).not.toContain("CLAUDE_PLUGIN_ROOT");
+    }
+    expect(existsSync(join(dir, ".gemini", "skills"))).toBe(false);
+    expect(res.stdout).toContain("Gemini CLI: reads the copies written for OpenAI Codex");
+    const manifest = JSON.parse(await readFile(join(shared(), ".kanban-flow-skills.json"), "utf8")) as Record<string, string>;
+    for (const n of MANAGED_SKILLS) expect(Object.keys(manifest), n).toContain(`kf-${n}`);
+  });
+
+  it("names every copy kf-<name> in its SKILL.md frontmatter too", async () => {
+    await project(["codex"]);
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
+    for (const n of MANAGED_SKILLS) {
+      const head = (await readFile(join(shared(), `kf-${n}`, "SKILL.md"), "utf8")).split("---")[1] ?? "";
+      expect(head, n).toMatch(new RegExp(`\\nname:\\s*kf-${n}\\s*\\n`));
+    }
+    // Agent bodies keep their own names.
+    for (const a of MANAGED_AGENTS) {
+      const head = (await readFile(join(shared(), "kf-flow", "agents", `${a}.md`), "utf8")).split("---")[1] ?? "";
+      expect(head, a).toMatch(new RegExp(`\\nname:\\s*${a}\\s*\\n`));
+    }
+  });
+
+  it("copies the rendered agent bodies into kf-flow/agents", async () => {
+    await project(["codex"]);
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
+    const agentFiles = (await readdir(join(shared(), "kf-flow", "agents"))).sort();
+    expect(agentFiles).toEqual(MANAGED_AGENTS.map((a) => `${a}.md`).sort());
+    expect(agentFiles).toHaveLength(7);
+    for (const f of agentFiles) expect(await readFile(join(shared(), "kf-flow", "agents", f), "utf8"), f).not.toContain("CLAUDE_PLUGIN_ROOT");
+  });
+
+  it("gives kiro its own copy in .kiro/skills", async () => {
+    await project(["kiro"]);
+    const res = await cmdInstall(["kiro"], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    expect(await kfDirs(join(dir, ".kiro", "skills"))).toEqual(MANAGED_SKILLS.map((n) => `kf-${n}`).sort());
+    expect(existsSync(join(shared(), "kf-flow"))).toBe(false);
+  });
+
+  it("keeps a foreign kf-plan, reports it, and still installs the other copies", async () => {
+    await project(["codex"]);
+    await mkdir(shared(), { recursive: true });
+    await writeFile(join(shared(), "kf-plan"), "my own file\n");
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "project" });
+    expect(await readFile(join(shared(), "kf-plan"), "utf8")).toBe("my own file\n");
+    expect(res.stdout).toContain("kf-plan");
+    expect(res.stdout).toContain("left untouched");
+    expect(existsSync(join(shared(), "kf-flow", "SKILL.md"))).toBe(true);
+  });
+
+  it("lists the runtimes that read the shared dir in the also-picked-up note", async () => {
+    await project(["codex", "gemini"]);
+    const res = await cmdInstall(["codex", "gemini"], { cwd: dir, scope: "project" });
+    const line = res.stdout.split("\n").find((l) => l.includes("Also picked up by")) ?? "";
+    for (const id of ["cursor", "opencode", "devin"]) expect(line, id).toContain(id);
+  });
+
+  it("writes ~/.agents/skills at global scope", async () => {
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
+    expect(res.code).toBe(0);
+    const names = await kfDirs(join(home(), ".agents", "skills"));
+    expect(names).toEqual(MANAGED_SKILLS.map((n) => `kf-${n}`).sort());
+    expect(lstatSync(join(home(), ".agents", "skills", "kf-flow", "SKILL.md")).isSymbolicLink()).toBe(false);
+  });
+
+  it("keeps the shared copy on uninstalling one runtime while another declared runtime still reads it", async () => {
+    await project(["codex", "gemini"]);
+    await cmdInstall(["codex", "gemini"], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    expect(res.stdout).toMatch(/gemini/i);
+    expect(await kfDirs(shared())).toEqual(MANAGED_SKILLS.map((n) => `kf-${n}`).sort());
+  });
+
+  it("removes the shared copy when every runtime reading it is uninstalled", async () => {
+    await project(["codex", "gemini"]);
+    await cmdInstall(["codex", "gemini"], { cwd: dir, scope: "project" });
+    expect(await kfDirs(shared())).toHaveLength(MANAGED_SKILLS.length);
+    const res = await cmdUninstall(["codex", "gemini"], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    expect(await kfDirs(shared())).toEqual([]);
+  });
+});

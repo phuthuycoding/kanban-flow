@@ -37,6 +37,8 @@
   "files": [
     "dist",
     "skills",
+    "agents",
+    ".claude-plugin",
     "docs/workflow",
     "kanban-flow/templates",
     "kanban-flow/review",

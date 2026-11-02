@@ -1,6 +1,6 @@
 # Kanban Flow Workflow
 
-`kanban-flow` drives a feature's life cycle through the `kf` CLI and the phase skills:
+`kanban-flow` drives a feature's life cycle through the `kf` CLI and the phase skills (the `kf` plugin: `/kf:flow`, `/kf:plan`, ...):
 
 ```text
 brainstorm → planning ─ kf approve ─→ implementation → testing → review ─ PR merged ─→ done
@@ -13,7 +13,7 @@ The pipeline exists to turn an idea into an approved execution contract, then ex
 
 Above the items, the `travel` skill plans and runs a whole day: it sizes the work, keeps several items moving in its own session (one slot each, no detached process) and reports what needs the human or is waiting to merge. See [skill routing](skills.md).
 
-Features and bugs share one state machine. Create a bug with `kf new <name> --type bug`; it goes through `kanban-bug` for triage and reproduction before it reaches planning.
+Features and bugs share one state machine. Create a bug with `kf new <name> --type bug`; it goes through `/kf:bug` for triage and reproduction before it reaches planning.
 
 ## Where to start
 
@@ -25,7 +25,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 6. [Agent onboarding](autoconfig.md) — `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 7. [Skill routing](skills.md) — which skill loads in which state.
 8. [Dashboard](dashboard.md) — the KPIs, the charts, the filters and what each number means.
-9. [Agent harness](harness.md) — the in-session loop, the six agents, `harness.verify` and `kf verify`, and the `kf doctor --fix` migration (`kf drive`, `kf run`, `kf runs` and `kf harness` were removed).
+9. [Agent harness](harness.md) — the in-session loop, the seven agents, `harness.verify` and `kf verify`, and the `kf doctor --fix` migration (`kf drive`, `kf run`, `kf runs` and `kf harness` were removed).
 10. [Source layout](source-layout.md) — the shape of `src/` and how to extend it.
 
 ## The rules that never bend

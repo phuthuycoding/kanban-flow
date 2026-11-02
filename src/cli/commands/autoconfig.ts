@@ -6,6 +6,7 @@ import { commandHelp } from "../args.js";
 import { effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, configPath, projectKabanDir, effectiveSkillsScope, type ProjectConfig } from "../../project/config.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
+import { ClaudePluginError, PLUGIN_ID, claudeRunner, claudeScope, pluginState, type ClaudeRun, type PluginState } from "../../integrations/claude-plugin.js";
 import { agentSkillsState, agentsAreHealthy, agentsState, foreignSkills, hasOwnedEntries, MANAGED_AGENTS, unhealthySkills } from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
 import type { CmdResult } from "../result.js";
@@ -21,14 +22,41 @@ function skillsDirAtScope(a: (typeof AGENTS)[number], root: string, scope: Skill
   return scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root);
 }
 
-function installedAgents(root: string, scope: SkillScope): AgentId[] {
+/** The kf plugin as Claude Code reports it, or why the probe could not tell. */
+type PluginProbe = { state: PluginState } | { error: string };
+
+async function probePlugin(run: ClaudeRun, scope: SkillScope): Promise<PluginProbe> {
+  try {
+    return { state: await pluginState(run, scope) };
+  } catch (err) {
+    if (err instanceof ClaudePluginError) return { error: err.message };
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return { error: "the `claude` CLI was not found on PATH." };
+    throw err;
+  }
+}
+
+function pluginLine(probe: PluginProbe, scope: SkillScope): string {
+  if ("error" in probe) return `⚠ cannot check kf plugin: ${probe.error}`;
+  const at = claudeScope(scope);
+  const s = probe.state;
+  switch (s.status) {
+    case "current": return `installed, enabled (scope: ${at})`;
+    case "disabled": return `installed but disabled (scope: ${s.scope})`;
+    case "unknown": return `installed (scope: ${at}) — claude does not report its source folder`;
+    case "stale": return `installed (scope: ${at}) but reading ${s.readFromFolder || "an unknown folder"}, not this package`;
+    case "missing": return `not installed (scope: ${at})`;
+  }
+}
+
+function installedAgents(root: string, scope: SkillScope, probe: PluginProbe | undefined): AgentId[] {
   return AGENTS.filter((a) => {
+    if (a.id === "claude") return probe !== undefined && "state" in probe && (probe.state.status === "current" || probe.state.status === "unknown");
     const dir = skillsDirAtScope(a, root, scope);
     return unhealthySkills(dir, foreignSkills(dir)).length === 0;
   }).map((a) => a.id);
 }
 
-function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Partial<ProjectConfig>): CheckItem[] {
+function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Partial<ProjectConfig>, probe: PluginProbe | undefined): CheckItem[] {
   const items: CheckItem[] = [];
   const kf = projectKabanDir(root);
   const scope = effectiveSkillsScope(cfg);
@@ -42,6 +70,15 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
   for (const id of agents) {
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
+    if (id === "claude" && probe) {
+      items.push({
+        // An unknown source is installed and enabled; kf install cannot do more, so the item is not left open.
+        done: "state" in probe && (probe.state.status === "current" || probe.state.status === "unknown"),
+        label: `kf plugin (${PLUGIN_ID}, ${a.label}) — ${pluginLine(probe, scope)}`,
+        action: `kf install --agent claude --scope ${scope}`,
+      });
+      continue;
+    }
     const dir = skillsDirAtScope(a, root, scope);
     // A user's own skill at a managed name is left alone by kf install, so it is neither stale nor pending.
     const foreign = foreignSkills(dir);
@@ -178,8 +215,11 @@ what blocks the next move; kf stage refuses the move while a gate fails.
 Commands the agent will use (run \`kf help <command>\` for every option):
 ${commands}
 
-Skills installed per agent: kanban-flow (orchestrator), kanban-brainstorm, kanban-bug,
-kanban-plan, kanban-implement, kanban-test, kanban-review, kanban-archive, travel.
+Skills (10) and agents (7): Claude Code gets them through the kf plugin (\`kf install\` runs
+\`claude plugin marketplace add\` and \`claude plugin install kf@kanban-flow\`, or inside Claude Code
+\`/plugin marketplace add <package root>\` then \`/plugin install kf@kanban-flow\`). Start with \`/kf:flow\`;
+the phase skills are /kf:brainstorm, /kf:plan, /kf:implement, /kf:test, /kf:review, /kf:archive,
+/kf:bug, /kf:spike and /kf:travel. Other runtimes get kf-<name> skill copies (kf-flow, kf-plan, ...).
 Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
 with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
 Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;
@@ -191,7 +231,7 @@ every bypass is recorded in the work item's metadata and reported by kf status/v
  * project: current context, a setup checklist with missing actions, the
  * effective review rules to enforce, and the kanban workflow guide.
  */
-export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<CmdResult> {
+export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string, run: ClaudeRun = claudeRunner(cwd)): Promise<CmdResult> {
   const root = findWorksRoot(cwd) ?? cwd;
   const cfg = readProjectConfig(root);
   const stacks = cfg.stacks?.length ? cfg.stacks : detectStacks(root);
@@ -199,7 +239,8 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
   const configured = (cfg.agents ?? []).filter((a): a is AgentId => known.has(a as AgentId));
   const agents: AgentId[] = configured.length > 0 ? configured : [DEFAULT_AGENT];
   const scope = effectiveSkillsScope(cfg);
-  const skills = installedAgents(root, scope);
+  const probe = agents.includes("claude") ? await probePlugin(run, scope) : undefined;
+  const skills = installedAgents(root, scope, probe);
 
   const ctx = [
     "## Project context",
@@ -208,9 +249,10 @@ export async function cmdAutoconfig(_parsed: ParsedArgs, cwd: string): Promise<C
     `- ${cfg.stacks?.length ? "Configured" : "Detected"} stacks: ${stacks.length ? stacks.join(", ") : "none"}`,
     `- Config: ${existsSync(configPath(root)) ? `${configPath(root)} (context: ${effectiveDefaultContext(cfg)}, reviewer: ${cfg.reviewer ?? "unset"}, agents: ${agents.join(", ")})` : "missing — run kf init"}`,
     `- Skills installed (scope: ${scope}): [${skills.join(", ") || "none"}]`,
+    ...(probe && "error" in probe ? [`- ${pluginLine(probe, scope)}`] : []),
   ].join("\n");
 
-  const items = checklist(root, stacks, agents, cfg);
+  const items = checklist(root, stacks, agents, cfg, probe);
   const check = [
     "## Setup checklist",
     "",

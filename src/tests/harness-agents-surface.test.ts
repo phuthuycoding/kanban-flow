@@ -3,12 +3,13 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
+import { MANAGED_AGENTS } from "../integrations/managed.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = () => read("skills", "kanban-implement", "SKILL.md");
-const reference = (name: string) => read("skills", "kanban-implement", "references", name);
-const testing = () => read("skills", "kanban-test", "SKILL.md");
-const agentBody = (name: string) => read("skills", "kanban-flow", "agents", `${name}.md`);
+const implement = () => read("skills", "implement", "SKILL.md");
+const reference = (name: string) => read("skills", "implement", "references", name);
+const testing = () => read("skills", "test", "SKILL.md");
+const agentBody = (name: string) => read("agents", `${name}.md`);
 
 /** The text between a heading that starts with `from` and the next heading that starts with `to`. */
 function slice(text: string, from: string, to: string): string {
@@ -24,9 +25,9 @@ const taskLoop = () => slice(implement(), "\n## 3.", "\n## 4.");
 describe("the task loop seats", () => {
   it("dispatches the test-writer, then the developer, then the code-reviewer, each from its own brief", () => {
     const loop = taskLoop();
-    const testWriter = loop.indexOf("`Agent(test-writer)`");
-    const developer = loop.indexOf("`Agent(developer)`");
-    const reviewer = loop.indexOf("`Agent(code-reviewer)`");
+    const testWriter = loop.indexOf("`Agent(kf:test-writer)`");
+    const developer = loop.indexOf("`Agent(kf:developer)`");
+    const reviewer = loop.indexOf("`Agent(kf:code-reviewer)`");
     expect(testWriter).toBeGreaterThanOrEqual(0);
     expect(developer).toBeGreaterThan(testWriter);
     expect(reviewer).toBeGreaterThan(developer);
@@ -43,7 +44,7 @@ describe("the task loop seats", () => {
   it("routes a developer's test dispute to the test-writer and stops on a contradicting test case or a repeat dispute", () => {
     const dispute = taskLoop().split("\n").find((line) => line.includes("`TEST_DISPUTE: <file:line> <why>`"));
     expect(dispute, "dispute paragraph").toBeDefined();
-    expect(dispute).toContain("`Agent(test-writer)`");
+    expect(dispute).toContain("`Agent(kf:test-writer)`");
     expect(dispute).toContain("`Ruling:`");
     expect(dispute).toContain("resume the developer");
     expect(dispute).toContain("contradicts an FR or another TC");
@@ -62,7 +63,7 @@ describe("the task loop seats", () => {
 
   it("dispatches the automation-writer for UI tasks under the full level and commits its specs before the review", () => {
     const loop = taskLoop();
-    expect(loop).toContain("`Agent(automation-writer)`");
+    expect(loop).toContain("`Agent(kf:automation-writer)`");
     expect(loop).toContain("`references/automation-writer-brief.md`");
     expect(loop).toContain("`Level: full`");
     expect(loop).toContain("after the developer's commit");
@@ -77,7 +78,7 @@ describe("the task loop seats", () => {
   it("names a required model on every seat template, pointing at the model selection section", () => {
     for (const seat of ["test-writer", "developer", "automation-writer"]) {
       const template = reference(`${seat}-brief.md`);
-      expect(template, seat).toMatch(new RegExp(`^\\s*subagent_type: ${seat}\\b`, "m"));
+      expect(template, seat).toMatch(new RegExp(`^\\s*subagent_type: kf:${seat}\\b`, "m"));
       const model = /^\s*model: \[MODEL\]\s+# REQUIRED — (.+)$/m.exec(template)?.[1];
       expect(model, seat).toBeDefined();
       expect(model, seat).toContain("sonnet by default");
@@ -101,8 +102,8 @@ describe("the task loop seats", () => {
     const loop = slice(taskLoop(), "\n### 3.2", "\n### 3.4");
     const verify = loop.indexOf("kf verify <f> --task");
     expect(verify, "kf verify <f> --task").toBeGreaterThanOrEqual(0);
-    expect(verify).toBeGreaterThan(loop.indexOf("`Agent(developer)`"));
-    expect(verify).toBeLessThan(loop.indexOf("`Agent(code-reviewer)`"));
+    expect(verify).toBeGreaterThan(loop.indexOf("`Agent(kf:developer)`"));
+    expect(verify).toBeLessThan(loop.indexOf("`Agent(kf:code-reviewer)`"));
     expect(loop).toContain("--base <BASE>");
   });
 
@@ -203,8 +204,8 @@ describe("the testing stage dispatch", () => {
 
   it("dispatches the automation-writer under the full level when the UI suite or a UI spec is missing", () => {
     const text = section();
-    expect(text).toContain("`Agent(automation-writer)`");
-    expect(text).toContain("`../kanban-implement/references/automation-writer-brief.md`");
+    expect(text).toContain("`Agent(kf:automation-writer)`");
+    expect(text).toContain("`${CLAUDE_PLUGIN_ROOT}/skills/implement/references/automation-writer-brief.md`");
     expect(text).toContain("`full`");
     expect(text).toContain("a UI test case has no spec");
     expect(text).toContain("still missing after the run, or the tests are skipped, that's a gap");
@@ -245,7 +246,6 @@ describe("the testing stage dispatch", () => {
 describe("the documentation surfaces", () => {
   const normalise = (text: string) => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
   const doc = (...parts: string[]) => normalise(read(...parts));
-  const SIX = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"];
   const SURFACES: string[][] = [
     ["README.md"],
     [".github", "pages", "index.html"],
@@ -254,8 +254,8 @@ describe("the documentation surfaces", () => {
     ["docs", "workflow", "skills.md"],
     ["docs", "workflow", "harness.md"],
     ["docs", "workflow", "lifecycle.md"],
-    ["skills", "kanban-flow", "SKILL.md"],
-    ["skills", "kanban-flow", "references", "harness-tools.md"],
+    ["skills", "flow", "SKILL.md"],
+    ["skills", "flow", "references", "harness-tools.md"],
   ];
   const STALE_COUNT = /\b(3|three) (kanban )?(agents|agent definitions|agent bodies|subagents)\b/i;
 
@@ -265,10 +265,10 @@ describe("the documentation surfaces", () => {
     }
   });
 
-  it("names all six agents in the README, the Pages site and the CLI reference", () => {
+  it("names every managed agent in the README, the Pages site and the CLI reference", () => {
     for (const surface of [["README.md"], [".github", "pages", "index.html"], ["docs", "workflow", "cli-reference.md"]]) {
       const text = doc(...surface);
-      for (const name of SIX) expect(text, `${surface.join("/")} ${name}`).toContain(name);
+      for (const name of MANAGED_AGENTS) expect(text, `${surface.join("/")} ${name}`).toContain(name);
     }
   });
 
@@ -277,7 +277,7 @@ describe("the documentation surfaces", () => {
       ["README.md"],
       ["docs", "workflow", "skills.md"],
       ["docs", "workflow", "lifecycle.md"],
-      ["skills", "kanban-flow", "SKILL.md"],
+      ["skills", "flow", "SKILL.md"],
     ]) {
       const text = doc(...surface);
       expect(text, surface.join("/")).not.toMatch(/fresh implementer per task/i);
@@ -303,9 +303,9 @@ describe("the skills tree after the runner and drive removal", () => {
     expect(hits).toEqual([]);
   });
 
-  it("names kf drive, kf run, kf runs and kf harness only in the one removal note of the kanban-flow skill", () => {
+  it("names kf drive, kf run, kf runs and kf harness only in the one removal note of the flow skill", () => {
     const hits = lines()
-      .filter((l) => /\bkf (drive|run|runs|harness)\b/.test(l.text) && !(l.where.startsWith("kanban-flow/SKILL.md:") && /were removed/.test(l.text)))
+      .filter((l) => /\bkf (drive|run|runs|harness)\b/.test(l.text) && !(l.where.startsWith("flow/SKILL.md:") && /were removed/.test(l.text)))
       .map((l) => l.where);
     expect(hits).toEqual([]);
   });
@@ -319,14 +319,14 @@ describe("the skills tree after the runner and drive removal", () => {
   });
 
   it("describes only in-session agents in the multi-agent harness section", () => {
-    const section = slice(read("skills", "kanban-flow", "SKILL.md"), "\n## Multi-agent harness", "\n## ");
+    const section = slice(read("skills", "flow", "SKILL.md"), "\n## Multi-agent harness", "\n## ");
     expect(section).not.toMatch(/runner|headless|harness\.(stages|roles|runners)/i);
     expect(section).toContain("Agent(");
-    expect(read("skills", "kanban-flow", "references", "harness-tools.md")).not.toMatch(/runner/i);
+    expect(read("skills", "flow", "references", "harness-tools.md")).not.toMatch(/runner/i);
   });
 
   it("says a review without a subagent tool cannot complete and the human is told, without kf run", () => {
-    const review = read("skills", "kanban-review", "SKILL.md");
+    const review = read("skills", "review", "SKILL.md");
     const fallback = review.split("\n").find((line) => line.includes("no subagent tool at all"));
     expect(fallback, "fallback paragraph").toBeDefined();
     expect(fallback).toMatch(/cannot complete/);

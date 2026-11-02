@@ -81,7 +81,7 @@ describe("kf approve starts the item", () => {
     expect(execFileSync("git", ["-C", wt.path, "branch", "--show-current"], { encoding: "utf8" }).trim()).toBe("t/demo");
     expect(res.stdout).toContain("→ implementation");
     expect(res.stdout).toContain(`Worktree: ${wt.path}`);
-    expect(res.stdout).toContain("Next: load the kanban-implement skill for 'demo'");
+    expect(res.stdout).toContain("Next: load the kf:implement skill for 'demo'");
     for (const re of NO_DECISION_TEXT) expect(res.stdout).not.toMatch(re);
     expect(res.stdout).not.toMatch(/backlog/i);
   });
@@ -156,7 +156,7 @@ describe("kf status Next after approve", () => {
     await plannedItem();
     expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
     const status = await cmdStatus(args("status", [], { change: "demo" }), root);
-    expect(status.stdout).toContain('Next: load the kanban-implement skill for "demo"');
+    expect(status.stdout).toContain('Next: load the kf:implement skill for "demo"');
     for (const re of NO_DECISION_TEXT) expect(status.stdout).not.toMatch(re);
   });
 

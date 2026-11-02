@@ -18,23 +18,23 @@ describe("task harness surfaces", () => {
     expect(tasks.map((t) => t.id)).toEqual(["TASK-001"]);
   });
 
-  it("kanban-plan asks for Files and no Role", () => {
-    const plan = read("skills", "kanban-plan", "SKILL.md");
+  it("the plan skill asks for Files and no Role", () => {
+    const plan = read("skills", "plan", "SKILL.md");
     expect(plan).not.toMatch(/\bRole\b/);
     expect(plan).toContain("Files");
     expect(plan).toContain("worktree.enabled");
   });
 
-  it("kanban-implement runs the in-session loop and has no task-worker mode or runtime agent choice", () => {
-    const impl = read("skills", "kanban-implement", "SKILL.md");
+  it("the implement skill runs the in-session loop and has no task-worker mode or runtime agent choice", () => {
+    const impl = read("skills", "implement", "SKILL.md");
     expect(impl).not.toMatch(/Task worker/);
     expect(impl).not.toContain("kf drive {feature_name}");
     expect(impl).toContain("TASK-###");
     expect(impl).not.toContain("Pick the agent that fits");
   });
 
-  it("kanban-implement's exit-2 line sends the plan back to planning before the human re-approves", () => {
-    const impl = read("skills", "kanban-implement", "SKILL.md");
+  it("the implement skill's exit-2 line sends the plan back to planning before the human re-approves", () => {
+    const impl = read("skills", "implement", "SKILL.md");
     const line = impl.split("\n").find((l) => /exit 2/.test(l) && /outside/.test(l)) ?? "";
     expect(line).not.toBe("");
     const stage = line.indexOf("kf stage <f> planning");
@@ -43,8 +43,8 @@ describe("task harness surfaces", () => {
     expect(approve).toBeGreaterThan(stage);
   });
 
-  it("kanban-flow checks worktrees at the start decision and hands off to no drive", () => {
-    const flow = read("skills", "kanban-flow", "SKILL.md");
+  it("the flow skill checks worktrees at the start decision and hands off to no drive", () => {
+    const flow = read("skills", "flow", "SKILL.md");
     expect(flow).not.toMatch(/`kf drive <f>`|kf drive when/);
     expect(flow).toContain("worktree.enabled");
   });

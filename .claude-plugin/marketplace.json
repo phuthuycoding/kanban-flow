@@ -1,0 +1,13 @@
+{
+  "name": "kanban-flow",
+  "owner": {
+    "name": "phuthuycoding"
+  },
+  "plugins": [
+    {
+      "name": "kf",
+      "source": "./",
+      "description": "Artifact-gated kanban workflow for AI agents: brainstorm, plan, implement, test, review and archive, each gated by the kf CLI"
+    }
+  ]
+}
