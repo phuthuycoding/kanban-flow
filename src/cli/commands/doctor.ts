@@ -37,7 +37,7 @@ export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResul
   try {
     const project = readProjectConfig(root.root);
     const wtCfg = worktreeConfig(root.root, project.worktree);
-    if (wtCfg.enabled) {
+    if (wtCfg.enabled && wtCfg.domains) {
       const machine = readMachineConfig();
       const infra = await probeDomainInfra(machine, wtCfg.routesFile);
       for (const probe of infra.probes) {
