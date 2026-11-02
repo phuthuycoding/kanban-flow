@@ -136,6 +136,20 @@ describe("the implement skill and task loop on the inline developer seat", () =>
     expect(text).toMatch(/^3\. No `developer dispatched` → except an inline task \(step 4\)/m);
   });
 
+  it("starts an unstarted inline task in the controller, or hands it to the chain subagent at dispatch", () => {
+    const step3 = IMPLEMENT().split("\n").find((l) => l.startsWith("3. No `developer dispatched`"));
+    expect(step3, "resume step 3").toBeDefined();
+    expect(step3).toMatch(/An inline task not yet started is started by the controller/);
+    expect(step3).toMatch(/hands the task to that subagent and writes `developer dispatched` at the hand-over/);
+  });
+
+  it("finishes a started inline task in the controller, or resumes the chain subagent and ledgers its report", () => {
+    const step4 = IMPLEMENT().split("\n").find((l) => l.startsWith("4. `developer dispatched` without"));
+    expect(step4, "resume step 4").toBeDefined();
+    expect(step4).toMatch(/the controller inspects the worktree diff, finishes, commits and ledgers `developer done`/);
+    expect(step4).toMatch(/chain `Ruling:`[^\n]*the controller resumes that subagent and ledgers `developer done` when it reports/);
+  });
+
   it("starts task N+1 only after N's review when their Files overlap", () => {
     expect(IMPLEMENT_SIDE()).toMatch(/N\+1's Files overlap N's[^\n]*N\+1 starts only after N's review/i);
   });
