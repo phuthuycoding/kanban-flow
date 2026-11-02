@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -13,8 +13,7 @@ import {
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
 import { executionContractHash, findWorksRoot } from "./features.js";
-import { readProjectConfig } from "../project/config.js";
-import { worktreeConfig } from "../worktree/config.js";
+import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
 
@@ -165,6 +164,28 @@ export function computeStatus(feature: Feature): FeatureStatus {
   };
 }
 
+interface DomainsFlag { domains: boolean; error?: string }
+const domainsCache = new Map<string, DomainsFlag>();
+
+/** Reads only `worktree.domains`; keyed by the config file's mtime so a rewritten config is seen
+ *  while status --all / the dashboard do not re-read it per item. A broken config keeps the
+ *  default (on) and reports why, so status still prints. */
+function resolveDomains(root: string): DomainsFlag {
+  const file = join(root, ".kf", "config.json");
+  const key = `${root}\0${existsSync(file) ? statSync(file).mtimeMs : "none"}`;
+  const hit = domainsCache.get(key);
+  if (hit) return hit;
+  let flag: DomainsFlag;
+  try {
+    flag = { domains: readProjectConfig(root).worktree?.domains ?? true };
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    flag = { domains: true, error: err.message };
+  }
+  domainsCache.set(key, flag);
+  return flag;
+}
+
 /** Render a human-readable status snapshot (mirrors `openspec status`). */
 export function renderStatusText(s: FeatureStatus): string {
   const lines: string[] = [];
@@ -191,10 +212,11 @@ export function renderStatusText(s: FeatureStatus): string {
   if (wt) {
     lines.push(`Worktree: ${wt.path}  (branch ${wt.branch})`);
     const root = findWorksRoot(s.feature.dir);
-    const domains = root === null || worktreeConfig(root, readProjectConfig(root).worktree).domains;
-    lines.push(domains
+    const flag: DomainsFlag = root === null ? { domains: true } : resolveDomains(root);
+    lines.push(flag.domains
       ? `Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`
       : `Direct:   http://127.0.0.1:${wt.port}`);
+    if (flag.error) lines.push(`Config:   invalid .kf/config.json — ${flag.error}`);
   }
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);
