@@ -28,12 +28,13 @@ function section(text: string, heading: RegExp): string {
 }
 
 describe("the researcher agent definition", () => {
-  it("is named researcher, limited to its seven tools, and names the three modes without a spike mode", () => {
+  it("is named researcher, limited to its six tools without Bash, and names the three modes without a spike mode", () => {
     const text = read(...AGENT);
     const head = frontmatter(text);
     expect(head).toMatch(/^name: researcher$/m);
     const tools = /^tools:\s*(.+)$/m.exec(head)?.[1].split(",").map((t) => t.trim());
-    expect(tools).toEqual(["Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "Write"]);
+    expect(tools).toEqual(["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Write"]);
+    expect(tools).not.toContain("Bash");
     const description = /^description:\s*(.+)$/m.exec(head)?.[1] ?? "";
     for (const mode of ["web", "code", "prior-art"]) {
       expect(description, `description names ${mode}`).toContain(mode);
@@ -76,11 +77,29 @@ describe("the researcher agent definition", () => {
   it("forbids tracked-file edits, commits, writing git commands, spawning agents, scope decisions and downloaded scripts", () => {
     const text = read(...AGENT);
     expect(text).toMatch(/never[\s\S]{0,300}edit[\s\S]{0,60}tracked/i);
-    expect(text).toMatch(/commit/i);
+    expect(text).toMatch(/never[^\n]*commit/i);
     expect(text).toMatch(/git command that writes|writing git|git[^.\n]{0,40}writ/i);
     expect(text).toMatch(/spawn[\s\S]{0,20}agent|dispatch[\s\S]{0,20}agent/i);
-    expect(text).toMatch(/scope/i);
-    expect(text).toMatch(/downloaded script/i);
+    expect(text).toMatch(/never[^\n]*(decide|decision)[^\n]*scope|not deciding[^\n]*scope|does not decide scope/i);
+    expect(text).toMatch(/never[^\n]*downloaded script/i);
+  });
+
+  it("has no git log, show or blame allowance and reads code with Read, Grep and Glob only", () => {
+    const text = read(...AGENT);
+    expect(text).not.toMatch(/git (log|show|blame)/i);
+    expect(text).not.toMatch(/read-only commands/i);
+  });
+
+  it("names the report path as the only file it writes", () => {
+    expect(read(...AGENT)).toMatch(/report (path|file)[^\n]*(only file|only thing)|only file[^\n]*(writes?|write)[^\n]*report|(writes?|write)[^\n]*only[^\n]*report/i);
+  });
+
+  it("says a stand-in loses tool-level enforcement and the controller checks git status --porcelain after a stand-in dispatch", () => {
+    const agent = read(...AGENT);
+    const brief = read(...BRIEF);
+    expect(`${agent}\n${brief}`).toMatch(/stand-in[^\n]*(loses|lose|without)[^\n]*tool-level (enforcement|restriction)/i);
+    expect(brief).toMatch(/stand-in[^\n]*git status --porcelain|git status --porcelain[^\n]*stand-in/i);
+    expect(brief).toMatch(/no tracked (change|file)|tracked[^\n]*(unchanged|no change)/i);
   });
 
   it("treats fetched content as untrusted data and stops with BLOCKED when no web tool is present", () => {
