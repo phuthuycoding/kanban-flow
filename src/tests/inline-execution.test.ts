@@ -38,6 +38,22 @@ describe("the plan skill's execution mode per wave", () => {
   });
 });
 
+describe("the plan skill's placement of the Execution lines", () => {
+  it("puts the Execution lines under Task Breakdown, after the table, and does not special-case an all-inline plan", () => {
+    const text = PLAN();
+    expect(text).toMatch(/under Task Breakdown[^\n]*after the table/i);
+    expect(text).not.toMatch(/inline end to end/i);
+  });
+});
+
+describe("the harness doc on the execution mode", () => {
+  it("states signature drift with a Ruling and test-writer re-dispatch, and large diffs", () => {
+    const text = read("docs", "workflow", "harness.md");
+    expect(text).toMatch(/signature drift[^\n]*`?Ruling:`?[^\n]*re-dispatch|re-dispatch[^\n]*signature drift/i);
+    expect(text).toMatch(/large diffs/i);
+  });
+});
+
 describe("the implement skill and task loop on the inline developer seat", () => {
   it("has the controller fill the developer seat inline and ledger the Note line", () => {
     const text = IMPLEMENT_SIDE();
@@ -71,7 +87,39 @@ describe("the implement skill and task loop on the inline developer seat", () =>
     const text = IMPLEMENT_SIDE();
     expect(text).toMatch(/signature drift/i);
     expect(text).toMatch(/signature drift[^\n]*`?Ruling:`?[^\n]*re-dispatch|re-dispatch[^\n]*signature drift/i);
-    expect(text).toMatch(/never edits their tests/i);
+    expect(text).toMatch(/signature drift[^\n]*never edits their tests/i);
+  });
+
+  it("resumes an open inline task in the controller and never spawns a developer for it", () => {
+    const text = IMPLEMENT();
+    expect(text).toMatch(/open inline task[^\n]*resumed by the controller[^\n]*never spawns? a developer/i);
+    expect(text).toMatch(/fix rounds? of an inline task run inline/i);
+  });
+
+  it("names the inline exception inside the Seats, in this order paragraph", () => {
+    const text = IMPLEMENT();
+    const start = text.indexOf("**Seats, in this order.**");
+    expect(start, "Seats paragraph").toBeGreaterThanOrEqual(0);
+    const rest = text.slice(start);
+    const end = rest.search(/\n\s*\n/);
+    const paragraph = end === -1 ? rest : rest.slice(0, end);
+    expect(paragraph).toMatch(/in an inline wave[^\n]*controller fills the developer seat/i);
+  });
+
+  it("defines a chain as consecutive tasks in inline waves and rules large diffs with a Ruling", () => {
+    const text = IMPLEMENT_SIDE();
+    expect(text).toMatch(/chain[^\n]*consecutive tasks in inline waves/i);
+    expect(text).toMatch(/large diffs[^\n]*`?Ruling:`?|`?Ruling:`?[^\n]*large diffs/i);
+  });
+
+  it("has the chain subagent write per-task developer lines and resumes that same subagent", () => {
+    const text = IMPLEMENT_SIDE();
+    expect(text).toMatch(/chain subagent[^\n]*developer dispatched[^\n]*developer done/i);
+    expect(text).toMatch(/resum\w* that same subagent/i);
+  });
+
+  it("starts task N+1 only after N's review when their Files overlap", () => {
+    expect(IMPLEMENT_SIDE()).toMatch(/N\+1's Files overlap N's[^\n]*N\+1 starts only after N's review/i);
   });
 
   it("uses one resumed developer subagent for more than 5 inline tasks", () => {
