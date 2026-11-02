@@ -1,0 +1,36 @@
+{
+  "inProgress": false,
+  "wallMinutes": 58,
+  "seats": {
+    "test-writer": { "count": 7, "sum": 33, "median": 5 },
+    "developer": { "count": 7, "sum": 80, "median": 11 },
+    "automation-writer": { "count": 0, "sum": 0, "median": 0 },
+    "code-reviewer": { "count": 0, "sum": 0, "median": 0 }
+  },
+  "verify": { "count": 2, "sum": 5, "median": 2.5 },
+  "seatMinutes": 113,
+  "verifyMinutes": 5,
+  "busyMinutes": 51,
+  "savedMinutes": 67,
+  "controllerMinutes": 7,
+  "waitMinutes": 15,
+  "rounds": 0,
+  "cascades": 0,
+  "tasks": 7,
+  "byModel": {
+    "test-writer/opus": 33,
+    "developer/opus": 29,
+    "developer/sonnet": 51
+  },
+  "unparsed": [],
+  "orphans": [],
+  "openWaits": [],
+  "otherTimed": 6,
+  "untimed": 0,
+  "developersPeak": 3,
+  "developerOverlapMinutes": 28,
+  "dispatchLag": {
+    "developer": { "median": 1, "max": 1, "n": 7 },
+    "codeReviewer": { "median": null, "max": null, "n": 0 }
+  }
+}

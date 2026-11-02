@@ -76,6 +76,27 @@ import type { ParsedArgs } from "../cli/args.js";
  *     003 44 → 45 = 1 → sorted 1,1,1,1,2,7: n 6, median 1, max 7
  *   the "4 developers in flight" text sits beside a peak of 3: the wait is only ledger text here.
  *
+ * adaptive-cap.ledger.md — all Z, minutes counted from 09:00; no dependency map.
+ *   test-writer wave 1 [0,4]=4, [0,5]=5, [0,6]=6; wave 2 [26,29]=3, [26,30]=4, [26,31]=5, [26,32]=6
+ *     count 7, sum 33, sorted 3,4,4,5,5,6,6 → median 5
+ *   developer 001 [5,15]=10 opus, 002 [6,18]=12 sonnet, 003 [16,24]=8 sonnet, 004 [30,38]=8 opus,
+ *     005 [31,46]=15 sonnet, 006 [32,48]=16 sonnet, 007 [39,50]=11 opus     count 7, sum 80, sorted 8,8,10,11,12,15,16 → median 11
+ *   verify TASK-004 failed run [40,42]=2, re-run [51,54]=3                  count 2, sum 5, median 2.5
+ *   models: dev opus 10+8+11=29, sonnet 12+8+15+16=51; tw opus 33
+ *   seat = 33+80 = 113; verify 5; union: [0,24] (tw 0-6, dev 5-15, 6-18, 16-24) = 24;
+ *     [26,50] (tw 26-32, dev 30-38, 31-46, 32-48, 39-50, verify 40-42 nested) = 24; [51,54] verify = 3 → busy 51
+ *   saved = 113+5-51 = 67; wall 09:00 → 09:58 (TASK-007 complete, last) = 58; controller = 58-51 = 7
+ *   waits: TASK-003 "2 developers in flight" 09:07 → its dispatch 09:16 = 9; TASK-007 "3 developers in flight"
+ *     09:33 → 09:39 = 6 → 15
+ *   other-timed: two wave lines, three Ruling lines, one Note line = 6; untimed 0; rounds 0; cascades 0; tasks 7
+ *   open developers: 5-6 one; 6-15 two; 15-16 one; 16-18 two; 18-24 one; 24-30 none; 30-31 one; 31-32 two;
+ *     32-38 three; 38-39 two; 39-46 three; 46-48 two; 48-50 one → peak 3;
+ *     two or more open [6,15]=9 + [16,18]=2 + [31,48]=17 → developerOverlapMinutes 28
+ *   developer lag: 001 tw done 4 → 5, 002 5 → 6, 004 29 → 30, 005 30 → 31, 006 31 → 32 = 1 each;
+ *     003: latest of tw done 6 and the first developer done after its wait (001 at 15) → 16 = 1;
+ *     007: latest of tw done 32 and the first developer done after its wait (004 at 38) → 39 = 1 → n 7, median 1, max 1
+ *   code-reviewer: no dispatch → null, null, 0; unparsed, orphans, open waits empty
+ *
  * Existing fixtures, new figures: no developer intervals overlap in two-tasks, mid-loop and resumed → peak 1, overlap 0.
  *   two-tasks developer lag: TASK-001 test-writer done 10 → dispatch 11 = 1; TASK-002 done 14 → 33 = 19 (the
  *     "developer in flight" wait is no gate; round=1 skipped) → n 2, median 10, max 19.
@@ -734,5 +755,39 @@ describe("kf loop-stats --all", () => {
       expect(res.code).toBe(1);
       expect(res.out).toContain("no loop measured yet");
     }
+  });
+});
+
+describe("a live-cap ledger", () => {
+  it("computes every figure of a loop with cap rulings, contention notes and a verify re-run", async () => {
+    const stats = await statsWithDeps(fixture("adaptive-cap.ledger.md"));
+    expect(stats).toMatchObject(withoutTasks(expected("adaptive-cap")));
+    expect(taskCount(stats.tasks)).toBe(7);
+  });
+
+  it("lists nothing as unparsed, orphaned or still waiting", async () => {
+    const stats = await statsOf("adaptive-cap");
+    expect(stats.unparsed).toEqual([]);
+    expect(stats.orphans).toEqual([]);
+    expect(stats.openWaits).toEqual([]);
+  });
+
+  it("counts the cap rulings, wave lines and contention note as other-timed lines, not as shapes", async () => {
+    const stats = await statsOf("adaptive-cap");
+    expect(stats.otherTimed).toBe(6);
+    expect(stats.untimed).toBe(0);
+  });
+
+  it("pairs the failed verify and its re-run as two separate verify intervals", async () => {
+    const stats = await statsOf("adaptive-cap");
+    expect(stats.verify).toEqual({ count: 2, sum: 5, median: 2.5 });
+    expect(stats.verifyMinutes).toBe(5);
+  });
+
+  it("gates the waits on 2 and 3 developers in flight on the next developer done", async () => {
+    const stats = await statsOf("adaptive-cap");
+    // TASK-003 waits 09:07 → 09:16 and TASK-007 waits 09:33 → 09:39; each lags 1 minute behind the developer done that freed a seat.
+    expect(stats.waitMinutes).toBe(15);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 1, max: 1, n: 7 });
   });
 });
