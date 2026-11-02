@@ -66,7 +66,10 @@ TASK-001: test dispute <file:line> — <fixed | kept, Ruling | stopped> @ <ts>
 TASK-001: minor (deferred): <one-liner> @ <ts>
 TASK-001: parked — <finding> — Ruling: <why> @ <ts>
 Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
+Note TASK-NNN: developer seat inline @ <ts>
 ```
+
+In an inline wave (`Execution: wave <w> inline` in the plan) the controller fills the developer seat and keeps the `developer dispatched` … `developer done` pair, with the inline note right after the dispatched line.
 
 A new `test hashes` line follows every test-writer change; the latest one is the baseline.
 

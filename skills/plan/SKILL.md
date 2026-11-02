@@ -90,6 +90,7 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 ### implementation-plan
 - Scope: now / supporting / future / not-in-scope
 - `TASK-###` breakdown (fill **Files** for every task; Dependencies are `TASK-###` tokens or `-`), complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
+- **Execution mode per wave**: read `kf tasks <f> --graph` once the breakdown is written and record one line per wave — `Execution: wave <w> inline` for a wave of one task, otherwise `Execution: wave <w> parallel, <N> developers` with N = min(wave width, 4). An inline wave spawns no developer: the controller fills the seat (`kf:implement` § Inline waves). Narrow Files allowlists widen waves; a plan that is inline end to end says so.
 - **Files** is the task's allowlist and must name everything the task will touch — registering a flag in `args.ts` counts. A task that touches a file outside its Files makes `kf verify --task` exit 2: `kf stage <f> planning`, edit Files, the human approves, `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`. When unsure, prefer directories or globs.
 - Read the spec's `## Affected surfaces` first: every declared surface gets a task row or a `## Documentation Impact` entry — `kf validate` warns on any surface the plan never mentions. `N/A` means none owed.
 - **Global Constraints**: the spec's project-wide requirements that bind every task (version floors, dependency limits, naming and copy rules, exact values), one line each, verbatim — the task reviewer in `kf:implement` receives this section word for word. `None` when the spec states none.
@@ -130,6 +131,7 @@ Before approval, `approval_required` is expected; `approval_changed` is expected
 
 - what the feature does (2-3 lines)
 - implementation plan headlines (tasks, approach, risks), with the output of `kf tasks <feature> --graph` (critical path and max width) as a block
+- the approval summary lists the plan's `Execution:` lines, one per wave, so the human sees which waves run inline
 - each choice between approaches or libraries, or external dependency or API version, with its sources (the research reports)
 - test strategy + coverage target *(as agreed in the spec's Test Strategy: unit / unit+integration / full + UI scope)*
 - Definition of Done
