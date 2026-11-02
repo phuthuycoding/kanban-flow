@@ -231,7 +231,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   worktree: {
-    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
+    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation; set \"worktree.domains\": false to skip the .test domain infrastructure and use http://127.0.0.1:<port>); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
