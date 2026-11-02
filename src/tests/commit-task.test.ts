@@ -4,8 +4,9 @@ import { mkdtemp, mkdir, writeFile, rm, access, copyFile, chmod, readFile, unlin
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathAllowed } from "../workflow/allowlist.js";
+import { copyName } from "../integrations/managed.js";
 
-const SCRIPT = resolve(__dirname, "../../skills/kanban-implement/scripts/commit-task.mjs");
+const SCRIPT = resolve(__dirname, "../../skills/implement/scripts/commit-task.mjs");
 
 let repo: string;
 
@@ -107,7 +108,7 @@ describe("commit-task.mjs", () => {
   it("works from a copied skill install with no dist above it", async () => {
     const install = await mkdtemp(join(tmpdir(), "kf-skill-copy-"));
     try {
-      const dir = join(install, ".claude", "skills", "kanban-implement", "scripts");
+      const dir = join(install, ".claude", "skills", copyName("implement"), "scripts");
       await mkdir(dir, { recursive: true });
       const copy = join(dir, "commit-task.mjs");
       await copyFile(SCRIPT, copy);

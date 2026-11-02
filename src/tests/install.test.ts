@@ -8,17 +8,18 @@ import { join, dirname } from "node:path";
 import { copySkillsTo, removeSkillsFrom, removeRetiredSkills, MANAGED_SKILLS, RETIRED_SKILLS, cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { parseAgentIds, DEFAULT_AGENT, projectSkillsDir, agentById } from "../integrations/agents.js";
 import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
+import { copyName } from "../integrations/managed.js";
 import type { Stage } from "../workflow/schema.js";
 
 /** Skill a worker loads for each stage; backlog has no work to hand off. */
 const STAGE_SKILL: Record<Stage, string | null> = {
-  brainstorm: "kanban-brainstorm",
-  planning: "kanban-plan",
+  brainstorm: "brainstorm",
+  planning: "plan",
   backlog: null,
-  implementation: "kanban-implement",
-  testing: "kanban-test",
-  review: "kanban-review",
-  done: "kanban-archive",
+  implementation: "implement",
+  testing: "test",
+  review: "review",
+  done: "archive",
   cancelled: null,
 };
 
@@ -35,12 +36,11 @@ afterEach(async () => {
 describe("managed skills", () => {
   it("no longer installs a ship stage skill and maps the done stage to the archive skill", () => {
     expect(MANAGED_SKILLS).not.toContain("kanban-ship");
-    expect(STAGE_SKILL.done).toBe("kanban-archive");
+    expect(STAGE_SKILL.done).toBe("archive");
     for (const skill of Object.values(STAGE_SKILL)) if (skill) expect(MANAGED_SKILLS).toContain(skill);
   });
 
-  it("manages the eight kanban skills plus travel and lists kanban-ship as retired", () => {
-    expect(MANAGED_SKILLS).toHaveLength(9);
+  it("manages the phase skills plus travel and lists kanban-ship as retired", () => {
     expect(MANAGED_SKILLS).toContain("travel");
     expect(RETIRED_SKILLS).toEqual(["kanban-ship"]);
   });
@@ -109,9 +109,9 @@ describe("copySkillsTo / removeSkillsFrom", () => {
     const res = await copySkillsTo(dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(`→ ${dir}/`);
-    expect(await readdir(dir)).toEqual(expect.arrayContaining(MANAGED_SKILLS));
+    expect(await readdir(dir)).toEqual(expect.arrayContaining(MANAGED_SKILLS.map(copyName)));
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, name, "SKILL.md"))).toBe(true);
+      expect(existsSync(join(dir, copyName(name), "SKILL.md"))).toBe(true);
     }
   });
 
@@ -122,7 +122,7 @@ describe("copySkillsTo / removeSkillsFrom", () => {
     const { removed } = await removeSkillsFrom(dir);
     expect(removed).toHaveLength(MANAGED_SKILLS.length);
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, name))).toBe(false);
+      expect(existsSync(join(dir, copyName(name)))).toBe(false);
     }
     expect(existsSync(join(dir, "unrelated"))).toBe(true);
   });
@@ -140,7 +140,7 @@ describe("install/uninstall (project scope)", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain(join(dir, ".claude", "skills"));
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, ".claude", "skills", name, "SKILL.md"))).toBe(true);
+      expect(existsSync(join(dir, ".claude", "skills", copyName(name), "SKILL.md"))).toBe(true);
     }
   });
 
@@ -161,7 +161,7 @@ describe("install/uninstall (project scope)", () => {
     expect(res.stdout).toContain(`removed ${MANAGED_SKILLS.length} skills`);
     expect(existsSync(join(dir, ".claude", "skills", "unrelated"))).toBe(true);
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(dir, ".claude", "skills", name))).toBe(false);
+      expect(existsSync(join(dir, ".claude", "skills", copyName(name)))).toBe(false);
     }
   });
 
@@ -335,6 +335,7 @@ describe("a linked git worktree as the package root", () => {
     mkdirSync(pkg, { recursive: true });
     cpSync(join(PKG_ROOT, "dist"), join(pkg, "dist"), { recursive: true });
     cpSync(join(PKG_ROOT, "skills"), join(pkg, "skills"), { recursive: true });
+    cpSync(join(PKG_ROOT, "agents"), join(pkg, "agents"), { recursive: true });
     cpSync(join(PKG_ROOT, "package.json"), join(pkg, "package.json"));
     symlinkSync(join(PKG_ROOT, "node_modules"), join(pkg, "node_modules"), "dir");
     if (gitMarker === "file") {

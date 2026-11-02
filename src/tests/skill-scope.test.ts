@@ -17,6 +17,7 @@ import {
   MANAGED_SKILLS,
 } from "../integrations/install.js";
 import { agentById, userSkillsDir } from "../integrations/agents.js";
+import { copyName } from "../integrations/managed.js";
 import { readProjectConfig, effectiveSkillsScope } from "../project/config.js";
 import { askAll, bootstrapDefaults, saveConfig } from "../project/bootstrap.js";
 import { cmdInit } from "../cli/commands/init.js";
@@ -112,7 +113,7 @@ describe("link-or-copy install (FR-001)", () => {
     expect(res.code).toBe(0);
     expect(res.mode).toBe("link");
     for (const name of MANAGED_SKILLS) {
-      const entry = join(homeSkills(), name);
+      const entry = join(homeSkills(), copyName(name));
       expect(lstatSync(entry).isSymbolicLink(), name).toBe(true);
       expect(existsSync(join(entry, "SKILL.md")), `${name} resolves`).toBe(true);
     }
@@ -139,8 +140,8 @@ describe("install global cleans project copies (UC-003)", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("(global)");
     for (const name of MANAGED_SKILLS) {
-      expect(lstatSync(join(homeSkills(), name)).isSymbolicLink(), name).toBe(true);
-      expect(existsSync(join(projectSkills(), name)), `${name} cleaned`).toBe(false);
+      expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
+      expect(existsSync(join(projectSkills(), copyName(name))), `${name} cleaned`).toBe(false);
     }
     expect(existsSync(join(projectSkills(), "unrelated"))).toBe(true);
     expect(res.stdout).toContain("Cleaned project copies");
@@ -157,7 +158,7 @@ describe("install global cleans project copies (UC-003)", () => {
     const res = await cmdInstall([], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
-      expect(existsSync(join(projectSkills(), name, "SKILL.md")), `${name} kept`).toBe(true);
+      expect(existsSync(join(projectSkills(), copyName(name), "SKILL.md")), `${name} kept`).toBe(true);
     }
     expect(res.stdout).toContain('both scopes may now hold skills');
   });
@@ -185,9 +186,9 @@ describe("install project leaves global untouched (UC-004)", () => {
     const res = await cmdInstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
-      const entry = join(projectSkills(), name);
+      const entry = join(projectSkills(), copyName(name));
       expect(lstatSync(entry).isDirectory() && !lstatSync(entry).isSymbolicLink(), name).toBe(true);
-      expect(lstatSync(join(homeSkills(), name)).isSymbolicLink(), `~ ${name}`).toBe(true);
+      expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), `~ ${name}`).toBe(true);
     }
   });
 
@@ -251,7 +252,7 @@ describe("init at effective scope (FR-005)", () => {
     const res = await cmdInit(args("init", [], { defaults: true }), dir);
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
-      expect(lstatSync(join(homeSkills(), name)).isSymbolicLink(), name).toBe(true);
+      expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
     }
     expect(existsSync(join(dir, ".claude"))).toBe(false);
     expect(readProjectConfig(dir).skills?.scope).toBe("global");
@@ -323,7 +324,7 @@ describe("status reporting (UC-006)", () => {
       JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"], skills: { scope: "project" } }),
     );
     await copySkillsTo(projectSkills());
-    await writeFile(join(projectSkills(), "kanban-plan", "SKILL.md"), "tampered", "utf8");
+    await writeFile(join(projectSkills(), copyName("plan"), "SKILL.md"), "tampered", "utf8");
 
     expect(agentSkillsState(projectSkills())).toBe("stale");
     const res = await cmdAutoconfig(args("autoconfig"), dir);
@@ -331,27 +332,27 @@ describe("status reporting (UC-006)", () => {
 
     await cmdInstall([], { cwd: dir });
     expect(agentSkillsState(projectSkills())).toBe("copied");
-    expect(readFileSync(join(projectSkills(), "kanban-plan", "SKILL.md"), "utf8")).toContain("kanban-plan");
+    expect(readFileSync(join(projectSkills(), copyName("plan"), "SKILL.md"), "utf8")).toContain("name: plan");
   });
 
   it("reports a dangling link as broken and doctor --fix recreates it (TC-018)", async () => {
     await project();
     await mkdir(homeSkills(), { recursive: true });
     for (const name of MANAGED_SKILLS) {
-      if (name === "kanban-flow") {
-        await symlink(join(dir, "gone-target"), join(homeSkills(), name));
+      if (name === "flow") {
+        await symlink(join(dir, "gone-target"), join(homeSkills(), copyName(name)));
       } else {
-        await symlink(join(PKG_SKILLS, name), join(homeSkills(), name));
+        await symlink(join(PKG_SKILLS, name), join(homeSkills(), copyName(name)));
       }
     }
-    expect(skillEntryState(homeSkills(), "kanban-flow")).toBe("broken-link");
+    expect(skillEntryState(homeSkills(), "flow")).toBe("broken-link");
     expect(agentSkillsState(homeSkills())).toBe("broken-link");
 
     const finding = runDoctor(dir).findings.find((f) => f.area.includes("skills"));
     expect(finding?.message).toContain("broken-link");
 
     expect((await runDoctorFixes(dir)).failures).toEqual([]);
-    expect(skillEntryState(homeSkills(), "kanban-flow")).toBe("linked");
+    expect(skillEntryState(homeSkills(), "flow")).toBe("linked");
     expect(runDoctor(dir).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });
 

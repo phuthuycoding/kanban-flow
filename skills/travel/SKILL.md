@@ -7,9 +7,9 @@ description: 'Run the day as the controller of kanban-flow items: a morning plan
 
 Argument: optional `slots=N` (default 3).
 
-Travel runs the **day**, and after approval it is the controller: this session runs each item's phase skills itself (implementation, testing, review, each with its seats), the way one `kanban-flow` session would. It keeps up to `slots=N` items started. One started item = one slot = its own worktree. It dispatches an item's seats (test-writer, developer, code-reviewer) in the background and advances another item while they run, so the slots overlap. `slots=1` behaves like one kanban-flow session: one item at a time, its phases in order. Travel writes no product code and edits no work item artifact.
+Travel runs the **day**, and after approval it is the controller: this session runs each item's phase skills itself (implementation, testing, review, each with its seats), the way one `kf:flow` session would. It keeps up to `slots=N` items started. One started item = one slot = its own worktree. It dispatches an item's seats (test-writer, developer, code-reviewer) in the background and advances another item while they run, so the slots overlap. `slots=1` behaves like one kanban-flow session: one item at a time, its phases in order. Travel writes no product code and edits no work item artifact.
 
-**Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main. It may run the forward `kf stage` moves (implementation to testing to review) and the item branch push and `gh pr create` that kanban-test and kanban-review prescribe, inside the item worktree. A backward, planning or backlog `kf stage` move is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
+**Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main. It may run the forward `kf stage` moves (implementation to testing to review) and the item branch push and `gh pr create` that kf:test and kf:review prescribe, inside the item worktree. A backward, planning or backlog `kf stage` move is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
 
 State lives in two files under `.kf/travel/`, which is gitignored: `kf init` adds the `.gitignore` entry, and `kf doctor --fix` adds it to an upgraded project:
 
@@ -18,7 +18,7 @@ State lives in two files under `.kf/travel/`, which is gitignored: `kf init` add
 | `.kf/travel/progress.md` | the ledger: one `## YYYY-MM-DD` section per day | [references/ledger-format.md](references/ledger-format.md) |
 | `.kf/travel/estimates.md` | one measured row per `done` line | [references/estimation.md](references/estimation.md) |
 
-The helper is `node <this skill dir>/scripts/estimates` (`size`, `measure`, `stats`, `overlap`); it reads only its arguments and `estimates.md`. Below, `estimates` means that command.
+The helper is `node ${CLAUDE_PLUGIN_ROOT}/skills/travel/scripts/estimates` (`size`, `measure`, `stats`, `overlap`); it reads only its arguments and `estimates.md`. Below, `estimates` means that command.
 
 ---
 
@@ -69,13 +69,13 @@ Each **tick**:
 
 1. **Collect** the seats that reported since the last tick (background notifications). For each, read the item's `loop/progress.md` and act as the item's phase skill says: the next task, the `kf verify` gate, the review, the fix loop. Advance every item whose seat reported; add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`, on its `.kf/travel/progress.md` line, except an implementation-phase seat when the item's ledger has timestamped seat lines, whose minutes `measure` takes from `kf loop-stats` (§6); dispatch the next seat of each in the background, then move on to another item while it runs. Never wait on one item's seat while another item has work to do.
 2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done`, then measure (§6).
-3. **Refill**: while started items < `slots=N`, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once. Start an item by creating or entering its worktree (`kf status --change <f> --json` → `worktree.path`) and running the phase skill for its current stage, exactly as a `kanban-flow` session would; the line becomes `driving`.
+3. **Refill**: while started items < `slots=N`, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once. Start an item by creating or entering its worktree (`kf status --change <f> --json` → `worktree.path`) and running the phase skill for its current stage, exactly as a `kf:flow` session would; the line becomes `driving`.
 4. **Print the progress block** (below) — every tick, even when every slot is full.
 5. **Wait** for the next seat to report (the runtime's wait/monitor tool; a background `sleep` of 2–5 minutes when nothing is due), then tick again.
 
 **End of day** when the human says stop, or nothing is `driving` and nothing `queued` is dispatchable: §6.
 
-**Resume after compaction.** Read `.kf/travel/progress.md` first (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read as kanban-implement's resume rule reads them. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
+**Resume after compaction.** Read `.kf/travel/progress.md` first (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read as kf:implement's resume rule reads them. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
 
 ### Line states
 
@@ -124,14 +124,14 @@ Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `don
 
 ## 5. Ownership
 
-A ledger line `driving` or `blocked` means travel owns that item's phases: `kanban-flow` and `kanban-implement` sessions do not start a second run on it. When the human opens a `blocked` item in another session, that session owns the fix until the human says it is done; travel then re-queues the line. A second travel session that finds a line `driving` lists it under Running and starts nothing for it.
+A ledger line `driving` or `blocked` means travel owns that item's phases: `kf:flow` and `kf:implement` sessions do not start a second run on it. When the human opens a `blocked` item in another session, that session owns the fix until the human says it is done; travel then re-queues the line. A second travel session that finds a line `driving` lists it under Running and starts nothing for it.
 
 ## 6. Measure and end of day
 
 **On `done`:** append the row ([references/estimation.md](references/estimation.md) says where each value comes from):
 
 ```bash
-node <skill dir>/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <est0> --estmin <n> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
+node ${CLAUDE_PLUGIN_ROOT}/skills/travel/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <est0> --estmin <n> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
 ```
 
 `--est` is the line's `est0`, not today's re-size, so est and actual both cover the whole item.

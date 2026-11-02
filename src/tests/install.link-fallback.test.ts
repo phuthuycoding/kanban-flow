@@ -16,6 +16,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import { linkOrCopySkillsTo, MANAGED_SKILLS } from "../integrations/install.js";
+import { copyName } from "../integrations/managed.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -27,7 +28,7 @@ describe("global install when symlink() is denied (TC-002)", () => {
       expect(res.code).toBe(0);
       expect(res.mode).toBe("copy");
       for (const name of MANAGED_SKILLS) {
-        const entry = join(dir, name);
+        const entry = join(dir, copyName(name));
         expect(lstatSync(entry).isDirectory(), name).toBe(true);
         expect(lstatSync(entry).isSymbolicLink(), `${name} is not a link`).toBe(false);
         expect(existsSync(join(entry, "SKILL.md"))).toBe(true);

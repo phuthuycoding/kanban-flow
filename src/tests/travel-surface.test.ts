@@ -146,7 +146,7 @@ describe("the travel skill", () => {
 
   it("states the ownership rule, and the phase skills honour it", () => {
     expect(skill).toMatch(/`driving` or `blocked` means travel owns/);
-    for (const other of ["kanban-flow", "kanban-implement"]) {
+    for (const other of ["flow", "implement"]) {
       const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
       expect(text, other).toMatch(/`driving` or `blocked`/);
       expect(text, other).toContain(".kf/travel/progress.md");
@@ -154,7 +154,7 @@ describe("the travel skill", () => {
   });
 
   it("names the owner as a session other than the travel session that wrote the line", () => {
-    for (const other of ["kanban-flow", "kanban-implement"]) {
+    for (const other of ["flow", "implement"]) {
       const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
       expect(text, other).toContain("a session other than the travel session that wrote the line");
     }

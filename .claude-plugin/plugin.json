@@ -1,0 +1,9 @@
+{
+  "name": "kf",
+  "version": "0.14.0",
+  "description": "Artifact-gated kanban workflow for AI agents: brainstorm, plan, implement, test, review and archive, each gated by the kf CLI",
+  "author": {
+    "name": "phuthuycoding"
+  },
+  "license": "MIT"
+}

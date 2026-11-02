@@ -58,8 +58,8 @@ describe("templates and docs teach the contract (UC-002, TC-005/006)", () => {
 
   it("skills, workflow docs and changelog all mention the contract (TC-006)", async () => {
     for (const rel of [
-      "skills/kanban-brainstorm/SKILL.md",
-      "skills/kanban-plan/SKILL.md",
+      "skills/brainstorm/SKILL.md",
+      "skills/plan/SKILL.md",
       "docs/workflow/gates.md",
       "docs/workflow/cli-reference.md",
       "CHANGELOG.md",

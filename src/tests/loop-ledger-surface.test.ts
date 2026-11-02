@@ -6,8 +6,8 @@ import { PKG_ROOT } from "../shared/paths.js";
 import { parseLedger, TS_SUFFIX } from "../workflow/loop-stats.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = () => read("skills", "kanban-implement", "SKILL.md");
-const taskLoop = () => read("skills", "kanban-implement", "references", "task-loop.md");
+const implement = () => read("skills", "implement", "SKILL.md");
+const taskLoop = () => read("skills", "implement", "references", "task-loop.md");
 const travel = () => read("skills", "travel", "SKILL.md");
 const estimation = () => read("skills", "travel", "references", "estimation.md");
 

@@ -22,8 +22,8 @@ afterEach(async () => {
 });
 
 describe("the packaged agent definitions", () => {
-  it("live inside the kanban-flow skill and declare the same name in their frontmatter", async () => {
-    expect(PKG_AGENTS_DIR).toBe(join(PKG_ROOT, "skills", "kanban-flow", "agents"));
+  it("live at the plugin root and declare the same name in their frontmatter", async () => {
+    expect(PKG_AGENTS_DIR).toBe(join(PKG_ROOT, "agents"));
     for (const name of MANAGED_AGENTS) {
       const file = join(PKG_AGENTS_DIR, `${name}.md`);
       expect(existsSync(file), file).toBe(true);
@@ -33,10 +33,10 @@ describe("the packaged agent definitions", () => {
     }
   });
 
-  it("ship with the skills, so the tarball needs no separate agents entry", async () => {
+  it("ship in the tarball beside the skills", async () => {
     const pkg = JSON.parse(await readFile(join(PKG_ROOT, "package.json"), "utf8"));
     expect(pkg.files).toContain("skills");
-    expect(pkg.files).not.toContain("agents");
+    expect(pkg.files).toContain("agents");
   });
 });
 
@@ -115,6 +115,10 @@ describe("installAgentsTo / removeAgentsFrom", () => {
     await mkdir(elsewhere, { recursive: true });
     await writeFile(join(elsewhere, "scout.md"), "older packaged scout");
     await symlink(join(elsewhere, "scout.md"), join(target, "scout.md"), "file");
+    const plugin = join(dir, "other-node", "lib", "node_modules", "@phuthuycoding", "kanban-flow", "agents");
+    await mkdir(plugin, { recursive: true });
+    await writeFile(join(plugin, "developer.md"), "packaged developer of another install");
+    await symlink(join(plugin, "developer.md"), join(target, "developer.md"), "file");
     await symlink(join(dir, "gone", "code-reviewer.md"), join(target, "code-reviewer.md"), "file");
     await symlink(join(dir, "mine", "spec-reviewer.md"), join(target, "spec-reviewer.md"), "file");
     await mkdir(join(dir, "mine"), { recursive: true });
@@ -125,6 +129,7 @@ describe("installAgentsTo / removeAgentsFrom", () => {
     expect(res.code).toBe(0);
     expect(await readlink(join(target, "scout.md"))).toBe(join(PKG_AGENTS_DIR, "scout.md"));
     expect(await readlink(join(target, "code-reviewer.md"))).toBe(join(PKG_AGENTS_DIR, "code-reviewer.md"));
+    expect(await readlink(join(target, "developer.md"))).toBe(join(PKG_AGENTS_DIR, "developer.md"));
     expect(await readlink(join(target, "spec-reviewer.md"))).toBe(join(dir, "mine", "spec-reviewer.md"));
     expect(res.stdout).toContain("left untouched");
     expect(res.stdout).toContain("spec-reviewer.md");
@@ -175,14 +180,14 @@ describe("kf install / uninstall carry the agents", () => {
     expect(await readFile(join(dir, ".claude", "agents", "scout.md"), "utf8")).toBe(FOREIGN);
   });
 
-  it("uninstall removes all six agents when none is foreign", async () => {
+  it("uninstall removes every managed agent when none is foreign", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     await cmdInstall([], { cwd: dir, scope: "project" });
 
     const res = await cmdUninstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("removed 6 agents");
-    for (const name of ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
+    expect(res.stdout).toContain(`removed ${MANAGED_AGENTS.length} agents`);
+    for (const name of MANAGED_AGENTS) {
       expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(false);
     }
   });
@@ -194,9 +199,9 @@ describe("kf install / uninstall carry the agents", () => {
 
     const res = await cmdUninstall([], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("removed 5 agents");
+    expect(res.stdout).toContain(`removed ${MANAGED_AGENTS.length - 1} agents`);
     expect(res.stdout).toContain("kept scout.md");
-    for (const name of ["code-reviewer", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
+    for (const name of MANAGED_AGENTS.filter((n) => n !== "scout")) {
       expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(false);
     }
     expect(existsSync(join(dir, ".claude", "agents", "mine.md"))).toBe(true);
@@ -205,11 +210,11 @@ describe("kf install / uninstall carry the agents", () => {
 });
 
 describe("kf install / uninstall help", () => {
-  it("names the six agents", () => {
+  it("names every managed agent", () => {
     for (const command of ["install", "uninstall"]) {
       const help = commandHelp(command);
-      expect(help).toContain("6 kanban agents");
-      for (const name of ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
+      expect(help).toContain(`${MANAGED_AGENTS.length} kanban agents`);
+      for (const name of MANAGED_AGENTS) {
         expect(help).toContain(name);
       }
     }

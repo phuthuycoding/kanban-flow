@@ -293,7 +293,7 @@ describe("the step after approval names the implement skill", () => {
     expect(res.code, res.out).toBe(0);
     const next = res.out.split("\n").find((l) => l.startsWith("Next:"));
     expect(next, res.out).toBeDefined();
-    expect(next).toContain("kanban-implement");
+    expect(next).toContain("kf:implement");
     expect(next).not.toContain("kf drive");
     expect(res.out).not.toMatch(REMOVED_COMMAND);
   });
@@ -304,7 +304,7 @@ describe("the step after approval names the implement skill", () => {
 
     const status = kf(root, "status", "--change", "f");
     expect(status.code, status.out).toBe(0);
-    expect(status.out).toContain("kanban-implement");
+    expect(status.out).toContain("kf:implement");
     expect(status.out).not.toMatch(REMOVED_COMMAND);
 
     for (const argv of [["status"], ["status", "--all"], ["validate", "--change", "f"]]) {

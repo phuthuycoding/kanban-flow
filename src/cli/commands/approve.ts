@@ -61,7 +61,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
     };
   }
 
-  const next = to === "backlog" ? `kf stage ${name} implementation` : `load the kanban-implement skill for '${name}'`;
+  const next = to === "backlog" ? `kf stage ${name} implementation` : `load the kf:implement skill for '${name}'`;
   return {
     code: 0,
     stdout: `✓ Approved '${name}' (by ${by} at ${approval.at}) → ${to}\n  Execution contract is now the binding scope for autonomous phases.\n${outcome.stdout}\nNext: ${next}`,

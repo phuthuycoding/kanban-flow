@@ -13,11 +13,13 @@ vi.mock("../shared/paths.js", async (importOriginal) => {
   const path = await import("node:path");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kfw-pkg-"));
   fs.cpSync(path.join(original.PKG_ROOT, "skills"), path.join(root, "skills"), { recursive: true });
+  fs.cpSync(path.join(original.PKG_ROOT, "agents"), path.join(root, "agents"), { recursive: true });
   return { ...original, PKG_ROOT: root };
 });
 
 import { PKG_ROOT } from "../shared/paths.js";
 import { copySkillsTo, linkOrCopySkillsTo, removeSkillsFrom, removeRetiredSkills, cmdInstall, cmdUninstall, MANAGED_SKILLS } from "../integrations/install.js";
+import { copyName } from "../integrations/managed.js";
 
 const PKG_TRAVEL = join(PKG_ROOT, "skills", "travel");
 let dir: string;
@@ -47,7 +49,7 @@ describe("a user's own travel skill", () => {
     expect(res.stdout).toContain("left untouched");
     expect(res.stdout).toContain("travel");
     expect(await readFile(join(travel, "SKILL.md"), "utf8")).toContain("my trip planner");
-    for (const name of MANAGED_SKILLS.filter((n) => n !== "travel")) expect(existsSync(join(dir, name, "SKILL.md"))).toBe(true);
+    for (const name of MANAGED_SKILLS.filter((n) => n !== "travel")) expect(existsSync(join(dir, copyName(name), "SKILL.md"))).toBe(true);
   });
 
   it("is left untouched by a global link install", async () => {

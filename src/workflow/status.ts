@@ -233,7 +233,7 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`Next: kf stage "${s.feature.name}" implementation`);
   } else if (s.feature.stage === "implementation") {
     lines.push("");
-    lines.push(`Next: load the kanban-implement skill for "${s.feature.name}"`);
+    lines.push(`Next: load the kf:implement skill for "${s.feature.name}"`);
   }
   return lines.join("\n");
 }

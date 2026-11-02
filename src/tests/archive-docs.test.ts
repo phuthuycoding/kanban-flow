@@ -174,11 +174,11 @@ describe("closure guidance and repository docs", () => {
       return statSync(path).isDirectory() ? walk(path) : [path];
     });
 
-  it("kanban-archive carries the reconcile step and the post-merge docs commit", () => {
-    const skill = readFileSync(join(repo, "skills", "kanban-archive", "SKILL.md"), "utf8");
+  it("the archive skill carries the reconcile step and the post-merge docs commit", () => {
+    const skill = readFileSync(join(repo, "skills", "archive", "SKILL.md"), "utf8");
     expect(skill).toContain("Reconcile superseded docs");
     expect(skill).toContain("](reconcile.md)");
-    expect(existsSync(join(repo, "skills", "kanban-archive", "reconcile.md"))).toBe(true);
+    expect(existsSync(join(repo, "skills", "archive", "reconcile.md"))).toBe(true);
     expect(skill).toContain("docs({context}): sync canonical docs for {feature_name}");
   });
 

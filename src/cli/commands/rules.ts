@@ -76,6 +76,6 @@ export async function cmdRules(args: ParsedArgs, cwd: string): Promise<CmdResult
     lines.push(`✓ ${stack}: installed → ${dest}`);
   }
   lines.push("");
-  lines.push("kanban-review loads these rules automatically (project → user → package).");
+  lines.push("kf:review loads these rules automatically (project → user → package).");
   return { code: 0, stdout: lines.join("\n") };
 }
