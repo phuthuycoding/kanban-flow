@@ -13,6 +13,7 @@ import type { ParsedArgs } from "../cli/args.js";
 
 let dir: string;
 const pluginList = (entries: unknown[]): ClaudeRun => async () => ({ code: 0, stdout: JSON.stringify(entries), stderr: "" });
+const emptyPlugins = pluginList([]);
 const parsed = { command: "autoconfig", options: {}, positionals: [] } as unknown as ParsedArgs;
 
 beforeEach(async () => {
@@ -26,7 +27,7 @@ afterEach(async () => {
 describe("cmdAutoconfig", () => {
   it("prints context, checklist, rules and workflow guide for an unconfigured project", async () => {
     await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
-    const res = await cmdAutoconfig(parsed, dir);
+    const res = await cmdAutoconfig(parsed, dir, emptyPlugins);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("# kanban-flow agent setup briefing");
     expect(res.stdout).toContain("## Project context");
@@ -48,7 +49,7 @@ describe("cmdAutoconfig", () => {
     }
     await mkdir(join(dir, ".works"), { recursive: true });
 
-    const res = await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, installPath: PKG_ROOT }]));
+    const res = await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, readFromFolder: PKG_ROOT }]));
     expect(res.stdout).toContain("[x] Project config");
     expect(res.stdout).toContain("[x] kf plugin (kf@kanban-flow, Claude Code) — installed, enabled (scope: user)");
     expect(res.stdout).toContain("- Skills installed (scope: global): [claude]");
@@ -66,8 +67,11 @@ describe("cmdAutoconfig", () => {
     expect(missing).toContain("- Skills installed (scope: global): [none]");
     const disabled = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: false }]))).stdout;
     expect(disabled).toContain("[ ] kf plugin (kf@kanban-flow, Claude Code) — installed but disabled (scope: user)");
-    const stale = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, installPath: "/elsewhere" }]))).stdout;
+    const stale = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, readFromFolder: "/elsewhere" }]))).stdout;
     expect(stale).toContain("[ ] kf plugin (kf@kanban-flow, Claude Code) — installed (scope: user) but reading /elsewhere, not this package");
+    const unknown = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, installPath: PKG_ROOT }]))).stdout;
+    expect(unknown).toContain("[ ] kf plugin");
+    expect(unknown).not.toContain("[x] kf plugin");
   });
 
   it("prints the probe failure instead of swallowing it", async () => {
@@ -104,7 +108,7 @@ describe("cmdAutoconfig", () => {
 
   it("prints a workflow guide whose commands the CLI parser accepts", async () => {
     await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
-    const guide = (await cmdAutoconfig(parsed, dir)).stdout.split("## Workflow guide")[1];
+    const guide = (await cmdAutoconfig(parsed, dir, emptyPlugins)).stdout.split("## Workflow guide")[1];
     const usages = guide.split("\n").map((l) => l.trim()).filter((l) => /^kf [a-z]/.test(l));
     expect(usages.length).toBe(AGENT_COMMANDS.length);
     for (const usage of usages) {
@@ -121,10 +125,10 @@ describe("cmdAutoconfig", () => {
     await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
     await mkdir(join(dir, ".kf"), { recursive: true });
     await writeFile(join(dir, ".kf", "config.json"), '{"schema":"kanban-flow","created":"x","stacks":["go"]}', "utf8");
-    const configured = (await cmdAutoconfig(parsed, dir)).stdout;
+    const configured = (await cmdAutoconfig(parsed, dir, emptyPlugins)).stdout;
     expect(configured).toContain("Configured stacks: go");
     expect(configured).not.toContain("stacks: node");
     await writeFile(join(dir, ".kf", "config.json"), '{"schema":"kanban-flow","created":"x"}', "utf8");
-    expect((await cmdAutoconfig(parsed, dir)).stdout).toContain("Detected stacks: node");
+    expect((await cmdAutoconfig(parsed, dir, emptyPlugins)).stdout).toContain("Detected stacks: node");
   });
 });

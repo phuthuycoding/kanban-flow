@@ -187,7 +187,7 @@ describe("the seeded AGENTS.md and the autoconfig briefing", () => {
   it("the autoconfig briefing names /kf:flow and the plugin, with no stale counts", async () => {
     dir = await mkdtemp(join(tmpdir(), "kfw-docs-auto-"));
     const parsed = { command: "autoconfig", options: {}, positionals: [] } as unknown as ParsedArgs;
-    const res = await cmdAutoconfig(parsed, dir);
+    const res = await cmdAutoconfig(parsed, dir, async () => ({ code: 0, stdout: "[]", stderr: "" }));
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("/kf:flow");
     expect(res.stdout).toMatch(/plugin/i);
