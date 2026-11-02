@@ -171,7 +171,7 @@ export async function checkPlugin(root: string): Promise<DoctorFinding[]> {
         action,
       }];
     case "unknown":
-      return [{ level: "WARNING", area: PLUGIN_AREA, message: `kf plugin source unknown — claude does not report the folder plugin ${PLUGIN_ID} reads from, so kf cannot tell whether it matches ${PKG_ROOT}` }];
+      return [{ level: "WARNING", area: PLUGIN_AREA, message: `kf plugin source unknown — claude does not report the folder plugin ${PLUGIN_ID} reads from, so kf cannot tell whether it matches ${PKG_ROOT}`, action: `check claude plugin list --json; if kf does not load from ${PKG_ROOT}, run claude plugin marketplace add ${PKG_ROOT}` }];
   }
 }
 
@@ -180,7 +180,8 @@ async function repairPlugin(root: string, scope: SkillScope, fixed: string[], fa
   // The marketplace would record this package root, which dangles once a linked worktree is removed.
   const refusal = scope === "global" ? globalLinkRefusal() : null;
   if (refusal) {
-    if ((await checkPlugin(root)).length > 0) failures.push({ level: "ERROR", area: PLUGIN_AREA, message: refusal, action: "run kf doctor --fix from the primary checkout's kf" });
+    // A WARNING (an unknown source) is nothing ensurePlugin would change, so it is no refused repair.
+    if ((await checkPlugin(root)).some((f) => f.level === "ERROR")) failures.push({ level: "ERROR", area: PLUGIN_AREA, message: refusal, action: "run kf doctor --fix from the primary checkout's kf" });
     return;
   }
   const res = await ensurePlugin(scope, claudeRunner(root));

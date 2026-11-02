@@ -8,7 +8,7 @@ import { ensurePlugin, removePlugin, pluginState, claudeRunner } from "../integr
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
-import { PKG_ROOT } from "../shared/paths.js";
+import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 type Result = { code: number; stdout: string; stderr: string };
@@ -406,6 +406,28 @@ describe("a plugin whose source folder claude does not report", () => {
     expect(line).toBeDefined();
     expect(line).toContain("[WARNING]");
     expect(lines.some((l) => /plugin/i.test(l) && /stale/i.test(l))).toBe(false);
+  });
+
+  it("kf doctor tells how to check and, if needed, re-point the plugin at this package", async () => {
+    const res = await cmdDoctor(cmd("doctor"), root);
+    const lines = res.stdout.split("\n");
+    const at = lines.findIndex((l) => l.includes("kf plugin source unknown"));
+    expect(at).toBeGreaterThanOrEqual(0);
+    const action = lines[at + 1] ?? "";
+    expect(action).toContain(`check claude plugin list --json; if kf does not load from ${PKG_ROOT}, run claude plugin marketplace add ${PKG_ROOT}`);
+  });
+
+  it.skipIf(!isLinkedWorktree(PKG_ROOT))("kf doctor --fix from a linked worktree adds no refusal for an unknown source", async () => {
+    const optOut = process.env.KF_ALLOW_WORKTREE_LINK;
+    delete process.env.KF_ALLOW_WORKTREE_LINK;
+    try {
+      const res = await cmdDoctor(cmd("doctor", { fix: true }), root);
+      const errors = res.stdout.split("\n").filter((l) => /^\s+\[ERROR\]/.test(l));
+      expect(errors.filter((l) => /linked git worktree|primary checkout/.test(l))).toEqual([]);
+    } finally {
+      if (optOut === undefined) delete process.env.KF_ALLOW_WORKTREE_LINK;
+      else process.env.KF_ALLOW_WORKTREE_LINK = optOut;
+    }
   });
 
   it("kf doctor --fix does not run marketplace add for it", async () => {
