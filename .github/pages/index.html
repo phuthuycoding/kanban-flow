@@ -155,9 +155,17 @@
         <div>
           <p>Once you approve the plan, which starts the item, the session you work in runs the
              rest. It dispatches a <strong>test-writer</strong>, a <strong>developer</strong> and a
-             <strong>code-reviewer</strong> per task, running up to 4 developers at once in one
+             <strong>code-reviewer</strong> per task, running a live developer cap of developers at once in one
              worktree on tasks whose files overlap no open task, and the plan's task table names a
              <strong>file allowlist</strong> for every task. Approval seals it.</p>
+          <p class="quiet" style="margin-top:14px">The live developer cap starts at min(2, ceiling),
+             steps up by one after each clean parallel wave and halves (never below 1) on a
+             contention-shaped verify failure; the ceiling is <code>harness.developers.max</code>
+             (integer 1..16, default 6). <code>worktree.domains</code> (boolean, default
+             <code>true</code>) switches the <code>.test</code> domain off: with it <code>false</code>,
+             there are no <code>.test</code> DNS or proxy probes, <code>kf status</code> prints only
+             <code>http://127.0.0.1:&lt;port&gt;</code>, hooks get no <code>KFW_WORKTREE_DOMAIN</code>;
+             ports and routes are still allocated and JSON outputs still carry <code>domain</code>.</p>
           <p class="quiet" style="margin-top:14px">After each task commit, <code>kf verify</code>
              decides the mechanical part, not the developer's report: it checks the files the task
              changed against the allowlist (<code>--commits</code> for the pipelined loop) and runs the verify commands you pinned in config;
