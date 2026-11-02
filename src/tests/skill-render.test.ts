@@ -4,7 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { renderForCopy } from "../integrations/skill-render.js";
+import { renderForCopy, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
 import { cmdInstall, cmdUninstall, MANAGED_SKILLS, MANAGED_AGENTS } from "../integrations/install.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
@@ -76,6 +76,48 @@ describe("renderForCopy", () => {
       expect(out, f).not.toContain("CLAUDE_PLUGIN_ROOT");
       expect(out, f).not.toMatch(/Skill\(kf:|Agent\(kf:|\/kf:[a-z]/);
     }
+  });
+});
+
+describe("renderSkillMd", () => {
+  it("renames the frontmatter name of an LF skill to kf-<name>", () => {
+    const out = renderSkillMd("---\nname: plan\ndescription: Plans work\n---\n# Plan\n", ROOT, "plan");
+    expect(out).toBe("---\nname: kf-plan\ndescription: Plans work\n---\n# Plan\n");
+  });
+
+  it("renames the name of a CRLF skill and keeps its line endings", () => {
+    const out = renderSkillMd("---\r\nname: plan\r\ndescription: Plans work\r\n---\r\n# Plan\r\n", ROOT, "plan");
+    expect(out).toBe("---\r\nname: kf-plan\r\ndescription: Plans work\r\n---\r\n# Plan\r\n");
+  });
+
+  it("renames a quoted name", () => {
+    const out = renderSkillMd('---\nname: "plan"\ndescription: x\n---\nbody\n', ROOT, "plan");
+    expect(out).toMatch(/^name:\s*["']?kf-plan["']?\s*$/m);
+    expect(out).not.toContain('name: "plan"');
+    expect(out).toContain("description: x");
+  });
+
+  it("returns text without frontmatter unchanged", () => {
+    const text = "# Plan\n\nname: plan\n";
+    expect(renderSkillMd(text, ROOT, "plan")).toBe(text);
+  });
+
+  it("leaves a name: line that sits only in the body alone", () => {
+    const text = "---\ndescription: Plans work\n---\n# Plan\n\nname: plan\n";
+    expect(renderSkillMd(text, ROOT, "plan")).toBe(text);
+  });
+
+  it("still renders the plugin patterns in the body", () => {
+    const out = renderSkillMd("---\nname: plan\n---\nrun Skill(kf:review)\n", ROOT, "plan");
+    expect(out).toContain("Skill(kf-review)");
+  });
+});
+
+describe("ephemeralPackageWarning", () => {
+  it("names the copy dirs and the package root", () => {
+    const warning = ephemeralPackageWarning("/home/a/.agents/skills, /home/a/.kiro/skills");
+    expect(warning).toContain("/home/a/.agents/skills, /home/a/.kiro/skills");
+    expect(warning).toContain(PKG_ROOT);
   });
 });
 
