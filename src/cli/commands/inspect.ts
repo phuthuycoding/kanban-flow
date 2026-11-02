@@ -241,7 +241,8 @@ async function pluginPathWarning(root: string): Promise<string | null> {
   if (!agents.includes("claude")) return null;
   try {
     const state = await pluginState(claudeRunner(root, STATUS_PLUGIN_PROBE_MS), scope);
-    return state.status === "stale" ? "⚠ kf plugin path is stale — run kf install" : null;
+    if (state.status === "stale") return "⚠ kf plugin path is stale — run kf install";
+    return state.status === "unknown" ? "⚠ kf plugin source unknown — claude does not report the folder it reads the plugin from" : null;
   } catch (err) {
     if (err instanceof ClaudePluginError) return `⚠ kf plugin state unknown: ${err.message}`;
     if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return "⚠ cannot check kf plugin: the `claude` CLI was not found on PATH";
