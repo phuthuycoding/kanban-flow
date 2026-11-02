@@ -50,7 +50,7 @@ function pluginLine(probe: PluginProbe, scope: SkillScope): string {
 
 function installedAgents(root: string, scope: SkillScope, probe: PluginProbe | undefined): AgentId[] {
   return AGENTS.filter((a) => {
-    if (a.id === "claude") return probe !== undefined && "state" in probe && probe.state.status === "current";
+    if (a.id === "claude") return probe !== undefined && "state" in probe && (probe.state.status === "current" || probe.state.status === "unknown");
     const dir = skillsDirAtScope(a, root, scope);
     return unhealthySkills(dir, foreignSkills(dir)).length === 0;
   }).map((a) => a.id);

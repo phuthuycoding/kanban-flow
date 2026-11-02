@@ -74,6 +74,12 @@ describe("cmdAutoconfig", () => {
     expect(unknown).not.toContain("[ ] kf plugin");
   });
 
+  it("lists Claude Code among the installed skills when the plugin source is unknown", async () => {
+    await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
+    const out = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, installPath: PKG_ROOT }]))).stdout;
+    expect(out).toContain("- Skills installed (scope: global): [claude]");
+  });
+
   it("prints the probe failure instead of swallowing it", async () => {
     await writeFile(join(dir, "package.json"), '{"name":"x"}', "utf8");
     const out = (await cmdAutoconfig(parsed, dir, async () => ({ code: 3, stdout: "", stderr: "boom" }))).stdout;
