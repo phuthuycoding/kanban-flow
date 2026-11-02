@@ -336,7 +336,7 @@ describe("committing by path through the commit script", () => {
       ["developer.md step 7", developerStep(7)],
       ["developer-brief.md", reference("developer-brief.md")],
     ] as const) {
-      expect(text, name).toContain("node <skills dir>/kanban-implement/scripts/commit-task.mjs");
+      expect(text, name).toContain("node [COMMIT_SCRIPT]");
       expect(text, name).toContain("--allow");
       expect(text, name).toContain("[FILES]");
       expect(text, name).toContain("[TEST_FILES]");
@@ -493,5 +493,51 @@ describe("same-wave developers follow the dispatch conditions", () => {
     const wave = paragraphWith(taskLoop(), "wave <w>: parallel test-writers");
     expect(wave).toMatch(/dispatch conditions/i);
     expect(wave).not.toMatch(/one-developer rule/i);
+  });
+});
+
+describe("the commit script's path is filled at dispatch, and a commit that was made is routed", () => {
+  const OLD_INVOCATION = "node <skills dir>/kanban-implement/scripts/commit-task.mjs";
+  const PLACEHOLDER_ENTRY =
+    "- `[COMMIT_SCRIPT]` — the absolute path of `kanban-implement/scripts/commit-task.mjs` in the installed skills, filled at dispatch.";
+  const BLOCKED_ROUTE =
+    "A BLOCKED that quotes `commit made` names a commit that exists: add its sha to the task's commit list and continue as for DONE, never a re-commit.";
+  const NO_COMMIT_EXCEPTION = "no commit unless the output says `commit made`";
+
+  // The prompt is pasted verbatim, so a `<skills dir>` left in it reaches the developer unresolved.
+  it("has the developer prompt and step 7 invoke the commit script by the filled placeholder", () => {
+    const brief = reference("developer-brief.md");
+    expect(slice(brief, "```", "\n```\n")).toContain("node [COMMIT_SCRIPT]");
+    expect(developerStep(7)).toContain("node [COMMIT_SCRIPT]");
+  });
+
+  it("does not leave the unresolved skills-dir invocation in the developer brief or the developer agent", () => {
+    expect(reference("developer-brief.md")).not.toContain(OLD_INVOCATION);
+    expect(developerAgent()).not.toContain(OLD_INVOCATION);
+  });
+
+  it("lists the commit script placeholder among the developer brief's placeholders", () => {
+    expect(reference("developer-brief.md").split("\n")).toContain(PLACEHOLDER_ENTRY);
+  });
+
+  it("has the controller fill the commit script placeholder at the developer dispatch", () => {
+    const dispatch = section("\n### 3.2", "\n### 3.3");
+    expect(dispatch).toContain(
+      "and `[COMMIT_SCRIPT]` with the absolute path of `scripts/commit-task.mjs`",
+    );
+  });
+
+  it("routes a BLOCKED that quotes `commit made` as a commit that exists", () => {
+    const dispatch = section("\n### 3.2", "\n### 3.3");
+    const start = dispatch.indexOf("- **BLOCKED**");
+    expect(start, "BLOCKED bullet").toBeGreaterThanOrEqual(0);
+    const next = dispatch.indexOf("\n- **", start + 1);
+    const bullet = dispatch.slice(start, next === -1 ? undefined : next);
+    expect(bullet).toContain(BLOCKED_ROUTE);
+  });
+
+  it("states that a non-zero exit means no commit unless the output says `commit made`", () => {
+    expect(lineWith(reference("developer-brief.md"), "On any non-zero exit")).toContain(NO_COMMIT_EXCEPTION);
+    expect(lineWith(developerAgent(), "On any non-zero exit")).toContain(NO_COMMIT_EXCEPTION);
   });
 });

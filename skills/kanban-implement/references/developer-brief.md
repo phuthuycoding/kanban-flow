@@ -38,11 +38,11 @@ Agent:
     The loop commits this task: you commit the test-writer's tests and your code in one
     commit on [BRANCH], message in the repository's convention, no attribution trailers.
     Commit by path, naming exactly the paths you changed or were handed, so no spec file lands in it:
-    `node <skills dir>/kanban-implement/scripts/commit-task.mjs -m <message> --allow <entry> … -- <paths>`,
+    `node [COMMIT_SCRIPT] -m <message> --allow <entry> … -- <paths>`,
     with one `--allow` per entry of [FILES] and [TEST_FILES] (plus [SPEC_FILES] for the spec commit). A task whose [FILES] is `.` (the plan's Files is `-`, unknown) is committed with `--allow .`; name each file you changed, never `.` or a directory.
     Run the script from the repository root (the worktree root), never a subdirectory.
     Other seats' staged or unstaged paths are not your concern.
-    On any non-zero exit of the script — exit 4 or 5 (4: a path outside the allowlist, a bad path — absolute, `..`, leading `:` or a backslash —, an empty `--allow`, the script run from a subdirectory instead of the repository root, or a path that is `.` or a directory; 5: `index.lock` still held), 2 (bad usage) or git's own status → `BLOCKED` quoting its output, no commit; never delete the lock.
+    On any non-zero exit of the script — exit 4 or 5 (4: a path outside the allowlist, a bad path — absolute, `..`, leading `:` or a backslash —, an empty `--allow`, the script run from a subdirectory instead of the repository root, or a path that is `.` or a directory; 5: `index.lock` still held), 2 (bad usage) or git's own status → `BLOCKED` quoting its output, no commit unless the output says `commit made`; never delete the lock.
     When the output says `commit made`, the commit exists: report `BLOCKED` quoting it with the sha from `git log -1 -- <paths>`, and never commit those paths again.
     The same holds for every commit you make, fix rounds included. Never push.
     `git add -- <paths>` and `git commit -m <msg> -- <paths>` run only through the script, for paths inside
@@ -87,6 +87,7 @@ Agent:
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
 - `[IN_FLIGHT]` — `none`, or every other seat in flight at dispatch, including the seats dispatched in the same turn (e.g. `developer TASK-002`).
+- `[COMMIT_SCRIPT]` — the absolute path of `kanban-implement/scripts/commit-task.mjs` in the installed skills, filled at dispatch.
 - `[ADVISORY]` — `yes` when the test-writer's run was advisory (it ran while a developer was in flight), otherwise `no`.
 - `[SPEC_FILES]` — the spec files the automation-writer's report lists when it ran before the developer against a `data-testid` contract; otherwise "none".
 - `[FILES_TO_COMMIT]` — the files the test-writer's (or automation-writer's) fix report lists.
