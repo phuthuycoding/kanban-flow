@@ -12,7 +12,9 @@ import {
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
-import { executionContractHash } from "./features.js";
+import { executionContractHash, findWorksRoot } from "./features.js";
+import { readProjectConfig } from "../project/config.js";
+import { worktreeConfig } from "../worktree/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
 
@@ -188,7 +190,11 @@ export function renderStatusText(s: FeatureStatus): string {
   const wt = s.feature.meta?.worktree;
   if (wt) {
     lines.push(`Worktree: ${wt.path}  (branch ${wt.branch})`);
-    lines.push(`Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`);
+    const root = findWorksRoot(s.feature.dir);
+    const domains = root === null || worktreeConfig(root, readProjectConfig(root).worktree).domains;
+    lines.push(domains
+      ? `Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`
+      : `Direct:   http://127.0.0.1:${wt.port}`);
   }
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);

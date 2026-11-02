@@ -54,7 +54,7 @@ function ensureDirIgnored(root: string, wtPath: string): void {
   }
 }
 
-function worktreeHook(root: string, feature: Feature, wt: WorktreeRegistration, name: "worktree-create" | "worktree-remove") {
+function worktreeHook(root: string, feature: Feature, wt: WorktreeRegistration, cfg: WorktreeConfig, name: "worktree-create" | "worktree-remove") {
   return {
     env: {
       feature: feature.name,
@@ -71,7 +71,7 @@ function worktreeHook(root: string, feature: Feature, wt: WorktreeRegistration, 
       env: {
         KFW_WORKTREE_PATH: wt.path,
         KFW_WORKTREE_PORT: String(wt.port),
-        KFW_WORKTREE_DOMAIN: wt.domain,
+        ...(cfg.domains ? { KFW_WORKTREE_DOMAIN: wt.domain } : {}),
         KFW_WORKTREE_BRANCH: wt.branch,
       },
     },
@@ -154,7 +154,7 @@ export async function ensureWorktree(
   // dev server on $KFW_WORKTREE_PORT. It runs inside the worktree. A failing hook leaves a
   // half-provisioned tree, so the worktree is removed again and the error propagates; the
   // next create/transition starts clean instead of skipping the hook on reuse.
-  const { env, opts } = worktreeHook(root, feature, registration, "worktree-create");
+  const { env, opts } = worktreeHook(root, feature, registration, cfg, "worktree-create");
   const hook = runHook(root, env, opts);
   if (hook.ran && !hook.ok) {
     try {
@@ -200,8 +200,8 @@ export interface TeardownResult {
 
 /** worktree-remove hook: cleanup inside the still-present tree (kill dev server, compose
  *  down). Runs before `git worktree remove`; failure is a warning, never a blocker. */
-function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration, wtPath: string): string[] {
-  const { env, opts } = worktreeHook(root, feature, { ...wt, path: wtPath }, "worktree-remove");
+function runRemoveHook(root: string, feature: Feature, wt: WorktreeRegistration, wtPath: string, cfg: WorktreeConfig): string[] {
+  const { env, opts } = worktreeHook(root, feature, { ...wt, path: wtPath }, cfg, "worktree-remove");
   const hook = runHook(root, env, opts);
   return hook.ran && !hook.ok
     ? [`worktree-remove hook failed (exit ${hook.code})${hook.output ? `: ${hook.output}` : ""}`]
@@ -318,7 +318,7 @@ export async function teardownWorktree(
   // Checked before anything is removed so a refusal leaves everything in place.
   assertWorktreeClean(root, feature);
 
-  const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
+  const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath, cfg);
   if (!missing) git(root, ["worktree", "remove", wtPath]);
   await removeRoute(cfg.routesFile, wt.domain);
 
@@ -336,7 +336,7 @@ export async function forceRemoveWorktree(
   if (!wt) return { removed: false, unmergedCommits: 0, branch: null, warnings: [] };
   const wtPath = real(wt.path);
   const missing = !gitWorktreePaths(root).includes(wtPath);
-  const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath);
+  const warnings = missing ? [] : runRemoveHook(root, feature, wt, wtPath, cfg);
   if (!missing) git(root, ["worktree", "remove", "--force", wtPath]);
   await removeRoute(cfg.routesFile, wt.domain);
   const unmergedCommits = branchExists(root, wt.branch) ? unmergedCommitCount(root, wt.branch) : 0;

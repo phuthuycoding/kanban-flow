@@ -269,7 +269,10 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
     throw err;
   }
   const hookNote = hookResult?.ran ? `\n  Hook '${to}' ran [${hookResult.hook?.source ?? ""}]` : "";
-  const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})` : "";
+  const worktreeUrl = worktree && (wtCfg.domains
+    ? `Domain:   http://${worktree.domain}  (direct: http://127.0.0.1:${worktree.port})`
+    : `Direct:   http://127.0.0.1:${worktree.port}`);
+  const worktreeNote = worktree ? `\n  Worktree: ${worktree.path}\n  ${worktreeUrl}` : "";
   return {
     kind: "moved",
     from: f.stage,
