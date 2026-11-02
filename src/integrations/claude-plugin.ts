@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
 import type { SkillScope } from "./agents.js";
-import type { InstallReport } from "./install.js";
 
 export const PLUGIN_NAME = "kf";
 export const MARKETPLACE_NAME = "kanban-flow";
@@ -18,6 +17,14 @@ export interface ClaudeRunResult {
 /** Runs `claude <args>`. A claude missing from PATH rejects with an error whose `code` is "ENOENT". */
 export type ClaudeRun = (args: string[]) => Promise<ClaudeRunResult>;
 
+/** Text a caller prints; `changed` is false when claude was only asked, never written to. */
+export interface PluginReport {
+  code: number;
+  stdout: string;
+  stderr?: string;
+  changed: boolean;
+}
+
 export type PluginState =
   | { status: "missing" }
   | { status: "disabled"; scope: string }
@@ -27,16 +34,31 @@ export type PluginState =
 /** A claude call that ran but whose answer kf cannot use; the message quotes what claude printed. */
 export class ClaudePluginError extends Error {}
 
+/** A claude that hangs (a prompt, a stuck network fetch) must not hang kf install or kf init with it. */
+export const CLAUDE_TIMEOUT_MS = 60_000;
+
 /** Spawns `claude` in `cwd`: a project-scope install writes `.claude/settings.json` into the directory claude runs in. */
-export function claudeRunner(cwd?: string): ClaudeRun {
+export function claudeRunner(cwd?: string, timeoutMs = CLAUDE_TIMEOUT_MS): ClaudeRun {
   return (args) => new Promise((done, fail) => {
     const child = spawn("claude", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
-    child.on("error", fail);
-    child.on("close", (code) => done({ code: code ?? 1, stdout, stderr }));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      fail(err);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) fail(new ClaudePluginError(`\`claude ${args.join(" ")}\` did not finish within ${timeoutMs / 1000}s and was killed:\n${quote({ code: 1, stdout, stderr })}`));
+      else done({ code: code ?? 1, stdout, stderr });
+    });
   });
 }
 
@@ -61,7 +83,8 @@ async function call(run: ClaudeRun, args: string[]): Promise<ClaudeRunResult> {
   return res;
 }
 
-export async function pluginState(run: ClaudeRun = defaultRun): Promise<PluginState> {
+/** The kf plugin's state; with a scope, an install at the other scope counts as missing here. */
+export async function pluginState(run: ClaudeRun = defaultRun, scope?: SkillScope): Promise<PluginState> {
   const args = ["plugin", "list", "--json"];
   const res = await call(run, args);
   let list: unknown;
@@ -73,8 +96,10 @@ export async function pluginState(run: ClaudeRun = defaultRun): Promise<PluginSt
   if (!Array.isArray(list)) {
     throw new ClaudePluginError(`\`claude ${args.join(" ")}\` did not print a JSON array:\n${quote(res)}`);
   }
+  const wanted = scope === undefined ? undefined : claudeScope(scope);
   const entry = list.find(
-    (e): e is Record<string, unknown> => typeof e === "object" && e !== null && typeof e.id === "string" && e.id.startsWith(`${PLUGIN_NAME}@`),
+    (e): e is Record<string, unknown> =>
+      typeof e === "object" && e !== null && e.id === PLUGIN_ID && (wanted === undefined || e.scope === wanted),
   );
   if (!entry) return { status: "missing" };
   if (entry.enabled === false) return { status: "disabled", scope: String(entry.scope) };
@@ -95,52 +120,58 @@ function failureReason(err: unknown): string {
 }
 
 /** Bring the kf plugin to the state the package root asks for, writing only what differs. */
-export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<InstallReport> {
+export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<PluginReport> {
   const target = claudeScope(scope);
   try {
-    const state = await pluginState(run);
+    const state = await pluginState(run, scope);
     switch (state.status) {
       case "missing":
         await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
         await call(run, ["plugin", "install", PLUGIN_ID, "--scope", target]);
-        return { code: 0, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} added from ${PKG_ROOT} (scope: ${target})` };
+        return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} added from ${PKG_ROOT} (scope: ${target})` };
       case "disabled":
         await call(run, ["plugin", "enable", PLUGIN_NAME, "--scope", target]);
-        return { code: 0, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target})` };
+        return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target})` };
       case "stale":
         await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
-        return { code: 0, stdout: `✓ Claude Code: marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder || "an unknown folder"} to ${PKG_ROOT}` };
+        return { code: 0, changed: true, stdout: `✓ Claude Code: marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder || "an unknown folder"} to ${PKG_ROOT}` };
       case "current":
-        return { code: 0, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} is current (${PKG_ROOT})` };
+        return { code: 0, changed: false, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} is current (${PKG_ROOT})` };
     }
   } catch (err) {
     return {
       code: 1,
+      changed: false,
       stdout: `Claude Code: could not set up the ${PLUGIN_ID} plugin — ${failureReason(err)}\n${manualSteps()}`,
       stderr: "claude plugin setup failed",
     };
   }
 }
 
-/** Claude's own wording when the plugin or marketplace is already gone (probed: "... not found ..."). */
-const ABSENT = /not found/i;
+/** Claude's own wording, probed, when the plugin or the marketplace is already gone. */
+const PLUGIN_ABSENT = new RegExp(`Plugin "${PLUGIN_NAME}" not found`);
+const MARKETPLACE_ABSENT = new RegExp(`Marketplace '${MARKETPLACE_NAME}' not found`);
 
-export async function removePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<InstallReport> {
-  const steps: Array<[string[], string, string]> = [
-    [["plugin", "uninstall", PLUGIN_NAME, "--scope", claudeScope(scope)], `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`],
-    [["plugin", "marketplace", "remove", MARKETPLACE_NAME], `✗ Claude Code: marketplace ${MARKETPLACE_NAME} removed`, `· Claude Code: marketplace ${MARKETPLACE_NAME} not added`],
+export async function removePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<PluginReport> {
+  const steps: Array<[string[], RegExp, string, string]> = [
+    [["plugin", "uninstall", PLUGIN_NAME, "--scope", claudeScope(scope)], PLUGIN_ABSENT, `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`],
+    [["plugin", "marketplace", "remove", MARKETPLACE_NAME], MARKETPLACE_ABSENT, `✗ Claude Code: marketplace ${MARKETPLACE_NAME} removed`, `· Claude Code: marketplace ${MARKETPLACE_NAME} not added`],
   ];
   const lines: string[] = [];
+  let changed = false;
   try {
-    for (const [args, done, absent] of steps) {
+    for (const [args, absentPattern, done, absent] of steps) {
       const res = await run(args);
-      if (res.code === 0) lines.push(done);
-      else if (ABSENT.test(quote(res))) lines.push(absent);
+      if (res.code === 0) {
+        changed = true;
+        lines.push(done);
+      } else if (absentPattern.test(quote(res))) lines.push(absent);
       else throw failed(args, res);
     }
   } catch (err) {
     lines.push(`Claude Code: could not remove the ${PLUGIN_ID} plugin — ${failureReason(err)}`);
-    return { code: 1, stdout: lines.join("\n"), stderr: "claude plugin removal failed" };
+    lines.push(`Remove it by hand inside Claude Code:\n  /plugin uninstall ${PLUGIN_ID}\n  /plugin marketplace remove ${MARKETPLACE_NAME}`);
+    return { code: 1, changed, stdout: lines.join("\n"), stderr: "claude plugin removal failed" };
   }
-  return { code: 0, stdout: lines.join("\n") };
+  return { code: 0, changed, stdout: lines.join("\n") };
 }

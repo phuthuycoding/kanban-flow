@@ -688,20 +688,30 @@ export async function cmdInstall(agents: AgentId[] = [DEFAULT_AGENT], opts: Inst
       stderr: "not a kanban project",
     };
   }
+  const wantsPlugin = ids.includes("claude");
+  // The marketplace would record this package root, which dangles once a linked worktree is removed.
+  const refusal = wantsPlugin && scope === "global" ? globalLinkRefusal() : null;
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
   // Claude Code loads skills and agents from the kf plugin, so nothing is copied for it.
-  const plugin = ids.includes("claude") ? await ensurePlugin(scope, claudeRunner(root ?? base)) : null;
-  if (plugin && plugin.code !== 0) return plugin;
+  const plugin = wantsPlugin ? await ensurePlugin(scope, claudeRunner(root ?? base)) : null;
   const copied = ids.filter((id) => id !== "claude");
-  const res = copied.length > 0 ? await installSkills(root, copied, scope, { declaredScope }) : { code: 0, stdout: "" };
-  if (res.code !== 0) return res;
-  const body = !plugin ? res.stdout : res.stdout ? `${plugin.stdout}\n${res.stdout}` : `${plugin.stdout}\n\nRestart Claude Code to load the plugin.`;
+  const res = copied.length > 0 ? await installSkills(root, copied, scope, { declaredScope }) : null;
+  const reports = [plugin, res].filter((r) => r !== null);
+  const joined = reports.map((r) => r.stdout).filter(Boolean).join("\n");
+  // A failed plugin setup does not keep the other agents from installing; the exit still says it failed.
+  const failure = reports.find((r) => r.code !== 0);
+  if (failure) return { code: 1, stdout: joined, stderr: failure.stderr };
+  // installSkills ends on its own restart hint; a plugin that was only checked needs none.
+  const restart = plugin?.changed && !res ? "\n\nRestart Claude Code to load the plugin." : "";
+  const body = `${joined}${restart}`;
   const notes: string[] = [];
-  const alsoReads = ids.length === 1 ? AGENTS.find((x) => x.id === ids[0])?.alsoReads.join(", ") ?? "" : "";
+  // The other runtimes picked up claude's .claude/skills copies; the plugin is read by Claude Code alone.
+  const alsoReads = ids.length === 1 && ids[0] !== "claude" ? AGENTS.find((x) => x.id === ids[0])?.alsoReads.join(", ") ?? "" : "";
   if (alsoReads) notes.push(`Also picked up by: ${alsoReads}`);
   if (opts.scope && opts.scope !== configured) {
     notes.push(`Note: installed at scope "${opts.scope}" while this project declares "${configured}" — both scopes may now hold skills.`);
   }
-  return { ...res, stdout: `${body}${notes.length ? `\n${notes.join("\n")}` : ""}` };
+  return { code: 0, stdout: `${body}${notes.length ? `\n${notes.join("\n")}` : ""}` };
 }
 
 /**

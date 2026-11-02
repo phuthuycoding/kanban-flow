@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, chmod, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, cpSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { ensureWorksStructure } from "../workflow/features.js";
@@ -22,6 +23,7 @@ async function writeStub(): Promise<void> {
     "#!/bin/sh",
     'echo "$*" >> "$KF_STUB_LOG"',
     'if [ "$1 $2" = "plugin list" ]; then echo "${KF_STUB_LIST:-[]}"; fi',
+    'if [ -n "$KF_STUB_FAIL" ] && [ "$2" != "list" ]; then echo "$KF_STUB_FAIL" >&2; exit 3; fi',
     "exit 0",
     "",
   ].join("\n");
@@ -50,6 +52,7 @@ afterEach(async () => {
   process.env.PATH = prevPath;
   delete process.env.KF_STUB_LOG;
   delete process.env.KF_STUB_LIST;
+  delete process.env.KF_STUB_FAIL;
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -107,5 +110,54 @@ describe("kf uninstall --agent claude through the plugin CLI", () => {
       "plugin uninstall kf --scope user",
       "plugin marketplace remove kanban-flow",
     ]);
+  });
+});
+
+describe("kf uninstall when the plugin removal fails", () => {
+  it("exits 1 and still removes the other agents' copies", async () => {
+    await cmdInstall(["codex"], { cwd: projDir(), scope: "project" });
+    expect(existsSync(join(projDir(), ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    process.env.KF_STUB_FAIL = "plugin store is locked";
+
+    const res = await cmdUninstall(["claude", "codex"], { cwd: projDir(), scope: "project" });
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("plugin store is locked");
+    expect(existsSync(join(projDir(), ".agents", "skills", "kanban-flow"))).toBe(false);
+  });
+});
+
+describe("kf install --agent claude,codex without claude on PATH", () => {
+  it("still installs the codex copies and exits 1", async () => {
+    await rm(join(bin, "claude"));
+    process.env.PATH = bin;
+    const res = await cmdInstall(["claude", "codex"], { cwd: projDir(), scope: "project" });
+    expect(res.code).toBe(1);
+    expect(existsSync(join(projDir(), ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("kf install --global --agent claude from a linked worktree", () => {
+  it("is refused before any claude call, like the codex refusal", async () => {
+    const pkg = join(dir, "pkg");
+    mkdirSync(pkg);
+    cpSync(join(PKG_ROOT, "dist"), join(pkg, "dist"), { recursive: true });
+    cpSync(join(PKG_ROOT, "package.json"), join(pkg, "package.json"));
+    for (const d of ["skills", "agents", ".claude-plugin"]) {
+      if (existsSync(join(PKG_ROOT, d))) cpSync(join(PKG_ROOT, d), join(pkg, d), { recursive: true });
+    }
+    symlinkSync(join(PKG_ROOT, "node_modules"), join(pkg, "node_modules"), "dir");
+    const gitdir = join(dirname(pkg), "common-git", "worktrees", "transient");
+    mkdirSync(gitdir, { recursive: true });
+    writeFileSync(join(gitdir, "commondir"), "../..\n");
+    writeFileSync(join(pkg, ".git"), `gitdir: ${gitdir}\n`);
+
+    const { KF_ALLOW_WORKTREE_LINK: _optOut, ...base } = process.env;
+    const r = spawnSync(process.execPath, [join(pkg, "dist", "index.js"), "install", "--global", "--agent", "claude"], {
+      cwd: projDir(), encoding: "utf8", env: base,
+    });
+    if (r.error) throw r.error;
+    expect(r.status, `${r.stdout}${r.stderr}`).not.toBe(0);
+    expect(r.stderr).toContain("primary checkout");
+    expect(await calls()).toEqual([]);
   });
 });

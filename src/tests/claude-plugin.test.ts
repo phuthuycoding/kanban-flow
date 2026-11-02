@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ensurePlugin, removePlugin, pluginState } from "../integrations/claude-plugin.js";
+import { ensurePlugin, removePlugin, pluginState, claudeRunner } from "../integrations/claude-plugin.js";
 import { cmdInit } from "../cli/commands/init.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -191,6 +191,82 @@ describe("removePlugin", () => {
     const { run, calls } = stub("[]");
     await removePlugin("project", run);
     expect(calls[0]).toEqual(["plugin", "uninstall", "kf", "--scope", "project"]);
+  });
+});
+
+describe("removePlugin when claude says the plugin is gone", () => {
+  it.each(['Plugin "kf" not found', 'Plugin "kf" not found in installed plugins'])(
+    "reports not installed for claude's own wording (%s) and succeeds",
+    async (text) => {
+      const { run } = stub("[]", { "plugin uninstall": { code: 1, stdout: "", stderr: text } });
+      const res = await removePlugin("global", run);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain("not installed");
+    },
+  );
+
+  it("still removes the marketplace after a plugin that was not installed", async () => {
+    const { run, calls } = stub("[]", { "plugin uninstall": { code: 1, stdout: "", stderr: 'Plugin "kf" not found' } });
+    await removePlugin("global", run);
+    expect(calls[1]).toEqual(["plugin", "marketplace", "remove", "kanban-flow"]);
+  });
+
+  it.each(["bash: claude: command not found", "settings file not found"])(
+    "treats an unrelated failure (%s) as a failure, not as not installed",
+    async (text) => {
+      const { run } = stub("[]", { "plugin uninstall": { code: 1, stdout: "", stderr: text } });
+      const res = await removePlugin("global", run);
+      expect(res.code).toBe(1);
+      expect(res.stdout).toContain(text);
+      expect(res.stdout).not.toContain("not installed");
+    },
+  );
+
+  it("fails with the manual /plugin commands when claude is missing from PATH", async () => {
+    const run: Run = async () => {
+      throw enoent();
+    };
+    const res = await removePlugin("global", run);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("/plugin");
+  });
+});
+
+describe("only kf@kanban-flow counts as the installed plugin", () => {
+  it("runs the project install when the plugin is only installed at user scope", async () => {
+    const { run, calls } = stub(entry({ scope: "user" }));
+    const res = await ensurePlugin("project", run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "install", "kf@kanban-flow", "--scope", "project"]);
+  });
+
+  it("ignores a kf entry from another marketplace", async () => {
+    const other = JSON.stringify([{ id: "kf@other-marketplace", scope: "user", enabled: true, readFromFolder: PKG_ROOT }]);
+    expect(await pluginState(stub(other).run)).toEqual({ status: "missing" });
+    const { run, calls } = stub(other);
+    await ensurePlugin("global", run);
+    expect(calls).toContainEqual(["plugin", "install", "kf@kanban-flow", "--scope", "user"]);
+  });
+});
+
+describe("claudeRunner timeout", () => {
+  let bin: string;
+  let prevPath: string | undefined;
+  beforeEach(async () => {
+    bin = await mkdtemp(join(tmpdir(), "kf-claude-hang-"));
+    await writeFile(join(bin, "claude"), "#!/bin/sh\nexec sleep 30\n");
+    await chmod(join(bin, "claude"), 0o755);
+    prevPath = process.env.PATH;
+    process.env.PATH = `${bin}:${prevPath}`;
+  });
+  afterEach(async () => {
+    process.env.PATH = prevPath;
+    await rm(bin, { recursive: true, force: true });
+  });
+
+  it("rejects a claude that never answers with an error naming the command", async () => {
+    const run = claudeRunner(undefined, 300);
+    await expect(run(["plugin", "list", "--json"])).rejects.toThrow(/plugin list --json/);
   });
 });
 
