@@ -1,6 +1,6 @@
 # Researcher brief — the dispatch for one outside-knowledge question
 
-Use this template verbatim at every researcher dispatch site: `kf:brainstorm` section 1, `kf:plan` step a, `kf:implement` section 3.2 and the spike path. One dispatch, one question, one mode. When the `researcher` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/researcher.md` pasted first. A stand-in loses tool-level enforcement of the agent's tool list, so after a stand-in dispatch the controller runs `git status --porcelain` and requires no tracked change.
+Use this template verbatim at every researcher dispatch site: `kf:brainstorm` section 1, `kf:plan` step a, `kf:implement` section 3.2 and the spike path. One dispatch, one question, one mode. When the `researcher` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/researcher.md` pasted first. A stand-in loses tool-level enforcement of the agent's tool list, so around a stand-in dispatch the controller captures `git status --porcelain` before it and again after it, and requires no tracked change: an untracked `??` line (the report file) is expected, but any tracked (non-`??`) line that is new or changed is a guardrail breach, so stop and report it.
 
 ```
 Agent:
