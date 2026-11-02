@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { cmdAutoconfig, AGENT_COMMANDS } from "../cli/commands/autoconfig.js";
 import { parseArgsCli, allCommands } from "../cli/args.js";
 import { cmdInstall } from "../integrations/install.js";
+import { copyName } from "../integrations/managed.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let dir: string;
@@ -70,8 +71,8 @@ describe("cmdAutoconfig", () => {
     expect(out).toMatch(/\[x\] Skills for Claude Code \(scope: global, [^\n]*\) — installed \(your own travel kept\)/);
     expect(out).toContain("[x] No duplicate project-scope copies (scope: global)");
 
-    // A kanban-flow skill missing beside it still leaves the item open.
-    await rm(join(process.env.HOME!, ".claude", "skills", "kanban-plan"), { recursive: true, force: true });
+    // A managed skill copy missing beside it still leaves the item open.
+    await rm(join(process.env.HOME!, ".claude", "skills", copyName("plan")), { recursive: true, force: true });
     expect((await cmdAutoconfig(parsed, dir)).stdout).toContain("[ ] Skills for Claude Code");
   });
 

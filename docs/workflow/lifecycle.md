@@ -110,9 +110,9 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Test as kanban-test
+    participant Test as kf:test
     participant CLI as kf
-    participant Impl as kanban-implement
+    participant Impl as kf:implement
     participant FS as Work item folder
 
     Test->>CLI: kf stage feature review

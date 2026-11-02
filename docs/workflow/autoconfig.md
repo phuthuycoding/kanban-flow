@@ -2,7 +2,7 @@
 
 kanban-flow is driven by an agent, so setting a project up means teaching the agent, not only creating directories. Three pieces do that:
 
-- `kf init` installs the nine skills (eight `kanban-*` plus `travel`) into the agent's project-level skills dir (`--agent` picks which, `claude` is the default; several agents also read each other's directories, which `kf install` reports), installs the six kanban agents (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`) into the runtime's agents dir when it has one (Claude Code: `.claude/agents/`), and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
+- `kf init` installs the 10 skills and the 7 agents (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher`): for Claude Code through the `kf` plugin (`/plugin marketplace add`, `/plugin install kf@kanban-flow`; commands `/kf:flow`, `/kf:plan`, ...), for the other runtimes as `kf-<name>` copies in the agent's skills dir (`--agent` picks which, `claude` is the default; `.agents/skills` for `codex`), and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
 - The seeded `AGENTS.md` tells the agent the build, test and lint commands and the kanban conventions: the three human gates, `.works/` discipline, the `--force` policy. It is a starting point — edit it, because the agent reads it on every session.
 - `kf autoconfig` prints the briefing described below. Run it and hand the output to the agent — or tell the agent to run it, because it can work through the checklist itself.
 
@@ -16,7 +16,7 @@ each question in turn:
 - **Stacks** — confirms the detected list, or asks for one when nothing was detected.
 - **Default reviewer** — the name `kf approve` records; defaults to the git user.
 - **GitHub repository** — `owner/name` or a URL for `kf issues` and the `KFW_REPOSITORY` hook variable; defaults to the detected `origin` remote, and `none` leaves the project unlinked.
-- **Agents** — which agent CLIs get the nine skills installed (and, for Claude Code, the six agent definitions).
+- **Agents** — which agent CLIs get the 10 skills installed (and the 7 agent definitions: through the `kf` plugin for Claude Code).
 - **GitHub sync hooks** — offered only when a repository is linked; yes copies the generic pack into `.kf/hooks/` (see [cli-reference](./cli-reference.md#the-hook-pack-and-the-project-board)); the catalog of issue types the pack can assign is GitHub's, see [GitHub sync: issue types](#github-sync-issue-types).
 - **`.gitignore`** — whether to add `.works/`; asked only when `.git` exists and the entry is missing.
 - **Demo feature** — whether to seed one to show the structure.
@@ -41,8 +41,8 @@ Four sections, in order:
 | Check | Done means | Fix when missing |
 | --- | --- | --- |
 | Project config | `.kf/config.json` exists | `kf init --defaults` (or `kf init` on a terminal, to answer the onboarding questions) |
-| Skills, one row per configured agent | The kanban skills are linked or copied in that agent's skills dir at the effective scope (`skills.scope`, default global); the label shows the state (`missing`, `partial`, `stale`, `broken-link`, `linked`, `copied`, `mixed`) | `kf install --agent <id> --scope <scope>` |
-| Agents, one row per configured agent that has an agents dir | The six kanban agents (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`) are installed in that dir (Claude Code: `.claude/agents/`); a file of yours at a managed name shows as `foreign` | `kf install --agent <id> --scope <scope>`; for `foreign`, rename your file or keep the substitution |
+| Skills, one row per configured agent | The `kf-<name>` skill copies are linked or copied in that agent's skills dir (Claude Code: the `kf` plugin) at the effective scope (`skills.scope`, default global); the label shows the state (`missing`, `partial`, `stale`, `broken-link`, `linked`, `copied`, `mixed`) | `kf install --agent <id> --scope <scope>` |
+| Agents, one row per configured agent that has an agents dir | The 7 agents (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher`) are installed in that dir; a file of yours at a managed name shows as `foreign` | `kf install --agent <id> --scope <scope>`; for `foreign`, rename your file or keep the substitution |
 | No duplicate project-scope copies | Only checked at global scope: no project copy of the skills shadows the global ones | `kf install` (cleans project copies), or `kf uninstall --scope project` |
 | Base review rules | `general.md`, `security.md`, `performance.md` in `.kf/review/rules/` | `kf init --defaults` (seeds templates + rules) |
 | Stack rule packs | A `<stack>.md` in `.kf/review/rules/` for every stack — `config.stacks` when set, else detected | `kf rules --stack <id>` (`kf rules --list` shows packs) |

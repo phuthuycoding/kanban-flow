@@ -8,9 +8,9 @@ The `kanban-flow` documentation is split by purpose:
 - [Gates and the artifact contract](workflow/gates.md) — what every phase demands before it lets go.
 - [Artifacts and how to read them](workflow/artifacts.md) — artifact structure, traceability and the docs left behind after archive.
 - [CLI reference](workflow/cli-reference.md) — commands, inputs, outputs and exit codes.
-- [Agent onboarding](workflow/autoconfig.md) — how the agent learns the project: `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
+- [Agent onboarding](workflow/autoconfig.md) — how the agent learns the project: `kf init`, the `kf` plugin install, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 - [Dashboard analytics](workflow/dashboard.md) — the KPIs, the charts and how each number is computed.
-- [Skill routing](workflow/skills.md) — what the orchestrator owns and what each phase skill owns.
+- [Skill routing](workflow/skills.md) — the `kf` plugin's 10 skills (`/kf:flow` and the rest, `kf-<name>` copies for other runtimes) and what each owns.
 - [Agent harness](workflow/harness.md) — the stage → role → runner mapping behind `kf run`, `kf runs` and `kf harness`, and the task harness: `kf tasks`, `kf run --task` and `kf drive`, which runs an approved item from implementation to a review PASS.
 - [Source layout](workflow/source-layout.md) — the shape of the source tree and where a new file belongs.
 - `requirement/`, `use-cases/`, `testplan/` — canonical docs. `use-cases/` (a `README.md` index plus one `UC-###-<slug>.md` per use case) and `testplan/` are copied out when a feature closes into `done`; `requirement/` is written by the brainstorm skill back in Phase 1 and archive rewrites it from the Phase 1 artifact. Every archived copy except the execution result is stamped `status: archived`, and docs a later feature replaced carry a `Superseded by <feature>` banner, so read the newest feature for current behavior. A bug only updates the related docs when it needs to.
