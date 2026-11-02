@@ -276,13 +276,7 @@ async function writeAgentsManifest(agentsDir: string, entries: Record<string, st
   await writeFile(join(agentsDir, AGENTS_MANIFEST), `${JSON.stringify(entries, null, 2)}\n`, "utf8");
 }
 
-/**
- * What sits at a managed agent path. The agent names are deliberately unprefixed, so a user's
- * own `code-reviewer.md` is a real possibility: only an entry kanban-flow put there — a symlink
- * into the package, a byte-equal copy of the packaged file, or a copy whose hash the manifest
- * recorded — is ours to replace or remove.
- */
-/** A kf package root holds `.claude-plugin/plugin.json` naming the `kf` plugin. An unreadable or non-JSON manifest means not ours. */
+/** A kf package root holds `.claude-plugin/plugin.json` naming the `kf` plugin. A missing or non-JSON manifest means not ours; a read error propagates. */
 function isKfPackageRoot(dir: string): boolean {
   const manifest = join(dir, ".claude-plugin", "plugin.json");
   if (!existsSync(manifest)) return false;
@@ -296,6 +290,12 @@ function isKfPackageRoot(dir: string): boolean {
   return typeof parsed === "object" && parsed !== null && (parsed as { name?: unknown }).name === "kf";
 }
 
+/**
+ * What sits at a managed agent path. The agent names are deliberately unprefixed, so a user's
+ * own `code-reviewer.md` is a real possibility: only an entry kanban-flow put there — a symlink
+ * into the package, a byte-equal copy of the packaged file, or a copy whose hash the manifest
+ * recorded — is ours to replace or remove.
+ */
 export function agentEntryState(agentsDir: string, name: string): AgentEntryState {
   const target = join(agentsDir, `${name}.md`);
   let st;
@@ -312,7 +312,7 @@ export function agentEntryState(agentsDir: string, name: string): AgentEntryStat
     // npm-link checkout, or a dir that no longer exists — is ours to replace, not the user's.
     // The package is recognised by its content, not its directory name: a checkout may be named anything.
     // The suffix covers a package dir that carries the product name, in both the plugin layout and the pre-plugin flow skill.
-    const ours = isKfPackageRoot(resolve(resolved, "..", "..")) || resolved.endsWith(join(PRODUCT_PKG_DIR, "agents", `${name}.md`));
+    const ours = (resolved.endsWith(join(sep, "agents", `${name}.md`)) && isKfPackageRoot(resolve(resolved, "..", ".."))) || resolved.endsWith(join(PRODUCT_PKG_DIR, "agents", `${name}.md`));
     return ours || !existsSync(resolved) ? "stale" : "foreign";
   }
   if (!st.isFile()) return "not-file";
