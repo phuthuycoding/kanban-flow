@@ -8,6 +8,7 @@ import { ensurePlugin, removePlugin, pluginState, claudeRunner } from "../integr
 import { cmdInit } from "../cli/commands/init.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
+import { LEGACY_SKILLS } from "../integrations/managed.js";
 import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -433,5 +434,49 @@ describe("a plugin whose source folder claude does not report", () => {
   it("kf doctor --fix does not run marketplace add for it", async () => {
     await cmdDoctor(cmd("doctor", { fix: true }), root);
     expect((await calledLines()).filter((l) => l.startsWith("plugin marketplace add"))).toEqual([]);
+  });
+});
+
+describe("kf doctor --fix from a linked worktree when claude cannot be probed", () => {
+  let dir: string;
+  let root: string;
+  let prevPath: string | undefined;
+  const cmd = (command: string, options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals: [], options });
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-plugin-noclaude-"));
+    root = join(dir, "proj");
+    await mkdir(root);
+    const res = await cmdInit(cmd("init", { minimal: true, context: "app", agent: "claude" }), root);
+    expect(res.code).toBe(0);
+    const cfgPath = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
+    await writeFile(cfgPath, JSON.stringify({ ...cfg, agents: ["claude"] }, null, 2));
+    prevPath = process.env.PATH;
+    const empty = join(dir, "empty-bin");
+    await mkdir(empty);
+    process.env.PATH = empty;
+  });
+
+  afterEach(async () => {
+    process.env.PATH = prevPath;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!isLinkedWorktree(PKG_ROOT))("still refuses and keeps an owned legacy kanban-* skill", async () => {
+    const legacy = join(process.env.HOME!, ".claude", "skills", LEGACY_SKILLS[0]!);
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "SKILL.md"), "# an older copy of the skill\n");
+    const optOut = process.env.KF_ALLOW_WORKTREE_LINK;
+    delete process.env.KF_ALLOW_WORKTREE_LINK;
+    try {
+      const res = await cmdDoctor(cmd("doctor", { fix: true }), root);
+      const errors = res.stdout.split("\n").filter((l) => /^\s+\[ERROR\]/.test(l));
+      expect(errors.some((l) => /linked git worktree/.test(l))).toBe(true);
+      expect(existsSync(join(legacy, "SKILL.md"))).toBe(true);
+    } finally {
+      if (optOut === undefined) delete process.env.KF_ALLOW_WORKTREE_LINK;
+      else process.env.KF_ALLOW_WORKTREE_LINK = optOut;
+    }
   });
 });
