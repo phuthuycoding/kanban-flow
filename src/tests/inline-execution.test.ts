@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { ARTIFACTS, METADATA_FILE } from "../workflow/schema.js";
+import { LEDGER_SHAPES, parseLedger } from "../workflow/loop-stats.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
@@ -164,7 +165,7 @@ describe("the implement skill and task loop on the inline developer seat", () =>
 const TABLE_HEADER = "| Task | Description | Area | Dependencies | Expected output | FR / UC references | Role | Files |\n|---|---|---|---|---|---|---|---|";
 const INLINE_LEDGER = [
   "# Task loop ledger — inline",
-  "TASK-001: developer dispatched model=opus @ 2026-11-02T09:00:00Z",
+  "TASK-001: developer dispatched model=inline @ 2026-11-02T09:00:00Z",
   "Note TASK-001: developer seat inline @ 2026-11-02T09:00:00Z",
   "TASK-001: developer done status=DONE @ 2026-11-02T09:20:00Z",
   "TASK-001: code-reviewer dispatched model=sonnet @ 2026-11-02T09:21:00Z",
@@ -190,6 +191,29 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+describe("the inline developer ledger line", () => {
+  it("is named with model=inline in the implement skill's Inline waves ledger rule", () => {
+    const rule = IMPLEMENT().split("\n").find((l) => l.startsWith("1. **Ledger.**"));
+    expect(rule, "Inline waves rule 1").toBeDefined();
+    expect(rule).toContain("model=inline");
+  });
+
+  it("is named with model=inline in the task loop's ledger section", () => {
+    const text = TASK_LOOP();
+    const start = text.search(/^#+ The ledger/m);
+    expect(start, "ledger section").toBeGreaterThanOrEqual(0);
+    expect(text.slice(start)).toContain("model=inline");
+  });
+
+  it("parses as a developer dispatched line under the real ledger grammar", () => {
+    const parsed = parseLedger("# Task loop ledger — x\nTASK-001: developer dispatched model=inline @ 2026-11-02T09:00:00Z\n");
+    const out = JSON.stringify(parsed);
+    expect(out).toContain("model");
+    expect(out).toContain("inline");
+    expect(LEDGER_SHAPES.dispatched.test("TASK-001: developer dispatched model=inline")).toBe(true);
+  });
 });
 
 describe("kf loop-stats on a ledger with an inline developer seat", () => {

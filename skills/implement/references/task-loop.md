@@ -33,6 +33,8 @@ TASK-NNN: cascade re-review owed — after <sha7> of TASK-MMM @ <ts>
 TASK-NNN: complete (…) @ <ts>
 ```
 
+An inline developer seat has no dispatch and so no model to name: its `dispatched` line carries `model=inline` (`TASK-NNN: developer dispatched model=inline @ <ts>`), followed by `Note TASK-NNN: developer seat inline`.
+
 `<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase.
 
 `fix queued` is a legacy shape: the loop no longer writes it — a fix round held by the cap writes `developer waits — 4 developers in flight` instead — but older ledgers carry it, and `kf loop-stats` still reads it.
