@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `adaptive-developer-cap`:** the domain infrastructure is now switchable — with `worktree.domains: false` there are no `.test` DNS or proxy probes, no `worktree_infra_missing` warning, `kf status` prints only `http://127.0.0.1:<port>` and hooks get no `KFW_WORKTREE_DOMAIN`; with it absent or `true` this doc still holds. Kept for history.
+
 > **Partly superseded by `workflow-slim`:** the close no longer keeps the `kf/<feature>` branch for a later merge — the item closes into `done` (formerly `dones`) only after its PR merged, on the next `kf status --change <feature>`, `kf sync` or `kf archive`, and the close removes the worktree and deletes the merged branch locally and on origin (a branch with commits past the merged head is kept and reported). Kept for history.
 
 ## Feature
