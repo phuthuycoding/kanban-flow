@@ -19,7 +19,7 @@ Brainstorming is **divergence then convergence**: first open the problem up from
 
 `kf:flow` names a path before this skill runs; if you were called directly, name it now — "this looks bounded, so the spec will be a page and I skip the divergence framework" — so the user can override it:
 
-- **Spike** — a question or a one-shot operation that lands no code. **Stop here: no `kf new`.** Say in two sentences what you will probe, get a nod, probe as cheaply as correctness allows (an irreversible step waits for the human's explicit "go"), and report the answer with the exact commands run. If the answer becomes work, classify again.
+- **Spike** — a question or a one-shot operation that lands no code. **Stop here: no `kf new`.** Hand off to `Skill(kf:spike)`, which owns the procedure. If the answer becomes work, classify again.
 - **Bounded** — a change to a flow that already exists in this repository. Run sections 1, 3, 4 and 5; **skip section 2** (the frameworks). The spec is a page: the restated journey, one or two FRs, the Affected surfaces, a Test Strategy, acceptance criteria. Every gate below still applies.
 - **Architectural** — everything else. All sections.
 
