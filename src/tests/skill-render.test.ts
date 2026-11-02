@@ -111,8 +111,23 @@ describe("shared kf-* copies for the other runtimes", () => {
       expect(readFileSync(skillMd, "utf8"), n).not.toContain("CLAUDE_PLUGIN_ROOT");
     }
     expect(existsSync(join(dir, ".gemini", "skills"))).toBe(false);
+    expect(res.stdout).toContain("Gemini CLI: reads the copies written for OpenAI Codex");
     const manifest = JSON.parse(await readFile(join(shared(), ".kanban-flow-skills.json"), "utf8")) as Record<string, string>;
     for (const n of MANAGED_SKILLS) expect(Object.keys(manifest), n).toContain(`kf-${n}`);
+  });
+
+  it("names every copy kf-<name> in its SKILL.md frontmatter too", async () => {
+    await project(["codex"]);
+    await cmdInstall(["codex"], { cwd: dir, scope: "project" });
+    for (const n of MANAGED_SKILLS) {
+      const head = (await readFile(join(shared(), `kf-${n}`, "SKILL.md"), "utf8")).split("---")[1] ?? "";
+      expect(head, n).toMatch(new RegExp(`\\nname:\\s*kf-${n}\\s*\\n`));
+    }
+    // Agent bodies keep their own names.
+    for (const a of MANAGED_AGENTS) {
+      const head = (await readFile(join(shared(), "kf-flow", "agents", `${a}.md`), "utf8")).split("---")[1] ?? "";
+      expect(head, a).toMatch(new RegExp(`\\nname:\\s*${a}\\s*\\n`));
+    }
   });
 
   it("copies the rendered agent bodies into kf-flow/agents", async () => {

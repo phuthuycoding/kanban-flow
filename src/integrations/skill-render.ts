@@ -1,4 +1,5 @@
 import { PKG_ROOT } from "../shared/paths.js";
+import { copyName } from "./managed.js";
 
 const PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}";
 const NAME = "[a-z][a-z0-9-]*";
@@ -22,4 +23,18 @@ export function renderForCopy(text: string, copyRoot: string): string {
     .replace(new RegExp(`${PLUGIN}/skills/(${NAME})`, "g"), (_m, x: string) => `${copyRoot}/kf-${x}`)
     .replace(new RegExp(`${PLUGIN}/agents`, "g"), () => `${copyRoot}/kf-flow/agents`)
     .replace(new RegExp(PLUGIN, "g"), () => PKG_ROOT);
+}
+
+/**
+ * Render a managed skill's SKILL.md for its copy: renderForCopy, plus the frontmatter `name:` set
+ * to the copy name, so the runtime registers `kf-<name>` and not a bare name the user may own.
+ */
+export function renderSkillMd(text: string, copyRoot: string, name: string): string {
+  return renderForCopy(text, copyRoot).replace(/^---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/, (block) =>
+    block.replace(/^name:.*$/m, `name: ${copyName(name)}`));
+}
+
+/** The warning for copies rendered from a package in a purgeable cache: their package-root paths dangle once it is purged. `copyRoots` names the dirs written. */
+export function ephemeralPackageWarning(copyRoots: string): string {
+  return `⚠ the copies in ${copyRoots} point at ${PKG_ROOT}, a temporary package cache — install kf globally (npm i -g @phuthuycoding/kanban-flow) and re-run kf install so they keep resolving`;
 }

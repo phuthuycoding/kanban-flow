@@ -20,7 +20,7 @@ import {
 } from "./agents.js";
 import { copyName, LEGACY_AGENTS_DIR, LEGACY_SKILL_DIRS, LEGACY_SKILLS, MANAGED_AGENTS, MANAGED_SKILLS } from "./managed.js";
 import { claudeRunner, ensurePlugin, removePlugin } from "./claude-plugin.js";
-import { renderForCopy } from "./skill-render.js";
+import { ephemeralPackageWarning, renderForCopy, renderSkillMd } from "./skill-render.js";
 
 export { MANAGED_AGENTS, MANAGED_SKILLS };
 
@@ -121,7 +121,8 @@ function snapshotDigest(snap: Map<string, Buffer>): string {
 function renderedSkill(skillsDir: string, name: string): Map<string, Buffer> {
   const out = new Map<string, Buffer>();
   for (const [rel, bytes] of dirSnapshot(join(PKG_SKILLS_DIR, name))) {
-    out.set(rel, rel.endsWith(".md") ? Buffer.from(renderForCopy(bytes.toString("utf8"), skillsDir)) : bytes);
+    const text = bytes.toString("utf8");
+    out.set(rel, rel === "SKILL.md" ? Buffer.from(renderSkillMd(text, skillsDir, name)) : rel.endsWith(".md") ? Buffer.from(renderForCopy(text, skillsDir)) : bytes);
   }
   if (name === "flow") {
     for (const a of MANAGED_AGENTS) out.set(join("agents", `${a}.md`), Buffer.from(renderForCopy(readFileSync(join(PKG_AGENTS_DIR, `${a}.md`), "utf8"), skillsDir)));
@@ -208,8 +209,9 @@ export function packageIsEphemeral(): boolean {
 }
 
 /**
- * Why a global link install must not run from this package, or null when it may. A linked git
- * worktree is transient: links from ~/.<agent> into it dangle once the worktree is removed.
+ * Why a global install must not run from this package, or null when it may. A linked git worktree
+ * is transient: the plugin registration and the rendered copies in ~/.<agent> point at its package
+ * root and dangle once the worktree is removed.
  */
 export function globalLinkRefusal(): string | null {
   // The test suite runs inside item worktrees and links into a throwaway HOME, so it opts out.
@@ -221,10 +223,10 @@ export function globalLinkRefusal(): string | null {
     // An unreadable .git leaves the question open; refusing is the safe answer, and the code says why.
     if (!(err instanceof Error && "code" in err)) throw err;
     const path = "path" in err && typeof err.path === "string" ? err.path : join(PKG_ROOT, ".git");
-    return `kf cannot read ${path} (${String(err.code)}) to tell whether it runs from a linked git worktree; a global install would link into it — run it from the primary checkout`;
+    return `kf cannot read ${path} (${String(err.code)}) to tell whether it runs from a linked git worktree; the rendered copies a global install writes would point at this package root — run it from the primary checkout`;
   }
   if (!linked) return null;
-  return `kf runs from a linked git worktree (${PKG_ROOT}); a global install would link into it and dangle once it is removed — run it from the primary checkout`;
+  return `kf runs from a linked git worktree (${PKG_ROOT}); the rendered copies a global install writes would point at the worktree's package root and dangle once it is removed — run it from the primary checkout`;
 }
 
 /**
@@ -712,10 +714,9 @@ export interface InstallSkillsOptions {
 }
 
 /**
- * Install the managed skills for each agent at `scope`. Global installs link to the package
- * (copy fallback); project installs always copy. A global install also removes the managed
- * skills from the project's agent dirs — unless the project declared scope "project", where
- * a one-off global install must not dismantle the declared setup.
+ * Install the managed skills for each agent at `scope` as rendered kf-<name> copies. A global
+ * install also removes the managed skills from the project's agent dirs — unless the project
+ * declared scope "project", where a one-off global install must not dismantle the declared setup.
  */
 export async function installSkills(root: string | null, agents: AgentId[], scope: SkillScope, opts: InstallSkillsOptions = {}): Promise<InstallReport> {
   const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
@@ -727,6 +728,7 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
   let failed = false;
   // Several runtimes read one shared dir; it is written once per run, by the first of them.
   const writtenBy = new Map<string, string>();
+  const writtenOk: string[] = [];
   for (const id of ids) {
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
@@ -740,6 +742,7 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
     const res: SkillInstallResult = scope === "global" ? await linkOrCopySkillsTo(dir) : await copySkillsTo(dir);
     failed ||= res.code !== 0;
     if (res.code === 0) {
+      writtenOk.push(dir);
       const retired = await removeRetiredSkills(dir);
       if (retired.removed.length > 0) cleaned.push(`  ${a.label}: removed retired ${retired.removed.join(", ")} from ${dir}/`);
       for (const name of retired.kept) lines.push(`⚠ ${a.label}: ${name} in ${dir}/ is not kanban-flow's — left untouched; remove it yourself if unwanted`);
@@ -774,6 +777,8 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
   if (lines.length === 0) {
     return { code: 1, stdout: "No valid agents given for install.", stderr: "no agent" };
   }
+  // The copies name package-root paths; from an npx cache those dangle once the cache is purged.
+  if (packageIsEphemeral() && writtenOk.length > 0) lines.push(ephemeralPackageWarning(writtenOk.map((d) => `${d}/`).join(", ")));
   const cleanBlock = cleaned.length > 0 ? `\nCleaned project copies:\n${cleaned.join("\n")}` : "";
   return {
     code: failed ? 1 : 0,

@@ -58,6 +58,14 @@ function snapshot(root: string, base = root, out: Record<string, string> = {}): 
   return out;
 }
 
+/** sha256 over the sorted files of a dir, each as `<relative path>\0<file sha256>\n`: the digest the sidecar records. */
+function digestOf(root: string): string {
+  const files = Object.entries(snapshot(root)).map(([rel]) => rel.replace(/^[\\/]/, "")).sort();
+  const hash = createHash("sha256");
+  for (const rel of files) hash.update(`${rel}\0${createHash("sha256").update(readFileSync(join(root, rel))).digest("hex")}\n`);
+  return hash.digest("hex");
+}
+
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "kfw-scope-"));
 });
@@ -332,6 +340,32 @@ describe("status reporting (UC-006)", () => {
     const res = await cmdInstall(["codex"], { cwd: dir });
     expect(res.stdout).toContain("left untouched");
     expect(readFileSync(join(projectSkills(), copyName("plan"), "SKILL.md"), "utf8")).toBe("tampered");
+  });
+
+  it("flags a manifest-owned copy that predates the package as stale and restores it on install", async () => {
+    await project();
+    await writeFile(
+      join(dir, ".kf", "config.json"),
+      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["codex"], skills: { scope: "project" } }),
+    );
+    await copySkillsTo(projectSkills());
+    expect(skillEntryState(projectSkills(), "plan")).toBe("copied");
+
+    // An older release wrote different bytes and recorded their digest in the sidecar: that is how a package upgrade looks.
+    const entry = join(projectSkills(), copyName("plan"));
+    await writeFile(join(entry, "SKILL.md"), `${readFileSync(join(entry, "SKILL.md"), "utf8")}\nwording from an older release\n`, "utf8");
+    const manifestPath = join(projectSkills(), ".kanban-flow-skills.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, string>;
+    manifest[copyName("plan")] = digestOf(entry);
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+
+    expect(skillEntryState(projectSkills(), "plan")).toBe("stale");
+    expect((await cmdAutoconfig(args("autoconfig"), dir)).stdout).toContain("— stale");
+
+    const res = await cmdInstall(["codex"], { cwd: dir });
+    expect(res.code).toBe(0);
+    expect(skillEntryState(projectSkills(), "plan")).toBe("copied");
+    expect(readFileSync(join(entry, "SKILL.md"), "utf8")).not.toContain("wording from an older release");
   });
 
   it("reports a dangling link as broken and doctor --fix recreates it (TC-018)", async () => {
