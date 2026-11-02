@@ -33,6 +33,7 @@ The four artifacts depend on each other: the UC list drives the diagram and the 
 | --- | --- | --- |
 | 0. Ground the requirement | You, inline | Every name the spec commits to verified against its definition; contradictions fixed in the spec before any plan text |
 | a. Impact survey | `Agent(kf:scout)` — one dispatch per thing that changes (a module, a shared surface, a data shape), all in one message | A `file:line` blast-radius map per target, saved verbatim as `<item>/reviews/scout-<target>.md` for the implement stage to reuse; never pasted into the planning artifacts |
+| a2. Research | `Agent(kf:researcher)` in mode `web` or `prior-art` (brief: `${CLAUDE_PLUGIN_ROOT}/skills/flow/references/researcher-brief.md`), in the same message as the scouts, whenever the plan chooses between two or more approaches or libraries, or names an external dependency or API version | A cited report saved as `<item>/reviews/research-<slug>.md`; reports brainstorm already saved are reused, not re-researched. It runs next to the scouts and does not replace them |
 | b. Skeleton | You | `implementation-plan`, the `use-case-specification` index with the final UC IDs, slugs and one-line goals |
 | c. UC files | One subagent per `UC-###`, in parallel | `use-cases/UC-###-<slug>.md` |
 | d. Diagram + test cases | You | `use-case-diagram`, `test-cases` |
@@ -117,7 +118,7 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 
 ### e. Contract review
 
-Before section 3, run your own self-review first (spec coverage: every FR has a task and a TC; type and name consistency across tasks; every Review Focus line has a pinning test; proportion: a plan several times longer than its spec is a transcript). Then dispatch **`Agent(kf:spec-reviewer)`** once, `model: opus`, with a fresh context: the brief names the work item folder, says the contract is at planning, points at the user's request (the spec's Objective, or an excerpt file you write) and names a report file under the item folder (`<item>/reviews/contract-review.md`). It reports only requirement gaps, untestable FR/AC/TC, traceability breaks (an `FR-###` with no `TC-###`, a `TC-###` citing an unknown FR or UC, an index/file id mismatch, an uncovered Affected surface), scope drift, contradictions and ungrounded names. It edits nothing. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report` and say the review is missing — do not narrate a missing report as clean. Fix what it finds yourself, or record why a finding does not apply; HIGH findings you did not fix go into the approval summary.
+Before section 3, run your own self-review first (spec coverage: every FR has a task and a TC; type and name consistency across tasks; every Review Focus line has a pinning test; proportion: a plan several times longer than its spec is a transcript; research: the self-review fails a plan that chooses between approaches or libraries, or pins an external dependency or API version, without a research report). Then dispatch **`Agent(kf:spec-reviewer)`** once, `model: opus`, with a fresh context: the brief names the work item folder, says the contract is at planning, points at the user's request (the spec's Objective, or an excerpt file you write) and names a report file under the item folder (`<item>/reviews/contract-review.md`). It reports only requirement gaps, untestable FR/AC/TC, traceability breaks (an `FR-###` with no `TC-###`, a `TC-###` citing an unknown FR or UC, an index/file id mismatch, an uncovered Affected surface), scope drift, contradictions and ungrounded names. It edits nothing. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report` and say the review is missing — do not narrate a missing report as clean. Fix what it finds yourself, or record why a finding does not apply; HIGH findings you did not fix go into the approval summary.
 
 ## 3. Human approval gate
 
@@ -129,6 +130,7 @@ Before approval, `approval_required` is expected; `approval_changed` is expected
 
 - what the feature does (2-3 lines)
 - implementation plan headlines (tasks, approach, risks), with the output of `kf tasks <feature> --graph` (critical path and max width) as a block
+- each choice between approaches or libraries, or external dependency or API version, with its sources (the research reports)
 - test strategy + coverage target *(as agreed in the spec's Test Strategy: unit / unit+integration / full + UI scope)*
 - Definition of Done
 - when `.kf/config.json` does not set `worktree.enabled: true`: implementation and `kf verify` run in the main checkout, not an item worktree — say so in the same message

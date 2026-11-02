@@ -2,7 +2,7 @@
 export const MANAGED_SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "travel"];
 
 /** Subagent definitions the phase skills dispatch by name; installed only for runtimes with an agent registry. */
-export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"];
+export const MANAGED_AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer", "researcher"];
 
 /** The names earlier releases installed the skills under, before the kf plugin. */
 export const LEGACY_SKILLS = [
