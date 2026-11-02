@@ -65,7 +65,7 @@ Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
 - Leftover legacy folders `.works/dones/` or `.works/shipping/`; the next `kf status` (or `kf sync`) migrates them.
 - A `.gitignore` without `.kf/travel/`; `kf doctor --fix` adds the entry.
 - `docs_branch_unpushed` — canonical docs for a closed item sit on an unpushed `docs/<context>-<feature>` branch.
-- `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out. The check is skipped when `worktree.domains` is `false` (boolean, default `true`): with it `false`, there are no `.test` DNS or proxy probes, `kf status` prints only `http://127.0.0.1:<port>`, hooks get no `KFW_WORKTREE_DOMAIN`, and ports and routes are still allocated and JSON outputs still carry `domain`.
+- `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out. `worktree.domains` (boolean, default `true`) switches the domain infrastructure; the check is skipped when it is `false`: with it `false`, there are no `.test` DNS or proxy probes, `kf status` prints only `http://127.0.0.1:<port>`, hooks get no `KFW_WORKTREE_DOMAIN`, and ports and routes are still allocated and JSON outputs still carry `domain`.
 
 ## Phase hooks
 

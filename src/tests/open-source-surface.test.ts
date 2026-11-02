@@ -415,10 +415,72 @@ describe("the docs describe concurrent developers in one worktree", () => {
   const read = (file: string) => readFileSync(join(ROOT, file), "utf8");
   const unreleased = () => read("CHANGELOG.md").split(/^## \[/m)[1] ?? "";
 
-  it("states up to 4 developers per worktree in the README, the harness guide, the lifecycle guide and the Pages site", () => {
-    for (const file of ["README.md", "docs/workflow/harness.md", "docs/workflow/lifecycle.md", ".github/pages/index.html"]) {
-      expect(read(file), file).toMatch(/4 developers/);
+  // Markup, backticks and line wraps must not decide whether a rule is present.
+  const plain = (file: string) =>
+    read(file)
+      .replace(/<[^>]*>/g, (tag) => (file.endsWith(".html") ? "" : tag))
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/`/g, "")
+      .replace(/\s+/g, " ");
+  const ruleWindow = (file: string) => {
+    const text = plain(file);
+    const at = text.indexOf("starts at min(2, ceiling)");
+    expect(at, `${file}: the live-cap rule`).toBeGreaterThan(-1);
+    return text.slice(Math.max(0, at - 600), at + 900);
+  };
+
+  it("states the live developer cap rule in the README, the harness guide and the Pages site", () => {
+    for (const file of ["README.md", "docs/workflow/harness.md", ".github/pages/index.html"]) {
+      const rule = ruleWindow(file);
+      for (const needle of [
+        "live developer cap",
+        "starts at min(2, ceiling)",
+        "steps up by one after each clean parallel wave",
+        "halves (never below 1) on a contention-shaped verify failure",
+        "harness.developers.max",
+        "(integer 1..16, default 6)",
+      ]) {
+        expect(rule, `${file}: ${needle}`).toContain(needle);
+      }
     }
+  });
+
+  it("states no fixed cap of 4 developers anywhere in the user-facing docs", () => {
+    for (const file of [
+      "README.md",
+      "docs/workflow/harness.md",
+      "docs/workflow/lifecycle.md",
+      "docs/workflow/cli-reference.md",
+      ".github/pages/index.html",
+    ]) {
+      const text = plain(file);
+      expect(text, file).not.toMatch(/\b4 developers\b/);
+      expect(text, file).not.toMatch(/min\(wave width, 4\)/);
+      expect(text, file).not.toMatch(/(?:cap|ceiling|limit|max(?:imum)?) (?:of|at|is) 4\b/i);
+    }
+  });
+
+  it("documents harness.developers.max with its range and default in the README and the harness guide", () => {
+    for (const file of ["README.md", "docs/workflow/harness.md"]) {
+      const text = plain(file);
+      expect(text, file).toMatch(/harness\.developers\.max is the ceiling of the live developer cap \(integer 1\.\.16, default 6\)/);
+      expect(text, file).toContain('"developers": { "max": 6 }');
+    }
+  });
+
+  it("shows the developers-in-flight wait line with a count in the README and the harness guide", () => {
+    for (const file of ["README.md", "docs/workflow/harness.md"]) {
+      expect(plain(file), file).toContain("TASK-NNN: developer waits — <N> developers in flight");
+    }
+  });
+
+  it("documents the developers field of kf tasks --json in the CLI reference", () => {
+    const row = read("docs/workflow/cli-reference.md")
+      .split("\n")
+      .find((l) => l.startsWith("| `kf tasks <feature>")) ?? "";
+    expect(row, "the kf tasks row").toContain("`developers: {max, source}`");
+    expect(row).toMatch(/`config` or `default`/);
   });
 
   it("no longer states the one-developer-at-a-time rule", () => {
@@ -433,7 +495,7 @@ describe("the docs describe concurrent developers in one worktree", () => {
     const harness = read("docs/workflow/harness.md");
     for (const needle of [
       "developer waits — Files overlap",
-      "developer waits — 4 developers in flight",
+      "developer waits — <N> developers in flight",
       "work list",
       "commit-task.mjs",
       "exit 2",
