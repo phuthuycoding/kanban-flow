@@ -25,7 +25,7 @@ If `kf stage` refuses the move, run `kf validate --change {feature_name}` to see
 
 Every entry to testing creates a new execution id. Keep old reports as evidence, but never reuse them as proof for the current implementation. Read the current id from `kf status` or `kf instruct ... --change`.
 
-**Where the code lives:** when the item has a worktree (`kf status` shows `Worktree:`/`Domain:`), run the app and its tests inside the worktree path — that is where implementation landed. For HTTP/browser checks prefer `http://<domain>` (start the project's dev server on the allocated port); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback shown in `kf status` and say so in the report.
+**Where the code lives:** when the item has a worktree (`kf status` shows `Worktree:`/`Domain:`), run the app and its tests inside the worktree path — that is where implementation landed. For HTTP/browser checks prefer `http://<domain>` (start the project's dev server on the allocated port); When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback shown in `kf status` and say so in the report.
 
 ## 2. Run against the plan's test cases
 
@@ -33,7 +33,7 @@ Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests
 
 Track TC-by-TC: Status / Actual / Expected / Tool / Evidence.
 
-**"It builds" is not "it works".** For every changed behaviour the plan or the diff names that no automated test exercises, run the real code path once and record the command and its real output as a fact: the CLI command with its arguments and exit code, the HTTP request against `http://<domain>` (or the `127.0.0.1:<port>` fallback) with the response, the script with its output. Put each under a `## Behaviour run` heading in the report, next to the TC it stands in for, and name the behaviours you could not run and why. A suite that ran nothing, or a suite that never touches the changed path, is not PASS on its own — the review stage reads the "changed behaviour no test touches" line from this report into the reviewer's pack.
+**"It builds" is not "it works".** For every changed behaviour the plan or the diff names that no automated test exercises, run the real code path once and record the command and its real output as a fact: the CLI command with its arguments and exit code, the HTTP request against `http://<domain>` (or the `127.0.0.1:<port>` fallback; When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`) with the response, the script with its output. Put each under a `## Behaviour run` heading in the report, next to the TC it stands in for, and name the behaviours you could not run and why. A suite that ran nothing, or a suite that never touches the changed path, is not PASS on its own — the review stage reads the "changed behaviour no test touches" line from this report into the reviewer's pack.
 
 For `kind: bug`, use the bug report's reproduction, expected result, acceptance criteria and regression strategy instead of a phase-2 test plan. Verify the defect is fixed and run the affected regression suite; use descriptive test IDs or actual test names in the results table. Do not require FR/UC/TC artifacts for a bug.
 

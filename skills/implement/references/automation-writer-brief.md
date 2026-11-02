@@ -19,7 +19,7 @@ Agent:
 
     ## Where you work
     Worktree: [WORKTREE] on branch [BRANCH]. Never touch the main checkout.
-    Base URL: [DOMAIN_URL], or the fallback [FALLBACK_URL] when the domain does not resolve.
+    Base URL: [DOMAIN_URL], or the fallback [FALLBACK_URL] when the domain does not resolve. When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`.
     Files allowlist: [FILES]. Write only spec files inside it, never production code and
     never the test-writer's tests.
     Precondition: [PRECONDITION — the UI exists | the data-testid contract in the brief].
@@ -42,7 +42,7 @@ Agent:
 - `[MODEL]` — REQUIRED. See `references/task-loop.md` § Model selection.
 - `[BRIEF_FILE]` — `<item>/loop/task-NNN-brief.md` in the task loop, carrying the task's UI/E2E TC blocks; `<item>/loop/testing-e2e-brief.md` at the testing stage (kf:test section 2).
 - `[REPORT_FILE]` — `<item>/loop/task-NNN-e2e-report.md` in the task loop; `<item>/loop/testing-e2e-report.md` at the testing stage.
-- `[WORKTREE]`, `[BRANCH]`, `[DOMAIN_URL]`, `[FALLBACK_URL]` — the `Worktree:` and `Domain:` lines and the `127.0.0.1:<port>` fallback from `kf status --change <feature>`.
+- `[WORKTREE]`, `[BRANCH]`, `[DOMAIN_URL]`, `[FALLBACK_URL]` — the `Worktree:` and `Domain:` lines and the `127.0.0.1:<port>` fallback from `kf status --change <feature>`. When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then).
 - `[FILES]` — the task row's Files allowlist in the task loop; the Playwright `testDir` at the testing stage (the spec paths when the config sets none).
 - `[PRECONDITION]` — which of the two holds; neither holding is a BLOCKED, not a dispatch.
 

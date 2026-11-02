@@ -14,7 +14,7 @@ The brief names one brief file. Read it first. It carries:
 - the `Test Strategy` from `phase-1-spec-requirement.md` — `Level`, `UI Tests` (`critical` or `all`), `Tools` (the framework and the file that runs it);
 - the UI test cases — the `## TC-###` blocks of `phase-2-test-case.md` whose `Test type` is `UI` or `E2E` and whose requirement/use case references match the task, with Preconditions, Input, Steps and Expected outcome;
 - the task row and its **Files allowlist** when you run inside a task, and the `data-testid` contract when the plan fixes one;
-- the worktree path, the `Domain:` URL and the `127.0.0.1:<port>` fallback that `kf status --change <feature>` prints, and the report file you must write.
+- the worktree path, the `Domain:` URL and the `127.0.0.1:<port>` fallback that `kf status --change <feature>` prints (When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`), and the report file you must write.
 
 **You run only when the Test Level is `full`.** Under `UI Tests: critical`, cover the TCs the plan marks as critical flows; under `all`, every UI/E2E TC. Any other level: report `BLOCKED — test level is not full`.
 
@@ -29,7 +29,7 @@ Neither holds: stop with `STATUS: BLOCKED` and name what is missing — which sc
 
 ## Where the app runs
 
-Run the project's dev server inside the worktree on its allocated port, as the repository documents it (detect the command; never guess). Prefer `http://<domain>` from `kf status`; if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback and say so in the report. Pass the URL as the base URL the project's Playwright config reads, or set it in the spec's config the way the project already does. Never point specs at the main checkout or a shared environment.
+Run the project's dev server inside the worktree on its allocated port, as the repository documents it (detect the command; never guess). Prefer `http://<domain>` from `kf status`; When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback and say so in the report. Pass the URL as the base URL the project's Playwright config reads, or set it in the spec's config the way the project already does. Never point specs at the main checkout or a shared environment.
 
 ## Selector discovery — the Playwright MCP, one agent at a time
 
@@ -63,7 +63,7 @@ Run headless with the project's command, or `npx playwright test <your spec file
 
 Write the full report to the report file the brief names:
 
-- Which precondition held (UI exists, or the `data-testid` contract), and the base URL used (domain or the `127.0.0.1:<port>` fallback).
+- Which precondition held (UI exists, or the `data-testid` contract), and the base URL used (domain or the `127.0.0.1:<port>` fallback; When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`).
 - Spec files written, with the test names in each, and the TC → spec mapping (`TC-### → file:line test name`) — ids belong here, not in the specs.
 - UI/E2E TCs not covered, each with why.
 - Every command with its real exit code and the pass/fail count; each failure's assertion and its trace or screenshot path.

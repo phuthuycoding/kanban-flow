@@ -23,7 +23,7 @@ kf stage {feature_name} review
 
 (Already there → skip. If the move is refused, run `kf validate --change {feature_name}` — a missing, stale or non-PASS testing report blocks this direction; loop back through kf:test.)
 
-Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `Worktree:`/`Domain:` block. **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, so uncommitted review-relevant changes are a finding, not a footnote.
+Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `Worktree:`/`Domain:` block. When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then). **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, so uncommitted review-relevant changes are a finding, not a footnote.
 
 Create the run folder: `<item>/reviews/<executionId>/`. Every file this review produces goes there; a re-review after a repair loop gets a new execution id and a new folder, so old evidence is never mistaken for current.
 
