@@ -21,6 +21,23 @@ describe("renderForCopy", () => {
     expect(renderForCopy("type /kf:implement to continue", ROOT)).toBe("type kf-implement to continue");
   });
 
+  it("rewrites a bare kf:<skill> hand-off in prose to the kf-<name> copy name", () => {
+    expect(renderForCopy("Load the kf:test skill and move the feature to testing.", ROOT)).toBe("Load the kf-test skill and move the feature to testing.");
+    expect(renderForCopy("kf:plan, then kf:review.", ROOT)).toBe("kf-plan, then kf-review.");
+    expect(renderForCopy("(kf:implement)", ROOT)).toBe("(kf-implement)");
+  });
+
+  it("rewrites a bare kf:<managed agent> mention the way an Agent dispatch names it", () => {
+    const out = renderForCopy("hand the brief to kf:researcher first", ROOT);
+    expect(out).not.toContain("kf:researcher");
+    expect(out).toContain("kf-researcher");
+  });
+
+  it("leaves kf:<unknown>, a longer name and a prefixed word alone", () => {
+    const text = "see kf:nonsense and xkf:test and kf:testing-notes";
+    expect(renderForCopy(text, ROOT)).toBe("see kf:nonsense and xkf:test and kf:testing-notes");
+  });
+
   it("points a plugin skill path at the copy dir", () => {
     expect(renderForCopy(`${PLUGIN_VAR}/skills/flow/references/harness-tools.md`, ROOT)).toBe(`${ROOT}/kf-flow/references/harness-tools.md`);
   });
@@ -75,6 +92,7 @@ describe("renderForCopy", () => {
       const out = renderForCopy(readFileSync(f, "utf8"), ROOT);
       expect(out, f).not.toContain("CLAUDE_PLUGIN_ROOT");
       expect(out, f).not.toMatch(/Skill\(kf:|Agent\(kf:|\/kf:[a-z]/);
+      expect(out, f).not.toMatch(new RegExp(`(?<![\\w/.:-])kf:(${[...MANAGED_SKILLS, ...MANAGED_AGENTS].join("|")})(?![\\w-])`));
     }
   });
 });

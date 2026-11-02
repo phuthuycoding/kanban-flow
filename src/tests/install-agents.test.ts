@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, readFile, writeFile, readlink, symlink } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, readFile, writeFile, readlink, symlink, copyFile } from "node:fs/promises";
 import { existsSync, lstatSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -170,9 +170,13 @@ describe("kf install / uninstall leave Claude Code agents to the plugin", () => 
     await mkdir(join(dir, ".claude", "agents"), { recursive: true });
     await writeFile(join(dir, ".claude", "agents", "mine.md"), "---\nname: mine\n---\n");
     await writeFile(join(dir, ".claude", "agents", "scout.md"), FOREIGN);
+    // An installed copy of a managed agent beside the foreign one, so the test cannot pass by uninstall doing nothing.
+    const owned = join(dir, ".claude", "agents", "developer.md");
+    await copyFile(join(PKG_AGENTS_DIR, "developer.md"), owned);
 
     const res = await cmdUninstall(["claude"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
+    expect(existsSync(owned)).toBe(false);
     expect(existsSync(join(dir, ".claude", "agents", "mine.md"))).toBe(true);
     expect(await readFile(join(dir, ".claude", "agents", "scout.md"), "utf8")).toBe(FOREIGN);
   });

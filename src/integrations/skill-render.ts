@@ -1,8 +1,11 @@
 import { PKG_ROOT } from "../shared/paths.js";
-import { copyName } from "./managed.js";
+import { MANAGED_AGENTS, MANAGED_SKILLS, copyName } from "./managed.js";
 
 const PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}";
 const NAME = "[a-z][a-z0-9-]*";
+
+// A bare `kf:<name>` hand-off in prose names a managed skill or agent; the copy is `kf-<name>`.
+const BARE_HANDOFF = new RegExp(`(?<![\\w-])kf:(${[...MANAGED_SKILLS, ...MANAGED_AGENTS].map(escape).join("|")})(?![a-z0-9]|-[a-z0-9])`, "g");
 
 function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -20,6 +23,7 @@ export function renderForCopy(text: string, copyRoot: string): string {
     // Without an agent registry the runtime gets the body itself; the wording is the paste form harness-tools.md documents.
     .replace(new RegExp(`Agent\\(kf:(${NAME})\\)`, "g"), (_m, a: string) => `paste ${copyRoot}/kf-flow/agents/${a}.md as a subagent prompt`)
     .replace(new RegExp(`/kf:(${NAME})`, "g"), "kf-$1")
+    .replace(BARE_HANDOFF, "kf-$1")
     .replace(new RegExp(`${PLUGIN}/skills/(${NAME})`, "g"), (_m, x: string) => `${copyRoot}/kf-${x}`)
     .replace(new RegExp(`${PLUGIN}/agents`, "g"), () => `${copyRoot}/kf-flow/agents`)
     .replace(new RegExp(PLUGIN, "g"), () => PKG_ROOT);
