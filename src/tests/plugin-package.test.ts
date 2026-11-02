@@ -11,7 +11,7 @@ import { copySkillsTo, linkOrCopySkillsTo, removeSkillsFrom, removeRetiredSkills
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // Spelled out here on purpose: the tree is checked against the intended names, not against the module under test.
-const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "travel"];
+const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel"];
 const AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer", "researcher"];
 const LEGACY = ["kanban-flow", "kanban-brainstorm", "kanban-plan", "kanban-implement", "kanban-test", "kanban-review", "kanban-archive", "kanban-bug"];
 

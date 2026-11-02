@@ -31,14 +31,15 @@ A step invoked as a tool renders one line carrying its name; a step merely *perf
 
 | Step | Named line(s) in the transcript | Skipped when |
 |---|---|---|
-| 2 Brainstorm | `Skill(kf:brainstorm)` · `Agent(kf:spec-reviewer)` once before the confirmation ask | the spec was written without the reviewer, or confirmed without the user's word |
-| 3 Plan | `Skill(kf:plan)` · `Agent(kf:scout)` per thing that changes · `Agent(kf:spec-reviewer)` before the approval ask | the impact survey was done inline, or the plan presented without the reviewer |
-| 4 Implement | `Skill(kf:implement)` with `Agent(kf:test-writer)`, `Agent(kf:developer)` and `Agent(kf:code-reviewer)` per task | a task was marked complete without its test-writer, developer or review seat |
+| 2 Brainstorm | `Skill(kf:brainstorm)` · `Agent(kf:spec-reviewer)` once before the confirmation ask · `Agent(kf:researcher)` per outside-knowledge question | the spec was written without the reviewer, or confirmed without the user's word |
+| 3 Plan | `Skill(kf:plan)` · `Agent(kf:scout)` per thing that changes · `Agent(kf:researcher)` per outside-knowledge question · `Agent(kf:spec-reviewer)` before the approval ask | the impact survey was done inline, or the plan presented without the reviewer |
+| 4 Implement | `Skill(kf:implement)` with `Agent(kf:test-writer)`, `Agent(kf:developer)` and `Agent(kf:code-reviewer)` per task · `Agent(kf:researcher)` for a blocker that needs outside knowledge | a task was marked complete without its test-writer, developer or review seat |
 | 5 Test | `Skill(kf:test)` | a PASS report with no command and exit code behind it |
 | 6 Review | `Skill(kf:review)` · `Agent(kf:code-reviewer)` × the tier `select-tier` chose · the landing board `cat` from its file · `gh pr create` (first review only) and the CI watcher, both after the reviewer PASS | the orchestrator wrote findings itself, dispatched fewer seats than the tier, summarised the board instead of printing it, or opened the PR before the reviewer passed |
+| Spike (no item) | `Skill(kf:spike)` · `Agent(kf:researcher)` per question research can answer | the probe was run without the skill, or a work item was opened for a question |
 | 7 Merge / close | the PR URL handed to the human, then `kf status` showing `done` after their merge | a close before the PR merged, or a merge made by the agent |
 
-The six agent bodies live in this skill at `agents/<name>.md`; `kf install` registers them where Claude Code looks (`.claude/agents/`), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
+The seven agent bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md`; `kf install` registers them where Claude Code looks (`.claude/agents/`), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
 
 ---
 
@@ -48,7 +49,7 @@ Before `kf new`, name the path so the user can override it:
 
 | Path | What it is | What happens |
 |---|---|---|
-| **Spike** | A question, not a change: "can we…", "how long would…", "what does X return today". The output is an answer; anything built is throwaway. A one-shot operation that lands no code (delete old releases, flip a catalog setting) is a spike with the human's explicit "go" before the irreversible step. | **No work item.** Say what you will probe in two sentences, get a nod, find out as cheaply as correctness allows, report the recommendation and the exact commands run. If the answer turns into work, classify again. |
+| **Spike** | A question, not a change: "can we…", "how long would…", "what does X return today". The output is an answer; anything built is throwaway. A one-shot operation that lands no code (delete old releases, flip a catalog setting) is a spike with the human's explicit "go" before the irreversible step. | Load `Skill(kf:spike)`: **no work item**, and it carries the procedure. |
 | **Bounded** | A change to a flow that already exists in this repository: a flag, a small endpoint, a one-file fix — "I know the kind of app" is not enough; the flow you change must be here to read. | `kf new` and **every gate below**, at the smallest honest size: one or two UCs, test cases for the touched behaviour only, a plan of one to three tasks, one `scout` on the one surface, no divergence framework, review at the tier the diff earns (usually T1). The spec and plan are a page each. |
 | **Architectural** | New projects, new subsystems, changes that restructure how components fit or alter interfaces others depend on, anything with a shared surface. | The full process: divergence framework, several scouts, the complete planning contract, the reviewer tier the diff demands. |
 
@@ -109,7 +110,7 @@ The approval is the start: `kf approve {feature}` moves the item to implementati
 
 ## Multi-agent harness
 
-**In-session agents** (`scout`, `spec-reviewer`, `test-writer`, `developer`, `automation-writer`, `code-reviewer`) are subagents the phase skills dispatch from the session running the skill, each for a bounded job with a fresh context and a short report back: `Agent(kf:scout)` and `Agent(kf:spec-reviewer)` at brainstorm and planning, `Agent(kf:test-writer)` → `Agent(kf:developer)` → `Agent(kf:code-reviewer)` per task in `kf:implement`, `Agent(kf:automation-writer)` for UI tests, and `Agent(kf:code-reviewer)` × the tier at review. The phase skill decides who fills each seat; a session never fills a review seat itself.
+**In-session agents** (`scout`, `spec-reviewer`, `test-writer`, `developer`, `automation-writer`, `code-reviewer`, `researcher`) are subagents the phase skills dispatch from the session running the skill, each for a bounded job with a fresh context and a short report back: `Agent(kf:scout)` and `Agent(kf:spec-reviewer)` at brainstorm and planning, `Agent(kf:test-writer)` → `Agent(kf:developer)` → `Agent(kf:code-reviewer)` per task in `kf:implement`, `Agent(kf:automation-writer)` for UI tests, `Agent(kf:code-reviewer)` × the tier at review, and `Agent(kf:researcher)` for a question the repository cannot answer (brainstorm, planning, a developer's blocker, a spike). The phase skill decides who fills each seat; a session never fills a review seat itself.
 
 **Mechanical verification:** `kf verify {feature} --task TASK-### --base <sha>` runs the `harness.verify.task` commands and checks the task's changed files against its Files allowlist; `kf verify {feature} --task TASK-### --commits <sha>[,<sha>…]` checks exactly those commits and runs the commands in a temporary detached worktree at the newest (`--base` stays the single-task form); `kf verify {feature} --stage` runs `harness.verify.stage`. Exit 0 pass, 1 a verify command failed, 2 a changed file is outside the task's Files, 3 bad input or kf verify could not run (nothing ran). `kf:implement` says where the loop calls them. `kf drive`, `kf run`, `kf runs` and `kf harness` were removed; `kf doctor --fix` clears the config keys they used.
 
