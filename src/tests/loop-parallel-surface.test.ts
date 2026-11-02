@@ -43,9 +43,10 @@ describe("the parallel task loop window", () => {
     expect(reference("task-loop.md")).not.toContain(OLD);
   });
 
-  it("states the cap of 4 developers counting fix-round and resume-commit developers, and the three dispatch conditions", () => {
+  it("states the live cap counting fix-round and resume-commit developers, and the three dispatch conditions", () => {
     for (const [name, text] of [["SKILL.md", taskLoop()], ["task-loop.md", reference("task-loop.md")]] as const) {
-      const cap = paragraphWith(text, "cap of 4");
+      const cap = paragraphWith(text, "three dispatch conditions");
+      expect(cap, name).toContain("live cap");
       expect(cap, name).toContain("fix-round");
       expect(cap, name).toContain("resume-commit");
       expect(cap, name).toContain("three dispatch conditions");
@@ -67,7 +68,7 @@ describe("the parallel task loop window", () => {
   it("writes both wait lines verbatim in the skill and the loop reference", () => {
     for (const [name, text] of [["SKILL.md", implement()], ["task-loop.md", reference("task-loop.md")]] as const) {
       expect(text, name).toContain("TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)");
-      expect(text, name).toContain("TASK-NNN: developer waits — 4 developers in flight");
+      expect(text, name).toContain("TASK-NNN: developer waits — <N> developers in flight");
     }
   });
 
@@ -96,7 +97,7 @@ describe("the parallel task loop window", () => {
   });
 
   it("writes the cap wait line for a fix round held by the cap and no longer ledgers a queued fix", () => {
-    const fixRound = paragraphWith(taskLoop(), "developer waits — 4 developers in flight");
+    const fixRound = paragraphWith(taskLoop(), "developer waits — <N> developers in flight");
     expect(fixRound).toMatch(/fix round/i);
     expect(implement()).not.toContain("TASK-H: fix queued — developer TASK-M in flight");
     expect(reference("task-loop.md")).not.toContain("TASK-H: fix queued — developer TASK-M in flight");
@@ -155,7 +156,7 @@ describe("dispatching tasks in parallel, gated on overlaps", () => {
   it("makes a developer wait and ledgers the overlapping entries and the task that holds them", () => {
     const wait = paragraphWith(taskLoop(), "TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)");
     expect(wait).toContain("TASK-MMM: complete");
-    const cap = paragraphWith(taskLoop(), "TASK-NNN: developer waits — 4 developers in flight");
+    const cap = paragraphWith(taskLoop(), "TASK-NNN: developer waits — <N> developers in flight");
     expect(cap).toMatch(/next `?developer done`?/);
   });
 

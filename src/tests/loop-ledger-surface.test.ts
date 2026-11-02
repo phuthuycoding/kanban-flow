@@ -115,7 +115,7 @@ describe("the ledger grammar in task-loop.md", () => {
     expect(shapes.filter((shape) => shape === "developerWaits")).toHaveLength(2);
     const waits = example.filter((l) => l.includes("developer waits"));
     expect(waits.some((l) => /developer waits — Files overlap \S+ \/ \S+ \(TASK-\d+\)/.test(l)), "overlap wait").toBe(true);
-    expect(waits.some((l) => l.includes("developer waits — 4 developers in flight")), "cap wait").toBe(true);
+    expect(waits.some((l) => /developer waits — \d+ developers in flight/.test(l)), "cap wait").toBe(true);
     expect(example[10].startsWith("Ruling:"), example[10]).toBe(true);
     expect(example[11].startsWith("TASK-001: test hashes"), example[11]).toBe(true);
     expect(parsed.slice(10).map((l) => l.kind)).toEqual(["other-timed", "other-timed"]);
@@ -235,7 +235,7 @@ describe("resuming the task loop from the ledger", () => {
     expect(items[7]).toContain("next fix round");
     expect(items[7]).toContain("breaker");
     expect(items[7]).toContain("resume the developer to commit them unchanged");
-    expect(items[7]).toContain("developer waits — 4 developers in flight");
+    expect(items[7]).toContain("developer waits — <N> developers in flight");
     expect(items[9]).toContain("cascade re-review owed");
     expect(items[10]).toContain("completion check");
   });
