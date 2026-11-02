@@ -258,6 +258,51 @@ describe("kf doctor and legacy leftovers", () => {
   });
 });
 
+describe("kf doctor and a retired kanban-ship under .claude", () => {
+  it("reports an owned kanban-ship link, and --fix removes it", async () => {
+    await project("claude");
+    setList([entry()]);
+    const skills = join(process.env.HOME!, ".claude", "skills");
+    await mkdir(skills, { recursive: true });
+    const ship = join(skills, "kanban-ship");
+    await symlink(join(PKG_ROOT, "skills", "kanban-ship"), ship, "dir");
+
+    const before = await cmdDoctor(args("doctor"), root);
+    expect(findingLines(before.stdout).some((l) => l.includes("kanban-ship"))).toBe(true);
+    expect((await lstat(ship)).isSymbolicLink()).toBe(true);
+
+    const fixed = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(existsSync(ship)).toBe(false);
+    expect(fixed.code).toBe(0);
+  });
+
+  it("reports and removes an owned kanban-ship copy in the project dir", async () => {
+    await project("claude");
+    setList([entry()]);
+    const ship = join(root, ".claude", "skills", "kanban-ship");
+    await mkdir(ship, { recursive: true });
+    await writeFile(join(ship, "SKILL.md"), await readFile(join(PKG_ROOT, "src", "tests", "fixtures", "kanban-ship-0.13.0", "SKILL.md"), "utf8"));
+
+    const before = await cmdDoctor(args("doctor"), root);
+    expect(findingLines(before.stdout).some((l) => l.includes("kanban-ship"))).toBe(true);
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(existsSync(ship)).toBe(false);
+  });
+
+  it("leaves a kanban-ship it does not own alone, with and without --fix", async () => {
+    await project("claude");
+    setList([entry()]);
+    const ship = join(process.env.HOME!, ".claude", "skills", "kanban-ship");
+    await mkdir(ship, { recursive: true });
+    await writeFile(join(ship, "SKILL.md"), "my own ship skill\n");
+
+    const before = await cmdDoctor(args("doctor"), root);
+    expect(findingLines(before.stdout).some((l) => l.includes("kanban-ship"))).toBe(false);
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(await readFile(join(ship, "SKILL.md"), "utf8")).toBe("my own ship skill\n");
+  });
+});
+
 describe("kf doctor probe failures", () => {
   it("calls an unusable claude answer 'state unknown', as a warning that does not fail the verdict", async () => {
     await project("claude");

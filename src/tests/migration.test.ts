@@ -212,19 +212,22 @@ describe.each<SkillScope>(["project", "global"])("legacy migration at %s scope",
   });
 });
 
+/** Every bare phase name an earlier release's kanban-<name> skill had; a user may own a skill under any of them. */
+const BARE_NAMES = LEGACY.map(([, bare]) => bare);
+
 describe.each<SkillScope>(["project", "global"])("bare-name skills at %s scope", (scope) => {
   it("install, uninstall and removeLegacy never write, modify or delete a user's test, plan or review skill", async () => {
     const root = base(scope);
     const skills = join(root, ".claude", "skills");
-    for (const name of ["test", "plan", "review"]) {
+    for (const name of BARE_NAMES) {
       await mkdir(join(skills, name), { recursive: true });
       await writeFile(join(skills, name, "SKILL.md"), `my ${name}\n`);
     }
     await seedLegacy(scope);
     const mineBefore = Object.fromEntries(
-      Object.entries(await snapshot(skills)).filter(([p]) => /^(test|plan|review)\//.test(p)),
+      Object.entries(await snapshot(skills)).filter(([p]) => BARE_NAMES.some((n) => p.startsWith(`${n}/`))),
     );
-    expect(Object.keys(mineBefore).sort()).toEqual(["plan/SKILL.md", "review/SKILL.md", "test/SKILL.md"]);
+    expect(Object.keys(mineBefore).sort()).toEqual(BARE_NAMES.map((n) => `${n}/SKILL.md`).sort());
 
     await removeLegacy(proj, scope);
     await cmdInstall(["claude"], { cwd: proj, scope });
@@ -233,5 +236,75 @@ describe.each<SkillScope>(["project", "global"])("bare-name skills at %s scope",
     const after = await snapshot(skills);
     for (const [path, body] of Object.entries(mineBefore)) expect(after[path]).toBe(body);
     expect(existsSync(join(skills, "test", "SKILL.md"))).toBe(true);
+  });
+
+  it("keeps a user's bare-name symlink and the directory it points to", async () => {
+    const root = base(scope);
+    const skills = join(root, ".claude", "skills");
+    await mkdir(skills, { recursive: true });
+    const elsewhere = join(dir, "mine");
+    const links: string[] = [];
+    for (const name of BARE_NAMES) {
+      await mkdir(join(elsewhere, name), { recursive: true });
+      await writeFile(join(elsewhere, name, "SKILL.md"), `my ${name}\n`);
+      await symlink(join(elsewhere, name), join(skills, name), "dir");
+      links.push(join(skills, name));
+    }
+    await seedLegacy(scope);
+
+    await removeLegacy(proj, scope);
+    await cmdInstall(["claude"], { cwd: proj, scope });
+    await cmdUninstall(["claude"], { cwd: proj, scope });
+
+    for (const name of BARE_NAMES) {
+      expect(lstatSync(join(skills, name)).isSymbolicLink(), name).toBe(true);
+      expect(readlinkSync(join(skills, name)), name).toBe(join(elsewhere, name));
+      expect(await readFile(join(elsewhere, name, "SKILL.md"), "utf8")).toBe(`my ${name}\n`);
+    }
+  });
+});
+
+describe.each<SkillScope>(["project", "global"])("a retired kanban-ship at %s scope on a claude-only install", (scope) => {
+  const released = () => readFile(join(PKG_ROOT, "src", "tests", "fixtures", "kanban-ship-0.13.0", "SKILL.md"), "utf8");
+
+  it("kf install removes an owned kanban-ship copy and lists it", async () => {
+    const ship = join(base(scope), ".claude", "skills", "kanban-ship");
+    await mkdir(ship, { recursive: true });
+    await writeFile(join(ship, "SKILL.md"), await released());
+    const res = await cmdInstall(["claude"], { cwd: proj, scope });
+    expect(res.code).toBe(0);
+    expect(present(ship)).toBe(false);
+    expect(res.stdout.split("\n").filter((l) => l.includes("removed") && l.includes("kanban-ship"))).not.toHaveLength(0);
+  });
+
+  it.skipIf(process.platform === "win32")("kf install removes a kanban-ship link into the package", async () => {
+    const skills = join(base(scope), ".claude", "skills");
+    await mkdir(skills, { recursive: true });
+    const ship = join(skills, "kanban-ship");
+    await symlink(join(PKG_ROOT, "skills", "kanban-ship"), ship, "dir");
+    const res = await cmdInstall(["claude"], { cwd: proj, scope });
+    expect(res.code).toBe(0);
+    expect(present(ship)).toBe(false);
+  });
+
+  it("kf install keeps a kanban-ship it does not own", async () => {
+    const ship = join(base(scope), ".claude", "skills", "kanban-ship");
+    await mkdir(ship, { recursive: true });
+    await writeFile(join(ship, "SKILL.md"), "my own ship skill\n");
+    await cmdInstall(["claude"], { cwd: proj, scope });
+    expect(await readFile(join(ship, "SKILL.md"), "utf8")).toBe("my own ship skill\n");
+  });
+
+  it("removeLegacy removes the owned copy and keeps the foreign one", async () => {
+    const owned = join(base(scope), ".claude", "skills", "kanban-ship");
+    await mkdir(owned, { recursive: true });
+    await writeFile(join(owned, "SKILL.md"), await released());
+    await removeLegacy(proj, scope);
+    expect(present(owned)).toBe(false);
+
+    await mkdir(owned, { recursive: true });
+    await writeFile(join(owned, "SKILL.md"), "my own ship skill\n");
+    await removeLegacy(proj, scope);
+    expect(await readFile(join(owned, "SKILL.md"), "utf8")).toBe("my own ship skill\n");
   });
 });

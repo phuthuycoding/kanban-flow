@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { readProjectConfig, effectiveSkillsScope, ProjectConfigError } from "./config.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, SKILL_SCOPES, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, legacyEntries, removeLegacy, unhealthySkills } from "../integrations/install.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, legacyEntries, removeLegacy, RETIRED_SKILLS, unhealthySkills } from "../integrations/install.js";
 import { ClaudePluginError, claudeRunner, claudeScope, ensurePlugin, pluginState, PLUGIN_ID } from "../integrations/claude-plugin.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { DoctorFinding } from "./doctor-types.js";
@@ -101,7 +101,7 @@ function checkLegacy(root: string): DoctorFinding[] {
   const findings: DoctorFinding[] = [];
   for (const e of SKILL_SCOPES.flatMap((scope) => legacyEntries(root, scope))) {
     if (e.owned) byDir.set(e.dir, [...(byDir.get(e.dir) ?? []), e.name]);
-    else if (e.name.startsWith("kanban-")) {
+    else if (e.name.startsWith("kanban-") && !RETIRED_SKILLS.includes(e.name)) {
       findings.push({
         level: "WARNING",
         area: e.dir,

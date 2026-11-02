@@ -538,6 +538,13 @@ function ownsLegacySkill(skillsDir: string, name: string, st: Stats, manifest: R
   return manifest[name] !== undefined && manifest[name] === dirDigest(target);
 }
 
+/** A retired skill is kf's as a link into a kf package or a directory of only the files it shipped. */
+function ownsRetiredSkill(skillsDir: string, name: string, st: Stats): boolean {
+  const target = join(skillsDir, name);
+  if (st.isSymbolicLink()) return isKanbanFlowSkillLink(skillsDir, name, readlinkSync(target));
+  return st.isDirectory() && isRetiredSkillCopy(target, RETIRED_SKILL_FILES[name]);
+}
+
 /** Every entry the pre-plugin releases may have left at `scope`, owned or not; reads only. */
 export function legacyEntries(root: string, scope: SkillScope): LegacyEntry[] {
   const base = legacyBase(root, scope);
@@ -548,6 +555,10 @@ export function legacyEntries(root: string, scope: SkillScope): LegacyEntry[] {
     for (const name of [...LEGACY_SKILLS, LEGACY_TRAVEL]) {
       const st = lstatSync(join(dir, name), { throwIfNoEntry: false });
       if (st) out.push({ dir, name, owned: ownsLegacySkill(dir, name, st, manifest) });
+    }
+    for (const name of RETIRED_SKILLS) {
+      const st = lstatSync(join(dir, name), { throwIfNoEntry: false });
+      if (st) out.push({ dir, name, owned: ownsRetiredSkill(dir, name, st) });
     }
   }
   const agentsDir = join(base, LEGACY_AGENTS_DIR);
