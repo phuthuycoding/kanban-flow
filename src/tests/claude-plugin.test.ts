@@ -183,6 +183,7 @@ describe("removePlugin", () => {
     expect(res.code).toBe(0);
     expect(calls).toEqual([
       ["plugin", "uninstall", "kf", "--scope", "user"],
+      ["plugin", "list", "--json"],
       ["plugin", "marketplace", "remove", "kanban-flow"],
     ]);
   });
@@ -208,7 +209,7 @@ describe("removePlugin when claude says the plugin is gone", () => {
   it("still removes the marketplace after a plugin that was not installed", async () => {
     const { run, calls } = stub("[]", { "plugin uninstall": { code: 1, stdout: "", stderr: 'Plugin "kf" not found' } });
     await removePlugin("global", run);
-    expect(calls[1]).toEqual(["plugin", "marketplace", "remove", "kanban-flow"]);
+    expect(calls[2]).toEqual(["plugin", "marketplace", "remove", "kanban-flow"]);
   });
 
   it.each(["bash: claude: command not found", "settings file not found"])(
@@ -229,6 +230,33 @@ describe("removePlugin when claude says the plugin is gone", () => {
     const res = await removePlugin("global", run);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("/plugin");
+  });
+});
+
+describe("removePlugin and the per-user marketplace", () => {
+  it("keeps the marketplace while kf is still installed at the user scope", async () => {
+    const { run, calls } = stub(entry({ scope: "user" }));
+    const res = await removePlugin("project", run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "uninstall", "kf", "--scope", "project"]);
+    expect(calls.some((c) => c[1] === "marketplace" && c[2] === "remove")).toBe(false);
+    expect(res.stdout).toMatch(/kept/i);
+  });
+
+  it("removes the marketplace when kf is installed at no other scope", async () => {
+    const { run, calls } = stub("[]");
+    const res = await removePlugin("project", run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "marketplace", "remove", "kanban-flow"]);
+  });
+
+  it("reports the marketplace as not added when claude says it is not found", async () => {
+    const { run } = stub("[]", {
+      "plugin marketplace": { code: 1, stdout: "", stderr: "Marketplace 'kanban-flow' not found" },
+    });
+    const res = await removePlugin("project", run);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("not added");
   });
 });
 

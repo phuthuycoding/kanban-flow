@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
+import { copyName } from "../integrations/managed.js";
 
 let dir: string;
 let bin: string;
@@ -108,6 +109,7 @@ describe("kf uninstall --agent claude through the plugin CLI", () => {
     expect(res.code).toBe(0);
     expect(await calls()).toEqual([
       "plugin uninstall kf --scope user",
+      "plugin list --json",
       "plugin marketplace remove kanban-flow",
     ]);
   });
@@ -116,13 +118,13 @@ describe("kf uninstall --agent claude through the plugin CLI", () => {
 describe("kf uninstall when the plugin removal fails", () => {
   it("exits 1 and still removes the other agents' copies", async () => {
     await cmdInstall(["codex"], { cwd: projDir(), scope: "project" });
-    expect(existsSync(join(projDir(), ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projDir(), ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
     process.env.KF_STUB_FAIL = "plugin store is locked";
 
     const res = await cmdUninstall(["claude", "codex"], { cwd: projDir(), scope: "project" });
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("plugin store is locked");
-    expect(existsSync(join(projDir(), ".agents", "skills", "kanban-flow"))).toBe(false);
+    expect(existsSync(join(projDir(), ".agents", "skills", copyName("flow")))).toBe(false);
   });
 });
 
@@ -132,7 +134,7 @@ describe("kf install --agent claude,codex without claude on PATH", () => {
     process.env.PATH = bin;
     const res = await cmdInstall(["claude", "codex"], { cwd: projDir(), scope: "project" });
     expect(res.code).toBe(1);
-    expect(existsSync(join(projDir(), ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projDir(), ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 });
 

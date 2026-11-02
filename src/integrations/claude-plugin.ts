@@ -17,12 +17,12 @@ export interface ClaudeRunResult {
 /** Runs `claude <args>`. A claude missing from PATH rejects with an error whose `code` is "ENOENT". */
 export type ClaudeRun = (args: string[]) => Promise<ClaudeRunResult>;
 
-/** Text a caller prints; `changed` is false when claude was only asked, never written to. */
+/** Text a caller prints; ensurePlugin sets `changed` to false when claude was only asked, never written to. */
 export interface PluginReport {
   code: number;
   stdout: string;
   stderr?: string;
-  changed: boolean;
+  changed?: boolean;
 }
 
 export type PluginState =
@@ -152,26 +152,29 @@ export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRu
 const PLUGIN_ABSENT = new RegExp(`Plugin "${PLUGIN_NAME}" not found`);
 const MARKETPLACE_ABSENT = new RegExp(`Marketplace '${MARKETPLACE_NAME}' not found`);
 
+/** One removal step: claude's "already gone" answer is a note, any other failure throws. */
+async function removeStep(run: ClaudeRun, args: string[], absentPattern: RegExp, done: string, absent: string): Promise<string> {
+  const res = await run(args);
+  if (res.code === 0) return done;
+  if (absentPattern.test(quote(res))) return absent;
+  throw failed(args, res);
+}
+
 export async function removePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<PluginReport> {
-  const steps: Array<[string[], RegExp, string, string]> = [
-    [["plugin", "uninstall", PLUGIN_NAME, "--scope", claudeScope(scope)], PLUGIN_ABSENT, `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`],
-    [["plugin", "marketplace", "remove", MARKETPLACE_NAME], MARKETPLACE_ABSENT, `✗ Claude Code: marketplace ${MARKETPLACE_NAME} removed`, `· Claude Code: marketplace ${MARKETPLACE_NAME} not added`],
-  ];
+  const other: SkillScope = scope === "global" ? "project" : "global";
   const lines: string[] = [];
-  let changed = false;
   try {
-    for (const [args, absentPattern, done, absent] of steps) {
-      const res = await run(args);
-      if (res.code === 0) {
-        changed = true;
-        lines.push(done);
-      } else if (absentPattern.test(quote(res))) lines.push(absent);
-      else throw failed(args, res);
+    lines.push(await removeStep(run, ["plugin", "uninstall", PLUGIN_NAME, "--scope", claudeScope(scope)], PLUGIN_ABSENT, `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`));
+    // The marketplace is registered per user, so a kf install at the other scope still reads from it.
+    if ((await pluginState(run, other)).status !== "missing") {
+      lines.push(`· Claude Code: marketplace ${MARKETPLACE_NAME} kept (kf still installed at ${claudeScope(other)} scope)`);
+    } else {
+      lines.push(await removeStep(run, ["plugin", "marketplace", "remove", MARKETPLACE_NAME], MARKETPLACE_ABSENT, `✗ Claude Code: marketplace ${MARKETPLACE_NAME} removed`, `· Claude Code: marketplace ${MARKETPLACE_NAME} not added`));
     }
   } catch (err) {
     lines.push(`Claude Code: could not remove the ${PLUGIN_ID} plugin — ${failureReason(err)}`);
     lines.push(`Remove it by hand inside Claude Code:\n  /plugin uninstall ${PLUGIN_ID}\n  /plugin marketplace remove ${MARKETPLACE_NAME}`);
-    return { code: 1, changed, stdout: lines.join("\n"), stderr: "claude plugin removal failed" };
+    return { code: 1, stdout: lines.join("\n"), stderr: "claude plugin removal failed" };
   }
-  return { code: 0, changed, stdout: lines.join("\n") };
+  return { code: 0, stdout: lines.join("\n") };
 }
