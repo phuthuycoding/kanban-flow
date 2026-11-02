@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, chmod, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
 import { runDoctor } from "../project/doctor.js";
 import { cmdDoctor } from "../cli/commands/doctor.js";
 import { cmdInit } from "../cli/commands/init.js";
+import { PKG_ROOT } from "../shared/paths.js";
 import { readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -16,9 +17,31 @@ const args = (command: string, positionals: string[] = [], options: Record<strin
 
 let root: string;
 
-/** A project as `kf init --minimal` really leaves it, so the checks meet the shape they will meet. */
-async function project(): Promise<void> {
-  expect((await cmdInit(args("init", [], { minimal: true, context: "app" }), root)).code).toBe(0);
+
+/** A `claude` first on PATH that reports the kf plugin registered at this package: current, enabled. */
+async function currentPluginStub(): Promise<void> {
+  const bin = join(root, "..", `${basename(root)}-bin`);
+  await mkdir(bin, { recursive: true });
+  const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true, readFromFolder: PKG_ROOT }]);
+  await writeFile(join(bin, "claude"), `#!/bin/sh\nif [ "$1 $2" = "plugin list" ]; then echo '${list}'; fi\nexit 0\n`);
+  await chmod(join(bin, "claude"), 0o755);
+  process.env.PATH = `${bin}:${process.env.PATH}`;
+}
+
+/**
+ * A project as `kf init --minimal` really leaves it, so the checks meet the shape they will meet.
+ * Claude Code gets the kf plugin, not copies, so the claude CLI reports the plugin current.
+ */
+async function project(agent?: string): Promise<void> {
+  await currentPluginStub();
+  const options = { minimal: true, context: "app", ...(agent ? { agent } : {}) };
+  expect((await cmdInit(args("init", [], options), root)).code).toBe(0);
+  if (agent) {
+    // --minimal does not record the agent, so the config is patched the way a user's choice would be.
+    const cfgPath = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
+    await writeFile(cfgPath, JSON.stringify({ ...cfg, agents: [agent] }, null, 2));
+  }
 }
 
 /** Every file under a directory, path → contents, for proving nothing was written. */
@@ -32,10 +55,14 @@ async function snapshot(dir: string, base = dir): Promise<Record<string, string>
   return out;
 }
 
+let prevPath: string | undefined;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "kf-doctor-"));
+  prevPath = process.env.PATH;
 });
 afterEach(async () => {
+  process.env.PATH = prevPath;
+  await rm(join(root, "..", `${basename(root)}-bin`), { recursive: true, force: true });
   await rm(root, { recursive: true, force: true });
 });
 
@@ -109,7 +136,8 @@ describe("kf doctor on a broken project", () => {
     await project();
     await writeFile(join(root, ".kf", "config.json"), "{ broken");
     await rm(join(root, ".works", "testing"), { recursive: true });
-    await rm(join(process.env.HOME!, ".claude", "skills", "kanban-plan"), { recursive: true });
+    // A leftover pre-plugin skill copy is the third, independent problem.
+    await mkdir(join(process.env.HOME!, ".claude", "skills", "kanban-plan"), { recursive: true });
     const areas = runDoctor(root).findings.map((f) => f.area);
     expect(areas).toContain(".kf/config.json");
     expect(areas).toContain(".works/");
@@ -142,13 +170,13 @@ describe("kf doctor on a broken project", () => {
     expect(f?.action).toContain(".kfw.json");
   });
 
-  it("reports skills that were installed and then deleted", async () => {
-    await project();
-    await rm(join(process.env.HOME!, ".claude", "skills", "kanban-review"), { recursive: true });
+  it("reports skill copies that were installed and then deleted", async () => {
+    await project("codex");
+    await rm(join(process.env.HOME!, ".agents", "skills", "kf-review"), { recursive: true });
     const f = runDoctor(root).findings.find((x) => x.area.includes("skills"));
     expect(f?.level).toBe("ERROR");
-    expect(f?.message).toContain("kanban-review");
-    expect(f?.action).toContain("kf install --agent claude");
+    expect(f?.message).toContain("kf-review");
+    expect(f?.action).toContain("kf install --agent codex");
   });
 });
 
@@ -295,78 +323,71 @@ describe("kf doctor --fix", () => {
     expect(runDoctor(root).findings.filter((f) => f.area === ".works/")).toEqual([]);
   });
 
-  it("repairs skills that were installed and then deleted", async () => {
-    await project();
-    const skill = join(process.env.HOME!, ".claude", "skills", "kanban-review");
-    await rm(skill, { recursive: true });
+  it("repairs skill copies that were installed and then deleted", async () => {
+    await project("codex");
+    await rm(join(process.env.HOME!, ".agents", "skills", "kf-review"), { recursive: true });
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
-    expect(res.stdout).toContain("installed kanban skills for claude");
+    expect(res.stdout).toContain("installed kanban skills for codex");
+    expect(existsSync(join(process.env.HOME!, ".agents", "skills", "kf-review", "SKILL.md"))).toBe(true);
     expect(runDoctor(root).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });
 
-  it("treats a user's own travel skill as theirs: a warning, not stale, and --fix does not reinstall over it", async () => {
-    await project();
-    const skills = join(process.env.HOME!, ".claude", "skills");
-    await rm(join(skills, "travel"), { recursive: true, force: true });
+  it("treats a user's own travel skill as theirs: not flagged, not stale, and --fix leaves it alone", async () => {
+    await project("codex");
+    const skills = join(process.env.HOME!, ".agents", "skills");
     await mkdir(join(skills, "travel"), { recursive: true });
     await writeFile(join(skills, "travel", "SKILL.md"), "# My own travel planner\n");
 
-    const findings = runDoctor(root).findings.filter((f) => f.area === skills);
-    expect(findings.map((f) => f.level)).toEqual(["WARNING"]);
-    expect(findings[0].message).toContain("your own skill sits at a managed skill name: travel");
+    expect(runDoctor(root).findings.filter((f) => f.area === skills)).toEqual([]);
     expect(runDoctor(root).ok).toBe(true);
 
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.stdout).not.toContain("installed kanban skills");
     expect(readFileSync(join(skills, "travel", "SKILL.md"), "utf8")).toBe("# My own travel planner\n");
 
-    // A kanban-flow skill missing beside it is still an ERROR, and the user's skill is not listed in it.
-    await rm(join(skills, "kanban-plan"), { recursive: true, force: true });
+    // A kf copy missing beside it is still an ERROR, and the user's skill is not listed in it.
+    await rm(join(skills, "kf-plan"), { recursive: true, force: true });
     const broken = runDoctor(root).findings.find((f) => f.area === skills && f.level === "ERROR");
-    expect(broken?.message).toBe("skills incomplete (scope: global): kanban-plan");
+    expect(broken?.message).toContain("kf-plan");
+    expect(broken?.message).not.toContain("travel");
   });
 
-  it("reports agents that went missing while the skills stayed, and --fix reinstalls them", async () => {
+  it("reports a loose agent file kf wrote before the plugin as a leftover, and --fix removes it", async () => {
     await project();
     const agentsDir = join(process.env.HOME!, ".claude", "agents");
-    await rm(join(agentsDir, "code-reviewer.md"));
-    const before = runDoctor(root).findings.find((f) => f.area === agentsDir);
-    expect(before?.level).toBe("ERROR");
-    expect(before?.message).toContain("agents partial");
-    expect(before?.message).toContain("code-reviewer");
-    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
-    expect(res.stdout).toContain("installed kanban agents for claude");
+    await mkdir(agentsDir, { recursive: true });
+    const agent = join(agentsDir, "code-reviewer.md");
+    await symlink(join(PKG_ROOT, "agents", "code-reviewer.md"), agent);
+    const before = runDoctor(root).findings.filter((f) => f.area === agentsDir || f.message.includes("code-reviewer"));
+    expect(before.length).toBeGreaterThan(0);
+    expect(before.some((f) => f.message.includes("code-reviewer"))).toBe(true);
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(existsSync(agent)).toBe(false);
     expect(runDoctor(root).findings.filter((f) => f.area === agentsDir)).toEqual([]);
   });
 
-  it("warns about a user's own file under a managed agent name and never replaces it", async () => {
+  it("never replaces or removes a user's own file under a managed agent name, and does not flag it", async () => {
     await project();
     const agentsDir = join(process.env.HOME!, ".claude", "agents");
     const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
-    await rm(join(agentsDir, "scout.md"));
+    await mkdir(agentsDir, { recursive: true });
     await writeFile(join(agentsDir, "scout.md"), mine);
-    const finding = runDoctor(root).findings.find((f) => f.area === agentsDir);
-    expect(finding?.level).toBe("WARNING");
-    expect(finding?.message).toContain("scout.md");
+    expect(runDoctor(root).findings.filter((f) => f.area === agentsDir)).toEqual([]);
     await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(await readFile(join(agentsDir, "scout.md"), "utf8")).toBe(mine);
   });
 
-  it("a user's file under one agent name does not hide the agent missing beside it", async () => {
+  it("a user's file under one agent name does not hide a kf leftover beside it", async () => {
     await project();
     const agentsDir = join(process.env.HOME!, ".claude", "agents");
     const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
-    await rm(join(agentsDir, "scout.md"));
+    await mkdir(agentsDir, { recursive: true });
     await writeFile(join(agentsDir, "scout.md"), mine);
-    await rm(join(agentsDir, "code-reviewer.md"));
-    const findings = runDoctor(root).findings.filter((f) => f.area === agentsDir);
-    expect(findings.map((f) => f.level).sort()).toEqual(["ERROR", "WARNING"]);
-    expect(findings.find((f) => f.level === "ERROR")?.message).toContain("code-reviewer");
-    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
-    expect(res.stdout).toContain("installed kanban agents for claude");
-    expect(existsSync(join(agentsDir, "code-reviewer.md"))).toBe(true);
+    await symlink(join(PKG_ROOT, "agents", "code-reviewer.md"), join(agentsDir, "code-reviewer.md"));
+    expect(runDoctor(root).findings.some((f) => f.message.includes("code-reviewer"))).toBe(true);
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(existsSync(join(agentsDir, "code-reviewer.md"))).toBe(false);
     expect(await readFile(join(agentsDir, "scout.md"), "utf8")).toBe(mine);
-    expect(runDoctor(root).findings.filter((f) => f.area === agentsDir && f.level === "ERROR")).toEqual([]);
   });
 
   it("writes the repository link the origin remote implies", async () => {

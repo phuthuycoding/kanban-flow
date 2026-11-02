@@ -19,7 +19,9 @@ import { LockTimeoutError } from "../../shared/lock.js";
 import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
-import { readProjectConfig } from "../../project/config.js";
+import { effectiveSkillsScope, ProjectConfigError, readProjectConfig } from "../../project/config.js";
+import { DEFAULT_AGENT, parseAgentIds } from "../../integrations/agents.js";
+import { ClaudePluginError, claudeRunner, pluginState } from "../../integrations/claude-plugin.js";
 import { findRoot, resolveItem } from "./helpers.js";
 import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
@@ -208,11 +210,43 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
       ),
     };
   }
+  const plugin = await pluginPathWarning(root.root);
+  const tail = plugin ? `\n\n${plugin}` : "";
   if (statuses.length === 0) {
-    return { code, stdout: `${migrated}No active features. Create one with: kf new <feature> --context <ctx>` };
+    return { code, stdout: `${migrated}No active features. Create one with: kf new <feature> --context <ctx>${tail}` };
   }
   const blocks = statuses.map(renderStatusText);
-  return { code, stdout: migrated + blocks.join("\n\n") + (buckets ? `\n\n${renderBuckets(buckets)}` : "") };
+  return { code, stdout: migrated + blocks.join("\n\n") + (buckets ? `\n\n${renderBuckets(buckets)}` : "") + tail };
+}
+
+/** kf status runs often; a hung claude must not hold it for the install timeout. */
+const STATUS_PLUGIN_PROBE_MS = 10_000;
+
+/**
+ * One line when the claude agent is configured and the kf plugin is registered at another path
+ * (a Node switch), so it is noticed without doctor; a failed probe says so. Missing and disabled are doctor's.
+ */
+async function pluginPathWarning(root: string): Promise<string | null> {
+  let agents: string[];
+  let scope: ReturnType<typeof effectiveSkillsScope>;
+  try {
+    const cfg = readProjectConfig(root);
+    const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
+    agents = parsed.length > 0 ? parsed : [DEFAULT_AGENT];
+    scope = effectiveSkillsScope(cfg);
+  } catch (err) {
+    if (err instanceof ProjectConfigError || (err instanceof Error && "code" in err)) return `⚠ cannot check kf plugin: ${err.message}`;
+    throw err;
+  }
+  if (!agents.includes("claude")) return null;
+  try {
+    const state = await pluginState(claudeRunner(root, STATUS_PLUGIN_PROBE_MS), scope);
+    return state.status === "stale" ? "⚠ kf plugin path is stale — run kf install" : null;
+  } catch (err) {
+    if (err instanceof ClaudePluginError) return `⚠ cannot check kf plugin: ${err.message}`;
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return "⚠ cannot check kf plugin: the `claude` CLI was not found on PATH";
+    throw err;
+  }
 }
 
 /** How long the advisory docsLanded write waits for the item lock before leaving it to the next run. */

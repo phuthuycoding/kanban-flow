@@ -1,11 +1,15 @@
 import { readProjectConfig, effectiveSkillsScope, ProjectConfigError } from "./config.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, unhealthySkills } from "../integrations/install.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, legacyEntries, removeLegacy, unhealthySkills } from "../integrations/install.js";
+import { ClaudePluginError, claudeRunner, claudeScope, ensurePlugin, pluginState, PLUGIN_ID } from "../integrations/claude-plugin.js";
+import { PKG_ROOT } from "../shared/paths.js";
 import type { DoctorFinding } from "./doctor-types.js";
 
 /** Skills can be installed and then deleted or drift stale; nothing notices until a worker has no instructions. */
-export function checkSkills(root: string, agents: AgentId[], scope: SkillScope): DoctorFinding[] {
-  const findings: DoctorFinding[] = [];
+export function checkSkills(root: string, configured: AgentId[], scope: SkillScope): DoctorFinding[] {
+  const findings: DoctorFinding[] = checkLegacy(root, scope);
+  // Claude Code loads the kf plugin, not copies; checkPlugin covers it.
+  const agents = configured.filter((id) => id !== "claude");
   // From a linked worktree the suggested repair would itself be refused; the refusal says where to run it.
   let refusal: string | null | undefined;
   const repairAction = (fallback: string): string => {
@@ -85,6 +89,85 @@ export function checkSkills(root: string, agents: AgentId[], scope: SkillScope):
   return findings;
 }
 
+/** Entries kf wrote before the plugin; one it does not own is the user's and is not flagged. */
+function checkLegacy(root: string, scope: SkillScope): DoctorFinding[] {
+  const byDir = new Map<string, string[]>();
+  for (const e of legacyEntries(root, scope)) {
+    if (e.owned) byDir.set(e.dir, [...(byDir.get(e.dir) ?? []), e.name]);
+  }
+  return [...byDir].map(([dir, names]) => ({
+    level: "WARNING" as const,
+    area: dir,
+    message: `legacy kanban-flow entries left from before the kf plugin: ${names.join(", ")} — the runtime still loads them`,
+    action: `kf doctor --fix, or kf install --scope ${scope}`,
+  }));
+}
+
+/** The configured agents and scope, or null when the config cannot be read (runDoctor reports that as an ERROR). */
+function configuredAgents(root: string): { agents: AgentId[]; scope: SkillScope } | null {
+  let cfg: ReturnType<typeof readProjectConfig>;
+  try {
+    cfg = readProjectConfig(root);
+  } catch (err) {
+    if (err instanceof ProjectConfigError || (err instanceof Error && "code" in err)) return null;
+    throw err;
+  }
+  const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
+  return { agents: parsed.length > 0 ? parsed : [DEFAULT_AGENT], scope: effectiveSkillsScope(cfg) };
+}
+
+/** Why a plugin probe failed: a claude that is absent or answered badly. Anything else is a bug and propagates. */
+function probeFailure(err: unknown): string {
+  if (err instanceof ClaudePluginError) return err.message;
+  if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return "the `claude` CLI was not found on PATH";
+  throw err;
+}
+
+const PLUGIN_AREA = "Claude Code plugin";
+
+/** The kf plugin's state for a project that configures claude: missing, disabled or stale is an ERROR; a failed probe is said, never skipped. */
+export async function checkPlugin(root: string): Promise<DoctorFinding[]> {
+  const cfg = configuredAgents(root);
+  if (!cfg || !cfg.agents.includes("claude")) return [];
+  // From a linked worktree the install would be refused; the refusal says where to run it.
+  const action = (cfg.scope === "global" ? globalLinkRefusal() : null) ?? `kf install --agent claude --scope ${cfg.scope}, or kf doctor --fix`;
+  let state: Awaited<ReturnType<typeof pluginState>>;
+  try {
+    state = await pluginState(claudeRunner(root), cfg.scope);
+  } catch (err) {
+    return [{ level: "WARNING", area: PLUGIN_AREA, message: `cannot check kf plugin: ${probeFailure(err)}`, action: "install the claude CLI or put it on PATH, then re-run kf doctor" }];
+  }
+  const target = claudeScope(cfg.scope);
+  switch (state.status) {
+    case "current":
+      return [];
+    case "missing":
+      return [{ level: "ERROR", area: PLUGIN_AREA, message: `plugin ${PLUGIN_ID} is missing (scope: ${target}) — Claude Code has no kf skills or agents`, action }];
+    case "disabled":
+      return [{ level: "ERROR", area: PLUGIN_AREA, message: `plugin ${PLUGIN_ID} is disabled (scope: ${state.scope})`, action }];
+    case "stale":
+      return [{
+        level: "ERROR",
+        area: PLUGIN_AREA,
+        message: `plugin ${PLUGIN_ID} path is stale: registered at ${state.readFromFolder || "an unknown folder"}, this kf runs from ${PKG_ROOT} — the plugin fails to load (cache-miss)`,
+        action,
+      }];
+  }
+}
+
+/** The plugin repair of `kf doctor --fix`: the install steps when claude answers, otherwise the manual commands as a failure. */
+async function repairPlugin(root: string, scope: SkillScope, fixed: string[], failures: DoctorFinding[]): Promise<void> {
+  // The marketplace would record this package root, which dangles once a linked worktree is removed.
+  const refusal = scope === "global" ? globalLinkRefusal() : null;
+  if (refusal) {
+    if ((await checkPlugin(root)).length > 0) failures.push({ level: "ERROR", area: PLUGIN_AREA, message: refusal, action: "run kf doctor --fix from the primary checkout's kf" });
+    return;
+  }
+  const res = await ensurePlugin(scope, claudeRunner(root));
+  if (res.code !== 0) failures.push({ level: "ERROR", area: PLUGIN_AREA, message: res.stdout });
+  else if (res.changed) fixed.push(res.stdout.replace(/^✓ /, ""));
+}
+
 /** The skills and agents repair of `kf doctor --fix`; a global link from a linked worktree is a failure, not a repair. */
 export async function repairSkills(root: string, fixed: string[], failures: DoctorFinding[]): Promise<void> {
   let cfg: ReturnType<typeof readProjectConfig>;
@@ -96,9 +179,16 @@ export async function repairSkills(root: string, fixed: string[], failures: Doct
     throw err;
   }
   const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
-  const agents = parsed.length > 0 ? parsed : [DEFAULT_AGENT];
+  const configured = parsed.length > 0 ? parsed : [DEFAULT_AGENT];
   const scope = effectiveSkillsScope(cfg);
   const declaredScope = cfg.skills?.scope;
+  // An entry kf does not own stays, and is not a finding either: it is the user's.
+  for (const r of await removeLegacy(root, scope)) {
+    if (r.removed.length > 0) fixed.push(`removed legacy ${r.removed.join(", ")} from ${r.dir}/`);
+  }
+  if (configured.includes("claude")) await repairPlugin(root, scope, fixed, failures);
+  // Claude Code loads the kf plugin, so only the other agents get copies.
+  const agents = configured.filter((id) => id !== "claude");
   const refusalFinding = (message: string): DoctorFinding => ({ level: "ERROR", area: "skills", message, action: "run kf doctor --fix from the primary checkout's kf" });
   const missingFor = agents.filter((id) => {
     const adapter = AGENTS.find((a) => a.id === id);

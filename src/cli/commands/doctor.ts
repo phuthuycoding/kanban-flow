@@ -1,5 +1,6 @@
 import { runDoctor, runDoctorFixes, type DoctorFinding } from "../../project/doctor.js";
 import { readProjectConfig } from "../../project/config.js";
+import { checkPlugin } from "../../project/doctor-install.js";
 import { readMachineConfig, worktreeConfig } from "../../worktree/config.js";
 import { probeDomainInfra } from "../../worktree/health.js";
 import { findRoot } from "./helpers.js";
@@ -23,6 +24,11 @@ export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResul
     report.findings.unshift(...failures);
     report.ok = false;
   }
+
+  // The plugin probe spawns claude, so like the infra probes below it stays out of the synchronous runDoctor.
+  const plugin = await checkPlugin(root.root);
+  report.findings.push(...plugin);
+  if (plugin.some((f) => f.level === "ERROR")) report.ok = false;
 
   // Domain infra probes are async (DNS + TCP), so they live here rather than inside the
   // synchronous runDoctor. They are WARNING-only: the machine, not the work item, is what

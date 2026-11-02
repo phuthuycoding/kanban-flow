@@ -23,3 +23,16 @@ export const LEGACY_SKILLS = [
 export function copyName(name: string): string {
   return `kf-${name}`;
 }
+
+/**
+ * The skills dirs, per kf scope and relative to the project root or the home dir, that releases
+ * before the kf plugin wrote into: the agents.ts table as it stood then. Frozen, because the
+ * live table has since moved on and a migration must still find what the old one wrote.
+ */
+export const LEGACY_SKILL_DIRS: Readonly<Record<"project" | "global", readonly string[]>> = {
+  project: [".claude/skills", ".agents/skills", ".gemini/skills", ".kiro/skills", ".cursor/skills", ".opencode/skills", ".devin/skills"],
+  global: [".claude/skills", ".agents/skills", ".gemini/skills", ".kiro/skills", ".cursor/skills", ".config/opencode/skills"],
+};
+
+/** The loose agent files' dir of those releases, at either scope; the kf plugin now carries the agents. */
+export const LEGACY_AGENTS_DIR = ".claude/agents";
