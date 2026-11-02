@@ -244,7 +244,8 @@ describe("resuming the task loop from the ledger", () => {
     const text = implement();
     const resume = slice(text, "**Resume from the ledger", "**Pre-Task-1");
     expect(resume).toMatch(/every[^.\n]*`?dispatched`?[^.\n]*(with )?no[^.\n]*`?done`?/);
-    expect(resume).toMatch(/developers? up to the cap/);
+    expect(resume).toMatch(/always resumed whatever N is/);
+    expect(resume).toMatch(/N gates only new developer dispatches/);
     expect(resume).toMatch(/every[^.\n]*`?verify started`?[^.\n]*(with )?no[^.\n]*`?verify done`?/);
     expect(resume).toMatch(/before (any|a) new developer/);
   });
