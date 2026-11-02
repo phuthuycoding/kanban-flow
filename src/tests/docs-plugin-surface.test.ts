@@ -23,7 +23,6 @@ const workflowPages = () =>
     .map((f) => `docs/workflow/${f}`);
 
 describe("no leftover pre-plugin names anywhere in the living tree", () => {
-  const SELF = "src/tests/docs-plugin-surface.test.ts";
   // History paths and the one fixture of a released skill stay unchanged.
   const HISTORY = [
     ":(exclude).works",
@@ -35,22 +34,25 @@ describe("no leftover pre-plugin names anywhere in the living tree", () => {
     ":(exclude)BACKLOG.md",
     ":(exclude)src/tests/fixtures/kanban-ship-0.13.0",
   ];
-  // The legacy list, and the tests that seed legacy names on disk or spell the patterns to prove the rename.
-  const LEGACY_HOMES = new Set([
-    "src/integrations/managed.ts",
-    "src/tests/migration.test.ts",
-    "src/tests/doctor-plugin.test.ts",
-    "src/tests/doctor.test.ts",
-    "src/tests/spike-surface.test.ts",
-    "src/tests/plugin-package.test.ts",
-    SELF,
-  ]);
+  // Only the lines that legitimately spell a legacy name: the legacy list, tests that remove or expect a legacy dir on disk,
+  // and the patterns that prove this very rename. Everything else in these files is still checked.
+  const LEGACY_LINES = [
+    /^src\/integrations\/managed\.ts:\d+:\s+"kanban-[a-z]+",$/,
+    /^src\/tests\/doctor\.test\.ts:\d+:.*("skills", "kanban-(plan|review)"|join\(skills, "kanban-plan"\)|toContain\("kanban-review"\)|incomplete \(scope: global\): kanban-plan|A kanban-flow skill missing)/,
+    /^src\/tests\/(plugin-package|spike-surface)\.test\.ts:\d+:\s*const LEGACY = \[/,
+    /^src\/tests\/plugin-package\.test\.ts:\d+:.*(has no kanban-flow skill path|grep\("|^\s*\/.*\/,$)/,
+    /^src\/tests\/plugin-package\.test\.ts:\d+:\s+\/.*kanban-flow.*\/,$/,
+    // Self: the pattern strings and product-name regexes below.
+    /^src\/tests\/docs-plugin-surface\.test\.ts:\d+:(\s+\/.*\/,$|.*grep\("|.*kanban-flow\/\(SKILL|.*has no kanban-flow skill name)/,
+    // process.ts:16 is a regex literal matched against `ps` output to recognise a running kanban-flow process by the product name; not a skill name.
+    /^src\/shared\/process\.ts:16:/,
+  ];
 
   function grep(pattern: string): string[] {
-    const res = spawnSync("git", ["grep", "--untracked", "-nE", pattern, "--", ".", ...HISTORY], { cwd: ROOT, encoding: "utf8" });
+    const res = spawnSync("git", ["grep", "-nE", pattern, "--", ".", ...HISTORY], { cwd: ROOT, encoding: "utf8" });
     if (res.status === 1) return [];
     expect(res.status, res.stderr).toBe(0);
-    return res.stdout.split("\n").filter(Boolean).filter((l) => !LEGACY_HOMES.has(l.split(":")[0]));
+    return res.stdout.split("\n").filter(Boolean).filter((l) => !LEGACY_LINES.some((re) => re.test(l)));
   }
 
   it("has no kanban-<skill> name outside the legacy list and its migration tests", () => {
@@ -68,15 +70,29 @@ describe("no leftover pre-plugin names anywhere in the living tree", () => {
       /PLUGIN_VAR\}\/kanban-flow\//,
       /kanban-flow\/(templates|review|github-hooks|hooks)/,
     ];
-    expect(lines.filter((l) => !l.startsWith("src/shared/process.ts:") && !product.some((re) => re.test(l)))).toEqual([]);
+    expect(lines.filter((l) => !product.some((re) => re.test(l)))).toEqual([]);
   });
 });
 
+const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel"];
+const AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer", "researcher"];
+const INSTALL_CMD = "/plugin install kf@kanban-flow";
+
+// Table rows whose first cell is exactly the command, e.g. | `/kf:plan` | ... |
+const tableRows = (text: string, name: string) => text.split("\n").filter((l) => new RegExp(`^\\|\\s*\x60?/kf:${name}\x60?\\s*\\|`).test(l)).length;
+// `/kf:plan` must not be satisfied by `/kf:plan-b`; the name ends at a non-name character.
+const mentions = (text: string, name: string) => new RegExp(`/kf:${name}(?![A-Za-z0-9_-])`).test(text);
+
 describe("README and the Pages site", () => {
-  it("README names the /kf commands, the plugin install, the kf- copies and the 10 skills and 7 agents", () => {
+  it("README lists every skill as /kf:<name>", () => {
     const text = read("README.md");
-    expect(text).toContain("/kf:flow");
-    expect(text).toMatch(/\/plugin (marketplace add|install)/);
+    expect(SKILLS.filter((n) => !mentions(text, n))).toEqual([]);
+    expect(SKILLS.filter((n) => tableRows(text, n) > 1)).toEqual([]);
+  });
+
+  it("README gives the plugin install command, the kf- copies and the counts", () => {
+    const text = read("README.md");
+    expect(text).toContain(INSTALL_CMD);
     expect(text).toContain("kf-");
     expect(text).toContain("10 skills");
     expect(text).toContain("7 agents");
@@ -89,10 +105,10 @@ describe("README and the Pages site", () => {
     expect(text).toContain("kf install");
   });
 
-  it("the Pages site names /kf:flow, the plugin and the 10 skills and 7 agents", () => {
+  it("the Pages site gives the plugin install command, /kf:flow and the counts", () => {
     const text = read(".github/pages/index.html");
+    expect(text).toContain(INSTALL_CMD);
     expect(text).toContain("/kf:flow");
-    expect(text).toMatch(/plugin/i);
     expect(text).toContain("10 skills");
     expect(text).toContain("7 agents");
     expect(text).not.toMatch(STALE_COUNTS);
@@ -100,25 +116,33 @@ describe("README and the Pages site", () => {
 });
 
 describe("the workflow docs", () => {
-  it.each(["docs/README.md", "docs/workflow/README.md", "docs/workflow/skills.md", "docs/workflow/harness.md", "docs/workflow/cli-reference.md"])(
-    "%s names a /kf command and the plugin",
-    (file) => {
-      const text = read(file);
-      expect(text).toMatch(/\/kf:[a-z]+/);
-      expect(text).toMatch(/plugin/i);
-    },
-  );
+  it("skills.md lists every skill as /kf:<name> and no skill twice in its table", () => {
+    const text = read("docs/workflow/skills.md");
+    expect(SKILLS.filter((n) => !mentions(text, n))).toEqual([]);
+    expect(SKILLS.filter((n) => tableRows(text, n) > 1)).toEqual([]);
+  });
 
-  it("cli-reference states the 10 skills, the 7 agents and the kf- copy names", () => {
+  it.each(["docs/workflow/harness.md", "docs/workflow/cli-reference.md"])("%s names every agent", (file) => {
+    const text = read(file);
+    expect(AGENTS.filter((a) => !text.includes(a))).toEqual([]);
+  });
+
+  it("cli-reference states the 10 skills, the 7 agents, the kf- copy names and the plugin", () => {
     const text = read("docs/workflow/cli-reference.md");
     expect(text).toContain("10 skills");
     expect(text).toContain("7 agents");
     expect(text).toContain("kf-");
-    expect(text).toContain("researcher");
+    expect(text).toMatch(/plugin/i);
   });
 
-  it("autoconfig.md describes the plugin install", () => {
-    expect(read("docs/workflow/autoconfig.md")).toMatch(/plugin/i);
+  it("autoconfig.md gives the plugin install command", () => {
+    expect(read("docs/workflow/autoconfig.md")).toContain(INSTALL_CMD);
+  });
+
+  it.each(["docs/README.md", "docs/workflow/README.md"])("%s names /kf:flow and the plugin", (file) => {
+    const text = read(file);
+    expect(mentions(text, "flow")).toBe(true);
+    expect(text).toMatch(/plugin/i);
   });
 
   it.each(["README.md", "docs/README.md", ...workflowPages()])("%s keeps no stale skill or agent count", (file) => {
@@ -127,11 +151,11 @@ describe("the workflow docs", () => {
 });
 
 describe("the CLI help", () => {
-  it.each(["install", "uninstall"])("kf %s help names 10 skills, 7 agents, researcher and the plugin", (cmd) => {
+  it.each(["install", "uninstall"])("kf %s help names 10 skills, 7 agents, every agent and the plugin", (cmd) => {
     const help = commandHelp(cmd);
     expect(help).toContain("10 skills");
     expect(help).toContain("7 agents");
-    expect(help).toContain("researcher");
+    expect(AGENTS.filter((a) => !help.includes(a))).toEqual([]);
     expect(help).toMatch(/plugin/i);
   });
 

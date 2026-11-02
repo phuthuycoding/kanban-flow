@@ -26,9 +26,11 @@ describe("kf init seeds AGENTS.md", () => {
     expect(first.code).toBe(0);
     expect(first.stdout).toContain("AGENTS.md: created");
     const content = await readFile(join(dir, "AGENTS.md"), "utf8");
-    for (const expected of ["`npm ci`", "`npm run build`", "`npm test`", "`npm run lint`", "kf autoconfig", "kanban <context> <feature>", "--force"]) {
+    for (const expected of ["`npm ci`", "`npm run build`", "`npm test`", "`npm run lint`", "kf autoconfig", "--force"]) {
       expect(content).toContain(expected);
     }
+    expect(content).toMatch(/Start a feature with[^\n]*`\/kf:flow/);
+    for (const phase of ["/kf:archive", "/kf:travel"]) expect(content).toContain(phase);
     expect(content).not.toContain("typecheck");
 
     await writeFile(join(dir, "AGENTS.md"), "# Mine\nkeep this");
