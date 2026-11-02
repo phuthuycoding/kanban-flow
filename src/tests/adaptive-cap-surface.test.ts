@@ -26,6 +26,7 @@ const lineWith = (text: string, phrase: string) => {
 const liveCapRule = () => paragraphWith(skill(), "**The live cap.**");
 const contention = () => paragraphWith(skill(), "**Contention: step down, re-run once.**");
 const resumeCap = () => paragraphWith(skill(), "**Resume the live cap.**");
+const loopStepUp = () => paragraphWith(loop(), "Step up additively");
 const loopContention = () => paragraphWith(loop(), "Only the controller's ledgered verify runs count");
 const loopResume = () => paragraphWith(loop(), "On resume N is rebuilt");
 
@@ -91,7 +92,18 @@ describe("stepping the cap up", () => {
 
   it("ledgers a step-up as a cap ruling naming the old and new cap and the clean wave", () => {
     expect(liveCapRule()).toContain("Ruling: developer cap <old> → <new> — wave <w> clean");
-    expect(loop()).toContain("Ruling: developer cap <old> → <new> — wave <w> clean");
+    expect(loopStepUp()).toContain("Ruling: developer cap <old> → <new> — wave <w> clean");
+  });
+
+  it("states the step-up rule in the loop reference too", () => {
+    const rule = loopStepUp();
+    expect(rule).toContain("+1 per clean parallel wave");
+    expect(rule).toContain("wave order");
+    expect(rule).toContain("every earlier wave");
+    expect(rule).toMatch(/inline wave never changes N/);
+    expect(rule).toContain("widest incomplete wave");
+    expect(rule).toMatch(/exceed the ceiling/);
+    expect(rule).toContain("Note wave <w>: no step-up");
   });
 
   it("ledgers a decision that changes nothing as a no-step-up note with its reason, never a ruling", () => {
@@ -132,7 +144,7 @@ describe("stepping the cap down on contention", () => {
     const rule = contention();
     expect(rule).toContain("already dropped since that verify started");
     const event = paragraphWith(skill(), "already dropped since that verify started");
-    expect(event).toMatch(/signature> in TASK-(NNN|MMM) verify|in TASK-MMM verify|step-down ruling/);
+    expect(event).toContain("of any task, written after this task's `verify started` line");
     expect(event).toMatch(/ceiling lowered[^.]*(never|not)|(never|not)[^.]*ceiling lowered/i);
   });
 
@@ -157,7 +169,10 @@ describe("stepping the cap down on contention", () => {
     expect(rule).toMatch(/no `verify done` of that task between/);
     expect(rule).toMatch(/re-run's failure never triggers/);
     expect(rule).toMatch(/N is unchanged/);
-    expect(loopContention()).toMatch(/re-run[^\n]*(never|not)[^\n]*(step|halv|contention)/i);
+    const mirror = loopContention();
+    expect(mirror).toContain("A re-run is a verify whose `verify started` follows");
+    expect(mirror).toContain("A re-run's failure never triggers steps 1–4 nor resume rule (c): N is unchanged");
+    expect(mirror).toContain("goes straight to the fix loop");
   });
 
   it("saves each verify output to the item's verify log and classifies contention from it", () => {
@@ -215,6 +230,10 @@ describe("the wait line and resuming the cap", () => {
     expect(resume).toMatch(/\(c\)[^(]*owed step-down/);
     expect(resume).toMatch(/\(d\)[\s\S]*no step-up/);
     expect(resume).toContain("task-NNN-verify.log");
+  });
+
+  it("never opens a fix round for a pending re-run or an owed step-down in the loop reference", () => {
+    expect(loopResume()).toContain("is never opened as a fix round");
   });
 
   it("guards the fix-round resume step against a pending re-run or an owed step-down", () => {
