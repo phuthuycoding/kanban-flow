@@ -42,7 +42,7 @@ function pluginLine(probe: PluginProbe, scope: SkillScope): string {
   switch (s.status) {
     case "current": return `installed, enabled (scope: ${at})`;
     case "disabled": return `installed but disabled (scope: ${s.scope})`;
-    case "unknown": return `installed (scope: ${at}) but claude does not report its source folder`;
+    case "unknown": return `installed (scope: ${at}) — claude does not report its source folder`;
     case "stale": return `installed (scope: ${at}) but reading ${s.readFromFolder || "an unknown folder"}, not this package`;
     case "missing": return `not installed (scope: ${at})`;
   }
@@ -72,7 +72,8 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     if (!a) continue;
     if (id === "claude" && probe) {
       items.push({
-        done: "state" in probe && probe.state.status === "current",
+        // An unknown source is installed and enabled; kf install cannot do more, so the item is not left open.
+        done: "state" in probe && (probe.state.status === "current" || probe.state.status === "unknown"),
         label: `kf plugin (${PLUGIN_ID}, ${a.label}) — ${pluginLine(probe, scope)}`,
         action: `kf install --agent claude --scope ${scope}`,
       });

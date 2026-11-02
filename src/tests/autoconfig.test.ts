@@ -70,8 +70,8 @@ describe("cmdAutoconfig", () => {
     const stale = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, readFromFolder: "/elsewhere" }]))).stdout;
     expect(stale).toContain("[ ] kf plugin (kf@kanban-flow, Claude Code) — installed (scope: user) but reading /elsewhere, not this package");
     const unknown = (await cmdAutoconfig(parsed, dir, pluginList([{ id: PLUGIN_ID, scope: "user", enabled: true, installPath: PKG_ROOT }]))).stdout;
-    expect(unknown).toContain("[ ] kf plugin");
-    expect(unknown).not.toContain("[x] kf plugin");
+    expect(unknown).toContain("[x] kf plugin (kf@kanban-flow, Claude Code) — installed (scope: user) — claude does not report its source folder");
+    expect(unknown).not.toContain("[ ] kf plugin");
   });
 
   it("prints the probe failure instead of swallowing it", async () => {
