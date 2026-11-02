@@ -32,7 +32,7 @@ Orientation before ideation. Cheap questions here prevent expensive ones later.
 1. **Read the repository.** Structure, stack, tooling, data model, conventions. Reading code beats asking — never make the user explain what the code already answers.
 2. **Ground the request.** Before your first question, verify every entity the idea names against its real definition — the file, command, table, field, endpoint or config key — spelled as the source spells it. A name the user used that the code does not have is your first question, not an assumption. Field-level detail waits for planning; here the names must be real.
 3. **Read one similar existing feature** (if any) for house patterns.
-   **Research before you ask.** When the idea names an external library, API, service or standard that the repository does not define, or asks how other tools do something (prior art), dispatch **`Agent(kf:researcher)`** with `${CLAUDE_PLUGIN_ROOT}/skills/flow/references/researcher-brief.md` (mode `web` or `prior-art`) before asking the user any question. Do not ask the user first and do not wait for a go-ahead: research triggers on need. Save the report as `<item>/reviews/research-<slug>.md` (the spike path uses the brief's temp location) and cite each report in the spec under *Assumptions* or *Open Questions*. Without a web tool the researcher replies `BLOCKED`: say so in *Open Questions* instead of answering from memory.
+   **Research before you ask.** When the idea names an external library, API, service or standard that the repository does not define, or asks how other tools do something (prior art), dispatch **`Agent(kf:researcher)`** with `${CLAUDE_PLUGIN_ROOT}/skills/flow/references/researcher-brief.md` (mode `web` or `prior-art`) before asking the user any question. Do not ask the user first and do not wait for a go-ahead: research triggers on need. The item does not exist yet, so the report goes to the brief's no-item location (`$CLAUDE_JOB_DIR/tmp`, else the OS temp dir); after `kf new` in section 3, copy it to `<item>/reviews/research-<slug>.md`, and cite each report in the spec under *Assumptions* or *Open Questions*. Without a web tool the researcher replies `BLOCKED`: say so in *Open Questions* instead of answering from memory.
 4. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target. Describe the real user journey — what they see and type — and have the user agree to it before any FR list or structural naming; the human decides whether the journey is right, and a spec written before that agreement is rework waiting to happen.
 5. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
 
@@ -236,6 +236,8 @@ kf new {feature_name} --context {context}
 ```
 
 Scaffolds `.works/brainstorm/{feature}_{ts}/` + metadata + seeded `phase-1-spec-requirement.md`.
+
+Copy any research report saved earlier to `<item>/reviews/research-<slug>.md` now, before the spec cites it.
 
 ---
 

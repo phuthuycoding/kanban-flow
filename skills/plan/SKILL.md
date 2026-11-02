@@ -39,7 +39,7 @@ The four artifacts depend on each other: the UC list drives the diagram and the 
 | d. Diagram + test cases | You | `use-case-diagram`, `test-cases` |
 | e. Contract review | `Agent(kf:spec-reviewer)` with a fresh context, `model: opus` | Findings returned to you before section 3; advisory, never a gate on its own |
 
-Skip the subagents and do every step yourself when the change is small (two UCs or fewer, or a survey that fits in a few files): each handover re-reads the spec and the code, which costs more than it saves at that size. If your runtime has no subagent tool, do the same steps yourself in the same order.
+Skip the subagents and do every step yourself when the change is small (two UCs or fewer, or a survey that fits in a few files): each handover re-reads the spec and the code, which costs more than it saves at that size. Research done inline must still write `<item>/reviews/research-<slug>.md`: the self-review fails a choice without that report. If your runtime has no subagent tool, do the same steps yourself in the same order.
 
 **Subagent prompt contract** — every subagent prompt must state:
 

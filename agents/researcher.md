@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: Answers one outside-knowledge question with cited evidence, in one of three modes — `web` (documentation, APIs, standards, versions), `code` (how one existing piece of code works, as file:line) or `prior-art` (how other projects or tools solve it). Reply under 40 lines with a conclusion, confidence, sources and verified/inferred/unverified lists; full findings go to a report file. Dispatched by kf:brainstorm, kf:plan, kf:implement and the spike path. It does not decide scope and does not map consumers.
+description: Answers one outside-knowledge question with cited evidence, in one of three modes — `web` (documentation, APIs, standards, versions), `code` (how one existing piece of code works, as file:line) or `prior-art` (how other projects or tools solve it). Reply in at most 40 lines with a conclusion, confidence, sources and verified/inferred/unverified lists; full findings go to a report file. Dispatched by kf:brainstorm, kf:plan, kf:implement and the spike path. It does not decide scope and does not map consumers.
 model: sonnet
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch, Write
 ---
