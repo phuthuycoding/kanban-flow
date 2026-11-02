@@ -118,6 +118,24 @@ describe("the implement skill and task loop on the inline developer seat", () =>
     expect(text).toMatch(/resum\w* that same subagent/i);
   });
 
+  it("lets the inline resume rule yield to a chain Ruling and sends fix rounds to the chain subagent", () => {
+    const text = IMPLEMENT();
+    expect(text).toMatch(/unless a chain `?Ruling:`? names a chain subagent/i);
+    expect(text).toMatch(/fix rounds of an inline task run inline, or in the chain subagent its `?Ruling:`? names/i);
+  });
+
+  it("writes each chain task's developer dispatched at the hand-over, never ahead of it", () => {
+    const text = IMPLEMENT_SIDE();
+    expect(text).toMatch(/writes each chain task's `?developer dispatched`? when it hands that task over/i);
+    expect(text).toMatch(/never ahead of the hand-over/i);
+  });
+
+  it("carves the inline task out of the generic developer re-dispatch and dispatch steps", () => {
+    const text = IMPLEMENT();
+    expect(text).toContain("(except an inline task, which step 4 resumes)");
+    expect(text).toMatch(/^3\. No `developer dispatched` → except an inline task \(step 4\)/m);
+  });
+
   it("starts task N+1 only after N's review when their Files overlap", () => {
     expect(IMPLEMENT_SIDE()).toMatch(/N\+1's Files overlap N's[^\n]*N\+1 starts only after N's review/i);
   });
