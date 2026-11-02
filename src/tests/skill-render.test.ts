@@ -27,10 +27,13 @@ describe("renderForCopy", () => {
     expect(renderForCopy("(kf:implement)", ROOT)).toBe("(kf-implement)");
   });
 
-  it("rewrites a bare kf:<managed agent> mention the way an Agent dispatch names it", () => {
-    const out = renderForCopy("hand the brief to kf:researcher first", ROOT);
-    expect(out).not.toContain("kf:researcher");
-    expect(out).toContain("kf-researcher");
+  it("leaves a bare kf:<managed agent> as written, since no copy runtime registers an agent by that name", () => {
+    expect(renderForCopy("hand the brief to kf:researcher first", ROOT)).toBe("hand the brief to kf:researcher first");
+    expect(renderForCopy("subagent_type: kf:code-reviewer", ROOT)).toBe("subagent_type: kf:code-reviewer");
+  });
+
+  it("still rewrites a bare skill name when an agent name sits beside it", () => {
+    expect(renderForCopy("kf:test then kf:scout", ROOT)).toBe("kf-test then kf:scout");
   });
 
   it("leaves kf:<unknown>, a longer name and a prefixed word alone", () => {
@@ -92,7 +95,7 @@ describe("renderForCopy", () => {
       const out = renderForCopy(readFileSync(f, "utf8"), ROOT);
       expect(out, f).not.toContain("CLAUDE_PLUGIN_ROOT");
       expect(out, f).not.toMatch(/Skill\(kf:|Agent\(kf:|\/kf:[a-z]/);
-      expect(out, f).not.toMatch(new RegExp(`(?<![\\w/.:-])kf:(${[...MANAGED_SKILLS, ...MANAGED_AGENTS].join("|")})(?![\\w-])`));
+      expect(out, f).not.toMatch(new RegExp(`(?<![\\w/.:-])kf:(${MANAGED_SKILLS.join("|")})(?![\\w-])`));
     }
   });
 });

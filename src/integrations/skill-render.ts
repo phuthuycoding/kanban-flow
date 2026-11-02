@@ -1,11 +1,11 @@
 import { PKG_ROOT } from "../shared/paths.js";
-import { MANAGED_AGENTS, MANAGED_SKILLS, copyName } from "./managed.js";
+import { MANAGED_SKILLS, copyName } from "./managed.js";
 
 const PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}";
 const NAME = "[a-z][a-z0-9-]*";
 
-// A bare `kf:<name>` hand-off in prose names a managed skill or agent; the copy is `kf-<name>`.
-const BARE_HANDOFF = new RegExp(`(?<![\\w-])kf:(${[...MANAGED_SKILLS, ...MANAGED_AGENTS].map(escape).join("|")})(?![a-z0-9]|-[a-z0-9])`, "g");
+// A bare `kf:<name>` hand-off in prose names a managed skill; the copy is `kf-<name>`. A bare `kf:<agent>` stays: no copy runtime registers a `kf-<agent>` name.
+const BARE_HANDOFF = new RegExp(`(?<![\\w-])kf:(${[...MANAGED_SKILLS].map(escape).join("|")})(?![a-z0-9]|-[a-z0-9])`, "g");
 
 function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
