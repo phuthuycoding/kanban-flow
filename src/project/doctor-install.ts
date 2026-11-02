@@ -142,10 +142,9 @@ function probeFailure(err: unknown): string {
 }
 
 const PLUGIN_AREA = "Claude Code plugin";
-
-/** The kf plugin's state for a project that configures claude: missing, disabled or stale is an ERROR; a failed probe is said, never skipped. */
 const UNKNOWN_SOURCE = "kf plugin source unknown";
 
+/** The kf plugin's state for a project that configures claude: missing, disabled or stale is an ERROR; a failed probe is said, never skipped. */
 export async function checkPlugin(root: string): Promise<DoctorFinding[]> {
   const cfg = configuredAgents(root);
   if (!cfg || !cfg.agents.includes("claude")) return [];
