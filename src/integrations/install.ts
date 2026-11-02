@@ -55,6 +55,8 @@ const UNPREFIXED_SKILLS: ReadonlySet<string> = new Set(["travel"]);
 /** Sidecar in the skills dir: the digest of each unprefixed skill copy kanban-flow wrote, so an upgrade still recognises the older copy as ours. */
 const SKILLS_MANIFEST = ".kanban-flow-skills.json";
 
+/** The npm package dir name of kanban-flow (the product name), used to recognise links made before the plugin. */
+const PRODUCT_PKG_DIR = "kanban-flow";
 const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
 /** The agent bodies sit at the plugin root, where Claude Code loads a plugin's agents from. */
 export const PKG_AGENTS_DIR = join(PKG_ROOT, "agents");
@@ -280,6 +282,20 @@ async function writeAgentsManifest(agentsDir: string, entries: Record<string, st
  * into the package, a byte-equal copy of the packaged file, or a copy whose hash the manifest
  * recorded — is ours to replace or remove.
  */
+/** A kf package root holds `.claude-plugin/plugin.json` naming the `kf` plugin. An unreadable or non-JSON manifest means not ours. */
+function isKfPackageRoot(dir: string): boolean {
+  const manifest = join(dir, ".claude-plugin", "plugin.json");
+  if (!existsSync(manifest)) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(manifest, "utf8"));
+  } catch (err) {
+    if (err instanceof SyntaxError) return false;
+    throw err;
+  }
+  return typeof parsed === "object" && parsed !== null && (parsed as { name?: unknown }).name === "kf";
+}
+
 export function agentEntryState(agentsDir: string, name: string): AgentEntryState {
   const target = join(agentsDir, `${name}.md`);
   let st;
@@ -294,8 +310,9 @@ export function agentEntryState(agentsDir: string, name: string): AgentEntryStat
     if (resolved === packaged) return "linked";
     // A link kf made from another install of this package — a different Node version, an
     // npm-link checkout, or a dir that no longer exists — is ours to replace, not the user's.
-    // The suffix covers both layouts: <package>/agents now, and the agents dir of the pre-plugin flow skill before.
-    const ours = resolved.endsWith(join("kanban-flow", "agents", `${name}.md`));
+    // The package is recognised by its content, not its directory name: a checkout may be named anything.
+    // The suffix covers a package dir that carries the product name, in both the plugin layout and the pre-plugin flow skill.
+    const ours = isKfPackageRoot(resolve(resolved, "..", "..")) || resolved.endsWith(join(PRODUCT_PKG_DIR, "agents", `${name}.md`));
     return ours || !existsSync(resolved) ? "stale" : "foreign";
   }
   if (!st.isFile()) return "not-file";
@@ -428,7 +445,10 @@ export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: st
 function isKanbanFlowSkillLink(skillsDir: string, name: string, target: string): boolean {
   const resolved = resolve(skillsDir, target);
   if (resolved === join(PKG_SKILLS_DIR, name)) return true;
-  return resolved.split(sep).join("/").endsWith(`/kanban-flow/skills/${name}`);
+  if (resolved.endsWith(join(sep, "skills", name)) && isKfPackageRoot(resolve(resolved, "..", ".."))) return true;
+  // A pre-plugin install linked into the npm package dir, which carries the product name; such a
+  // target may already be gone, so only its path can identify it.
+  return resolved.endsWith(join(sep, PRODUCT_PKG_DIR, "skills", name));
 }
 
 /** True when every entry under dir is a regular file whose sha256 is in `known`, SKILL.md among them. */

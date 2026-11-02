@@ -331,7 +331,7 @@ describe("the docs describe only the in-session path", () => {
 
 describe("the docs name the commit-list form beside the range form", () => {
   // Explicit list on purpose: a glob would grow silently. The two whole-branch review-stage
-  // calls in the kanban-review skill keep range mode for one contiguous diff and are left out.
+  // calls in the review skill keep range mode for one contiguous diff and are left out.
   const SURFACES = [
     "README.md",
     "kanban-flow/README.md",
@@ -459,7 +459,7 @@ describe("the docs describe concurrent developers in one worktree", () => {
     }
   });
 
-  it("lists --graph in the kanban-flow CLI block and in the kanban-plan approval summary", () => {
+  it("lists --graph in the flow CLI block and in the plan approval summary", () => {
     expect(read("skills/flow/SKILL.md")).toContain("kf tasks {feature} [--json] [--graph]");
     expect(read("skills/plan/SKILL.md")).toContain("kf tasks <feature> --graph");
   });

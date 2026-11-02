@@ -1,6 +1,6 @@
 # Reviewer brief — the dispatch for `code-reviewer`
 
-Use this when dispatching the whole-branch review. The `code-reviewer` agent is registered by `kf install` for Claude Code (`.claude/agents/`); its body lives at `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` so every runtime can read it. The agent has **no write tool**: its reply is the report, and the orchestrator saves it.
+Use this when dispatching the whole-branch review. The `code-reviewer` agent is registered for Claude Code by the kf plugin (`kf install` runs the plugin install); its body lives at `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` so every runtime can read it. The agent has **no write tool**: its reply is the report, and the orchestrator saves it.
 
 ```
 Agent:
