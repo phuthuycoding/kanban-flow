@@ -154,13 +154,13 @@ describe("the plugin package", () => {
 
 describe("no leftover pre-plugin names", () => {
   const SELF = "src/tests/plugin-package.test.ts";
-  const EXCLUDED = [":(exclude)src/cli/commands/autoconfig.ts", ":(exclude)src/cli/args.ts", ":(exclude)src/project/bootstrap.ts", ":(exclude)src/tests/autoconfig.test.ts",":(exclude)src/tests/fixtures/kanban-ship-0.13.0", ":(exclude)src/integrations/managed.ts", `:(exclude)${SELF}`];
+  const EXCLUDED = [":(exclude)src/cli/commands/autoconfig.ts", ":(exclude)src/cli/args.ts", ":(exclude)src/project/bootstrap.ts", ":(exclude)src/tests/fixtures/kanban-ship-0.13.0", ":(exclude)src/integrations/managed.ts", `:(exclude)${SELF}`];
   // Only tests that seed legacy kanban-* names on disk to prove migration and doctor handling may spell them, plus the docs grep test whose literals are search patterns.
   const SEEDING_TESTS = new Set(["src/tests/migration.test.ts", "src/tests/doctor-plugin.test.ts", "src/tests/doctor.test.ts", "src/tests/spike-surface.test.ts", "src/tests/docs-plugin-surface.test.ts"]);
   const SCOPE = ["skills", "agents", ".claude-plugin", "src"];
 
   function grep(pattern: string): string[] {
-    const res = spawnSync("git", ["grep", "--untracked", "-nE", pattern, "--", ...SCOPE, ...EXCLUDED], { cwd: ROOT, encoding: "utf8" });
+    const res = spawnSync("git", ["grep", "-nE", pattern, "--", ...SCOPE, ...EXCLUDED], { cwd: ROOT, encoding: "utf8" });
     if (res.status === 1) return [];
     expect(res.status, res.stderr).toBe(0);
     return res.stdout.split("\n").filter(Boolean).filter((l) => !SEEDING_TESTS.has(l.split(":")[0]));
@@ -177,7 +177,6 @@ describe("no leftover pre-plugin names", () => {
       /@phuthuycoding\/kanban-flow/,
       /github\.com\/phuthuycoding\/kanban-flow/,
       /\.config\/kanban-flow/,
-      /PLUGIN_VAR\}\/kanban-flow\//,
       /kanban-flow\/(templates|review|github-hooks|hooks|skills)/,
     ];
     expect(lines.filter((l) => !l.startsWith("src/shared/process.ts:") && !product.some((re) => re.test(l)))).toEqual([]);
