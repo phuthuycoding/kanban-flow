@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readlink, symlink } from "node:fs/promises";
+import { existsSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { PKG_AGENTS_DIR, installAgentsTo, linkOrCopySkillsTo } from "../integrations/install.js";
 import { copyName } from "../integrations/managed.js";
-import { PKG_ROOT } from "../shared/paths.js";
 
 // Ownership of a link is decided by what sits at the package root, never by the directory's name:
-// the checkout dir here is deliberately called "my-checkout". Skill links use travel, the one entry whose
-// ownership is checked on disk rather than assumed from its kanban- prefix.
+// the checkout dir here is deliberately called "my-checkout".
 let dir: string;
 let checkout: string;
 
@@ -24,9 +23,9 @@ afterEach(async () => {
 
 async function packageRoot(pluginJson: string | null): Promise<void> {
   await mkdir(join(checkout, "agents"), { recursive: true });
-  await mkdir(join(checkout, "skills", "travel"), { recursive: true });
+  await mkdir(join(checkout, "skills", "review"), { recursive: true });
   await writeFile(join(checkout, "agents", "scout.md"), "scout of a checkout");
-  await writeFile(join(checkout, "skills", "travel", "SKILL.md"), "travel of a checkout");
+  await writeFile(join(checkout, "skills", "review", "SKILL.md"), "review of a checkout");
   if (pluginJson !== null) {
     await mkdir(join(checkout, ".claude-plugin"), { recursive: true });
     await writeFile(join(checkout, ".claude-plugin", "plugin.json"), pluginJson);
@@ -43,7 +42,7 @@ async function agentLink(): Promise<string> {
 async function skillLink(): Promise<string> {
   const skills = join(dir, "skills-home");
   await mkdir(skills, { recursive: true });
-  await symlink(join(checkout, "skills", "travel"), join(skills, copyName("travel")), "dir");
+  await symlink(join(checkout, "skills", "review"), join(skills, copyName("review")), "dir");
   return skills;
 }
 
@@ -81,7 +80,10 @@ describe("a skill link into a checkout of this package", () => {
     const skills = await skillLink();
     const res = await linkOrCopySkillsTo(skills);
     expect(res.code).toBe(0);
-    expect(await readlink(join(skills, copyName("travel")))).toBe(join(PKG_ROOT, "skills", "travel"));
+    const entry = join(skills, copyName("review"));
+    // The owned link is replaced by a rendered copy, never kept as a link.
+    expect(lstatSync(entry).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(entry, "SKILL.md"))).toBe(true);
     expect(res.stdout).not.toContain("left untouched");
   });
 
@@ -89,16 +91,16 @@ describe("a skill link into a checkout of this package", () => {
     await packageRoot('{"name":"other"}');
     const skills = await skillLink();
     const res = await linkOrCopySkillsTo(skills);
-    expect(await readlink(join(skills, copyName("travel")))).toBe(join(checkout, "skills", "travel"));
+    expect(await readlink(join(skills, copyName("review")))).toBe(join(checkout, "skills", "review"));
     expect(res.stdout).toContain("left untouched");
-    expect(res.stdout).toContain(copyName("travel"));
+    expect(res.stdout).toContain(copyName("review"));
   });
 
   it("is foreign and left untouched when the package root has no manifest", async () => {
     await packageRoot(null);
     const skills = await skillLink();
     const res = await linkOrCopySkillsTo(skills);
-    expect(await readlink(join(skills, copyName("travel")))).toBe(join(checkout, "skills", "travel"));
+    expect(await readlink(join(skills, copyName("review")))).toBe(join(checkout, "skills", "review"));
     expect(res.stdout).toContain("left untouched");
   });
 });

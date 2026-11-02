@@ -51,11 +51,11 @@ describe("the managed name lists", () => {
     expect(install.MANAGED_AGENTS).toEqual(managed.MANAGED_AGENTS);
   });
 
-  it("keeps the legacy on-disk entry names for now, with travel unprefixed", async () => {
+  it("names every copy for other runtimes with the kf- prefix, travel included", async () => {
     const { copyName } = await import("../integrations/managed.js");
-    expect(copyName("review")).toBe("kanban-review");
-    expect(copyName("flow")).toBe("kanban-flow");
-    expect(copyName("travel")).toBe("travel");
+    expect(copyName("review")).toBe("kf-review");
+    expect(copyName("flow")).toBe("kf-flow");
+    expect(copyName("travel")).toBe("kf-travel");
   });
 
   it("has a skill dir whose frontmatter name is the bare name for every managed skill", () => {

@@ -43,7 +43,7 @@ describe("installation errors", () => {
       vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "skills") && original.existsSync(path));
 
       expect((await cmdInstall(["codex"], { cwd: root })).code).toBe(1);
-      expect(original.existsSync(join(skillsDir, "kanban-flow", "SKILL.md"))).toBe(true);
+      expect(original.existsSync(join(skillsDir, "kf-flow", "SKILL.md"))).toBe(true);
     } finally {
       vi.restoreAllMocks();
       await rm(root, { recursive: true, force: true });

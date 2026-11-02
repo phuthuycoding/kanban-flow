@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 async function foreignTravel(skillsDir: string): Promise<string> {
-  const travel = join(skillsDir, "travel");
+  const travel = join(skillsDir, copyName("travel"));
   await mkdir(travel, { recursive: true });
   await writeFile(join(travel, "SKILL.md"), "---\nname: travel\n---\nmy trip planner\n");
   return travel;
@@ -47,7 +47,7 @@ describe("a user's own travel skill", () => {
     const res = await copySkillsTo(dir);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("left untouched");
-    expect(res.stdout).toContain("travel");
+    expect(res.stdout).toContain(copyName("travel"));
     expect(await readFile(join(travel, "SKILL.md"), "utf8")).toContain("my trip planner");
     for (const name of MANAGED_SKILLS.filter((n) => n !== "travel")) expect(existsSync(join(dir, copyName(name), "SKILL.md"))).toBe(true);
   });
@@ -66,14 +66,14 @@ describe("a user's own travel skill", () => {
     await mkdir(elsewhere, { recursive: true });
     const skills = join(dir, "skills");
     await mkdir(skills, { recursive: true });
-    await symlink(elsewhere, join(skills, "travel"), "dir");
+    await symlink(elsewhere, join(skills, copyName("travel")), "dir");
 
     await linkOrCopySkillsTo(skills);
-    expect(lstatSync(join(skills, "travel")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(skills, copyName("travel"))).isSymbolicLink()).toBe(true);
     const { removed, kept } = await removeSkillsFrom(skills);
-    expect(kept).toEqual(["travel"]);
-    expect(removed).not.toContain("travel");
-    expect(lstatSync(join(skills, "travel")).isSymbolicLink()).toBe(true);
+    expect(kept).toEqual([copyName("travel")]);
+    expect(removed).not.toContain(copyName("travel"));
+    expect(lstatSync(join(skills, copyName("travel"))).isSymbolicLink()).toBe(true);
   });
 
   it("survives uninstall, which names it as kept", async () => {
@@ -81,7 +81,7 @@ describe("a user's own travel skill", () => {
     const travel = await foreignTravel(join(dir, ".agents", "skills"));
     const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("kept travel");
+    expect(res.stdout).toContain(`kept ${copyName("travel")}`);
     expect(await readFile(join(travel, "SKILL.md"), "utf8")).toContain("my trip planner");
   });
 
@@ -89,13 +89,13 @@ describe("a user's own travel skill", () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     const projectSkills = join(dir, ".agents", "skills");
     await copySkillsTo(projectSkills);
-    await rm(join(projectSkills, "travel"), { recursive: true, force: true });
+    await rm(join(projectSkills, copyName("travel")), { recursive: true, force: true });
     const travel = await foreignTravel(projectSkills);
 
     const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("kept travel");
-    expect(existsSync(join(projectSkills, "kanban-flow"))).toBe(false);
+    expect(res.stdout).toContain(`kept ${copyName("travel")}`);
+    expect(existsSync(join(projectSkills, copyName("flow")))).toBe(false);
     expect(await readFile(join(travel, "SKILL.md"), "utf8")).toContain("my trip planner");
   });
 });
@@ -106,9 +106,9 @@ describe("kanban-flow's own travel entry", () => {
     const again = await copySkillsTo(dir);
     expect(again.stdout).not.toContain("left untouched");
     const { removed, kept } = await removeSkillsFrom(dir);
-    expect(removed).toContain("travel");
+    expect(removed).toContain(copyName("travel"));
     expect(kept).toEqual([]);
-    expect(existsSync(join(dir, "travel"))).toBe(false);
+    expect(existsSync(join(dir, copyName("travel")))).toBe(false);
     expect(existsSync(join(dir, ".kanban-flow-skills.json"))).toBe(false);
   });
 
@@ -118,22 +118,22 @@ describe("kanban-flow's own travel entry", () => {
 
     const res = await copySkillsTo(dir);
     expect(res.stdout).not.toContain("left untouched");
-    expect(await readFile(join(dir, "travel", "SKILL.md"), "utf8")).toContain("next release");
+    expect(await readFile(join(dir, copyName("travel"), "SKILL.md"), "utf8")).toContain("next release");
   });
 
   it("is kept once the user edits the copy", async () => {
     await copySkillsTo(dir);
-    await writeFile(join(dir, "travel", "SKILL.md"), "edited by me");
+    await writeFile(join(dir, copyName("travel"), "SKILL.md"), "edited by me");
     const res = await copySkillsTo(dir);
     expect(res.stdout).toContain("left untouched");
-    expect(await readFile(join(dir, "travel", "SKILL.md"), "utf8")).toBe("edited by me");
+    expect(await readFile(join(dir, copyName("travel"), "SKILL.md"), "utf8")).toBe("edited by me");
   });
 
   it.skipIf(process.platform === "win32")("is replaced when it is a link into the package", async () => {
-    await symlink(PKG_TRAVEL, join(dir, "travel"), "dir");
+    await symlink(PKG_TRAVEL, join(dir, copyName("travel")), "dir");
     const res = await copySkillsTo(dir);
     expect(res.stdout).not.toContain("left untouched");
-    expect(lstatSync(join(dir, "travel")).isDirectory()).toBe(true);
+    expect(lstatSync(join(dir, copyName("travel"))).isDirectory()).toBe(true);
     expect(existsSync(join(PKG_TRAVEL, "SKILL.md"))).toBe(true);
   });
 });

@@ -47,10 +47,10 @@ describe("managed skills", () => {
 
   it.skipIf(process.platform === "win32")("keeps the executable bit of travel's estimates script when copying", async () => {
     await copySkillsTo(dir);
-    const script = join(dir, "travel", "scripts", "estimates");
+    const script = join(dir, copyName("travel"), "scripts", "estimates");
     expect(existsSync(script)).toBe(true);
     expect(statSync(script).mode & 0o111).not.toBe(0);
-    expect(existsSync(join(dir, "travel", "references"))).toBe(true);
+    expect(existsSync(join(dir, copyName("travel"), "references"))).toBe(true);
   });
 });
 
@@ -171,7 +171,7 @@ describe("install/uninstall (project scope)", () => {
     await mkdir(nested, { recursive: true });
 
     await cmdInstall(["codex"], { cwd: nested, scope: "project" });
-    expect(existsSync(join(dir, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
     expect(existsSync(join(nested, ".agents", "skills"))).toBe(false);
   });
 
@@ -179,7 +179,7 @@ describe("install/uninstall (project scope)", () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     const res = await cmdInstall(["claude", "codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(existsSync(join(dir, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
     expect(existsSync(join(dir, ".claude", "skills"))).toBe(false);
     expect(existsSync(join(dir, ".claude", "agents"))).toBe(false);
   });
@@ -199,7 +199,7 @@ describe("install/uninstall (project scope)", () => {
     expect(existsSync(join(dir, ".kf"))).toBe(false);
     expect(existsSync(join(dir, "docs", "requirement"))).toBe(false);
     expect(existsSync(join(dir, "docs", "notes"))).toBe(true);
-    expect(existsSync(join(dir, ".agents", "skills", "kanban-flow"))).toBe(false);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow")))).toBe(false);
   });
 
   it("uninstall --purge without --force refuses on non-TTY and deletes nothing", async () => {
@@ -210,7 +210,7 @@ describe("install/uninstall (project scope)", () => {
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("--force");
     expect(existsSync(join(dir, ".works"))).toBe(true);
-    expect(existsSync(join(dir, ".agents", "skills", "kanban-flow"))).toBe(true);
+    expect(existsSync(join(dir, ".agents", "skills", copyName("flow")))).toBe(true);
   });
 
   it("says the .gitignore line is still there, and does not touch the file", async () => {
@@ -269,8 +269,8 @@ describe("agents adapter", () => {
     expect(projectSkillsDir(agentById("claude")!, dir)).toBe(join(dir, ".claude", "skills"));
     expect(projectSkillsDir(agentById("codex")!, dir)).toBe(join(dir, ".agents", "skills"));
     expect(projectSkillsDir(agentById("kiro")!, dir)).toBe(join(dir, ".kiro", "skills"));
-    expect(projectSkillsDir(agentById("opencode")!, dir)).toBe(join(dir, ".opencode", "skills"));
-    expect(projectSkillsDir(agentById("devin")!, dir)).toBe(join(dir, ".devin", "skills"));
+    expect(projectSkillsDir(agentById("opencode")!, dir)).toBe(join(dir, ".agents", "skills"));
+    expect(projectSkillsDir(agentById("devin")!, dir)).toBe(join(dir, ".agents", "skills"));
   });
 
   it("parseAgentIds de-dupes and rejects unknown ids", () => {
@@ -419,7 +419,7 @@ describe("a linked git worktree as the package root", () => {
 
     const res = kfFrom(pkg, root, home, "install", "--project", "--agent", "codex");
     expect(res.code, res.out).toBe(0);
-    expect(existsSync(join(root, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("kf install --global refuses and names the .git file it cannot read", async () => {
@@ -552,7 +552,7 @@ describe("a linked git worktree as the package root", () => {
     expect(res.out).toContain("Setup mode");
     expect(res.out).not.toContain("primary checkout");
     expect(res.code, res.out).toBe(0);
-    expect(existsSync(join(root, ".agents", "skills", "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(root, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
     expect(existsSync(join(home, ".claude"))).toBe(false);
   }, 70_000);
 
@@ -605,7 +605,7 @@ describe("a linked git worktree as the package root", () => {
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
-  it("kf install --global from a linked worktree still links when KF_ALLOW_WORKTREE_LINK=1", async () => {
+  it("kf install --global from a linked worktree still writes rendered copies when KF_ALLOW_WORKTREE_LINK=1", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");
     const cwd = join(dir, "cwd");
@@ -615,10 +615,11 @@ describe("a linked git worktree as the package root", () => {
 
     const res = kfWithEnv(pkg, cwd, home, { KF_ALLOW_WORKTREE_LINK: "1" }, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).toBe(0);
-    expect(lstatSync(join(home, ".agents", "skills", "kanban-flow")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(home, ".agents", "skills", copyName("flow"))).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(home, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 
-  it("kf install --global from a package in a primary checkout still links", async () => {
+  it("kf install --global from a package in a primary checkout still writes rendered copies", async () => {
     const pkg = join(dir, "pkg");
     const home = join(dir, "home");
     const cwd = join(dir, "cwd");
@@ -628,6 +629,7 @@ describe("a linked git worktree as the package root", () => {
 
     const res = kfFrom(pkg, cwd, home, "install", "--global", "--agent", "codex");
     expect(res.code, res.out).toBe(0);
-    expect(lstatSync(join(home, ".agents", "skills", "kanban-flow")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(home, ".agents", "skills", copyName("flow"))).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(home, ".agents", "skills", copyName("flow"), "SKILL.md"))).toBe(true);
   });
 });

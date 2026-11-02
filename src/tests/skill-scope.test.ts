@@ -69,7 +69,7 @@ describe("userRel / userSkillsDir (FR-001)", () => {
   it("resolves each agent's documented user-level dir", () => {
     expect(userSkillsDir(agentById("claude")!, "/h")).toBe("/h/.claude/skills");
     expect(userSkillsDir(agentById("codex")!, "/h")).toBe("/h/.agents/skills");
-    expect(userSkillsDir(agentById("opencode")!, "/h")).toBe("/h/.config/opencode/skills");
+    expect(userSkillsDir(agentById("opencode")!, "/h")).toBe("/h/.agents/skills");
     expect(userSkillsDir(agentById("kiro")!, "/h")).toBe("/h/.kiro/skills");
     expect(userSkillsDir(agentById("devin")!, "/h")).toBe("/h/.agents/skills");
   });
@@ -112,13 +112,13 @@ describe("link-or-copy install (FR-001)", () => {
   it("links each managed skill into the target dir", async () => {
     const res = await linkOrCopySkillsTo(homeSkills());
     expect(res.code).toBe(0);
-    expect(res.mode).toBe("link");
+    expect(res.mode).toBe("copy");
     for (const name of MANAGED_SKILLS) {
       const entry = join(homeSkills(), copyName(name));
-      expect(lstatSync(entry).isSymbolicLink(), name).toBe(true);
+      expect(lstatSync(entry).isDirectory() && !lstatSync(entry).isSymbolicLink(), name).toBe(true);
       expect(existsSync(join(entry, "SKILL.md")), `${name} resolves`).toBe(true);
     }
-    expect(agentSkillsState(homeSkills())).toBe("linked");
+    expect(agentSkillsState(homeSkills())).toBe("copied");
   });
 
   it("removes links without touching the packaged targets", async () => {
@@ -141,7 +141,7 @@ describe("install global cleans project copies (UC-003)", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("(global)");
     for (const name of MANAGED_SKILLS) {
-      expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
+      expect(lstatSync(join(homeSkills(), copyName(name))).isDirectory() && !lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
       expect(existsSync(join(projectSkills(), copyName(name))), `${name} cleaned`).toBe(false);
     }
     expect(existsSync(join(projectSkills(), "unrelated"))).toBe(true);
@@ -167,7 +167,8 @@ describe("install global cleans project copies (UC-003)", () => {
   it("works outside a .works project, touching only ~ dirs (TC-009)", async () => {
     const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
-    expect(lstatSync(join(homeSkills(), "kanban-flow")).isSymbolicLink()).toBe(true);
+    expect(lstatSync(join(homeSkills(), copyName("flow"))).isDirectory()).toBe(true);
+    expect(lstatSync(join(homeSkills(), copyName("flow"))).isSymbolicLink()).toBe(false);
     expect(existsSync(join(dir, ".agents"))).toBe(false);
   });
 
@@ -176,7 +177,7 @@ describe("install global cleans project copies (UC-003)", () => {
     await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(snapshot(PKG_SKILLS)).toEqual(before);
-    expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
+    expect(existsSync(join(homeSkills(), copyName("flow")))).toBe(false);
   });
 });
 
@@ -189,7 +190,7 @@ describe("install project leaves global untouched (UC-004)", () => {
     for (const name of MANAGED_SKILLS) {
       const entry = join(projectSkills(), copyName(name));
       expect(lstatSync(entry).isDirectory() && !lstatSync(entry).isSymbolicLink(), name).toBe(true);
-      expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), `~ ${name}`).toBe(true);
+      expect(lstatSync(join(homeSkills(), copyName(name))).isDirectory() && !lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), `~ ${name}`).toBe(true);
     }
   });
 
@@ -202,8 +203,8 @@ describe("install project leaves global untouched (UC-004)", () => {
     const res = await cmdInstall(["codex"], { cwd: dir });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("(project)");
-    expect(existsSync(join(projectSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
+    expect(existsSync(join(projectSkills(), copyName("flow"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(homeSkills(), copyName("flow")))).toBe(false);
   });
 
   it("refuses --scope project outside .works (TC-012)", async () => {
@@ -222,8 +223,8 @@ describe("uninstall by scope (UC-005)", () => {
     const res = await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("shared by every project");
-    expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
-    expect(existsSync(join(projectSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(homeSkills(), copyName("flow")))).toBe(false);
+    expect(existsSync(join(projectSkills(), copyName("flow"), "SKILL.md"))).toBe(true);
   });
 
   it("removes project copies only, ~ links survive (TC-014)", async () => {
@@ -233,15 +234,15 @@ describe("uninstall by scope (UC-005)", () => {
 
     const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(existsSync(join(projectSkills(), "kanban-flow"))).toBe(false);
-    expect(existsSync(join(homeSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(projectSkills(), copyName("flow")))).toBe(false);
+    expect(existsSync(join(homeSkills(), copyName("flow"), "SKILL.md"))).toBe(true);
   });
 
   it("works outside .works and is idempotent (TC-015)", async () => {
     await linkOrCopySkillsTo(homeSkills());
     const first = await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(first.code).toBe(0);
-    expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
+    expect(existsSync(join(homeSkills(), copyName("flow")))).toBe(false);
     const second = await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(second.code).toBe(0);
     expect(second.stdout).toContain("already clean");
@@ -253,7 +254,7 @@ describe("init at effective scope (FR-005)", () => {
     const res = await cmdInit(args("init", [], { defaults: true, agent: "codex" }), dir);
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
-      expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
+      expect(lstatSync(join(homeSkills(), copyName(name))).isDirectory() && !lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
     }
     expect(existsSync(join(dir, ".agents"))).toBe(false);
     expect(readProjectConfig(dir).skills?.scope).toBe("global");
@@ -267,8 +268,8 @@ describe("init at effective scope (FR-005)", () => {
     );
     const res = await cmdInit(args("init", [], { minimal: true, agent: "codex" }), dir);
     expect(res.code).toBe(0);
-    expect(existsSync(join(projectSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
+    expect(existsSync(join(projectSkills(), copyName("flow"), "SKILL.md"))).toBe(true);
+    expect(existsSync(join(homeSkills(), copyName("flow")))).toBe(false);
   });
 });
 
@@ -314,11 +315,11 @@ describe("status reporting (UC-006)", () => {
     await cmdInstall(["codex"], { cwd: dir });
     res = await cmdAutoconfig(parsed, dir);
     expect(res.stdout).toContain("Skills for OpenAI Codex (scope: global");
-    expect(res.stdout).toContain("— linked");
+    expect(res.stdout).toContain("— copied");
     expect(res.stdout).toContain("[x] No duplicate project-scope copies");
   });
 
-  it("flags a content-mutated copy as stale and restores it on install (TC-017)", async () => {
+  it("leaves a content-mutated copy untouched and reports it on install", async () => {
     await project();
     await writeFile(
       join(dir, ".kf", "config.json"),
@@ -327,13 +328,10 @@ describe("status reporting (UC-006)", () => {
     await copySkillsTo(projectSkills());
     await writeFile(join(projectSkills(), copyName("plan"), "SKILL.md"), "tampered", "utf8");
 
-    expect(agentSkillsState(projectSkills())).toBe("stale");
-    const res = await cmdAutoconfig(args("autoconfig"), dir);
-    expect(res.stdout).toContain("— stale");
-
-    await cmdInstall(["codex"], { cwd: dir });
-    expect(agentSkillsState(projectSkills())).toBe("copied");
-    expect(readFileSync(join(projectSkills(), copyName("plan"), "SKILL.md"), "utf8")).toContain("name: plan");
+    // The prefix alone never proves ownership: an edited copy is the user's.
+    const res = await cmdInstall(["codex"], { cwd: dir });
+    expect(res.stdout).toContain("left untouched");
+    expect(readFileSync(join(projectSkills(), copyName("plan"), "SKILL.md"), "utf8")).toBe("tampered");
   });
 
   it("reports a dangling link as broken and doctor --fix recreates it (TC-018)", async () => {
@@ -341,7 +339,7 @@ describe("status reporting (UC-006)", () => {
     await mkdir(homeSkills(), { recursive: true });
     for (const name of MANAGED_SKILLS) {
       if (name === "flow") {
-        await symlink(join(dir, "gone-target"), join(homeSkills(), copyName(name)));
+        await symlink(join(dir, "gone", "kanban-flow", "skills", "flow"), join(homeSkills(), copyName(name)));
       } else {
         await symlink(join(PKG_SKILLS, name), join(homeSkills(), copyName(name)));
       }
@@ -353,7 +351,7 @@ describe("status reporting (UC-006)", () => {
     expect(finding?.message).toContain("broken-link");
 
     expect((await runDoctorFixes(dir)).failures).toEqual([]);
-    expect(skillEntryState(homeSkills(), "flow")).toBe("linked");
+    expect(skillEntryState(homeSkills(), "flow")).toBe("copied");
     expect(runDoctor(dir).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });
 
@@ -368,7 +366,7 @@ describe("status reporting (UC-006)", () => {
     expect(res.stdout).toContain("Duplicate project-scope copies");
 
     await cmdInstall(["codex"], { cwd: dir });
-    expect(existsSync(join(projectSkills(), "kanban-flow"))).toBe(false);
+    expect(existsSync(join(projectSkills(), copyName("flow")))).toBe(false);
   });
 
   it("doctor reports missing at the effective scope and fixes it (TC-020)", async () => {

@@ -17,9 +17,9 @@ export const LEGACY_SKILLS = [
 ];
 
 /**
- * The entry name a managed skill is copied or linked under in a runtime's skills dir. Still the
- * legacy kanban-* name: a bare name such as `test` or `plan` may well be the user's own skill.
+ * The entry name a managed skill is copied under in a runtime's skills dir. Never the bare name:
+ * a skill such as `test` or `plan` may well be the user's own.
  */
 export function copyName(name: string): string {
-  return name === "travel" ? "travel" : `kanban-${name}`;
+  return `kf-${name}`;
 }
