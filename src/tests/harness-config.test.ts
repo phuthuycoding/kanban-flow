@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readProjectConfig } from "../project/config.js";
-import { LEGACY_HARNESS_KEYS, validateHarness } from "../project/harness-config.js";
+import { DEFAULT_DEVELOPER_MAX, LEGACY_HARNESS_KEYS, validateHarness } from "../project/harness-config.js";
 
 describe("the legacy harness keys", () => {
   it("are exactly the eight keys the drive runtime used", () => {
@@ -49,6 +49,38 @@ describe("validateHarness reads verify only", () => {
   it("rejects a harness value that is not an object", () => {
     for (const value of ["x", 5, null, []]) {
       expect(() => validateHarness(value, "f"), JSON.stringify(value)).toThrow("Invalid project config");
+    }
+  });
+});
+
+describe("validateHarness reads the developer ceiling", () => {
+  it("exports a default ceiling of 6", () => {
+    expect(DEFAULT_DEVELOPER_MAX).toBe(6);
+  });
+
+  it("accepts a valid ceiling and keeps developers as given", () => {
+    for (const developers of [{ max: 1 }, { max: 16 }, {}]) {
+      const harness = { developers, parallel: 3 };
+      const out = validateHarness(harness, "f");
+      expect(out.developers, JSON.stringify(developers)).toEqual(developers);
+      expect((out as Record<string, unknown>).parallel).toBe(3);
+    }
+    expect(validateHarness({}, "f").developers).toBeUndefined();
+  });
+
+  it("rejects a max that is not an integer from 1 to 16", () => {
+    for (const max of [0, 17, 2.5, "4", null]) {
+      const call = () => validateHarness({ developers: { max } }, "cfg.json");
+      expect(call, JSON.stringify(max)).toThrow("harness.developers.max must be an integer from 1 to 16");
+      expect(call, JSON.stringify(max)).toThrow("cfg.json");
+    }
+  });
+
+  it("rejects a developers value that is not an object", () => {
+    for (const developers of [3, [], "x"]) {
+      const call = () => validateHarness({ developers }, "cfg.json");
+      expect(call, JSON.stringify(developers)).toThrow("harness.developers must be an object { max? }");
+      expect(call, JSON.stringify(developers)).toThrow("cfg.json");
     }
   });
 });

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ProjectConfigError, readProjectConfig } from "../../project/config.js";
+import { DEFAULT_DEVELOPER_MAX } from "../../project/harness-config.js";
 import type { Feature } from "../../workflow/features.js";
 import { checkTaskGraph, taskGraphSummary, taskView, type TaskViewRow } from "../../workflow/tasks.js";
 import { resolveItem } from "./helpers.js";
@@ -71,7 +73,15 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
 
   const view = showTasks(feature, taskView(feature));
   if (args.options.json) {
-    return { code: 0, stdout: JSON.stringify({ feature: feature.name, tasks: view }, null, 2) };
+    let configured: number | undefined;
+    try {
+      configured = readProjectConfig(root.root).harness?.developers?.max;
+    } catch (err) {
+      if (err instanceof ProjectConfigError) return { code: 1, stdout: err.message, stderr: "invalid project config" };
+      throw err;
+    }
+    const developers = configured === undefined ? { max: DEFAULT_DEVELOPER_MAX, source: "default" } : { max: configured, source: "config" };
+    return { code: 0, stdout: JSON.stringify({ feature: feature.name, tasks: view, developers }, null, 2) };
   }
   if (view.length === 0) return { code: 0, stdout: "No planned tasks." };
   return { code: 0, stdout: view.map(renderRow).join("\n") };
