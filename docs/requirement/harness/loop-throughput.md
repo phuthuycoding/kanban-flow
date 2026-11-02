@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `parallel-developers`:** the one-developer-per-worktree rule and the head/next two-task window no longer hold — up to 4 developers run at once under the dispatch conditions, test-writers run for the next 4 tasks, tasks complete out of order and a cascade reaches only dependents. Kept for history.
+
 ## Feature
 loop-throughput
 

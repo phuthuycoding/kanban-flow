@@ -246,9 +246,13 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
   `harness.verify.stage`.
 - Testing and review run through the normal gates and stop at **review PASS:
   merge the PR**, or earlier with a blocker that names the human step.
-- The loop is pipelined: one developer at a time per worktree, while the next task's
-  `test-writer` runs beside the head task's developer; a task whose `Files` overlap
-  an earlier one waits (`kf tasks --json` `overlaps`).
+- The loop is pipelined: up to 4 developers share one worktree on ready tasks whose
+  `Files` are disjoint, each committing through `commit-task.mjs` (path-limited, lock-safe),
+  while the next task's `test-writer` runs beside them; a task whose `Files` overlap an
+  open one waits (`kf tasks --json` `overlaps`). An open task has a `test-writer dispatched`
+  or `developer dispatched` line and no `complete` line; a test-written task does not hold
+  back an earlier task's developer, but a task whose test-writer is in flight holds back
+  every overlapping task. `kf tasks <feature> --graph` shows the critical path and the max width.
 - A new session resumes from the ledger at `<item>/loop/progress.md`; its lines end
   in ` @ <ISO>`, and `kf loop-stats` turns them into the loop's measurements.
 

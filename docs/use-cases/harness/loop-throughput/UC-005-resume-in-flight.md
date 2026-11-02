@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `parallel-developers`:** resume rebuilds every open task, not only the head task and the next one, and re-dispatches developers up to the cap of 4. Kept for history.
+
 ## Overview
 
 | Field | Value |

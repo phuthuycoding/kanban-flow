@@ -128,7 +128,7 @@ kf validate --change {feature_name}
 Before approval, `approval_required` is expected; `approval_changed` is expected when revising an old contract. Fix all other errors and assess warnings before presenting the contract. `kf approve` validates the artifacts without requiring an existing approval. Present a tight summary to the user:
 
 - what the feature does (2-3 lines)
-- implementation plan headlines (tasks, approach, risks)
+- implementation plan headlines (tasks, approach, risks), with the output of `kf tasks <feature> --graph` (critical path and max width) as a block
 - test strategy + coverage target *(as agreed in the spec's Test Strategy: unit / unit+integration / full + UI scope)*
 - Definition of Done
 - when `.kf/config.json` does not set `worktree.enabled: true`: implementation and `kf verify` run in the main checkout, not an item worktree — say so in the same message

@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Diagram
 
+> **Partly superseded by `parallel-developers`:** the one-developer seat and the two-task window shown here no longer hold. Kept for history.
+
 ```mermaid
 flowchart LR
   C[Controller]

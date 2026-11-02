@@ -24,7 +24,8 @@ Agent:
     Worktree: [WORKTREE] on branch [BRANCH]. Never touch the main checkout.
     Seats in flight: [IN_FLIGHT]
     Files allowlist: [FILES]. Write only test files and fixtures inside it, never production
-    code; needing another file is a BLOCKED report naming the file and why.
+    code, and never a file inside another open task's Files; needing another file is a
+    BLOCKED report naming the file and why.
 
     ## Your job
     1. One or more tests per in-scope test case. Expected values come from the test case
@@ -38,6 +39,9 @@ Agent:
        your report; the developer's step-3 run then confirms the failures.
     3. Do not commit; the developer commits the task with your tests unchanged.
     4. Never spawn agents or reviewers.
+    5. Run every command in the foreground and wait for it: never start a background command —
+       no `&`, `nohup`, `run_in_background` or detached shell; a long command gets a timeout.
+       When you report, nothing you started is still running.
 
     ## After review findings or a test dispute
     You may be resumed with findings about a test, or with a developer's

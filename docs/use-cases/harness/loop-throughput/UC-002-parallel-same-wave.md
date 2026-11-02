@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `parallel-developers`:** same-wave developers are no longer held to one at a time — up to 4 run when their Files are disjoint. Kept for history.
+
 ## Overview
 
 | Field | Value |

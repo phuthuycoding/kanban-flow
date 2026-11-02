@@ -191,3 +191,139 @@ describe("taskView", () => {
     ]);
   });
 });
+
+describe("taskGraphSummary", () => {
+  type Row = ReturnType<typeof taskView>[number];
+  const row = (id: string, wave: number, dependencies: string[], files: string[] | null, overlaps: string[] = []): Row => ({
+    id,
+    description: `Do ${id}`,
+    dependencies,
+    files,
+    wave,
+    overlaps: overlaps.map((task) => ({ task, entries: null })),
+  });
+
+  it("keeps a task with unknown files out of any width set larger than one", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/a.ts"], ["TASK-003"]),
+      row("TASK-002", 1, [], ["src/b.ts"], ["TASK-003"]),
+      row("TASK-003", 1, [], null, ["TASK-001", "TASK-002"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidth).toBe(2);
+    expect(summary.widthSet).toEqual(["TASK-001", "TASK-002"]);
+    expect(summary.widthSet).not.toContain("TASK-003");
+    expect(summary.maxWidthExact).toBe(true);
+  });
+
+  it("never puts a task and its transitive dependency in the same width set", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/a.ts"]),
+      row("TASK-002", 2, ["TASK-001"], ["src/b.ts"]),
+      row("TASK-003", 3, ["TASK-002"], ["src/c.ts"]),
+      row("TASK-004", 1, [], ["src/d.ts"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidth).toBe(2);
+    expect(summary.widthSet).toHaveLength(2);
+    expect(summary.widthSet.includes("TASK-001") && summary.widthSet.includes("TASK-003")).toBe(false);
+    expect(summary.widthSet).toEqual(["TASK-001", "TASK-004"]);
+    expect(summary.maxWidthExact).toBe(true);
+    expect(summary.criticalPath).toEqual(["TASK-001", "TASK-002", "TASK-003"]);
+    expect(summary.length).toBe(3);
+    expect(summary.earliestStart).toEqual({ "TASK-001": 1, "TASK-002": 2, "TASK-003": 3, "TASK-004": 1 });
+  });
+
+  it("excludes tasks whose files overlap from the same width set", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/"], ["TASK-002"]),
+      row("TASK-002", 1, [], ["src/a.ts"], ["TASK-001"]),
+      row("TASK-003", 1, [], ["lib/x.ts"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidth).toBe(2);
+    expect(summary.widthSet).toEqual(["TASK-001", "TASK-003"]);
+    expect(summary.maxWidthExact).toBe(true);
+  });
+
+  it("breaks critical path ties toward the lowest task id", () => {
+    const rows = [
+      row("TASK-001", 1, [], ["src/a.ts"]),
+      row("TASK-002", 1, [], ["src/b.ts"]),
+      row("TASK-003", 2, ["TASK-001"], ["src/c.ts"]),
+      row("TASK-004", 2, ["TASK-002"], ["src/d.ts"]),
+    ];
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.criticalPath).toEqual(["TASK-001", "TASK-003"]);
+    expect(summary.length).toBe(2);
+  });
+
+  it("ignores a dependency that is not in the plan", () => {
+    const summary = taskModule.taskGraphSummary([row("TASK-001", 1, ["TASK-099"], ["src/a.ts"])]);
+    expect(summary.criticalPath).toEqual(["TASK-001"]);
+    expect(summary.length).toBe(1);
+    expect(summary.maxWidth).toBe(1);
+    expect(summary.widthSet).toEqual(["TASK-001"]);
+    expect(summary.maxWidthExact).toBe(true);
+    expect(summary.earliestStart).toEqual({ "TASK-001": 1 });
+  });
+
+  it("reports an empty summary for no tasks", () => {
+    expect(taskModule.taskGraphSummary([])).toEqual({ criticalPath: [], length: 0, maxWidth: 0, maxWidthExact: true, widthSet: [], earliestStart: {} });
+  });
+
+  // Deterministic LCG so the overlap pattern is stable across runs.
+  const sparseOverlapRows = (count: number, seed: number): Row[] => {
+    let state = seed;
+    const next = () => { state = (state * 1664525 + 1013904223) % 4294967296; return state / 4294967296; };
+    const ids = Array.from({ length: count }, (_, i) => `TASK-${String(i + 1).padStart(3, "0")}`);
+    const overlaps = new Map<string, string[]>(ids.map((id) => [id, []]));
+    for (let i = 0; i < count; i++) {
+      for (let j = i + 1; j < count; j++) {
+        if (next() < 0.1) { overlaps.get(ids[i])!.push(ids[j]); overlaps.get(ids[j])!.push(ids[i]); }
+      }
+    }
+    return ids.map((id, i) => row(id, 1, [], [`src/f${i}.ts`], overlaps.get(id)));
+  };
+
+  it("finishes a 60 task plan with 10 percent overlaps within 2000 ms and returns a conflict-free lower bound", () => {
+    const rows = sparseOverlapRows(60, 20261101);
+    const started = performance.now();
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(summary.maxWidthExact).toBe(false);
+    expect(summary.maxWidth).toBe(summary.widthSet.length);
+    expect(summary.maxWidth).toBeGreaterThan(1);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const a of summary.widthSet) {
+      expect(byId.has(a)).toBe(true);
+      for (const b of summary.widthSet) {
+        if (a === b) continue;
+        expect(byId.get(a)!.overlaps.map((o) => o.task)).not.toContain(b);
+        expect(byId.get(a)!.dependencies).not.toContain(b);
+      }
+    }
+  });
+
+  it("keeps the greedy lower bound conflict-free across a dependency path", () => {
+    const rows = sparseOverlapRows(40, 7).map((r, i, all) => (i === 0 ? r : i % 5 === 0 ? { ...r, wave: 2, dependencies: [all[i - 1].id] } : r));
+    const summary = taskModule.taskGraphSummary(rows);
+    expect(summary.maxWidthExact).toBe(false);
+    expect(summary.maxWidth).toBe(summary.widthSet.length);
+    const deps = new Map(rows.map((r) => [r.id, r.dependencies]));
+    for (const a of summary.widthSet) for (const b of summary.widthSet) {
+      if (a !== b) expect(deps.get(a)).not.toContain(b);
+    }
+  });
+
+  it("stays exact at exactly 30 tasks", () => {
+    const summary = taskModule.taskGraphSummary(sparseOverlapRows(30, 20261101));
+    expect(summary.maxWidthExact).toBe(true);
+    expect(summary.maxWidth).toBe(summary.widthSet.length);
+  });
+
+  it("stops being exact at 31 tasks", () => {
+    const summary = taskModule.taskGraphSummary(sparseOverlapRows(31, 20261101));
+    expect(summary.maxWidthExact).toBe(false);
+  });
+});

@@ -164,3 +164,77 @@ export function taskView(feature: Feature): TaskViewRow[] {
       .map((o) => ({ task: o.id, entries: firstOverlap(t.files, o.files) })),
   }));
 }
+
+/** Largest plan for which the max-width search stays exact; the branch-and-bound is exponential. */
+const EXACT_WIDTH_LIMIT = 30;
+
+export interface TaskGraphSummary {
+  criticalPath: string[];
+  length: number;
+  maxWidth: number;
+  /** false when `maxWidth` is a greedy lower bound (plans above EXACT_WIDTH_LIMIT tasks). */
+  maxWidthExact: boolean;
+  widthSet: string[];
+  earliestStart: Record<string, number>;
+}
+
+/** Critical path, widest conflict-free task set and earliest starts of a task view. Read-only; taskView does not call it. */
+export function taskGraphSummary(rows: TaskViewRow[]): TaskGraphSummary {
+  const ids = rows.map((r) => r.id).sort();
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const earliestStart: Record<string, number> = {};
+  for (const r of rows) earliestStart[r.id] = r.wave;
+
+  const criticalPath: string[] = [];
+  if (ids.length > 0) {
+    let current = ids.reduce((best, id) => (byId.get(id)!.wave > byId.get(best)!.wave ? id : best));
+    for (;;) {
+      criticalPath.unshift(current);
+      const deps = byId.get(current)!.dependencies.filter((d) => byId.has(d)).sort();
+      if (deps.length === 0) break;
+      current = deps.reduce((best, id) => (byId.get(id)!.wave > byId.get(best)!.wave ? id : best));
+    }
+  }
+
+  const ancestors = new Map<string, Set<string>>();
+  const ancestorsOf = (id: string): Set<string> => {
+    const known = ancestors.get(id);
+    if (known) return known;
+    const set = new Set<string>();
+    ancestors.set(id, set);
+    for (const dep of byId.get(id)!.dependencies) {
+      if (!byId.has(dep)) continue;
+      set.add(dep);
+      for (const up of ancestorsOf(dep)) set.add(up);
+    }
+    return set;
+  };
+  const conflict = (a: string, b: string): boolean =>
+    ancestorsOf(a).has(b) ||
+    ancestorsOf(b).has(a) ||
+    byId.get(a)!.overlaps.some((o) => o.task === b) ||
+    byId.get(b)!.overlaps.some((o) => o.task === a);
+
+  let widthSet: string[] = [];
+  const chosen: string[] = [];
+  const search = (from: number): void => {
+    if (chosen.length > widthSet.length) widthSet = [...chosen];
+    for (let i = from; i < ids.length; i++) {
+      if (chosen.length + (ids.length - i) <= widthSet.length) return;
+      if (chosen.some((c) => conflict(c, ids[i]))) continue;
+      chosen.push(ids[i]);
+      search(i + 1);
+      chosen.pop();
+    }
+  };
+  const exact = ids.length <= EXACT_WIDTH_LIMIT;
+  if (exact) {
+    search(0);
+  } else {
+    for (const id of ids) {
+      if (!widthSet.some((c) => conflict(c, id))) widthSet.push(id);
+    }
+  }
+
+  return { criticalPath, length: criticalPath.length, maxWidth: widthSet.length, maxWidthExact: exact, widthSet, earliestStart };
+}

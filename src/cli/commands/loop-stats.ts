@@ -14,6 +14,7 @@ import {
   recordRow,
   summarise,
   type HistoryRow,
+  type LagFigures,
   type LoopStats,
   type ParsedLedger,
   type SeatFigures,
@@ -34,6 +35,9 @@ const list = (lines: number[]): string => (lines.length > 0 ? lines.join(", ") :
 function seatLine(name: string, f: SeatFigures): string {
   return `${name}: ${f.count} × median ${min(f.median)}, sum ${min(f.sum)}`;
 }
+
+const lagText = (n: number | null): string => (n === null ? "-" : String(n));
+const lagPart = (name: string, f: LagFigures): string => `${name} median ${lagText(f.median)} max ${lagText(f.max)} (n=${f.n})`;
 
 function renderReport(feature: string, stats: LoopStats): string {
   const byModel = Object.entries(stats.byModel).map(([k, v]) => `${k} ${min(v)}`);
@@ -56,6 +60,9 @@ function renderReport(feature: string, stats: LoopStats): string {
     `open waits: ${list(stats.openWaits)}`,
     `other timed lines: ${stats.otherTimed}`,
     `untimed lines: ${stats.untimed}`,
+    `developers peak: ${stats.developersPeak}`,
+    `developer overlap: ${min(stats.developerOverlapMinutes)}`,
+    `dispatch lag: ${lagPart("developer", stats.dispatchLag.developer)}, ${lagPart("code-reviewer", stats.dispatchLag.codeReviewer)}`,
   ].join("\n");
 }
 
@@ -118,13 +125,15 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   if (!parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done")) {
     return refused(`ledger is untimed: ${ledgerPath}`, "untimed ledger");
   }
-  const stats = loopStats(parsed);
+  const tasks = taskView(item);
+  const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
+  const stats = loopStats(parsed, dependencies);
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
   if (!record) return { code: 0, stdout: report };
 
   const completed = new Set(parsed.lines.filter((l) => l.shape === "complete").map((l) => l.task));
   // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
-  const planned = taskView(item).map((t) => t.id);
+  const planned = tasks.map((t) => t.id);
   const ids = planned.length > 0 ? planned : [...new Set(parsed.lines.filter((l) => l.shape === "dispatched").map((l) => l.task!))];
   const missing = ids.filter((id) => !completed.has(id));
   if (missing.length > 0) {

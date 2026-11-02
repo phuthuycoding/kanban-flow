@@ -34,7 +34,7 @@ Agent:
     judge is cut off mid-function, and say so. Inspect code outside the diff only for a
     concrete named risk (a changed contract, shared state, lock ordering), one focused check
     per risk, both named in your report.
-    Beside this task, the working tree may hold another task's uncommitted edits in its Files:
+    Beside this task, the working tree may hold other tasks' uncommitted edits in their Files:
     only the package is graded; files outside this task's Files are context only.
 
     ## Tests

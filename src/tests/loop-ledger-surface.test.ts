@@ -104,21 +104,34 @@ describe("the ledger grammar in task-loop.md", () => {
     expect(section).toContain("`<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`");
   });
 
-  it("gives one example per shape, each parsed by kf loop-stats into that shape, then a ruling and a hashes line read as timed notes", () => {
+  it("gives one example per shape and two wait lines, each parsed by kf loop-stats into that shape, then a ruling and a hashes line read as timed notes", () => {
     const example = ledgerExample();
-    expect(example).toHaveLength(11);
+    expect(example).toHaveLength(12);
     const parsed = parseLedger(`# header\n${example.join("\n")}`).lines;
-    expect(parsed).toHaveLength(11);
-    expect(parsed.slice(0, 9).map((l) => l.kind)).toEqual(Array(9).fill("shape"));
-    expect(parsed.slice(0, 9).map((l) => l.shape)).toEqual(SHAPE_ORDER);
-    expect(example[9].startsWith("Ruling:"), example[9]).toBe(true);
-    expect(example[10].startsWith("TASK-001: test hashes"), example[10]).toBe(true);
-    expect(parsed.slice(9).map((l) => l.kind)).toEqual(["other-timed", "other-timed"]);
+    expect(parsed).toHaveLength(12);
+    expect(parsed.slice(0, 10).map((l) => l.kind)).toEqual(Array(10).fill("shape"));
+    const shapes = parsed.slice(0, 10).map((l) => l.shape);
+    expect([...new Set(shapes)]).toEqual(SHAPE_ORDER);
+    expect(shapes.filter((shape) => shape === "developerWaits")).toHaveLength(2);
+    const waits = example.filter((l) => l.includes("developer waits"));
+    expect(waits.some((l) => /developer waits — Files overlap \S+ \/ \S+ \(TASK-\d+\)/.test(l)), "overlap wait").toBe(true);
+    expect(waits.some((l) => l.includes("developer waits — 4 developers in flight")), "cap wait").toBe(true);
+    expect(example[10].startsWith("Ruling:"), example[10]).toBe(true);
+    expect(example[11].startsWith("TASK-001: test hashes"), example[11]).toBe(true);
+    expect(parsed.slice(10).map((l) => l.kind)).toEqual(["other-timed", "other-timed"]);
     for (const line of parsed) {
       expect(line.kind).not.toBe("unparsed");
       expect(line.kind).not.toBe("untimed");
       expect(Number.isFinite(line.ts), String(line.stamp)).toBe(true);
     }
+  });
+
+  it("keeps the queued-fix shape listed as a legacy shape that older ledgers still carry", () => {
+    const section = ledgerSection();
+    expect(section).toContain("TASK-NNN: fix queued — developer TASK-MMM in flight @ <ts>");
+    expect(paragraphWith(section, "legacy")).toContain("fix queued");
+    const legacy = parseLedger("# h\nTASK-003: fix queued — developer TASK-004 in flight @ 2026-11-01T20:15:12+07:00").lines;
+    expect(legacy.map((l) => l.shape)).toEqual(["fixQueued"]);
   });
 
   it("ends every example line with one ISO-8601 timestamp with its offset", () => {
@@ -200,10 +213,11 @@ describe("resuming the task loop from the ledger", () => {
     expect(implement()).not.toContain("a task whose last line is a fix round resumes at the next round");
   });
 
-  it("rebuilds only the head and next task, each at its first unmet step, in eleven ordered steps", () => {
+  it("rebuilds every open task, each at its first unmet step, in eleven ordered steps", () => {
     const text = implement();
     const intro = paragraphWith(text, "Resume from the ledger");
-    expect(intro).toContain("only the head task H and the next task X");
+    expect(intro).toContain("every open task");
+    expect(intro).not.toContain("only the head task H and the next task X");
     expect(intro).toContain("first unmet step");
     // The ordered list runs from the intro to the next bold-led paragraph or heading.
     const after = text.slice(text.indexOf(intro) + intro.length);
@@ -212,20 +226,27 @@ describe("resuming the task loop from the ledger", () => {
     const items = list.split(/\n(?=\d+\. )/).filter((i) => /^\d+\. /.test(i));
     expect(items.map((i) => Number(/^(\d+)\./.exec(i)?.[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     for (const n of [0, 1]) expect(items[n]).toContain("test-writer");
-    expect(items[2]).toContain("last task commit");
-    expect(items[2]).toContain("Files are disjoint");
+    expect(items[2]).toContain("developer waits");
     expect(items[3]).toMatch(/developer`? `?done/);
     for (const n of [4, 5]) expect(items[n]).toContain("verify");
     expect(items[6]).toContain("code-reviewer");
-    expect(items[7]).toContain("fix queued");
     // A round's own test-writer or automation-writer seat must not count as the round's developer dispatch.
     expect(items[7]).toMatch(/test-writer[\s\S]*automation-writer`? `?dispatched[\s\S]*round=/);
     expect(items[7]).toContain("next fix round");
     expect(items[7]).toContain("breaker");
     expect(items[7]).toContain("resume the developer to commit them unchanged");
-    expect(items[8]).toContain("fix queued");
+    expect(items[7]).toContain("developer waits — 4 developers in flight");
     expect(items[9]).toContain("cascade re-review owed");
     expect(items[10]).toContain("completion check");
+  });
+
+  it("re-dispatches every unanswered seat and re-runs every unfinished verify before any new developer", () => {
+    const text = implement();
+    const resume = slice(text, "**Resume from the ledger", "**Pre-Task-1");
+    expect(resume).toMatch(/every[^.\n]*`?dispatched`?[^.\n]*(with )?no[^.\n]*`?done`?/);
+    expect(resume).toMatch(/developers? up to the cap/);
+    expect(resume).toMatch(/every[^.\n]*`?verify started`?[^.\n]*(with )?no[^.\n]*`?verify done`?/);
+    expect(resume).toMatch(/before (any|a) new developer/);
   });
 
   it("never re-dispatches a complete task and earns completion only from the ledger", () => {

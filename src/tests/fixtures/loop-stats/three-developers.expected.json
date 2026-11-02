@@ -1,0 +1,39 @@
+{
+  "inProgress": false,
+  "wallMinutes": 51,
+  "seats": {
+    "test-writer": { "count": 6, "sum": 33, "median": 5.5 },
+    "developer": { "count": 7, "sum": 79, "median": 10 },
+    "automation-writer": { "count": 1, "sum": 7, "median": 7 },
+    "code-reviewer": { "count": 7, "sum": 35, "median": 6 }
+  },
+  "verify": { "count": 0, "sum": 0, "median": 0 },
+  "seatMinutes": 154,
+  "verifyMinutes": 0,
+  "busyMinutes": 50,
+  "savedMinutes": 104,
+  "controllerMinutes": 1,
+  "waitMinutes": 36,
+  "rounds": 1,
+  "cascades": 0,
+  "tasks": 6,
+  "byModel": {
+    "test-writer/opus": 33,
+    "developer/opus": 49,
+    "developer/sonnet": 30,
+    "automation-writer/sonnet": 7,
+    "code-reviewer/opus": 21,
+    "code-reviewer/sonnet": 14
+  },
+  "unparsed": [],
+  "orphans": [],
+  "openWaits": [],
+  "otherTimed": 1,
+  "untimed": 0,
+  "developersPeak": 3,
+  "developerOverlapMinutes": 27,
+  "dispatchLag": {
+    "developer": { "median": 2.5, "max": 4, "n": 6 },
+    "codeReviewer": { "median": 1, "max": 7, "n": 6 }
+  }
+}

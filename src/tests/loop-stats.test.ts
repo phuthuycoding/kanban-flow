@@ -50,6 +50,41 @@ import type { ParsedArgs } from "../cli/args.js";
  *   seat 54; union [0,40]=40 → busy 40; saved 14; wall 09:00 → 09:45 (L10, last timestamped line) = 45;
  *   controller 5; L7 waits with no later developer dispatched of TASK-002 → open wait, waits 0
  *
+ * three-developers.ledger.md — all Z, minutes counted from 09:00; deps {TASK-003: [TASK-001]}.
+ *   developer intervals (line order of dispatch): TASK-001 [7,27]=20 opus, TASK-002 [9,25]=16 sonnet,
+ *     TASK-004 [11,21]=10 opus, TASK-006 [23,29]=6 sonnet, TASK-003 [30,44]=14 opus, TASK-005 [35,43]=8 sonnet,
+ *     TASK-001 round 1 [41,46]=5 opus                                       count 7, sum 79, median 10
+ *   open developers: 7-9 one; 9-11 two; 11-21 three (001,002,004); 21-23 two; 23-25 three (001,002,006);
+ *     25-27 two; 27-30 at most one; 30-35 one; 35-41 two; 41-43 three (003,005,001r); 43-44 two; 44-46 one
+ *     peak 3; two or more open during [9,27]=18 and [35,44]=9 → developerOverlapMinutes 27
+ *   test-writer 0→{5,6,8,7,4,3} count 6, sum 33, median (5+6)/2=5.5; automation-writer TASK-004 [22,29]=7
+ *   code-reviewer 002 [26,32]=6, 006 [30,36]=6, 004 [31,37]=6, 001 [34,40]=6, 005 [44,48]=4, 003 [45,49]=4,
+ *     001 round 1 [47,50]=3                                                 count 7, sum 35, median 6
+ *   models: dev opus 20+10+14+5=49, sonnet 16+6+8=30; cr opus 6+6+6+3=21, sonnet 6+4+4=14; tw opus 33; aw sonnet 7
+ *   seat = 33+79+7+35 = 154; no verify; union is one block [0,50] → busy 50; saved 104
+ *   wall 09:00 → 09:51 (TASK-001 complete) = 51; controller 1; rounds 1, cascades 0, tasks 6
+ *   waits: TASK-005 09:10 → 09:35 = 25; TASK-006 09:12 → 09:23 = 11 → 36; other-timed: the wave line = 1
+ *   developer lag, gate → dispatch (round=1 dispatch not counted):
+ *     TASK-001 test-writer done 5 → 7 = 2; TASK-002 done 6 → 9 = 3; TASK-004 done 7 → 11 = 4
+ *     TASK-006: first developer done after its "4 developers in flight" wait is TASK-004's at 21 → 23 = 2
+ *     TASK-003: latest of its test-writer done 8 and TASK-001's developer done 27 (dependency) → 30 = 3
+ *     TASK-005: latest of its test-writer done 4 and TASK-002 complete 33 ("Files overlap … (TASK-002)") → 35 = 2
+ *     lags 2,3,4,2,3,2 → sorted 2,2,2,3,3,4: n 6, median (2+3)/2=2.5, max 4
+ *     without the dependency map TASK-003 is gated by its test-writer done only: 8 → 30 = 22 → max 22, median 2.5
+ *   code-reviewer lag (round=1 dispatch not counted): 002 developer done 25 → 26 = 1; 004 latest of developer done 21
+ *     and automation-writer done 29 → 31 = 2; 001 developer done 27 → 34 = 7; 006 29 → 30 = 1; 005 43 → 44 = 1;
+ *     003 44 → 45 = 1 → sorted 1,1,1,1,2,7: n 6, median 1, max 7
+ *   the "4 developers in flight" text sits beside a peak of 3: the wait is only ledger text here.
+ *
+ * Existing fixtures, new figures: no developer intervals overlap in two-tasks, mid-loop and resumed → peak 1, overlap 0.
+ *   two-tasks developer lag: TASK-001 test-writer done 10 → dispatch 11 = 1; TASK-002 done 14 → 33 = 19 (the
+ *     "developer in flight" wait is no gate; round=1 skipped) → n 2, median 10, max 19.
+ *     code-reviewer lag: TASK-001 developer done 31 → 36 = 5; TASK-002 developer done 53 → 59 = 6 (round=1 and
+ *     cascade= dispatches skipped) → n 2, median 5.5, max 6
+ *   mid-loop: TASK-001 test-writer done 09:12 → 09:13 = 1 → developer n 1; no code-reviewer dispatch → null, null, 0
+ *   resumed: TASK-001 has no test-writer done, so its two dispatches have no gate; TASK-002 test-writer done 04:13 →
+ *     04:16 = 3 → developer n 1; code-reviewer TASK-001 developer done 03:41 → 03:43 = 2 → n 1
+ *
  * history-two-rows.md — alpha (tasks 2) and beta (tasks 4); medians of two rows are their means.
  *   per task: controller 40/2=20, 60/4=15 → 17.5; test-writer 10, 10 → 10; developer 30/2=15, 104/4=26 → 20.5;
  *   code-reviewer 16/2=8, 24/4=6 → 7; verify 6/2=3, 12/4=3 → 3; waits 8/2=4, 20/4=5 → 4.5
@@ -64,7 +99,7 @@ const HEADER = "date · feature · tasks · wall · busy · controller · saved 
 const JSON_KEYS = [
   "feature", "inProgress", "wallMinutes", "seats", "verify", "seatMinutes", "verifyMinutes", "busyMinutes",
   "savedMinutes", "controllerMinutes", "waitMinutes", "rounds", "cascades", "tasks", "byModel", "unparsed",
-  "orphans", "openWaits", "otherTimed", "untimed",
+  "orphans", "openWaits", "otherTimed", "untimed", "developersPeak", "developerOverlapMinutes", "dispatchLag",
 ];
 
 const fixture = (name: string): string => readFileSync(join(FIXTURES, name), "utf8");
@@ -78,6 +113,13 @@ async function statsOf(name: string): Promise<Record<string, unknown>> {
   const { parseLedger, loopStats } = await loopStatsModule();
   return loopStats(parseLedger(fixture(`${name}.ledger.md`))) as unknown as Record<string, unknown>;
 }
+
+async function statsWithDeps(text: string, deps?: Record<string, string[]>): Promise<Record<string, unknown>> {
+  const { parseLedger, loopStats } = await loopStatsModule();
+  return (loopStats as (p: unknown, d?: Record<string, string[]>) => unknown)(parseLedger(text), deps) as Record<string, unknown>;
+}
+
+const THREE_DEPS = { "TASK-003": ["TASK-001"] };
 
 /** The figures object leaves the task count shape open (ids or a count); the CLI JSON fixes it as a count. */
 function taskCount(value: unknown): unknown {
@@ -149,6 +191,145 @@ describe("loop figures from a ledger", () => {
     expect(stats.inProgress).toBe(true);
     expect(stats.wallMinutes).toBe(45);
     expect(taskCount(stats.tasks)).toBe(2);
+  });
+});
+
+describe("developer concurrency and dispatch lag", () => {
+  it("counts a peak of three open developers and the minutes two or more were open in the three-developer loop", async () => {
+    const stats = await statsWithDeps(fixture("three-developers.ledger.md"), THREE_DEPS);
+    const want = expected("three-developers");
+    expect(stats.developersPeak).toBe(3);
+    expect(stats.developerOverlapMinutes).toBe(27);
+    expect(stats.developersPeak).toBe(want.developersPeak);
+    expect(stats.developerOverlapMinutes).toBe(want.developerOverlapMinutes);
+  });
+
+  it("computes every figure of the three-developer loop", async () => {
+    const stats = await statsWithDeps(fixture("three-developers.ledger.md"), THREE_DEPS);
+    expect(stats).toMatchObject(withoutTasks(expected("three-developers")));
+    expect(taskCount(stats.tasks)).toBe(6);
+  });
+
+  it("measures developer lag from the latest gate line: test-writer done, dependency done, file-overlap task complete, first developer done after a cap wait", async () => {
+    const stats = await statsWithDeps(fixture("three-developers.ledger.md"), THREE_DEPS);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 2.5, max: 4, n: 6 });
+  });
+
+  it("does not count a developer dispatch with round= in the developer lag", async () => {
+    const stats = await statsWithDeps(fixture("three-developers.ledger.md"), THREE_DEPS);
+    // Seven developer dispatches exist; the round=1 one is skipped.
+    expect(((stats.dispatchLag as Record<string, { n: number }>).developer).n).toBe(6);
+    expect((stats.seats as Record<string, { count: number }>).developer.count).toBe(7);
+  });
+
+  it("skips the dependency gate when no dependency map is given", async () => {
+    const stats = await statsWithDeps(fixture("three-developers.ledger.md"));
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 2.5, max: 22, n: 6 });
+  });
+
+  it("measures code-reviewer lag from the later of developer done and automation-writer done and skips round= dispatches", async () => {
+    const stats = await statsWithDeps(fixture("three-developers.ledger.md"), THREE_DEPS);
+    expect((stats.dispatchLag as Record<string, unknown>).codeReviewer).toEqual({ median: 1, max: 7, n: 6 });
+  });
+
+  it("skips round= and cascade= code-reviewer dispatches in the two-task loop", async () => {
+    const stats = await statsWithDeps(fixture("two-tasks.ledger.md"));
+    expect(stats.dispatchLag).toEqual({ developer: { median: 10, max: 19, n: 2 }, codeReviewer: { median: 5.5, max: 6, n: 2 } });
+  });
+
+  it("reports null median and max with n 0 when the ledger has no code-reviewer dispatch", async () => {
+    const stats = await statsWithDeps(fixture("mid-loop.ledger.md"));
+    expect((stats.dispatchLag as Record<string, unknown>).codeReviewer).toEqual({ median: null, max: null, n: 0 });
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 1, max: 1, n: 1 });
+  });
+
+  it("does not count a dispatch that has no gate line in the ledger", async () => {
+    const stats = await statsWithDeps(fixture("resumed.ledger.md"));
+    // TASK-001 has no test-writer done, so its two developer dispatches are not counted; TASK-002's is.
+    expect(stats.dispatchLag).toEqual({ developer: { median: 3, max: 3, n: 1 }, codeReviewer: { median: 2, max: 2, n: 1 } });
+  });
+
+  it("measures lag from the first plain dispatch of a task and seat only, not from a resume re-dispatch", async () => {
+    // Developer: test-writer done 10:00 → first dispatch 10:04 = 4; the plain re-dispatch at 10:30 (a resume) would give 30.
+    // Code-reviewer: developer done 10:50 → first dispatch 10:53 = 3; the plain re-dispatch at 11:10 would give 20.
+    const ledger = [
+      "# Task loop ledger — resume",
+      "TASK-001: test-writer done status=DONE @ 2026-11-01T10:00:00Z",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:04:00Z",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:30:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:50:00Z",
+      "TASK-001: code-reviewer dispatched model=opus @ 2026-11-01T10:53:00Z",
+      "TASK-001: code-reviewer dispatched model=opus @ 2026-11-01T11:10:00Z",
+      "TASK-001: code-reviewer done status=clean @ 2026-11-01T11:20:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect(stats.dispatchLag).toEqual({
+      developer: { median: 4, max: 4, n: 1 },
+      codeReviewer: { median: 3, max: 3, n: 1 },
+    });
+  });
+
+  it("measures developer lag from the latest of every gate when a task waits on a file overlap and then on the cap", async () => {
+    // Gates of TASK-005: the cap wait is followed by the first developer done (TASK-002, 10:20), but the overlapping
+    // TASK-001 completes later (10:30). Lag from the latest gate is 10:34 - 10:30 = 4; reading only the last wait line gives 14.
+    const ledger = [
+      "# Task loop ledger — two gates",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:00:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T10:01:00Z",
+      "TASK-005: developer waits — Files overlap x / x (TASK-001) @ 2026-11-01T10:05:00Z",
+      "TASK-005: developer waits — 4 developers in flight @ 2026-11-01T10:10:00Z",
+      "TASK-002: developer done status=DONE @ 2026-11-01T10:20:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:22:00Z",
+      "TASK-001: complete (commits a000001) @ 2026-11-01T10:30:00Z",
+      "TASK-005: developer dispatched model=opus @ 2026-11-01T10:34:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 4, max: 4, n: 1 });
+  });
+
+  it("gates developer lag on the first developer done after a cap wait whatever the cap number is", async () => {
+    // A cap of 3 still gates: first developer done after the wait is 10:20, dispatch at 10:23 gives a lag of 3.
+    const ledger = [
+      "# Task loop ledger — other cap",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:00:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T10:01:00Z",
+      "TASK-003: developer waits — 3 developers in flight @ 2026-11-01T10:05:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:20:00Z",
+      "TASK-003: developer dispatched model=opus @ 2026-11-01T10:23:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 3, max: 3, n: 1 });
+  });
+
+  it("reports peak 1 and overlap 0 when one developer ends exactly when another starts", async () => {
+    const ledger = [
+      "# Task loop ledger — touching",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:00:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:20:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T10:20:00Z",
+      "TASK-002: developer done status=DONE @ 2026-11-01T10:40:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect(stats.developersPeak).toBe(1);
+    expect(stats.developerOverlapMinutes).toBe(0);
+  });
+
+  it("reports peak 2 and the shared minutes when two developers genuinely overlap", async () => {
+    const ledger = [
+      "# Task loop ledger — overlapping",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T10:00:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T10:15:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:20:00Z",
+      "TASK-002: developer done status=DONE @ 2026-11-01T10:40:00Z",
+      "",
+    ].join("\n");
+    const stats = await statsWithDeps(ledger);
+    expect(stats.developersPeak).toBe(2);
+    expect(stats.developerOverlapMinutes).toBe(5);
   });
 });
 
@@ -433,6 +614,78 @@ describe("kf loop-stats <feature> --record", () => {
     expect(res.code).toBe(0);
     // Same ledger as f, so the same figures under the feature name n.
     expect(nonBlank(await readFile(historyPath(), "utf8"))).toEqual([HEADER, F_ROW.replace(" · f · ", " · n · ")]);
+  });
+});
+
+describe("kf loop-stats developer concurrency and dispatch lag", () => {
+  async function withDeps(feature: string, rows: { id: string; deps: string }[], ledgerText: string): Promise<void> {
+    const dir = join(root, ".works", "implementation", `${feature}_20261101_0900`);
+    await mkdir(join(dir, "loop"), { recursive: true });
+    await writeFile(join(dir, METADATA_FILE), JSON.stringify({ schema: "kanban-flow", feature, context: "app", created: "20261101_0900" }));
+    const lines = rows.map((r) => `| ${r.id} | Do ${r.id} | Core | ${r.deps} | Done | FR-001 / UC-001 | coder | src/${r.id}.ts |`);
+    await writeFile(join(dir, ARTIFACTS["implementation-plan"].file), `# Implementation Plan\nUC-001: Create a task\n\n## Task Breakdown\n\n${TABLE_HEADER}\n${lines.join("\n")}\n`);
+    await writeFile(join(dir, "loop", "progress.md"), ledgerText);
+  }
+
+  const threePlan = ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005", "TASK-006"].map((id) => ({ id, deps: id === "TASK-003" ? "TASK-001" : "-" }));
+
+  it("prints the peak, the overlap and the dispatch lag lines in the text report", async () => {
+    await withDeps("t", threePlan, fixture("three-developers.ledger.md"));
+    const res = await run(["t"]);
+    expect(res.code).toBe(0);
+    const lines = res.stdout.split("\n");
+    expect(lines).toContain("developers peak: 3");
+    expect(lines).toContain("developer overlap: 27.0 min");
+    expect(lines).toContain("dispatch lag: developer median 2.5 max 4 (n=6), code-reviewer median 1 max 7 (n=6)");
+  });
+
+  it("prints a dash for a null median and max in the dispatch lag line", async () => {
+    const res = await run(["g"]);
+    expect(res.code).toBe(0);
+    expect(res.stdout.split("\n")).toContain("dispatch lag: developer median 1 max 1 (n=1), code-reviewer median - max - (n=0)");
+  });
+
+  it("carries developersPeak, developerOverlapMinutes and dispatchLag in the JSON", async () => {
+    await withDeps("t", threePlan, fixture("three-developers.ledger.md"));
+    const res = await run(["t"], { json: true });
+    expect(res.code).toBe(0);
+    const out = JSON.parse(res.stdout) as Record<string, unknown>;
+    expect(Object.keys(out)).toEqual(JSON_KEYS);
+    expect(out).toEqual({ feature: "t", ...expected("three-developers") });
+  });
+
+  it("keeps the history header byte-identical and the recorded row to the existing columns", async () => {
+    await withDeps("t", threePlan, fixture("three-developers.ledger.md"));
+    await writeFile(historyPath(), `${HEADER}\n2026-10-20 · alpha · 2 · 100 · 60 · 40 · 10 · 8 · 20 · 30 · 0 · 16 · 6 · 1 · 0 · 3\n`);
+    const res = await run(["t"], { record: true });
+    expect(res.code).toBe(0);
+    const lines = nonBlank(await readFile(historyPath(), "utf8"));
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(HEADER);
+    expect(lines[2]).toBe("2026-11-01 · t · 6 · 51 · 50 · 1 · 104 · 36 · 33 · 79 · 7 · 35 · 0 · 1 · 0 · 0");
+  });
+
+  it("measures a dependent task's developer lag from its dependency's developer done using the plan's dependencies", async () => {
+    const ledger = [
+      "# Task loop ledger — gap",
+      "TASK-001: test-writer dispatched model=opus @ 2026-11-01T09:00:00Z",
+      "TASK-002: test-writer dispatched model=opus @ 2026-11-01T09:00:00Z",
+      "TASK-001: test-writer done status=DONE @ 2026-11-01T09:05:00Z",
+      "TASK-002: test-writer done status=DONE @ 2026-11-01T09:06:00Z",
+      "TASK-001: developer dispatched model=opus @ 2026-11-01T09:06:00Z",
+      "TASK-001: developer done status=DONE @ 2026-11-01T09:20:00Z",
+      "TASK-002: developer dispatched model=opus @ 2026-11-01T09:24:00Z",
+      "TASK-002: developer done status=DONE @ 2026-11-01T09:30:00Z",
+      "",
+    ].join("\n");
+    await withDeps("d", [{ id: "TASK-001", deps: "-" }, { id: "TASK-002", deps: "TASK-001" }], ledger);
+    const res = await run(["d"], { json: true });
+    expect(res.code).toBe(0);
+    // TASK-001: 09:05 → 09:06 = 1; TASK-002: dependency done 09:20 → 09:24 = 4 (its own test-writer done 09:06 would give 18).
+    expect((JSON.parse(res.stdout) as { dispatchLag: unknown }).dispatchLag).toEqual({
+      developer: { median: 2.5, max: 4, n: 2 },
+      codeReviewer: { median: null, max: null, n: 0 },
+    });
   });
 });
 
