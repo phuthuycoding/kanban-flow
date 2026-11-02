@@ -20,7 +20,7 @@ import { closeDetails } from "./archive.js";
 import { validateFeature, renderValidateText, validateToJson } from "../../workflow/validate.js";
 import { dashboardData } from "../../dashboard/dashboard.js";
 import { effectiveSkillsScope, ProjectConfigError, readProjectConfig } from "../../project/config.js";
-import { DEFAULT_AGENT, parseAgentIds } from "../../integrations/agents.js";
+import { parseAgentIds } from "../../integrations/agents.js";
 import { ClaudePluginError, claudeRunner, pluginState } from "../../integrations/claude-plugin.js";
 import { findRoot, resolveItem } from "./helpers.js";
 import { worktreeConfig, readMachineConfig } from "../../worktree/config.js";
@@ -220,19 +220,19 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
 }
 
 /** kf status runs often; a hung claude must not hold it for the install timeout. */
-const STATUS_PLUGIN_PROBE_MS = 10_000;
+const STATUS_PLUGIN_PROBE_MS = 3_000;
 
 /**
- * One line when the claude agent is configured and the kf plugin is registered at another path
- * (a Node switch), so it is noticed without doctor; a failed probe says so. Missing and disabled are doctor's.
+ * One line when the project lists claude in `agents` and the kf plugin is registered at another path
+ * (a Node switch), so it is noticed without doctor; a failed probe says so. Missing and disabled are
+ * doctor's, and so is a project where claude is only the default agent: status does not spawn claude for it.
  */
 async function pluginPathWarning(root: string): Promise<string | null> {
   let agents: string[];
   let scope: ReturnType<typeof effectiveSkillsScope>;
   try {
     const cfg = readProjectConfig(root);
-    const parsed = cfg.agents ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT];
-    agents = parsed.length > 0 ? parsed : [DEFAULT_AGENT];
+    agents = cfg.agents ? parseAgentIds(cfg.agents) : [];
     scope = effectiveSkillsScope(cfg);
   } catch (err) {
     if (err instanceof ProjectConfigError || (err instanceof Error && "code" in err)) return `⚠ cannot check kf plugin: ${err.message}`;
@@ -243,7 +243,7 @@ async function pluginPathWarning(root: string): Promise<string | null> {
     const state = await pluginState(claudeRunner(root, STATUS_PLUGIN_PROBE_MS), scope);
     return state.status === "stale" ? "⚠ kf plugin path is stale — run kf install" : null;
   } catch (err) {
-    if (err instanceof ClaudePluginError) return `⚠ cannot check kf plugin: ${err.message}`;
+    if (err instanceof ClaudePluginError) return `⚠ kf plugin state unknown: ${err.message}`;
     if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return "⚠ cannot check kf plugin: the `claude` CLI was not found on PATH";
     throw err;
   }

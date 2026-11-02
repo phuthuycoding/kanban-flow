@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile, readFile, readdir, symlink, chmod } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile, readdir, symlink, chmod, lstat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +34,7 @@ async function writeStub(): Promise<void> {
   const script = [
     "#!/bin/sh",
     'echo "$*" >> "$KF_STUB_LOG"',
+    'if [ -n "$KF_STUB_FAIL" ] && [ "$1 $2" = "plugin marketplace" ]; then echo "boom" >&2; exit 1; fi',
     'if [ "$1 $2" = "plugin list" ]; then',
     '  if [ -f "$KF_STUB_STATE" ]; then cat "$KF_STUB_STATE"; else echo "${KF_STUB_LIST:-[]}"; fi',
     "fi",
@@ -84,11 +85,12 @@ beforeEach(async () => {
   delete process.env.KF_STUB_LIST;
   delete process.env.KF_STUB_INSTALLED;
   delete process.env.KF_STUB_AFTER_ADD;
+  delete process.env.KF_STUB_FAIL;
 });
 
 afterEach(async () => {
   process.env.PATH = prevPath;
-  for (const k of ["KF_STUB_LOG", "KF_STUB_STATE", "KF_STUB_LIST", "KF_STUB_INSTALLED", "KF_STUB_AFTER_ADD"]) delete process.env[k];
+  for (const k of ["KF_STUB_LOG", "KF_STUB_STATE", "KF_STUB_LIST", "KF_STUB_INSTALLED", "KF_STUB_AFTER_ADD", "KF_STUB_FAIL"]) delete process.env[k];
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -253,5 +255,116 @@ describe("kf doctor and legacy leftovers", () => {
       expect(await readFile(join(skills, name, "SKILL.md"), "utf8")).toBe(`my ${name}\n`);
     }
     expect(before.code).toBe(0);
+  });
+});
+
+describe("kf doctor probe failures", () => {
+  it("calls an unusable claude answer 'state unknown', as a warning that does not fail the verdict", async () => {
+    await project("claude");
+    setList("garbage-out");
+    const res = await cmdDoctor(args("doctor"), root);
+    const line = findingLines(res.stdout).find((l) => l.includes("kf plugin state unknown:"));
+    expect(line).toBeDefined();
+    expect(line).toContain("[WARNING]");
+    expect(res.stdout).not.toContain("cannot check kf plugin");
+  });
+
+  it("keeps 'cannot check' for a claude that is not on PATH, still a warning", async () => {
+    await project("claude");
+    const empty = join(dir, "empty");
+    await mkdir(empty);
+    process.env.PATH = `${empty}:/usr/bin:/bin`;
+    const res = await cmdDoctor(args("doctor"), root);
+    const line = findingLines(res.stdout).find((l) => l.includes("cannot check kf plugin:"));
+    expect(line).toBeDefined();
+    expect(line).toContain("[WARNING]");
+    expect(res.stdout).not.toContain("kf plugin state unknown");
+  });
+});
+
+describe("kf doctor --fix when the plugin cannot be repaired", () => {
+  it("leaves the legacy entries in place and exits non-zero", async () => {
+    await project("claude");
+    setList([]);
+    process.env.KF_STUB_FAIL = "1";
+    const skills = join(process.env.HOME!, ".claude", "skills");
+    const legacy = join(skills, "kanban-plan");
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "SKILL.md"), "old\n");
+    const agent = join(process.env.HOME!, ".claude", "agents", "developer.md");
+    await mkdir(join(process.env.HOME!, ".claude", "agents"), { recursive: true });
+    await symlink(join(PKG_ROOT, "agents", "developer.md"), agent);
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.code).not.toBe(0);
+    expect(existsSync(join(legacy, "SKILL.md"))).toBe(true);
+    expect((await lstat(agent)).isSymbolicLink()).toBe(true);
+    expect(res.stdout).not.toContain("removed legacy");
+  });
+});
+
+describe("kf doctor legacy leftovers at both scopes", () => {
+  /** skills.scope=project, so the plugin and copy checks use the project scope; the leftovers sit at both. */
+  async function projectScoped(): Promise<{ homeLeftover: string; projectLeftover: string }> {
+    await project("claude");
+    const cfgPath = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
+    await writeFile(cfgPath, JSON.stringify({ ...cfg, skills: { scope: "project" } }, null, 2));
+    setList([entry({ scope: "project" })]);
+    const homeLeftover = join(process.env.HOME!, ".claude", "skills", "kanban-plan");
+    const projectLeftover = join(root, ".claude", "skills", "kanban-bug");
+    for (const d of [homeLeftover, projectLeftover]) {
+      await mkdir(d, { recursive: true });
+      await writeFile(join(d, "SKILL.md"), "old\n");
+    }
+    return { homeLeftover, projectLeftover };
+  }
+
+  it("reports the user-scope leftover and the project-scope one", async () => {
+    await projectScoped();
+    const res = await cmdDoctor(args("doctor"), root);
+    expect(res.stdout).toContain("kanban-plan");
+    expect(res.stdout).toContain("kanban-bug");
+  });
+
+  it("--fix removes both, whichever scope the project is configured for", async () => {
+    const { homeLeftover, projectLeftover } = await projectScoped();
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(existsSync(homeLeftover)).toBe(false);
+    expect(existsSync(projectLeftover)).toBe(false);
+  });
+
+  it("does the same for a global-scope project with a leftover in the project dir", async () => {
+    await project("claude");
+    setList([entry()]);
+    const projectLeftover = join(root, ".claude", "skills", "kanban-bug");
+    await mkdir(projectLeftover, { recursive: true });
+    await writeFile(join(projectLeftover, "SKILL.md"), "old\n");
+    expect((await cmdDoctor(args("doctor"), root)).stdout).toContain("kanban-bug");
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(existsSync(projectLeftover)).toBe(false);
+  });
+});
+
+describe("kf doctor and entries kf does not own", () => {
+  it("warns about a kanban-* link pointing outside the package and --fix leaves it in place", async () => {
+    await project("claude");
+    setList([entry()]);
+    const skills = join(process.env.HOME!, ".claude", "skills");
+    await mkdir(skills, { recursive: true });
+    const elsewhere = join(dir, "mine", "bug");
+    await mkdir(elsewhere, { recursive: true });
+    const link = join(skills, "kanban-bug");
+    await symlink(elsewhere, link, "dir");
+
+    const before = await cmdDoctor(args("doctor"), root);
+    const line = findingLines(before.stdout).find((l) => l.includes("kanban-bug"));
+    expect(line).toBeDefined();
+    expect(line).toContain("[WARNING]");
+    expect(line).toContain("not owned by kf, left alone");
+    expect(before.code).toBe(0);
+
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
   });
 });

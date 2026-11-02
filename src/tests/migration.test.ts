@@ -186,9 +186,21 @@ describe.each<SkillScope>(["project", "global"])("legacy migration at %s scope",
     const res = await cmdInstall(["claude"], { cwd: proj, scope });
     expect(res.code).toBe(0);
     for (const path of seed.owned) expect(present(path), path).toBe(false);
-    for (const [entry] of LEGACY) expect(res.stdout).toContain(entry);
+    // The listing, not a mention elsewhere in the output, is what tells the user what was removed.
+    const removedLines = res.stdout.split("\n").filter((l) => l.includes("removed legacy")).join("\n");
+    for (const [entry] of LEGACY) expect(removedLines).toContain(entry);
     expect(res.stdout).toContain("travel");
     expect(await readFile(join(seed.skills, "travel", "SKILL.md"), "utf8")).toContain("my trip planner");
+  });
+
+  it("kf install keeps the legacy entries when the plugin cannot be set up, and exits non-zero", async () => {
+    // The old copies are the only working install until the plugin is in place.
+    await writeFile(join(bin, "claude"), ["#!/bin/sh", 'if [ "$1 $2" = "plugin list" ]; then echo "[]"; exit 0; fi', "echo boom >&2", "exit 1", ""].join("\n"));
+    const seed = await seedLegacy(scope, "foreign");
+    const res = await cmdInstall(["claude"], { cwd: proj, scope });
+    expect(res.code).not.toBe(0);
+    for (const path of seed.owned) expect(present(path), path).toBe(true);
+    expect(res.stdout).not.toContain("removed legacy");
   });
 
   it("kf uninstall removes the same set", async () => {

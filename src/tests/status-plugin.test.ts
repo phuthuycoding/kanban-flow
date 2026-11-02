@@ -45,11 +45,15 @@ const setList = (list: unknown) => {
 };
 const status = () => cmdStatus(args("status", [], { all: true }), root);
 
-async function project(agent: string): Promise<void> {
+async function project(agent: string | null): Promise<void> {
   setList([]);
-  const res = await cmdInit(args("init", [], { minimal: true, context: "app", agent }), root);
+  const res = await cmdInit(args("init", [], { minimal: true, context: "app", ...(agent ? { agent } : {}) }), root);
   expect(res.code).toBe(0);
   // --minimal does not record the agent, so the config is patched the way a user's choice would be.
+  if (agent === null) {
+    await rm(log, { force: true });
+    return;
+  }
   const cfgPath = join(root, ".kf", "config.json");
   const cfg = JSON.parse(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
   await writeFile(cfgPath, JSON.stringify({ ...cfg, agents: [agent] }, null, 2));
@@ -103,11 +107,12 @@ describe("kf status and the kf plugin path", () => {
     expect((await status()).stdout).not.toMatch(/plugin/i);
   });
 
-  it("says it cannot check when the probe output is unreadable, and never stays silent", async () => {
+  it("says the state is unknown when claude answers with something unusable, and never stays silent", async () => {
     await project("claude");
     setList("garbage-out");
     const res = await status();
-    expect(res.stdout).toContain("⚠ cannot check kf plugin:");
+    expect(res.stdout).toContain("⚠ kf plugin state unknown:");
+    expect(res.stdout).not.toContain("cannot check kf plugin");
     expect(res.stdout).not.toContain(STALE_LINE);
   });
 
@@ -118,6 +123,21 @@ describe("kf status and the kf plugin path", () => {
     process.env.PATH = `${empty}:/usr/bin:/bin`;
     const res = await status();
     expect(res.stdout).toContain("⚠ cannot check kf plugin:");
+  });
+
+  it("probes the plugin when claude is listed explicitly in the config", async () => {
+    await project("claude");
+    setList([entry()]);
+    await status();
+    expect((await readFile(log, "utf8")).split("\n")).toContain("plugin list --json");
+  });
+
+  it("neither probes nor warns when claude is only the default agent, with no agents in the config", async () => {
+    await project(null);
+    setList([entry({ readFromFolder: "/old/kf" })]);
+    const res = await status();
+    expect(res.stdout).not.toMatch(/plugin/i);
+    expect(existsSync(log) ? await readFile(log, "utf8") : "").toBe("");
   });
 
   it("does not probe the plugin when claude is not a configured agent", async () => {
