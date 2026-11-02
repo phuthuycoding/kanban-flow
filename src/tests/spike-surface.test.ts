@@ -92,6 +92,7 @@ describe("the spike skill procedure", () => {
 
   it("dispatches Agent(kf:researcher) for the questions research can answer (step 3)", () => {
     expect(steps()[2]).toContain("Agent(kf:researcher)");
+    expect(steps()[2]).toContain("researcher-brief.md");
   });
 
   it("writes throwaway code only in a scratch dir under the job tmp dir or the OS temp dir (step 4)", () => {
@@ -116,10 +117,12 @@ describe("the spike skill procedure", () => {
     expect(steps()[6]).toMatch(/flow/i);
   });
 
-  it("gives a report path rule that uses the temp root", () => {
-    expect(spike()).toMatch(/report/i);
-    expect(spike()).toMatch(/\$CLAUDE_JOB_DIR|temp/i);
-    expect(spike()).toMatch(/\.works/);
+  it("keeps the report in the temp root and never under .works/ (report path section)", () => {
+    const report = section(spike(), "## Report path");
+    expect(report).not.toBe("");
+    expect(report).toContain("research-<slug>.md");
+    expect(report).toContain("$CLAUDE_JOB_DIR/tmp");
+    expect(report).toMatch(/never[^.\n]*\.works\/|not[^.\n]*\.works\/|no report[^.\n]*\.works\//i);
   });
 });
 
