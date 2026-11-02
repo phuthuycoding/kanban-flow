@@ -40,6 +40,8 @@ describe("no leftover pre-plugin names anywhere in the living tree", () => {
     /^src\/integrations\/managed\.ts:\d+:\s+"kanban-[a-z]+",$/,
     /^src\/tests\/doctor\.test\.ts:\d+:.*("skills", "kanban-(plan|review)"|join\(skills, "kanban-plan"\)|toContain\("kanban-review"\)|incomplete \(scope: global\): kanban-plan|A kanban-flow skill missing)/,
     /^src\/tests\/(plugin-package|spike-surface)\.test\.ts:\d+:\s*const LEGACY = \[/,
+    // TASK-004's migration tests seed and assert legacy kanban-* entries on disk by name throughout.
+    /^src\/tests\/(migration|doctor-plugin)\.test\.ts:\d+:/,
     /^src\/tests\/plugin-package\.test\.ts:\d+:.*(has no kanban-flow skill path|grep\("|^\s*\/.*\/,$)/,
     /^src\/tests\/plugin-package\.test\.ts:\d+:\s+\/.*kanban-flow.*\/,$/,
     // Self: the pattern strings and product-name regexes below.
