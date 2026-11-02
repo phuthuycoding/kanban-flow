@@ -27,8 +27,9 @@ export interface PluginReport {
 
 export type PluginState =
   | { status: "missing" }
-  | { status: "disabled"; scope: string }
+  | { status: "disabled"; scope: string; /** set only when the plugin also reads another folder than this package */ readFromFolder?: string }
   | { status: "stale"; readFromFolder: string }
+  | { status: "unknown" }
   | { status: "current" };
 
 /** A claude call that ran but whose answer kf cannot use; the message quotes what claude printed. */
@@ -102,9 +103,14 @@ export async function pluginState(run: ClaudeRun = defaultRun, scope?: SkillScop
       typeof e === "object" && e !== null && e.id === PLUGIN_ID && (wanted === undefined || e.scope === wanted),
   );
   if (!entry) return { status: "missing" };
-  if (entry.enabled === false) return { status: "disabled", scope: String(entry.scope) };
-  const folder = typeof entry.readFromFolder === "string" ? entry.readFromFolder : typeof entry.installPath === "string" ? entry.installPath : "";
-  if (folder === "" || resolve(folder) !== resolve(PKG_ROOT)) return { status: "stale", readFromFolder: folder };
+  // installPath is the plugin cache, never the package root, so only readFromFolder says where the plugin reads from.
+  const folder = typeof entry.readFromFolder === "string" ? entry.readFromFolder : undefined;
+  if (entry.enabled === false) {
+    const staleFolder = folder !== undefined && resolve(folder) !== resolve(PKG_ROOT) ? folder : undefined;
+    return staleFolder === undefined ? { status: "disabled", scope: String(entry.scope) } : { status: "disabled", scope: String(entry.scope), readFromFolder: staleFolder };
+  }
+  if (folder === undefined) return { status: "unknown" };
+  if (resolve(folder) !== resolve(PKG_ROOT)) return { status: "stale", readFromFolder: folder };
   return { status: "current" };
 }
 
@@ -131,10 +137,16 @@ export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRu
         return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} added from ${PKG_ROOT} (scope: ${target})` };
       case "disabled":
         await call(run, ["plugin", "enable", PLUGIN_NAME, "--scope", target]);
+        if (state.readFromFolder !== undefined) {
+          await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
+          return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target}) and marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder} to ${PKG_ROOT}` };
+        }
         return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target})` };
       case "stale":
         await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
         return { code: 0, changed: true, stdout: `✓ Claude Code: marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder || "an unknown folder"} to ${PKG_ROOT}` };
+      case "unknown":
+        return { code: 0, changed: false, stdout: `· Claude Code: plugin ${PLUGIN_ID} source unknown (claude does not report readFromFolder); left as it is` };
       case "current":
         return { code: 0, changed: false, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} is current (${PKG_ROOT})` };
     }

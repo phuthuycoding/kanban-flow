@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ensurePlugin, removePlugin, pluginState, claudeRunner } from "../integrations/claude-plugin.js";
 import { cmdInit } from "../cli/commands/init.js";
+import { cmdStatus } from "../cli/commands/inspect.js";
+import { cmdDoctor } from "../cli/commands/doctor.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -70,6 +72,23 @@ describe("ensurePlugin", () => {
       ["plugin", "list", "--json"],
       ["plugin", "marketplace", "add", PKG_ROOT],
     ]);
+  });
+
+  it("leaves a plugin with an unknown source alone: no marketplace add, no install, nothing changed", async () => {
+    const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true, installPath: "/cache/kanban-flow/kf/1.0.0" }]);
+    const { run, calls } = stub(list);
+    const res = await ensurePlugin("global", run);
+    expect(res.code).toBe(0);
+    expect(res.changed).toBe(false);
+    expect(calls).toEqual([["plugin", "list", "--json"]]);
+  });
+
+  it("repoints a plugin that is both disabled and reading another folder, as well as enabling it", async () => {
+    const { run, calls } = stub(entry({ enabled: false, readFromFolder: "/old/kf" }));
+    const res = await ensurePlugin("global", run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "enable", "kf", "--scope", "user"]);
+    expect(calls).toContainEqual(["plugin", "marketplace", "add", PKG_ROOT]);
   });
 
   it("enables a disabled plugin at the mapped scope", async () => {
@@ -166,9 +185,14 @@ describe("pluginState", () => {
     });
   });
 
-  it("falls back to installPath when readFromFolder is absent", async () => {
-    const list = JSON.stringify([{ id: "kf@kanban-flow", enabled: true, installPath: "/cache/kf/1.0.0" }]);
-    expect((await pluginState(stub(list).run)).status).toBe("stale");
+  it("reports an unknown source, never current, when readFromFolder is absent even if installPath is the package root", async () => {
+    const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true, installPath: PKG_ROOT }]);
+    expect(await pluginState(stub(list).run)).toMatchObject({ status: "unknown" });
+  });
+
+  it("reports an unknown source for a plugin cache installPath without readFromFolder, not stale", async () => {
+    const list = JSON.stringify([{ id: "kf@kanban-flow", enabled: true, installPath: "/cache/kanban-flow/kf/1.0.0" }]);
+    expect(await pluginState(stub(list).run)).toMatchObject({ status: "unknown" });
   });
 
   it("throws quoting the output when it is not JSON", async () => {
@@ -321,5 +345,71 @@ describe("kf init with an unusable claude", () => {
     expect(existsSync(join(dir, ".works"))).toBe(true);
     expect(existsSync(join(dir, ".kf", "config.json"))).toBe(true);
     expect(existsSync(join(dir, "docs", "requirement"))).toBe(true);
+  });
+});
+
+describe("a plugin whose source folder claude does not report", () => {
+  let dir: string;
+  let root: string;
+  let bin: string;
+  let log: string;
+  let prevPath: string | undefined;
+  const UNKNOWN = [{ id: "kf@kanban-flow", scope: "user", enabled: true, installPath: "/cache/kanban-flow/kf/1.0.0" }];
+  const calledLines = async () => (existsSync(log) ? (await readFile(log, "utf8")).split("\n").filter(Boolean) : []);
+  const cmd = (command: string, options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals: [], options });
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-plugin-unknown-"));
+    root = join(dir, "proj");
+    bin = join(dir, "bin");
+    log = join(dir, "claude.log");
+    await mkdir(root);
+    await mkdir(bin);
+    const script = [
+      "#!/bin/sh",
+      'echo "$*" >> "$KF_STUB_LOG"',
+      'if [ "$1 $2" = "plugin list" ]; then echo "$KF_STUB_LIST"; fi',
+      "exit 0",
+      "",
+    ].join("\n");
+    await writeFile(join(bin, "claude"), script);
+    await chmod(join(bin, "claude"), 0o755);
+    prevPath = process.env.PATH;
+    process.env.PATH = `${bin}:${prevPath}`;
+    process.env.KF_STUB_LOG = log;
+    process.env.KF_STUB_LIST = "[]";
+    const res = await cmdInit(cmd("init", { minimal: true, context: "app", agent: "claude" }), root);
+    expect(res.code).toBe(0);
+    const cfgPath = join(root, ".kf", "config.json");
+    const cfg = JSON.parse(await readFile(cfgPath, "utf8")) as Record<string, unknown>;
+    await writeFile(cfgPath, JSON.stringify({ ...cfg, agents: ["claude"] }, null, 2));
+    await rm(log, { force: true });
+    process.env.KF_STUB_LIST = JSON.stringify(UNKNOWN);
+  });
+
+  afterEach(async () => {
+    process.env.PATH = prevPath;
+    delete process.env.KF_STUB_LOG;
+    delete process.env.KF_STUB_LIST;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("kf status warns that the kf plugin source is unknown", async () => {
+    const res = await cmdStatus(cmd("status", { all: true }), root);
+    expect(res.stdout).toContain("kf plugin source unknown");
+  });
+
+  it("kf doctor reports a WARNING that the kf plugin source is unknown, not a stale-path error", async () => {
+    const res = await cmdDoctor(cmd("doctor"), root);
+    const lines = res.stdout.split("\n").filter((l) => /^\s+\[(ERROR|WARNING)\]/.test(l));
+    const line = lines.find((l) => l.includes("kf plugin source unknown"));
+    expect(line).toBeDefined();
+    expect(line).toContain("[WARNING]");
+    expect(lines.some((l) => /plugin/i.test(l) && /stale/i.test(l))).toBe(false);
+  });
+
+  it("kf doctor --fix does not run marketplace add for it", async () => {
+    await cmdDoctor(cmd("doctor", { fix: true }), root);
+    expect((await calledLines()).filter((l) => l.startsWith("plugin marketplace add"))).toEqual([]);
   });
 });

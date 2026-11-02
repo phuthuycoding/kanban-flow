@@ -170,6 +170,8 @@ export async function checkPlugin(root: string): Promise<DoctorFinding[]> {
         message: `plugin ${PLUGIN_ID} path is stale: registered at ${state.readFromFolder || "an unknown folder"}, this kf runs from ${PKG_ROOT} — the plugin fails to load (cache-miss)`,
         action,
       }];
+    case "unknown":
+      return [{ level: "WARNING", area: PLUGIN_AREA, message: `kf plugin source unknown — claude does not report the folder plugin ${PLUGIN_ID} reads from, so kf cannot tell whether it matches ${PKG_ROOT}` }];
   }
 }
 
