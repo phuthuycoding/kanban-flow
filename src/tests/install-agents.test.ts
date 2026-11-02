@@ -83,7 +83,7 @@ describe("installAgentsTo / removeAgentsFrom", () => {
 
     const { removed, kept } = await removeAgentsFrom(target);
     expect(kept).toEqual(["scout"]);
-    expect(removed.sort()).toEqual(["automation-writer", "code-reviewer", "developer", "spec-reviewer", "test-writer"]);
+    expect(removed.sort()).toEqual(MANAGED_AGENTS.filter((n) => n !== "scout").sort());
     expect(await readFile(join(target, "scout.md"), "utf8")).toBe(FOREIGN);
   });
 
@@ -142,20 +142,18 @@ describe("installAgentsTo / removeAgentsFrom", () => {
   });
 });
 
-describe("kf install / uninstall carry the agents", () => {
-  it("installs the agents into .claude/agents for claude at project scope, and nothing for codex", async () => {
+describe("kf install / uninstall leave Claude Code agents to the plugin", () => {
+  it("writes no agents under .claude/agents for claude at project scope, and nothing for codex", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     const res = await cmdInstall(["claude", "codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("Claude Code agents:");
-    for (const name of ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer"]) {
-      expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(true);
-    }
+    expect(existsSync(join(dir, ".claude", "agents"))).toBe(false);
     expect(existsSync(join(dir, ".agents", "agents"))).toBe(false);
+    expect(res.stdout).not.toContain("Claude Code agents:");
     expect(res.stdout).not.toContain("OpenAI Codex agents:");
   });
 
-  it("links the agents under the home dir at global scope and keeps a foreign file there", async () => {
+  it("links no agents under the home dir at global scope and keeps a foreign file there", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     const home = join(process.env.HOME!, ".claude", "agents");
     await mkdir(home, { recursive: true });
@@ -163,47 +161,18 @@ describe("kf install / uninstall carry the agents", () => {
 
     const res = await cmdInstall(["claude"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("Claude Code agents:");
-    expect(lstatSync(join(home, "code-reviewer.md")).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(home, "code-reviewer.md"))).toBe(false);
     expect(await readFile(join(home, "scout.md"), "utf8")).toBe(FOREIGN);
-    expect(res.stdout).toContain("left untouched");
   });
 
-  it("a global install cleans kanban-flow's project copies but never a foreign one", async () => {
+  it("uninstall leaves the user's own agent files alone", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall(["claude"], { cwd: dir, scope: "project" });
-    await writeFile(join(dir, ".claude", "agents", "scout.md"), FOREIGN);
-
-    const res = await cmdInstall(["claude"], { cwd: dir, scope: "global" });
-    expect(res.code).toBe(0);
-    expect(existsSync(join(dir, ".claude", "agents", "code-reviewer.md"))).toBe(false);
-    expect(await readFile(join(dir, ".claude", "agents", "scout.md"), "utf8")).toBe(FOREIGN);
-  });
-
-  it("uninstall removes every managed agent when none is foreign", async () => {
-    await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
-
-    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
-    expect(res.code).toBe(0);
-    expect(res.stdout).toContain(`removed ${MANAGED_AGENTS.length} agents`);
-    for (const name of MANAGED_AGENTS) {
-      expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(false);
-    }
-  });
-  it("uninstall removes the agents with the skills and keeps a foreign file", async () => {
-    await mkdir(join(dir, ".works"), { recursive: true });
-    await cmdInstall([], { cwd: dir, scope: "project" });
+    await mkdir(join(dir, ".claude", "agents"), { recursive: true });
     await writeFile(join(dir, ".claude", "agents", "mine.md"), "---\nname: mine\n---\n");
     await writeFile(join(dir, ".claude", "agents", "scout.md"), FOREIGN);
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall(["claude"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain(`removed ${MANAGED_AGENTS.length - 1} agents`);
-    expect(res.stdout).toContain("kept scout.md");
-    for (const name of MANAGED_AGENTS.filter((n) => n !== "scout")) {
-      expect(existsSync(join(dir, ".claude", "agents", `${name}.md`))).toBe(false);
-    }
     expect(existsSync(join(dir, ".claude", "agents", "mine.md"))).toBe(true);
     expect(await readFile(join(dir, ".claude", "agents", "scout.md"), "utf8")).toBe(FOREIGN);
   });

@@ -78,8 +78,8 @@ describe("a user's own travel skill", () => {
 
   it("survives uninstall, which names it as kept", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const travel = await foreignTravel(join(dir, ".claude", "skills"));
-    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
+    const travel = await foreignTravel(join(dir, ".agents", "skills"));
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("kept travel");
     expect(await readFile(join(travel, "SKILL.md"), "utf8")).toContain("my trip planner");
@@ -87,12 +87,12 @@ describe("a user's own travel skill", () => {
 
   it("survives the project cleanup a global install runs", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const projectSkills = join(dir, ".claude", "skills");
+    const projectSkills = join(dir, ".agents", "skills");
     await copySkillsTo(projectSkills);
     await rm(join(projectSkills, "travel"), { recursive: true, force: true });
     const travel = await foreignTravel(projectSkills);
 
-    const res = await cmdInstall([], { cwd: dir, scope: "global" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("kept travel");
     expect(existsSync(join(projectSkills, "kanban-flow"))).toBe(false);
@@ -168,10 +168,10 @@ describe("a copied kanban-ship from an earlier release", () => {
 
   it("is removed from the project dir when a global install cleans it", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
-    const ship = join(dir, ".claude", "skills", "kanban-ship");
+    const ship = join(dir, ".agents", "skills", "kanban-ship");
     await mkdir(ship, { recursive: true });
     await writeFile(join(ship, "SKILL.md"), released);
-    const res = await cmdInstall([], { cwd: dir, scope: "global" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("removed retired kanban-ship");
     expect(existsSync(ship)).toBe(false);

@@ -18,6 +18,7 @@ import {
   type SkillScope,
 } from "./agents.js";
 import { copyName, MANAGED_AGENTS, MANAGED_SKILLS } from "./managed.js";
+import { claudeRunner, ensurePlugin, removePlugin } from "./claude-plugin.js";
 
 export { MANAGED_AGENTS, MANAGED_SKILLS };
 
@@ -667,15 +668,20 @@ export async function cmdInstall(agents: AgentId[] = [DEFAULT_AGENT], opts: Inst
       stderr: "not a kanban project",
     };
   }
-  const res = await installSkills(root, ids, scope, { declaredScope });
+  // Claude Code loads skills and agents from the kf plugin, so nothing is copied for it.
+  const plugin = ids.includes("claude") ? await ensurePlugin(scope, claudeRunner(root ?? base)) : null;
+  if (plugin && plugin.code !== 0) return plugin;
+  const copied = ids.filter((id) => id !== "claude");
+  const res = copied.length > 0 ? await installSkills(root, copied, scope, { declaredScope }) : { code: 0, stdout: "" };
   if (res.code !== 0) return res;
+  const body = !plugin ? res.stdout : res.stdout ? `${plugin.stdout}\n${res.stdout}` : `${plugin.stdout}\n\nRestart Claude Code to load the plugin.`;
   const notes: string[] = [];
   const alsoReads = ids.length === 1 ? AGENTS.find((x) => x.id === ids[0])?.alsoReads.join(", ") ?? "" : "";
   if (alsoReads) notes.push(`Also picked up by: ${alsoReads}`);
   if (opts.scope && opts.scope !== configured) {
     notes.push(`Note: installed at scope "${opts.scope}" while this project declares "${configured}" — both scopes may now hold skills.`);
   }
-  return { ...res, stdout: `${res.stdout}${notes.length ? `\n${notes.join("\n")}` : ""}` };
+  return { ...res, stdout: `${body}${notes.length ? `\n${notes.join("\n")}` : ""}` };
 }
 
 /**
@@ -708,9 +714,16 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     }
   }
   const lines: string[] = [];
+  let pluginFailed = false;
   for (const id of ids) {
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
+    if (id === "claude") {
+      const plugin = await removePlugin(scope, claudeRunner(root));
+      pluginFailed = plugin.code !== 0;
+      lines.push(plugin.stdout);
+      continue;
+    }
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root);
     const { removed, kept } = await removeSkillsFrom(dir);
     lines.push(removed.length > 0 ? `✗ ${a.label}: removed ${removed.length} skills from ${dir}/` : `· ${a.label}: already clean in ${dir}/`);
@@ -739,7 +752,8 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
   }
   const shared = scope === "global" ? "Global skills are shared by every project — other projects lose them too.\n" : "";
   return {
-    code: 0,
+    code: pluginFailed ? 1 : 0,
+    ...(pluginFailed ? { stderr: "claude plugin removal failed" } : {}),
     stdout: `${shared}${lines.join("\n")}${purged}\n\nCLI still on PATH — unlink with: npm rm -g @phuthuycoding/kanban-flow`,
   };
 }

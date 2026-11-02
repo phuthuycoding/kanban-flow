@@ -34,8 +34,9 @@ const PKG_SKILLS = join(PKG_ROOT, "skills");
 
 let dir: string;
 const home = () => process.env.HOME!;
-const homeSkills = () => join(home(), ".claude", "skills");
-const projectSkills = () => join(dir, ".claude", "skills");
+// codex, not claude: Claude Code takes skills through the plugin, so its dirs stay empty.
+const homeSkills = () => join(home(), ".agents", "skills");
+const projectSkills = () => join(dir, ".agents", "skills");
 
 /** `kf init --minimal` shape without the install noise. */
 async function project(): Promise<void> {
@@ -43,7 +44,7 @@ async function project(): Promise<void> {
   await mkdir(join(dir, ".kf"), { recursive: true });
   await writeFile(
     join(dir, ".kf", "config.json"),
-    JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"] }),
+    JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["codex"] }),
   );
 }
 
@@ -136,7 +137,7 @@ describe("install global cleans project copies (UC-003)", () => {
     await copySkillsTo(projectSkills());
     await mkdir(join(projectSkills(), "unrelated"), { recursive: true });
 
-    const res = await cmdInstall([], { cwd: dir });
+    const res = await cmdInstall(["codex"], { cwd: dir });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("(global)");
     for (const name of MANAGED_SKILLS) {
@@ -151,11 +152,11 @@ describe("install global cleans project copies (UC-003)", () => {
     await project();
     await writeFile(
       join(dir, ".kf", "config.json"),
-      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"], skills: { scope: "project" } }),
+      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["codex"], skills: { scope: "project" } }),
     );
     await copySkillsTo(projectSkills());
 
-    const res = await cmdInstall([], { cwd: dir, scope: "global" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
       expect(existsSync(join(projectSkills(), copyName(name), "SKILL.md")), `${name} kept`).toBe(true);
@@ -164,16 +165,16 @@ describe("install global cleans project copies (UC-003)", () => {
   });
 
   it("works outside a .works project, touching only ~ dirs (TC-009)", async () => {
-    const res = await cmdInstall([], { cwd: dir, scope: "global" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     expect(lstatSync(join(homeSkills(), "kanban-flow")).isSymbolicLink()).toBe(true);
-    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    expect(existsSync(join(dir, ".agents"))).toBe(false);
   });
 
   it("leaves the package byte-identical after an install+uninstall cycle (TC-010)", async () => {
     const before = snapshot(PKG_SKILLS);
-    await cmdInstall([], { cwd: dir, scope: "global" });
-    await cmdUninstall([], { cwd: dir, scope: "global" });
+    await cmdInstall(["codex"], { cwd: dir, scope: "global" });
+    await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(snapshot(PKG_SKILLS)).toEqual(before);
     expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
   });
@@ -183,7 +184,7 @@ describe("install project leaves global untouched (UC-004)", () => {
   it("copies into the project dir without modifying ~ entries (TC-011)", async () => {
     await project();
     await linkOrCopySkillsTo(homeSkills());
-    const res = await cmdInstall([], { cwd: dir, scope: "project" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
       const entry = join(projectSkills(), copyName(name));
@@ -196,9 +197,9 @@ describe("install project leaves global untouched (UC-004)", () => {
     await project();
     await writeFile(
       join(dir, ".kf", "config.json"),
-      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"], skills: { scope: "project" } }),
+      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["codex"], skills: { scope: "project" } }),
     );
-    const res = await cmdInstall([], { cwd: dir });
+    const res = await cmdInstall(["codex"], { cwd: dir });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("(project)");
     expect(existsSync(join(projectSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
@@ -206,7 +207,7 @@ describe("install project leaves global untouched (UC-004)", () => {
   });
 
   it("refuses --scope project outside .works (TC-012)", async () => {
-    const res = await cmdInstall([], { cwd: dir, scope: "project" });
+    const res = await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(1);
     expect(res.stderr).toBe("not a kanban project");
   });
@@ -218,7 +219,7 @@ describe("uninstall by scope (UC-005)", () => {
     await linkOrCopySkillsTo(homeSkills());
     await copySkillsTo(projectSkills());
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "global" });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("shared by every project");
     expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
@@ -230,7 +231,7 @@ describe("uninstall by scope (UC-005)", () => {
     await linkOrCopySkillsTo(homeSkills());
     await copySkillsTo(projectSkills());
 
-    const res = await cmdUninstall([], { cwd: dir, scope: "project" });
+    const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(existsSync(join(projectSkills(), "kanban-flow"))).toBe(false);
     expect(existsSync(join(homeSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
@@ -238,10 +239,10 @@ describe("uninstall by scope (UC-005)", () => {
 
   it("works outside .works and is idempotent (TC-015)", async () => {
     await linkOrCopySkillsTo(homeSkills());
-    const first = await cmdUninstall([], { cwd: dir, scope: "global" });
+    const first = await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(first.code).toBe(0);
     expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
-    const second = await cmdUninstall([], { cwd: dir, scope: "global" });
+    const second = await cmdUninstall(["codex"], { cwd: dir, scope: "global" });
     expect(second.code).toBe(0);
     expect(second.stdout).toContain("already clean");
   });
@@ -249,12 +250,12 @@ describe("uninstall by scope (UC-005)", () => {
 
 describe("init at effective scope (FR-005)", () => {
   it("kf init --defaults links skills into ~ and writes none to the project (TC-001)", async () => {
-    const res = await cmdInit(args("init", [], { defaults: true }), dir);
+    const res = await cmdInit(args("init", [], { defaults: true, agent: "codex" }), dir);
     expect(res.code).toBe(0);
     for (const name of MANAGED_SKILLS) {
       expect(lstatSync(join(homeSkills(), copyName(name))).isSymbolicLink(), name).toBe(true);
     }
-    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    expect(existsSync(join(dir, ".agents"))).toBe(false);
     expect(readProjectConfig(dir).skills?.scope).toBe("global");
   });
 
@@ -262,9 +263,9 @@ describe("init at effective scope (FR-005)", () => {
     await project();
     await writeFile(
       join(dir, ".kf", "config.json"),
-      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"], skills: { scope: "project" } }),
+      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["codex"], skills: { scope: "project" } }),
     );
-    const res = await cmdInit(args("init", [], { minimal: true }), dir);
+    const res = await cmdInit(args("init", [], { minimal: true, agent: "codex" }), dir);
     expect(res.code).toBe(0);
     expect(existsSync(join(projectSkills(), "kanban-flow", "SKILL.md"))).toBe(true);
     expect(existsSync(join(homeSkills(), "kanban-flow"))).toBe(false);
@@ -310,9 +311,9 @@ describe("status reporting (UC-006)", () => {
     expect(res.stdout).toContain("scope: global");
     expect(res.stdout).toContain("— missing");
 
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall(["codex"], { cwd: dir });
     res = await cmdAutoconfig(parsed, dir);
-    expect(res.stdout).toContain("Skills for Claude Code (scope: global");
+    expect(res.stdout).toContain("Skills for OpenAI Codex (scope: global");
     expect(res.stdout).toContain("— linked");
     expect(res.stdout).toContain("[x] No duplicate project-scope copies");
   });
@@ -321,7 +322,7 @@ describe("status reporting (UC-006)", () => {
     await project();
     await writeFile(
       join(dir, ".kf", "config.json"),
-      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["claude"], skills: { scope: "project" } }),
+      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["codex"], skills: { scope: "project" } }),
     );
     await copySkillsTo(projectSkills());
     await writeFile(join(projectSkills(), copyName("plan"), "SKILL.md"), "tampered", "utf8");
@@ -330,7 +331,7 @@ describe("status reporting (UC-006)", () => {
     const res = await cmdAutoconfig(args("autoconfig"), dir);
     expect(res.stdout).toContain("— stale");
 
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall(["codex"], { cwd: dir });
     expect(agentSkillsState(projectSkills())).toBe("copied");
     expect(readFileSync(join(projectSkills(), copyName("plan"), "SKILL.md"), "utf8")).toContain("name: plan");
   });
@@ -366,7 +367,7 @@ describe("status reporting (UC-006)", () => {
     const res = await cmdAutoconfig(args("autoconfig"), dir);
     expect(res.stdout).toContain("Duplicate project-scope copies");
 
-    await cmdInstall([], { cwd: dir });
+    await cmdInstall(["codex"], { cwd: dir });
     expect(existsSync(join(projectSkills(), "kanban-flow"))).toBe(false);
   });
 
@@ -378,7 +379,7 @@ describe("status reporting (UC-006)", () => {
 
     const { fixed, failures } = await runDoctorFixes(dir);
     expect(failures).toEqual([]);
-    expect(fixed.some((l) => l.includes("installed kanban skills for claude"))).toBe(true);
+    expect(fixed.some((l) => l.includes("installed kanban skills for codex"))).toBe(true);
     expect(runDoctor(dir).findings.filter((f) => f.area.includes("skills"))).toEqual([]);
   });
 });

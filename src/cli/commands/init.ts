@@ -7,8 +7,9 @@ import { checkContext, contextRefusal, effectiveDefaultContext } from "../../pro
 import { readProjectConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
-import { parseAgentIds } from "../../integrations/agents.js";
+import { DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../../integrations/agents.js";
 import { globalLinkRefusal, installSkills } from "../../integrations/install.js";
+import { claudeRunner, ensurePlugin } from "../../integrations/claude-plugin.js";
 import { hasWorkItems, bootstrapDefaults, onboardAnswers, seedOverrides, seedGithubHooks, saveConfig, appendIgnoreWorks, seedAgentsFile, type BootstrapAnswers } from "../../project/bootstrap.js";
 import { cmdNew } from "./new.js";
 import type { ParsedArgs } from "../args.js";
@@ -76,13 +77,27 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
     await mkdir(join(target, "docs", docsDir, ctx), { recursive: true });
   }
   const scope = effectiveSkillsScope(cfg);
-  const skills = await installSkills(target, agents.length ? agents : parseAgentIds(cfg.agents), scope, { declaredScope: cfg.skills?.scope });
+  const skills = await installForAgents(target, agents.length ? agents : parseAgentIds(cfg.agents), scope, cfg.skills?.scope);
   if (skills.code !== 0) return skills;
   const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {
     code: 0,
     stdout: `✓ Initialized kanban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/{requirement,use-cases,testplan}/${ctx}\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n  AGENTS.md: ${agentsFile === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}\n\n${skills.stdout}`,
   };
+}
+
+/**
+ * Claude Code gets the kf plugin, the other agents get skill copies. A plugin claude cannot set up
+ * is printed as a warning carrying the manual commands, so the rest of the bootstrap still lands.
+ */
+async function installForAgents(target: string, agents: AgentId[], scope: SkillScope, declaredScope: SkillScope | undefined): Promise<CmdResult> {
+  const ids = agents.length > 0 ? agents : [DEFAULT_AGENT];
+  const plugin = ids.includes("claude") ? await ensurePlugin(scope, claudeRunner(target)) : null;
+  const copied = ids.filter((id) => id !== "claude");
+  const skills = copied.length > 0 ? await installSkills(target, copied, scope, { declaredScope }) : null;
+  if (skills && skills.code !== 0) return skills;
+  const pluginLine = plugin ? (plugin.code === 0 ? plugin.stdout : `⚠ ${plugin.stdout}`) : "";
+  return { code: 0, stdout: [pluginLine, skills?.stdout ?? ""].filter(Boolean).join("\n") };
 }
 
 async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boolean): Promise<CmdResult> {
@@ -115,7 +130,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   await seedOverrides(target);
   if (answers.installGithubHooks) await seedGithubHooks(target);
   saveConfig(target, answers);
-  const skills = await installSkills(target, answers.agents, answers.skillScope, { declaredScope: answers.skillScope });
+  const skills = await installForAgents(target, answers.agents, answers.skillScope, answers.skillScope);
   if (skills.code !== 0) return skills;
 
   for (const docsDir of ["requirement", "use-cases", "testplan"]) {
