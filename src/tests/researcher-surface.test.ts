@@ -44,11 +44,13 @@ describe("the researcher agent definition", () => {
 
   it("gives each mode a stop rule and sends blast-radius mapping to scout", () => {
     const text = read(...AGENT);
-    expect(text).toMatch(/stop/i);
     for (const mode of ["web", "code", "prior-art"]) {
-      const line = text.split("\n").find((l) => new RegExp("^[#*\\-\\s]*.*`" + mode + "`").test(l) && /stop/i.test(l));
-      const block = text.split(/\n(?=#{2,3} |\*\*|- `)/).find((b) => b.includes("`" + mode + "`") && /stop/i.test(b));
-      expect(line ?? block, `stop rule for ${mode}`).toBeDefined();
+      const start = text.search(new RegExp("^### `" + mode + "`", "m"));
+      expect(start, `a section for ${mode}`).toBeGreaterThanOrEqual(0);
+      const rest = text.slice(start + 1);
+      const next = rest.search(/\n#{1,3} /);
+      const slice = next === -1 ? rest : rest.slice(0, next);
+      expect(slice, `stop rule inside the ${mode} section`).toMatch(/\*\*Stop\*\*/);
     }
     expect(text).toMatch(/code[\s\S]{0,600}scout/);
     expect(text).toMatch(/blast radius|consumers/i);
@@ -157,24 +159,33 @@ describe("the plan trigger", () => {
   });
 });
 
-describe("the implement trigger", () => {
-  const sec32 = () => section(read("skills", "implement", "SKILL.md"), /\n### 3\.2 /);
+/** The 3.2 bullet that dispatches the researcher. */
+function researcherBullet(): string {
+  const sec = section(read("skills", "implement", "SKILL.md"), /\n### 3\.2 /);
+  const bullet = sec.split("\n").find((l) => l.startsWith("- ") && l.includes("Agent(kf:researcher)"));
+  expect(bullet, "a 3.2 bullet that dispatches Agent(kf:researcher)").toBeDefined();
+  return bullet!;
+}
 
-  it("dispatches the researcher for missing outside knowledge, re-dispatches the same developer and rules it is no fix round", () => {
-    const sec = sec32();
-    expect(sec).toContain("Agent(kf:researcher)");
-    expect(sec).toMatch(/outside knowledge/i);
-    expect(sec).toMatch(/NEEDS_CONTEXT/);
-    expect(sec).toMatch(/BLOCKED/);
-    expect(sec).toMatch(/plan defect|test dispute|architectural/i);
-    expect(sec).toMatch(/not a fix round/i);
-    expect(sec).toMatch(/same (agent|developer)/i);
+describe("the implement trigger", () => {
+  it("dispatches the researcher for missing outside knowledge and re-dispatches the same developer with the conclusion", () => {
+    const b = researcherBullet();
+    expect(b).toMatch(/NEEDS_CONTEXT/);
+    expect(b).toMatch(/BLOCKED/);
+    expect(b).toMatch(/outside knowledge/i);
+    expect(b).toMatch(/re-dispatch the same (developer|agent)/i);
+    expect(b).toMatch(/conclusion/i);
+    expect(b).toMatch(/report path/i);
+  });
+
+  it("excludes a plan defect, a test dispute and an architectural choice, and rules the dispatch is no fix round", () => {
+    const b = researcherBullet();
+    expect(b).toMatch(/plan defect, a test dispute or an architectural choice/i);
+    expect(b).toMatch(/not a fix round/i);
   });
 
   it("writes a Ruling line that cites the research report", () => {
-    const sec = sec32();
-    expect(sec).toMatch(/Ruling: research/);
-    expect(sec).toMatch(/report path|<report/i);
+    expect(researcherBullet()).toMatch(/Ruling: research <report path> supplied to TASK-NNN developer/);
   });
 });
 
@@ -193,7 +204,20 @@ describe("a ledger with a research ruling", () => {
     "TASK-001: code-reviewer done status=findings @ 2026-11-02T10:40:00+07:00",
     "TASK-001: fix round 1/5 (missing null check) @ 2026-11-02T10:41:00+07:00",
   ];
-  const RULING = "TASK-001: Ruling: research .works/implementation/x/reviews/research-lib.md supplied to TASK-001 developer — missing API version — a wrong pin breaks the build @ 2026-11-02T10:12:00+07:00";
+  /** The Ruling form the implement skill prescribes, filled in and given a timestamp. */
+  function rulingFromSkill(): string {
+    const form = /Ruling: research <report path> supplied to TASK-NNN developer — <why> — <cost if wrong>/.exec(researcherBullet());
+    expect(form, "the research Ruling form in the skill").not.toBeNull();
+    return (
+      "TASK-001: " +
+      form![0]
+        .replace("<report path>", ".works/implementation/x/reviews/research-lib.md")
+        .replace("TASK-NNN", "TASK-001")
+        .replace("<why>", "missing API version")
+        .replace("<cost if wrong>", "a wrong pin breaks the build") +
+      " @ 2026-11-02T10:12:00+07:00"
+    );
+  }
 
   function loadFromTemp(lines: string[]): ReturnType<typeof loopStats> {
     dir = mkdtempSync(join(tmpdir(), "research-ledger-"));
@@ -204,7 +228,7 @@ describe("a ledger with a research ruling", () => {
 
   it("parses without unparsed lines and leaves the fix-round count unchanged", () => {
     const without = loadFromTemp(BASE);
-    const withRuling = loadFromTemp([...BASE.slice(0, 3), RULING, ...BASE.slice(3)]);
+    const withRuling = loadFromTemp([...BASE.slice(0, 3), rulingFromSkill(), ...BASE.slice(3)]);
     expect(without.rounds).toBe(1);
     expect(withRuling.rounds).toBe(1);
     expect(withRuling.unparsed).toEqual([]);
