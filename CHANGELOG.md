@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.14.0] - 2026-11-02
 
 ### Added
 - **A faster, measured task loop.** `kf verify --commits` (`kf verify <f> --task TASK-### --commits <sha>[,<sha>…]`) and `review-package --commits <sha>[,<sha>…]` check exactly the listed commits (verify runs in a temporary detached worktree at the newest), `--base` and `BASE HEAD` stay for a single contiguous range. `kf tasks --json` gains `overlaps` (`{ task, entries: [mine, theirs] | null }`). The task loop is pipelined: the next task's test-writer runs beside the developers, ledger lines end in ` @ <ISO>`. `kf loop-stats <f> [--json] [--record]` and `kf loop-stats --all [--json]` measure the ledger and keep `.works/loop-metrics.md`.
