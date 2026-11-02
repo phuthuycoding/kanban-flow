@@ -1,6 +1,6 @@
 # Kanban Flow
 
-The workflow is driven by the `kf` CLI and the nine skills under `skills/`.
+The workflow is driven by the `kf` CLI and the 10 skills under `skills/`.
 
 ```text
 brainstorm → planning → implementation → testing → review → done
