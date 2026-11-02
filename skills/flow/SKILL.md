@@ -39,7 +39,7 @@ A step invoked as a tool renders one line carrying its name; a step merely *perf
 | Spike (no item) | `Skill(kf:spike)` · `Agent(kf:researcher)` per question research can answer | the probe was run without the skill, or a work item was opened for a question |
 | 7 Merge / close | the PR URL handed to the human, then `kf status` showing `done` after their merge | a close before the PR merged, or a merge made by the agent |
 
-The seven agent bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md`; `kf install` registers them where Claude Code looks (`.claude/agents/`), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
+The seven agent bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md`; the kf plugin registers them with Claude Code (`kf install` runs the plugin install), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
 
 ---
 
