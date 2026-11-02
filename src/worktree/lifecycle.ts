@@ -71,7 +71,9 @@ function worktreeHook(root: string, feature: Feature, wt: WorktreeRegistration, 
       env: {
         KFW_WORKTREE_PATH: wt.path,
         KFW_WORKTREE_PORT: String(wt.port),
-        ...(cfg.domains ? { KFW_WORKTREE_DOMAIN: wt.domain } : {}),
+        // Explicitly undefined when off: runHook spreads process.env first, and spawn drops undefined values,
+        // so an inherited KFW_WORKTREE_DOMAIN never reaches the hook.
+        KFW_WORKTREE_DOMAIN: cfg.domains ? wt.domain : undefined,
         KFW_WORKTREE_BRANCH: wt.branch,
       },
     },

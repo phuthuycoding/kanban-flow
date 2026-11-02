@@ -172,7 +172,7 @@ const domainsCache = new Map<string, DomainsFlag>();
  *  default (on) and reports why, so status still prints. */
 function resolveDomains(root: string): DomainsFlag {
   const file = join(root, ".kf", "config.json");
-  const key = `${root}\0${existsSync(file) ? statSync(file).mtimeMs : "none"}`;
+  const key = `${root}\0${statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? "none"}`;
   const hit = domainsCache.get(key);
   if (hit) return hit;
   let flag: DomainsFlag;

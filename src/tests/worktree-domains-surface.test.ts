@@ -31,6 +31,12 @@ describe("the worktree.domains switch in the docs, skills and config", () => {
     }
   });
 
+  it("names the Worktree line as Domain or Direct in the test and review skills", () => {
+    for (const file of ["skills/test/SKILL.md", "skills/review/SKILL.md"]) {
+      expect(read(file), file).toContain("`Worktree:` with `Domain:` or `Direct:`");
+    }
+  });
+
   it("says the JSON outputs still carry domain but must not be used, in the status-reading skills", () => {
     for (const file of ["skills/test/SKILL.md", "skills/review/SKILL.md", "skills/implement/SKILL.md", "agents/automation-writer.md"]) {
       expect(plain(file), file).toContain(SWITCH_RULE);

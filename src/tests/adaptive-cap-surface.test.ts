@@ -175,6 +175,14 @@ describe("stepping the cap down on contention", () => {
     expect(mirror).toContain("goes straight to the fix loop");
   });
 
+  it("steps a task down at most once per signature until one of its verifies passes", () => {
+    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+      const flat = text.replace(/\s+/g, " ");
+      expect(flat, name).toContain("A task steps N down at most once per signature until one of its verifies passes");
+      expect(flat, name).toContain("is not a new contention event");
+    }
+  });
+
   it("saves each verify output to the item's verify log and classifies contention from it", () => {
     expect(contention()).toContain("loop/task-NNN-verify.log");
     expect(contention()).toMatch(/appending/);

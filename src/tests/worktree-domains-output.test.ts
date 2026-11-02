@@ -209,6 +209,34 @@ describe("worktree hook env", () => {
     expect(out).not.toContain("KFW_WORKTREE_DOMAIN");
   });
 
+  describe("with an inherited domain variable", () => {
+    const STALE = "stale.inherited.test";
+    let saved: string | undefined;
+    beforeEach(() => {
+      saved = process.env.KFW_WORKTREE_DOMAIN;
+      process.env.KFW_WORKTREE_DOMAIN = STALE;
+    });
+    afterEach(() => {
+      if (saved === undefined) delete process.env.KFW_WORKTREE_DOMAIN;
+      else process.env.KFW_WORKTREE_DOMAIN = saved;
+    });
+
+    it("does not leak a stale inherited domain into the hook when domains are off", async () => {
+      await writeCfg({ domains: false });
+      const out = await runCreateHook();
+      expect(out).toContain(`KFW_WORKTREE_PORT=${PORT}`);
+      expect(out).not.toContain("KFW_WORKTREE_DOMAIN");
+      expect(out).not.toContain(STALE);
+    });
+
+    it("gives the hook the item's own domain, not the inherited one, when domains are on", async () => {
+      await writeCfg({ domains: true });
+      const out = await runCreateHook();
+      expect(out).toMatch(new RegExp(`^KFW_WORKTREE_DOMAIN=${DOMAIN.replace(/\./g, "\\.")}$`, "m"));
+      expect(out).not.toContain(STALE);
+    });
+  });
+
   it("carries all four variables when domains are on", async () => {
     await writeCfg({ domains: true });
     const out = await runCreateHook();

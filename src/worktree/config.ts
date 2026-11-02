@@ -10,7 +10,8 @@ import { basename, isAbsolute, join, resolve } from "node:path";
  */
 export interface WorktreeConfig {
   enabled: boolean;
-  /** When false, the domain layer (proxy routes, DNS/proxy infra probes) is off. */
+  /** When false, no DNS/proxy infra probes run, no domain URL is printed and KFW_WORKTREE_DOMAIN is not
+   *  exported; routes are still registered so ports stay unique. */
   domains: boolean;
   /** Directory worktrees are created under; default `<repo>/.worktrees` inside the repo. */
   baseDir: string;

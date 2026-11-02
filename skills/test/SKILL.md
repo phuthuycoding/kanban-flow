@@ -25,7 +25,7 @@ If `kf stage` refuses the move, run `kf validate --change {feature_name}` to see
 
 Every entry to testing creates a new execution id. Keep old reports as evidence, but never reuse them as proof for the current implementation. Read the current id from `kf status` or `kf instruct ... --change`.
 
-**Where the code lives:** when the item has a worktree (`kf status` shows `Worktree:`/`Domain:`), run the app and its tests inside the worktree path — that is where implementation landed. For HTTP/browser checks prefer `http://<domain>` (start the project's dev server on the allocated port); When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback shown in `kf status` and say so in the report.
+**Where the code lives:** when the item has a worktree (`kf status` shows `Worktree:` with `Domain:` or `Direct:`), run the app and its tests inside the worktree path — that is where implementation landed. For HTTP/browser checks prefer `http://<domain>` (start the project's dev server on the allocated port); When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback shown in `kf status` and say so in the report.
 
 ## 2. Run against the plan's test cases
 

@@ -81,7 +81,7 @@ export interface HookRunOpts {
   /** Working directory for the script; defaults to env.dir (the work item's folder). */
   cwd?: string;
   /** Extra environment merged over the standard KFW_* set. */
-  env?: Record<string, string>;
+  env?: Record<string, string | undefined>;
 }
 
 export function runHook(
