@@ -179,7 +179,8 @@ describe("stepping the cap down on contention", () => {
     for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
       const flat = text.replace(/\s+/g, " ");
       expect(flat, name).toContain("A task steps N down at most once per signature until one of its verifies passes");
-      expect(flat, name).toContain("is not a new contention event");
+      expect(flat, name).toContain("skips only step 1 and still gets its rerun note and one re-run");
+      expect(flat, name).toContain("with the same signature and no `verify done exit=0` of this task after it");
     }
   });
 

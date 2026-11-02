@@ -774,7 +774,7 @@ describe("a live-cap ledger", () => {
 
   it("counts the cap rulings, wave lines and contention note as other-timed lines, not as shapes", async () => {
     const stats = await statsOf("adaptive-cap");
-    expect(stats.otherTimed).toBe(6);
+    expect(stats.otherTimed).toBe(7);
     expect(stats.untimed).toBe(0);
   });
 
