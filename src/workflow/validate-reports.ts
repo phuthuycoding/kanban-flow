@@ -21,7 +21,8 @@ function tableCells(line: string): string[] {
  * Returns null when the section is absent. The column is found by its "Exit code" header
  * (the second column when no header names it). A pipe inside an earlier cell — escaped `\|`
  * or raw, as a shell command often has — splits that cell, so a row with more cells than the
- * header is read counting from the right. A backticked code (`` `0` ``) reads as the bare number.
+ * header is read counting from the right, and fails on a non-zero number between the two readings. A backticked
+ * code (`` `0` ``) reads as the bare number.
  */
 export function commandExitCodes(body: string): string[] | null {
   const lines = body.split("\n");
@@ -42,8 +43,12 @@ export function commandExitCodes(body: string): string[] | null {
     }
     if (rows <= 2) continue;
     const cells = tableCells(line);
-    const index = cells.length > header.length ? cells.length - (header.length - column) : column;
-    codes.push((cells[index] ?? "").replace(/^`(\S+)`$/, "$1"));
+    const extra = cells.length > header.length;
+    const index = extra ? cells.length - (header.length - column) : column;
+    const code = (cells[index] ?? "").replace(/^`(\S+)`$/, "$1");
+    // A pipe in a later cell shifts the count too: the real code lies between the two readings, so any non-zero number there fails.
+    const between = cells.slice(column, index + 1).find((cell) => /^`?[1-9]\d*`?$/.test(cell));
+    codes.push(extra && between !== undefined ? between.replaceAll("`", "") : code);
   }
   return codes;
 }

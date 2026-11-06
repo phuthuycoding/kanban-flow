@@ -86,6 +86,11 @@ describe("testing_exit_code", () => {
     expect(commandExitCodes(table(["| a \\| b | `1` | x |", "| a | b | c | 0 | x |"]))).toEqual(["1", "0"]);
   });
 
+  it("never reads a failed row as 0 when a pipe in its Evidence cell shifts the count", () => {
+    expect(commandExitCodes(table(["| cmd | 1 | 0 | x |"]))).toEqual(["1"]);
+    expect(commandExitCodes(table(["| cmd | `2` | 0 | x |"]))).toEqual(["2"]);
+  });
+
   it("finds the Exit code column by its header, wherever it sits", () => {
     const body = "## Commands and Evidence\n\n| Evidence | Command | Exit code |\n|---|---|---:|\n| ok | npm test | 0 |\n| boom | a | b | 2 |\n";
     expect(commandExitCodes(body)).toEqual(["0", "2"]);
