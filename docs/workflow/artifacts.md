@@ -69,7 +69,7 @@ When the primary checkout is on a clean, current default branch, the canonical d
 
 ## The loop metrics file `.works/loop-metrics.md`
 
-`kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, or stamps later than the file's last write, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.
+`kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, or `verify done` lines the `kf verify` log does not back, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.
 
 ## The day files under `.kf/travel/`
 

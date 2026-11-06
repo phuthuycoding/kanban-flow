@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, utimesSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -440,6 +440,10 @@ async function item(feature: string, taskIds: string[], ledger: string | null): 
   if (ledger !== null) {
     await mkdir(join(dir, "loop"), { recursive: true });
     await writeFile(join(dir, "loop", "progress.md"), fixture(ledger));
+    // A fixture's verify lines stand for real runs, so each gets the log block kf verify would have written.
+    for (const m of fixture(ledger).matchAll(/^(TASK-\d+): verify done exit=(\d+) @ (\S+)$/gm)) {
+      await appendFile(join(dir, "loop", `${m[1].toLowerCase()}-verify.log`), `## kf verify ${new Date(m[3]).toISOString()} exit=${m[2]}\n`);
+    }
   }
   return dir;
 }
@@ -924,6 +928,67 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
     expect(res.code).toBe(1);
     expect(res.out).toContain("cannot record late:");
     expect(res.out).toContain("are stamped after the file was last written");
+  });
+
+  describe("against the log kf verify writes", () => {
+    const ledgerOf = (lines: string[]): string => ["# Task loop ledger — v — plan: /p", ...lines, ""].join("\n");
+    const STAMP = "2026-11-01T10:10:00+07:00";
+    const lines = (exit: number): string[] => [
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:05:00+07:00",
+      "TASK-001: verify started @ 2026-11-01T10:06:00+07:00",
+      `TASK-001: verify done exit=${exit} @ ${STAMP}`,
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:12:00+07:00",
+    ];
+    const setUp = async (exit: number, log: string | null): Promise<string> => {
+      const dir = await item("v", ["TASK-001"], "two-tasks.ledger.md");
+      await rm(join(dir, "loop"), { recursive: true, force: true });
+      await mkdir(join(dir, "loop"));
+      await writeFile(join(dir, "loop", "progress.md"), ledgerOf(lines(exit)));
+      if (log !== null) await writeFile(join(dir, "loop", "task-001-verify.log"), log);
+      return dir;
+    };
+
+    it("records when every verify line has its logged run", async () => {
+      await setUp(0, `## kf verify ${new Date(STAMP).toISOString()} exit=1\noutput\n## kf verify ${new Date(STAMP).toISOString()} exit=0\n`);
+      const res = await run(["v"], { record: true });
+      expect(res.code, res.out).toBe(0);
+    });
+
+    it("refuses a verify line no logged run backs, the way a hand-written exit reads", async () => {
+      await setUp(0, null);
+      const res = await run(["v"], { record: true });
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("ledger lines 5 report a verify exit no kf verify run logged");
+    });
+
+    it("refuses an exit code the log contradicts", async () => {
+      await setUp(0, `## kf verify ${new Date(STAMP).toISOString()} exit=1\n`);
+      expect((await run(["v"], { record: true })).out).toContain("report a verify exit no kf verify run logged");
+    });
+
+    it("refuses a stamp far from the run it reports, the way an estimated time reads", async () => {
+      await setUp(0, `## kf verify ${new Date(Date.parse(STAMP) + 3 * 3_600_000).toISOString()} exit=0\n`);
+      const res = await run(["v"], { record: true });
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("stamped over 15 minutes from the kf verify run");
+    });
+  });
+
+  it("does not take a reopened task's earlier complete line as complete", async () => {
+    await item("again", ["TASK-001"], "two-tasks.ledger.md");
+    const ledger = join(root, ".works", "implementation", "again_20261101_0900", "loop", "progress.md");
+    await writeFile(ledger, [
+      "# Task loop ledger — again — plan: /p",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:05:00+07:00",
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:06:00+07:00",
+      "Note TASK-001: reopened — review 1234abcd @ 2026-11-01T11:00:00+07:00",
+      "",
+    ].join("\n"));
+    const res = await run(["again"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("no complete line for TASK-001");
   });
 
   it("records a ledger whose only orphan is a seat a resume dispatched again", async () => {

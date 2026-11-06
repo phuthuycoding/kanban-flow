@@ -19,7 +19,7 @@ describe("the loop's verify rules", () => {
   });
 
   it("ledgers only the exit code kf verify returned", () => {
-    expect(implement()).toContain("the exit code `kf verify` itself returned, never one read from another command");
+    expect(implement()).toContain("the exit code `kf verify` itself returned and logged, never one read from another command");
     expect(loop()).toContain("`verify done exit=<n>` is the exit code `kf verify` returned");
   });
 
@@ -39,6 +39,15 @@ describe("the ledger's clock and open questions", () => {
     expect(read("skills/test/SKILL.md")).toContain("`TASK-NNN: unverified — <claim>`");
     const [line] = parseLedger("# h\nTASK-008: unverified — the token reaches storage in a browser @ 2026-11-01T20:15:12+07:00").lines;
     expect(line.kind).toBe("other-timed");
+  });
+});
+
+describe("one owner for the loop's rules", () => {
+  it("keeps cap, contention and resume in the skill, and only reasons in task-loop.md", () => {
+    const section = loop().slice(loop().indexOf("## Parallel developers"), loop().indexOf("## The fix loop"));
+    expect(section).toContain("`kf:implement` owns the rules");
+    expect(section).not.toContain("Ruling: developer cap");
+    expect(implement()).toContain("**The live cap.**");
   });
 });
 

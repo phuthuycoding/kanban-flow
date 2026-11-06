@@ -22,6 +22,8 @@ const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-
 /** A line that claims a shape behind a markdown bullet or indentation; it fails the grammar but must not pass as other-timed. */
 const LOOSE_KEYWORD = /^\s*(?:[-*+]\s+)?TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
 
+const REOPENED = /^Note (TASK-\d+): reopened — /;
+
 /** An attempted timestamp that TS_SUFFIX rejects (a space for `T`, a missing seconds field, ...): such a line is not untimed. */
 const STAMP_ATTEMPT = /@\s*\d{4}-\d{2}-\d{2}/;
 
@@ -51,6 +53,8 @@ export interface LedgerLine {
   reason?: string;
   otherTask?: string;
   sha?: string;
+  /** Set on a `Note TASK-NNN: reopened — …` line: it cancels the task's earlier `complete` line. */
+  reopened?: boolean;
 }
 
 export interface ParsedLedger {
@@ -96,6 +100,8 @@ function classify(text: string, line: number): LedgerLine {
     const m = LEDGER_SHAPES[shape].exec(body);
     if (m) return { line, kind: "shape", shape, task: m[1], ts, stamp, ...shapeFields(shape, m) };
   }
+  const reopened = REOPENED.exec(body);
+  if (reopened) return { line, kind: "other-timed", task: reopened[1], reopened: true, ts, stamp };
   return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
 }
 
@@ -107,6 +113,53 @@ export function unansweredOrphans(parsed: ParsedLedger, orphans: number[]): numb
     const own = line ? key(line) : null;
     return own === null || !parsed.lines.some((l) => l.line > n && key(l) === own);
   });
+}
+
+/** Tasks whose latest `complete` line no later `reopened` note cancels. */
+export function completedTasks(parsed: ParsedLedger): Set<string> {
+  const done = new Set<string>();
+  for (const l of parsed.lines) {
+    if (l.shape === "complete") done.add(l.task!);
+    else if (l.reopened) done.delete(l.task!);
+  }
+  return done;
+}
+
+export interface LoggedRun {
+  exit: number;
+  ts: number;
+}
+
+/** The runs `kf verify` logged, oldest first. */
+export function parseVerifyLog(text: string): LoggedRun[] {
+  return [...text.matchAll(/^## kf verify (\S+) exit=(\d+)$/gm)].map((m) => ({ ts: Date.parse(m[1]), exit: Number(m[2]) }));
+}
+
+/** A hand-written `verify done` line is off by minutes at most from its run; a background verify may report late. */
+const VERIFY_STAMP_TOLERANCE_MS = 15 * 60_000;
+
+/**
+ * Check every `verify done` line against the runs `kf verify` logged, in order. `unlogged`: no logged run has that
+ * exit code, so the line did not come from `kf verify`. `offClock`: the run exists but the line's stamp is far from it.
+ * Logged runs a ledger omits are fine: a run can finish after its session died.
+ */
+export function checkVerifyLines(parsed: ParsedLedger, runsOf: (task: string) => LoggedRun[]): { unlogged: number[]; offClock: number[] } {
+  const unlogged: number[] = [];
+  const offClock: number[] = [];
+  const next = new Map<string, number>();
+  for (const l of parsed.lines) {
+    if (l.shape !== "verifyDone") continue;
+    const runs = runsOf(l.task!);
+    let i = next.get(l.task!) ?? 0;
+    while (i < runs.length && runs[i].exit !== l.exit) i++;
+    if (i === runs.length) {
+      unlogged.push(l.line);
+      continue;
+    }
+    next.set(l.task!, i + 1);
+    if (Math.abs(l.ts! - runs[i].ts) > VERIFY_STAMP_TOLERANCE_MS) offClock.push(l.line);
+  }
+  return { unlogged, offClock };
 }
 
 /** Margin for a coarse file clock: a stamp only counts as late past it. */

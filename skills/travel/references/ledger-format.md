@@ -13,10 +13,15 @@ t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-t
 
 ## 2026-10-31
 slots: 3 · budget: 8 points (median of 3 days)
+session: d41f · 2026-10-31T14:02:11+07:00
 t1 · workflow-slim · feature · L · driving · owner=travel · est0=L · estmin=40 · seat re-dispatched after the human's fix
 t2 · login-timeout · bug · S · waiting-to-merge · est0=S · estmin=4 · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequential with t1
 ```
+
+## Session
+
+`session: <short random id> · <ISO time>`, written by the travel session when it starts the day and re-stamped from the clock at every progress block. A session keeps its id through compaction. No other session starts seats while the stamp is under 15 minutes old.
 
 ## Line
 

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -221,4 +221,15 @@ export function verifyStage(root: string, feature: Feature): VerifyResult {
   const { dir, line } = itemDir(root, feature);
   if (!existsSync(dir)) return { code: 3, lines: [`The item worktree ${dir} does not exist.`] };
   return runCommands(readProjectConfig(root).harness?.verify?.stage, dir, "stage", [line]);
+}
+
+/** The log `kf verify` writes beside the ledger: the ledger's verify lines are checked against it. */
+export function verifyLogPath(itemDir: string, taskId: string): string {
+  return join(itemDir, "loop", `${taskId.toLowerCase()}-verify.log`);
+}
+
+/** Append one run: a `## kf verify <ISO> exit=<n>` header, then the run's output. */
+export function appendVerifyLog(itemDir: string, taskId: string, result: VerifyResult, at: Date = new Date()): void {
+  mkdirSync(join(itemDir, "loop"), { recursive: true });
+  appendFileSync(verifyLogPath(itemDir, taskId), `## kf verify ${at.toISOString()} exit=${result.code}\n${result.lines.join("\n")}\n`);
 }

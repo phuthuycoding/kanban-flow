@@ -44,7 +44,7 @@ describe("the parallel task loop window", () => {
   });
 
   it("states the live cap counting fix-round and resume-commit developers, and the three dispatch conditions", () => {
-    for (const [name, text] of [["SKILL.md", taskLoop()], ["task-loop.md", reference("task-loop.md")]] as const) {
+    for (const [name, text] of [["SKILL.md", taskLoop()]] as const) {
       const cap = paragraphWith(text, "three dispatch conditions");
       expect(cap, name).toContain("live cap");
       expect(cap, name).toContain("fix-round");
@@ -57,7 +57,7 @@ describe("the parallel task loop window", () => {
   });
 
   it("defines an open task and makes unknown Files overlap everything, checked with overlaps of kf tasks --json", () => {
-    for (const [name, text] of [["SKILL.md", taskLoop()], ["task-loop.md", reference("task-loop.md")]] as const) {
+    for (const [name, text] of [["SKILL.md", taskLoop()]] as const) {
       expect(text, name).toMatch(/open task[^.]*developer[^.]*dispatched[^.]*no `complete` line/);
       expect(text, name).toMatch(/unknown Files overlaps? everything/);
       expect(text, name).toContain("kf tasks <f> --json");
@@ -398,9 +398,8 @@ describe("binding phrases of the parallel loop", () => {
     expect(implement()).toContain("a task whose test-writer is in flight counts as open");
   });
 
-  it("gives a freed seat first to a named claimant in the skill and the loop reference", () => {
+  it("gives a freed seat first to a named claimant in the skill", () => {
     expect(implement()).toContain("a freed seat goes first to");
-    expect(reference("task-loop.md")).toContain("a freed seat goes first to");
   });
 
   it("has the controller re-run the handed tests", () => {

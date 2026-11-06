@@ -1,4 +1,4 @@
-import { verifyStage, verifyTask, verifyTaskCommits } from "../../workflow/verify.js";
+import { appendVerifyLog, verifyStage, verifyTask, verifyTaskCommits } from "../../workflow/verify.js";
 import { ProjectConfigError } from "../../project/config.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -36,6 +36,7 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
     if (task === undefined) res = verifyStage(item.root, item.item);
     else if (shas !== undefined) res = verifyTaskCommits(item.root, item.item, task, shas, atHead);
     else res = verifyTask(item.root, item.item, task, base!);
+    if (task !== undefined) appendVerifyLog(item.item.dir, task, res);
   } catch (err) {
     if (err instanceof ProjectConfigError) return badInput(err.message);
     return { code: 3, stdout: `kf verify could not run: ${err instanceof Error ? err.message : String(err)}`, stderr: err instanceof Error ? (err.stack ?? err.message) : String(err) };

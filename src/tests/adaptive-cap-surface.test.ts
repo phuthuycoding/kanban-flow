@@ -6,8 +6,9 @@ import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
 const skill = () => read("skills", "implement", "SKILL.md");
-const loop = () => read("skills", "implement", "references", "task-loop.md");
-const both = () => [["SKILL.md", skill()], ["task-loop.md", loop()]] as const;
+// The skill owns these rules; task-loop.md keeps only the reasons.
+const loop = skill;
+const both = () => [["SKILL.md", skill()]] as const;
 
 const paragraphs = (text: string) => text.split(/\n\s*\n/);
 const paragraphWith = (text: string, phrase: string) => {
@@ -26,9 +27,9 @@ const lineWith = (text: string, phrase: string) => {
 const liveCapRule = () => paragraphWith(skill(), "**The live cap.**");
 const contention = () => paragraphWith(skill(), "**Contention: step down, re-run once.**");
 const resumeCap = () => paragraphWith(skill(), "**Resume the live cap.**");
-const loopStepUp = () => paragraphWith(loop(), "Step up additively");
+const loopStepUp = () => paragraphWith(loop(), "**The live cap.**");
 const loopContention = () => paragraphWith(loop(), "Only the controller's ledgered verify runs count");
-const loopResume = () => paragraphWith(loop(), "On resume N is rebuilt");
+const loopResume = () => paragraphWith(loop(), "**Resume the live cap.**");
 
 const SIGNATURES = [
   "EADDRINUSE",
@@ -171,7 +172,7 @@ describe("stepping the cap down on contention", () => {
     expect(rule).toMatch(/N is unchanged/);
     const mirror = loopContention();
     expect(mirror).toContain("A re-run is a verify whose `verify started` follows");
-    expect(mirror).toContain("A re-run's failure never triggers steps 1–4 nor resume rule (c): N is unchanged");
+    expect(mirror).toContain("A re-run's failure never triggers steps 1–4 nor Resume the live cap (c): N is unchanged");
     expect(mirror).toContain("goes straight to the fix loop");
   });
 
@@ -186,7 +187,7 @@ describe("stepping the cap down on contention", () => {
 
   it("saves each verify output to the item's verify log and classifies contention from it", () => {
     expect(contention()).toContain("loop/task-NNN-verify.log");
-    expect(contention()).toMatch(/appending/);
+    expect(contention()).toContain("`kf verify` appends each run");
     expect(loop()).toContain("task-NNN-verify.log");
   });
 });
@@ -241,8 +242,8 @@ describe("the wait line and resuming the cap", () => {
     expect(resume).toContain("task-NNN-verify.log");
   });
 
-  it("never opens a fix round for a pending re-run or an owed step-down in the loop reference", () => {
-    expect(loopResume()).toContain("is never opened as a fix round");
+  it("never opens a fix round for a pending re-run or an owed step-down", () => {
+    expect(skill()).toContain("since a pending re-run or a wait for a neighbour's commit is never a fix round");
   });
 
   it("guards the fix-round resume step against a pending re-run or an owed step-down", () => {

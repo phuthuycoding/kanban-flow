@@ -456,6 +456,13 @@ describe("kf verify --task --commits", () => {
     await item.configure({ task: [touch(item.marker)] });
   });
 
+  it("logs each run with its exit code beside the ledger, for loop-stats to check", async () => {
+    await item.configure({ task: [["node", "-e", "process.exit(7)"]] });
+    expect(run("--commits", c2).code).toBe(1);
+    const log = spawnSync("find", [join(item.root, ".works"), "-name", "task-001-verify.log"], { encoding: "utf8" }).stdout.trim();
+    expect(readFileSync(log, "utf8")).toMatch(/^## kf verify \S+ exit=1\n/);
+  });
+
   describe("--at-head", () => {
     it("keeps the allowlist check on the listed commits and runs at HEAD, where the task's commit alone lacks the neighbour's file", async () => {
       await item.configure({ task: [["node", "-e", "process.exit(require('fs').existsSync('src/a.ts') ? 0 : 1)"]] });
