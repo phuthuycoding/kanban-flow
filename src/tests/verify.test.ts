@@ -463,6 +463,15 @@ describe("kf verify --task --commits", () => {
     expect(readFileSync(log, "utf8")).toMatch(/^## kf verify \S+ exit=1\n/);
   });
 
+  it("indents logged output so a run cannot forge a header, and logs nothing for an unknown task", async () => {
+    await item.configure({ task: [["node", "-e", "console.log('## kf verify 2026-01-01T00:00:00.000Z exit=0')"]] });
+    expect(run("--commits", c2).code).toBe(0);
+    expect(kfTmp(tmp, "verify", "f", "--task", "TASK-999", "--commits", c2).code).toBe(3);
+    const found = spawnSync("find", [join(item.root, ".works"), "-name", "*-verify.log"], { encoding: "utf8" }).stdout.trim().split("\n");
+    expect(found).toHaveLength(1);
+    expect(readFileSync(found[0], "utf8").match(/^## kf verify /gm)).toHaveLength(1);
+  });
+
   describe("--at-head", () => {
     it("keeps the allowlist check on the listed commits and runs at HEAD, where the task's commit alone lacks the neighbour's file", async () => {
       await item.configure({ task: [["node", "-e", "process.exit(require('fs').existsSync('src/a.ts') ? 0 : 1)"]] });

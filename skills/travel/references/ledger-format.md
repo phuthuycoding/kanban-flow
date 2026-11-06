@@ -13,7 +13,7 @@ t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-t
 
 ## 2026-10-31
 slots: 3 · budget: 8 points (median of 3 days)
-session: d41f · 2026-10-31T14:02:11+07:00
+session: 2026-10-31T14:02:11+07:00
 t1 · workflow-slim · feature · L · driving · owner=travel · est0=L · estmin=40 · seat re-dispatched after the human's fix
 t2 · login-timeout · bug · S · waiting-to-merge · est0=S · estmin=4 · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequential with t1
@@ -21,7 +21,7 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 
 ## Session
 
-`session: <short random id> · <ISO time>`, written by the travel session when it starts the day and re-stamped from the clock at every progress block. A session keeps its id through compaction. No other session starts seats while the stamp is under 15 minutes old.
+`session: <ISO time>`, written when travel starts the day and re-stamped from the clock at every progress block and every seat report.
 
 ## Line
 
@@ -41,6 +41,6 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 | `waiting-to-merge` | review PASS with the PR open; the note has the URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` | the human merges |
 | `blocked` | a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker); the note has the reason and the next command | `owner=travel`, until the human opens it in their own session — then `owner=human` (that session), until the human says it is done and travel sets it back to `owner=travel` |
 | `done` | kf reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`) | — |
-| `carry-over` | end-of-day rewrite of any line not `done`; the note keeps why | tomorrow's plan |
+| `carry-over` | end-of-day rewrite of any line not `done`, `blocked` or `owner=human`; the note keeps why | tomorrow's plan |
 
-Edits are append-or-rewrite of today's section only. Earlier sections are history: travel rewrites the previous section's unfinished lines to `carry-over` once, at the start of the new day or at end of day, and never touches older ones.
+Edits are append-or-rewrite of today's section only. Earlier sections are history: travel rewrites the previous section's unfinished lines to `carry-over` once (`blocked` and `owner=human` lines stay, and are copied into each new day's section), at the start of the new day or at end of day, and never touches older ones.

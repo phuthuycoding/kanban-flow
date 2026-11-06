@@ -228,8 +228,8 @@ export function verifyLogPath(itemDir: string, taskId: string): string {
   return join(itemDir, "loop", `${taskId.toLowerCase()}-verify.log`);
 }
 
-/** Append one run: a `## kf verify <ISO> exit=<n>` header, then the run's output. */
+/** Append one run: a `## kf verify <ISO> exit=<n>` header, then the run's output indented, so output can never read as a header. */
 export function appendVerifyLog(itemDir: string, taskId: string, result: VerifyResult, at: Date = new Date()): void {
   mkdirSync(join(itemDir, "loop"), { recursive: true });
-  appendFileSync(verifyLogPath(itemDir, taskId), `## kf verify ${at.toISOString()} exit=${result.code}\n${result.lines.join("\n")}\n`);
+  appendFileSync(verifyLogPath(itemDir, taskId), `## kf verify ${at.toISOString()} exit=${result.code}\n${result.lines.map((l) => `  ${l}`).join("\n")}\n`);
 }

@@ -135,29 +135,36 @@ export function parseVerifyLog(text: string): LoggedRun[] {
   return [...text.matchAll(/^## kf verify (\S+) exit=(\d+)$/gm)].map((m) => ({ ts: Date.parse(m[1]), exit: Number(m[2]) }));
 }
 
-/** A hand-written `verify done` line is off by minutes at most from its run; a background verify may report late. */
+/** How far a `verify done` stamp may sit from its run: a background verify can report late. */
 const VERIFY_STAMP_TOLERANCE_MS = 15 * 60_000;
 
 /**
- * Check every `verify done` line against the runs `kf verify` logged, in order. `unlogged`: no logged run has that
- * exit code, so the line did not come from `kf verify`. `offClock`: the run exists but the line's stamp is far from it.
- * Logged runs a ledger omits are fine: a run can finish after its session died.
+ * Check every `verify done` line against the runs `kf verify` logged. Each line takes the unclaimed run with its exit
+ * code nearest its stamp: `unlogged` when there is none, so the line did not come from `kf verify`; `offClock` when that
+ * run is far away. Logged runs a ledger omits are fine (a run can finish after its session died). Exit 3 ran nothing and
+ * is not logged. `runsOf` returns null for a task whose log predates this format.
  */
-export function checkVerifyLines(parsed: ParsedLedger, runsOf: (task: string) => LoggedRun[]): { unlogged: number[]; offClock: number[] } {
+export function checkVerifyLines(parsed: ParsedLedger, runsOf: (task: string) => LoggedRun[] | null): { unlogged: number[]; offClock: number[] } {
   const unlogged: number[] = [];
   const offClock: number[] = [];
-  const next = new Map<string, number>();
+  const claimed = new Map<string, Set<number>>();
   for (const l of parsed.lines) {
-    if (l.shape !== "verifyDone") continue;
+    if (l.shape !== "verifyDone" || l.exit === 3) continue;
     const runs = runsOf(l.task!);
-    let i = next.get(l.task!) ?? 0;
-    while (i < runs.length && runs[i].exit !== l.exit) i++;
-    if (i === runs.length) {
+    if (runs === null) continue;
+    const taken = claimed.get(l.task!) ?? new Set<number>();
+    claimed.set(l.task!, taken);
+    let best = -1;
+    runs.forEach((run, i) => {
+      if (run.exit !== l.exit || taken.has(i)) return;
+      if (best === -1 || Math.abs(run.ts - l.ts!) < Math.abs(runs[best].ts - l.ts!)) best = i;
+    });
+    if (best === -1) {
       unlogged.push(l.line);
       continue;
     }
-    next.set(l.task!, i + 1);
-    if (Math.abs(l.ts! - runs[i].ts) > VERIFY_STAMP_TOLERANCE_MS) offClock.push(l.line);
+    taken.add(best);
+    if (Math.abs(l.ts! - runs[best].ts) > VERIFY_STAMP_TOLERANCE_MS) offClock.push(l.line);
   }
   return { unlogged, offClock };
 }
@@ -387,7 +394,7 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
   const dispatched = of("dispatched");
   const taskIds = new Set(dispatched.map((l) => l.task!));
   const completes = of("complete");
-  const completed = new Set(completes.map((l) => l.task!));
+  const completed = completedTasks(parsed);
   const inProgress = [...taskIds].some((t) => !completed.has(t));
 
   const timed = parsed.lines.filter((l) => l.ts !== undefined).map((l) => l.ts!);

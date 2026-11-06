@@ -48,6 +48,23 @@ describe("one owner for the loop's rules", () => {
     expect(section).toContain("`kf:implement` owns the rules");
     expect(section).not.toContain("Ruling: developer cap");
     expect(implement()).toContain("**The live cap.**");
+    expect(section).toContain("costs one re-run before it reaches the fix loop");
+  });
+});
+
+describe("travel's stops for the human", () => {
+  const travel = (): string => read("skills/travel/SKILL.md");
+
+  it("keeps blocked and owner=human lines out of every carry-over and out of the morning plan", () => {
+    expect(travel()).toContain("except a `blocked` line and one marked `owner=human`");
+    expect(travel()).toContain("Skip any item with a `blocked` or `owner=human` line in the last section");
+    expect(travel()).toContain("rewrite every line that is not `done`, `blocked` or `owner=human` as `carry-over`");
+    expect(travel()).toContain("it resumes every `driving` `owner=travel` line and leaves `blocked` lines blocked");
+  });
+
+  it("makes a fresh session read the session line before it resumes a day", () => {
+    expect(travel()).toContain("reads the `session:` line first");
+    expect(read("skills/travel/references/ledger-format.md")).toContain("`session: <ISO time>`");
   });
 });
 

@@ -6,8 +6,6 @@ import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
 const skill = () => read("skills", "implement", "SKILL.md");
-// The skill owns these rules; task-loop.md keeps only the reasons.
-const loop = skill;
 const both = () => [["SKILL.md", skill()]] as const;
 
 const paragraphs = (text: string) => text.split(/\n\s*\n/);
@@ -27,9 +25,6 @@ const lineWith = (text: string, phrase: string) => {
 const liveCapRule = () => paragraphWith(skill(), "**The live cap.**");
 const contention = () => paragraphWith(skill(), "**Contention: step down, re-run once.**");
 const resumeCap = () => paragraphWith(skill(), "**Resume the live cap.**");
-const loopStepUp = () => paragraphWith(loop(), "**The live cap.**");
-const loopContention = () => paragraphWith(loop(), "Only the controller's ledgered verify runs count");
-const loopResume = () => paragraphWith(loop(), "**Resume the live cap.**");
 
 const SIGNATURES = [
   "EADDRINUSE",
@@ -65,14 +60,14 @@ describe("the live developer cap: start and ceiling", () => {
     const rule = liveCapRule();
     expect(rule).toContain("Ruling: developer cap <N> — start");
     expect(rule).toContain("min(2, `harness.developers.max`)");
-    expect(loop()).toContain("Ruling: developer cap <N> — start");
-    expect(loop()).toContain("min(2, `harness.developers.max`)");
+    expect(skill()).toContain("Ruling: developer cap <N> — start");
+    expect(skill()).toContain("min(2, `harness.developers.max`)");
   });
 
   it("reads the ceiling from developers.max of kf tasks --json", () => {
     expect(liveCapRule()).toMatch(/kf tasks <f> --json`? field `developers\.max`/);
-    expect(paragraphWith(loop(), "**live cap**")).toMatch(/kf tasks <f> --json/);
-    expect(loop()).toMatch(/kf tasks <f> --json`?[^\n]*developers\.max|developers\.max[^\n]*kf tasks <f> --json/);
+    expect(paragraphWith(skill(), "**live cap**")).toMatch(/kf tasks <f> --json/);
+    expect(skill()).toMatch(/kf tasks <f> --json`?[^\n]*developers\.max|developers\.max[^\n]*kf tasks <f> --json/);
   });
 });
 
@@ -93,18 +88,7 @@ describe("stepping the cap up", () => {
 
   it("ledgers a step-up as a cap ruling naming the old and new cap and the clean wave", () => {
     expect(liveCapRule()).toContain("Ruling: developer cap <old> → <new> — wave <w> clean");
-    expect(loopStepUp()).toContain("Ruling: developer cap <old> → <new> — wave <w> clean");
-  });
-
-  it("states the step-up rule in the loop reference too", () => {
-    const rule = loopStepUp();
-    expect(rule).toContain("+1 per clean parallel wave");
-    expect(rule).toContain("wave order");
-    expect(rule).toContain("every earlier wave");
-    expect(rule).toMatch(/inline wave never changes N/);
-    expect(rule).toContain("widest incomplete wave");
-    expect(rule).toMatch(/exceed the ceiling/);
-    expect(rule).toContain("Note wave <w>: no step-up");
+    expect(liveCapRule()).toContain("Ruling: developer cap <old> → <new> — wave <w> clean");
   });
 
   it("ledgers a decision that changes nothing as a no-step-up note with its reason, never a ruling", () => {
@@ -121,13 +105,13 @@ describe("stepping the cap up", () => {
 
 describe("stepping the cap down on contention", () => {
   it("lists all nine contention signatures in the contention rule", () => {
-    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+    for (const [name, text] of [["SKILL.md", contention()]] as const) {
       for (const signature of SIGNATURES) expect(text, `${name}: ${signature}`).toContain(signature);
     }
   });
 
   it("counts only the controller's ledgered verify runs, not kf verify --stage nor developers' own runs", () => {
-    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+    for (const [name, text] of [["SKILL.md", contention()]] as const) {
       expect(text, name).toContain("Only the controller's ledgered verify runs count");
       expect(text, name).toContain("kf verify --stage");
       expect(text, name).toMatch(/developers' own runs/);
@@ -135,7 +119,7 @@ describe("stepping the cap down on contention", () => {
   });
 
   it("halves the cap to max(1, ⌊N/2⌋) at most once per contention event", () => {
-    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+    for (const [name, text] of [["SKILL.md", contention()]] as const) {
       expect(text, name).toContain("max(1, ⌊N/2⌋)");
       expect(text, name).toMatch(/once per contention event/);
     }
@@ -150,13 +134,13 @@ describe("stepping the cap down on contention", () => {
   });
 
   it("ledgers the verify rerun note with the signature", () => {
-    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+    for (const [name, text] of [["SKILL.md", contention()]] as const) {
       expect(text, name).toContain("Note TASK-NNN: verify rerun — contention <signature>");
     }
   });
 
   it("holds new developers until fewer than N are in flight, then re-runs once and routes a second failure", () => {
-    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+    for (const [name, text] of [["SKILL.md", contention()]] as const) {
       expect(text, name).toContain("fewer than N");
       expect(text, name).toMatch(/one re-run/);
       expect(text, name).toContain("fix loop");
@@ -170,14 +154,14 @@ describe("stepping the cap down on contention", () => {
     expect(rule).toMatch(/no `verify done` of that task between/);
     expect(rule).toMatch(/re-run's failure never triggers/);
     expect(rule).toMatch(/N is unchanged/);
-    const mirror = loopContention();
+    const mirror = contention();
     expect(mirror).toContain("A re-run is a verify whose `verify started` follows");
     expect(mirror).toContain("A re-run's failure never triggers steps 1–4 nor Resume the live cap (c): N is unchanged");
     expect(mirror).toContain("goes straight to the fix loop");
   });
 
   it("steps a task down at most once per signature until one of its verifies passes", () => {
-    for (const [name, text] of [["SKILL.md", contention()], ["task-loop.md", loopContention()]] as const) {
+    for (const [name, text] of [["SKILL.md", contention()]] as const) {
       const flat = text.replace(/\s+/g, " ");
       expect(flat, name).toContain("A task steps N down at most once per signature until one of its verifies passes");
       expect(flat, name).toContain("skips only step 1 and still gets its rerun note and one re-run");
@@ -188,7 +172,7 @@ describe("stepping the cap down on contention", () => {
   it("saves each verify output to the item's verify log and classifies contention from it", () => {
     expect(contention()).toContain("loop/task-NNN-verify.log");
     expect(contention()).toContain("`kf verify` appends each run");
-    expect(loop()).toContain("task-NNN-verify.log");
+    expect(skill()).toContain("task-NNN-verify.log");
   });
 });
 
@@ -201,7 +185,7 @@ describe("the wait line and resuming the cap", () => {
   });
 
   it("restores N from the latest cap ruling, or min(2, max) with the start ruling, capped at the current max", () => {
-    for (const [name, text] of [["SKILL.md", resumeCap()], ["task-loop.md", loopResume()]] as const) {
+    for (const [name, text] of [["SKILL.md", resumeCap()]] as const) {
       expect(text, name).toMatch(/latest `Ruling: developer cap`/);
       expect(text, name).toContain("min(2, `harness.developers.max`)");
       expect(text, name).toContain("then ledger the start ruling");
@@ -232,16 +216,6 @@ describe("the wait line and resuming the cap", () => {
     expect(resume).toContain("fewer than N");
   });
 
-  it("mirrors the resume rules in the loop reference", () => {
-    const resume = loopResume();
-    expect(resume).toContain("held until fewer than N developer seats are in flight");
-    expect(resume).toMatch(/\(a\)/);
-    expect(resume).toMatch(/\(b\)[^(]*(Note TASK-NNN: verify rerun|re-run)/);
-    expect(resume).toMatch(/\(c\)[^(]*owed step-down/);
-    expect(resume).toMatch(/\(d\)[\s\S]*no step-up/);
-    expect(resume).toContain("task-NNN-verify.log");
-  });
-
   it("never opens a fix round for a pending re-run or an owed step-down", () => {
     expect(skill()).toContain("since a pending re-run or a wait for a neighbour's commit is never a fix round");
   });
@@ -257,6 +231,6 @@ describe("the wait line and resuming the cap", () => {
     const rule = paragraphWith(skill(), "whatever N is");
     expect(rule).toMatch(/`dispatched` line with no `done`/);
     expect(rule).toMatch(/gates only new developer dispatches/);
-    expect(loop()).toMatch(/whatever N is/);
+    expect(skill()).toMatch(/whatever N is/);
   });
 });

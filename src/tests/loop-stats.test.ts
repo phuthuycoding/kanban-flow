@@ -967,6 +967,20 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
       expect((await run(["v"], { record: true })).out).toContain("report a verify exit no kf verify run logged");
     });
 
+    it("pairs a line with the nearest run, so an earlier run of a dead session does not read as far away", async () => {
+      const earlier = new Date(Date.parse(STAMP) - 2 * 3_600_000).toISOString();
+      await setUp(0, `## kf verify ${earlier} exit=0\n## kf verify ${new Date(STAMP).toISOString()} exit=0\n`);
+      const res = await run(["v"], { record: true });
+      expect(res.code, res.out).toBe(0);
+    });
+
+    it("does not check a log from before this format, or a line for exit 3, which ran nothing", async () => {
+      await setUp(0, "## verify started 2026-11-01T10:06:00+07:00\nold output\n");
+      expect((await run(["v"], { record: true })).code).toBe(0);
+      await setUp(3, null);
+      expect((await run(["v"], { record: true })).code).toBe(0);
+    });
+
     it("refuses a stamp far from the run it reports, the way an estimated time reads", async () => {
       await setUp(0, `## kf verify ${new Date(Date.parse(STAMP) + 3 * 3_600_000).toISOString()} exit=0\n`);
       const res = await run(["v"], { record: true });
@@ -989,6 +1003,20 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
     const res = await run(["again"], { record: true });
     expect(res.code).toBe(1);
     expect(res.out).toContain("no complete line for TASK-001");
+  });
+
+  it("reports a reopened task as in progress", async () => {
+    await item("open", ["TASK-001"], "two-tasks.ledger.md");
+    const ledger = join(root, ".works", "implementation", "open_20261101_0900", "loop", "progress.md");
+    await writeFile(ledger, [
+      "# Task loop ledger — open — plan: /p",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:05:00+07:00",
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:06:00+07:00",
+      "Note TASK-001: reopened — review 1234abcd @ 2026-11-01T11:00:00+07:00",
+      "",
+    ].join("\n"));
+    expect((await run(["open"])).stdout.split("\n")[0]).toBe("Loop stats — open (in progress)");
   });
 
   it("records a ledger whose only orphan is a seat a resume dispatched again", async () => {

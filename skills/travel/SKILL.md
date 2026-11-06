@@ -31,13 +31,13 @@ kf status --all --json
 
 Read the last `## ` section of `.kf/travel/progress.md`.
 
-- **Last section is today** → same-day re-entry: do not rebuild the plan. Go to §3 and resume the loop from the ledger; every `driving` `owner=travel` line is yours to resume; a `blocked` line stays blocked until the human says the fix is done (§5).
+- **Last section is today** → same-day re-entry. A session starting fresh, with no run of its own to continue, reads the `session:` line first: stamped under 60 minutes ago, stop and ask the human whether another travel session is running. Otherwise do not rebuild the plan. Go to §3 and resume the loop from the ledger; every `driving` `owner=travel` line is yours to resume; a `blocked` line stays blocked until the human says the fix is done (§5).
 - **Earlier day, or no ledger** → §1.
 
 ## 1. Morning plan
 
 1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why), except a `blocked` line and one marked `owner=human`: those stay under Needs you and are copied unchanged into each new day's section until the human says the fix is done. A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
-2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item a ledger line marks `owner=human` (§5).
+2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item with a `blocked` or `owner=human` line in the last section (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry in `waitingToMerge[]` (a canonical-docs branch awaiting push, or not proven merged with a `reason`, with the entry's own `command`) and a `canonical docs for <f> never landed` decision in `needsYou[]` (a docs branch with nothing left to push and no landing proven: re-land or leave them), or a `run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed` one when the lookup could not run until the human fixes the origin.
 5. **Size every line** — [references/estimation.md](references/estimation.md): estimate agent minutes and files for the remaining work, then `estimates size <minutes> <files> .kf/travel/estimates.md <kind>`; it corrects the minutes by the kind's learned factor and sizes with the default thresholds. That size feeds only today's budget and batching. A line planned for the first time records `est0=<size>` (the size the human approves) and your raw minutes as `estmin=<n>`. A carried line keeps its first `est0` and `estmin`, because `work` is measured across days. XL is marked `should split` and is not dispatched until the human splits it or overrides it in the plan.
@@ -61,7 +61,7 @@ t1 · <feature> · <kind> · <size> · queued · est0=<size> · estmin=<n> · <n
 …
 ```
 
-Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already); a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
+Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already), leaving `blocked` and `owner=human` lines as they are; a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
 
 ## 3. The loop
 
@@ -125,7 +125,7 @@ Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `don
 
 ## 5. Ownership
 
-Only one travel session runs per day, and the `session:` line under the day's heading proves it (`references/ledger-format.md`). A session entering a day whose `session:` line it did not write, stamped under 15 minutes ago, stops and asks the human; an older one is taken over and rewritten. A ledger line `driving` or `blocked` means travel owns that item's phases while its note says `owner=travel`; it says `owner=human` once the human takes a `blocked` item into their own session (that session rewrites the token). A same-day re-entry of travel (§0, after a restart or compaction) is that same travel session: it resumes every `driving` `owner=travel` line and leaves `blocked` lines blocked. A session that is not travel never runs a task loop for an `owner=travel` line. An `owner=human` line belongs to the human's session until the human says the fix is done; travel then sets `owner=travel` and re-queues the line, and starts nothing for it before that.
+Only one travel session runs per day, and the `session:` line under the day's heading (`references/ledger-format.md`) keeps a second one out: §0 stops and asks the human when it is under 60 minutes old. A ledger line `driving` or `blocked` means travel owns that item's phases while its note says `owner=travel`; it says `owner=human` once the human takes a `blocked` item into their own session (that session rewrites the token). A same-day re-entry of travel (§0, after a restart or compaction) is that same travel session: it resumes every `driving` `owner=travel` line and leaves `blocked` lines blocked. A session that is not travel never runs a task loop for an `owner=travel` line. An `owner=human` line belongs to the human's session until the human says the fix is done; travel then sets `owner=travel` and re-queues the line, and starts nothing for it before that.
 
 ## 6. Measure and end of day
 
@@ -150,7 +150,7 @@ Day YYYY-MM-DD — done: X | blocked: Z | waiting-to-merge: W | carry-over: C | 
 <estimates stats lines: hit rate, bias, throughput, calibration, kind (hit rate, bias, factor), warning>
 ```
 
-Then rewrite every line that is not `done` as `carry-over` with its note kept; `waiting-to-merge` and `blocked` keep their reason in the note so tomorrow's plan shows it.
+Then rewrite every line that is not `done`, `blocked` or `owner=human` as `carry-over` with its note kept; `waiting-to-merge` keeps its reason in the note so tomorrow's plan shows it.
 
 ---
 

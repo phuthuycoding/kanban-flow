@@ -36,10 +36,17 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
     if (task === undefined) res = verifyStage(item.root, item.item);
     else if (shas !== undefined) res = verifyTaskCommits(item.root, item.item, task, shas, atHead);
     else res = verifyTask(item.root, item.item, task, base!);
-    if (task !== undefined) appendVerifyLog(item.item.dir, task, res);
   } catch (err) {
     if (err instanceof ProjectConfigError) return badInput(err.message);
     return { code: 3, stdout: `kf verify could not run: ${err instanceof Error ? err.message : String(err)}`, stderr: err instanceof Error ? (err.stack ?? err.message) : String(err) };
+  }
+  // Exit 3 ran nothing. A failed append must not replace the verdict of commands that did run.
+  if (task !== undefined && res.code !== 3) {
+    try {
+      appendVerifyLog(item.item.dir, task, res);
+    } catch (err) {
+      return { code: res.code, stdout: res.lines.join("\n"), stderr: `warning: could not write the verify log: ${err instanceof Error ? err.message : String(err)}` };
+    }
   }
   return { code: res.code, stdout: res.lines.join("\n") };
 }
