@@ -85,6 +85,10 @@ describe("the CI watcher's settle window", () => {
     expect((await watch([[[1, "failure", "CI"], [2, "success", "CI"]]])).status).toBe(0);
   });
 
+  it("asks gh for the event the watcher keys on", () => {
+    expect(loop).toMatch(/--json [a-zA-Z,]*\bevent\b/);
+  });
+
   it("keeps a failure of one event red when another event's later run of the workflow succeeded", async () => {
     expect((await watch([[[1, "failure", "CI", 7, "pull_request"], [2, "success", "CI", 7, "push"]]])).status).toBe(1);
   });

@@ -36,7 +36,7 @@ Read the last `## ` section of `.kf/travel/progress.md`.
 
 ## 1. Morning plan
 
-1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why), except one marked `owner=human`, which keeps that token on its `carry-over` line and is listed under Needs you. A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
+1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why), except a `blocked` line and one marked `owner=human`: those stay under Needs you and are copied unchanged into each new day's section until the human says the fix is done. A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
 2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item a ledger line marks `owner=human` (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry in `waitingToMerge[]` (a canonical-docs branch awaiting push, or not proven merged with a `reason`, with the entry's own `command`) and a `canonical docs for <f> never landed` decision in `needsYou[]` (a docs branch with nothing left to push and no landing proven: re-land or leave them), or a `run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed` one when the lookup could not run until the human fixes the origin.
@@ -125,7 +125,7 @@ Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `don
 
 ## 5. Ownership
 
-Only one travel session runs per day. A ledger line `driving` or `blocked` means travel owns that item's phases while its note says `owner=travel`; it says `owner=human` once the human takes a `blocked` item into their own session (that session rewrites the token). A same-day re-entry of travel (§0, after a restart or compaction) is that same travel session: it resumes every `owner=travel` line. A session that is not travel never runs a task loop for an `owner=travel` line. An `owner=human` line belongs to the human's session until the human says the fix is done; travel then sets `owner=travel` and re-queues the line, and starts nothing for it before that.
+Only one travel session runs per day. A ledger line `driving` or `blocked` means travel owns that item's phases while its note says `owner=travel`; it says `owner=human` once the human takes a `blocked` item into their own session (that session rewrites the token). A same-day re-entry of travel (§0, after a restart or compaction) is that same travel session: it resumes every `driving` `owner=travel` line and leaves `blocked` lines blocked. A session that is not travel never runs a task loop for an `owner=travel` line. An `owner=human` line belongs to the human's session until the human says the fix is done; travel then sets `owner=travel` and re-queues the line, and starts nothing for it before that.
 
 ## 6. Measure and end of day
 

@@ -49,18 +49,10 @@ export type MergeGateResult =
   | ({ kind: "merged" } & MergedPr)
   | { kind: "failed"; failure: MergeGateFailure };
 
-/**
- * The merge gate shared by `kf archive` and `kf sync`: a recorded PR must be verifiably
- * MERGED. Anything else — OPEN, CLOSED, a gh failure, a missing repository, unparseable
- * output — is unverifiable, and unverifiable is not merged: refuse before any side effect.
- * There is deliberately no --force escape (unlike the AC gate's force semantics).
- * A merged PR comes back with its head branch and head commit: deleting the item branch is
- * safe only for the commits that PR merged. A MERGED answer without them is a parse failure.
- */
 /** Why `pr` cannot replace a closed PR, or null: it must be open on this repository and, when known, on the item's branch. */
 export function replacementRefusal(pr: string, repo: string, branch: string | undefined): string | null {
   if (!pr.includes(`/${repo}/pull/`)) return `${pr} is not a pull request of ${repo}`;
-  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName"]);
+  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName"], { timeoutMs: GH_LOOKUP_TIMEOUT_MS });
   if (!res.ok) return `${pr} could not be verified: ${res.missing ? "gh CLI not found" : res.stderr.trim() || res.stdout.trim()}`;
   let view: { state?: string; headRefName?: string };
   try {
@@ -73,6 +65,14 @@ export function replacementRefusal(pr: string, repo: string, branch: string | un
   return null;
 }
 
+/**
+ * The merge gate shared by `kf archive` and `kf sync`: a recorded PR must be verifiably
+ * MERGED. Anything else — OPEN, CLOSED, a gh failure, a missing repository, unparseable
+ * output — is unverifiable, and unverifiable is not merged: refuse before any side effect.
+ * There is deliberately no --force escape (unlike the AC gate's force semantics).
+ * A merged PR comes back with its head branch and head commit: deleting the item branch is
+ * safe only for the commits that PR merged. A MERGED answer without them is a parse failure.
+ */
 export function checkMergeGate(
   feature: { meta?: { pr?: string } | null },
   repo: string | undefined,

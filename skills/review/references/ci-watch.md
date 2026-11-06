@@ -22,7 +22,7 @@ Run the loop as a background command that wakes the session when it exits (`${CL
 ```bash
 REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>; appear=$((SECONDS+300)); deadline=$((SECONDS+WATCH)); errs=0; last=; settle=0
 while :; do
-  if runs=$(gh run list -R "$REPO" --commit "$SHA" -L 1000 --json databaseId,workflowDatabaseId,workflowName,status,conclusion,url \
+  if runs=$(gh run list -R "$REPO" --commit "$SHA" -L 1000 --json databaseId,workflowDatabaseId,workflowName,status,conclusion,url,event \
       --jq '.[] | [.databaseId, .status, (.conclusion // "-"), .workflowDatabaseId, .workflowName, .url, .event] | @tsv'); then errs=0
   else errs=$((errs+1)); [ "$errs" -lt 3 ] || { echo "ci-watch: gh run list failed 3 times in a row"; exit 2; }; sleep 20; continue; fi
   n=$(printf '%s' "$runs" | grep -c .)
