@@ -2,6 +2,30 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [0.15.0] - 2026-11-06
+
+### Added
+- **A live developer cap.** The task loop starts at min(2, `harness.developers.max`), rises by one after each clean parallel wave and halves on a contention-shaped verify failure, with one re-run to tell contention from a real failure. Set the ceiling with `harness.developers.max` (1 to 16, default 6); `kf tasks --json` reports it as `developers: {max, source}` and also gains `refs` and `expectedOutput`.
+- **`worktree.domains`.** Set it to `false` to run worktrees without the `.test` domain layer: no infrastructure probes, and `http://127.0.0.1:<port>` in every output.
+- **`kf verify --commits … --at-head`.** Keeps the allowlist check on the task's commits and runs the commands at HEAD, for a commit that cannot build without a parallel task's commit. Each `kf verify --task` run now appends its output and exit code to `<item>/loop/task-NNN-verify.log`.
+- **`kf issues link <f> <url> --pr --replace`.** Replaces a recorded PR that was closed without merging; the new PR must be open on this repository and, when known, on the item's branch.
+
+### Changed
+- **`kf loop-stats --record` refuses a ledger it cannot trust:** unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, and `verify done` lines the verify log does not back. A plain report warns on stderr. A reopened task no longer counts as complete.
+- **The task loop.** Overlapping tasks open in wave order, one repair rule covers testing, review and CI failures through a `reopened` note, and a closed field set defines the ledger grammar.
+- **Planning.** Wiring files get one scaffold task in the first wave, and a task that builds a screen carries its own UI cases. The requirement is no longer mirrored into `docs/` during brainstorm.
+- **Review.** Review scripts verify findings before they dedup, refuse a dirty tracked tree and scan untracked files. The CI watch decides per workflow and event on the latest run. Reports for a verdict reached before CI use `ci: not-run`.
+- **`kf tasks --json` with an invalid config.** Only an invalid `harness.developers` exits 1. Any other invalid key keeps the task list and reports `{max: 1, source: "invalid-config", error}`.
+- **Close.** A branch with commits past the merged head refuses the close, and `kf sync` closes items with no PR without a `repository`.
+- **Travel.** Travel may run the repair loop back to implementation on FAIL or REJECT. Ledger lines carry an owner token, blocked lines stay with the human, and a `session:` line keeps a second session out.
+
+### Fixed
+- `kf status` prints the direct URL when `.kf/config.json` cannot be read.
+- A pipe in a testing report's Evidence cell can no longer turn a failed exit code into a pass.
+
+### Removed
+- `skills/implement/references/implementer-brief.md`, unused since `kf run` was removed.
+
 ## [0.14.0] - 2026-11-02
 
 ### Added

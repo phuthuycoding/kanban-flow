@@ -216,7 +216,7 @@ describe("the published package", () => {
     // Published under the author's scope. The bare name was taken for a first release
     // and then dropped, and the lockfile carries the name too — it drifts silently otherwise.
     expect(pkg.name).toBe("@phuthuycoding/kanban-flow");
-    expect(pkg.version).toBe("0.14.0");
+    expect(pkg.version).toBe("0.15.0");
     expect(pkg.bin.kf).toBe("dist/index.js");
     const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8"));
     expect(lock.name).toBe("@phuthuycoding/kanban-flow");
@@ -320,7 +320,7 @@ describe("the docs describe only the in-session path", () => {
 
   it("records the removal as a breaking change in the changelog", () => {
     const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-    const unreleased = changelog.split(/^## \[/m)[1] ?? "";
+    const unreleased = changelog.split(/^## \[0\.14\.0\]/m)[1].split(/^## \[/m)[0] ?? "";
     const entry = unreleased.split("\n").find((line) => /breaking/i.test(line) && line.includes("kf doctor --fix"));
     expect(entry).toBeDefined();
     for (const needle of ["kf drive", "kf run", "kf runs", "kf harness", "harness.verify", "src/"]) {
@@ -403,7 +403,7 @@ describe("the docs name the commit-list form beside the range form", () => {
 
   it("records the commit lists, overlaps, loop-stats and the pipelined loop in the unreleased changelog", () => {
     const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-    const unreleased = changelog.split(/^## \[/m)[1] ?? "";
+    const unreleased = changelog.split(/^## \[0\.14\.0\]/m)[1].split(/^## \[/m)[0] ?? "";
     for (const needle of ["kf verify --commits", "review-package --commits", "overlaps", "kf loop-stats"]) {
       expect(unreleased, needle).toContain(needle);
     }
@@ -413,7 +413,7 @@ describe("the docs name the commit-list form beside the range form", () => {
 
 describe("the docs describe concurrent developers in one worktree", () => {
   const read = (file: string) => readFileSync(join(ROOT, file), "utf8");
-  const unreleased = () => read("CHANGELOG.md").split(/^## \[/m)[1] ?? "";
+  const unreleased = () => read("CHANGELOG.md").split(/^## \[0\.14\.0\]/m)[1].split(/^## \[/m)[0] ?? "";
 
   // Markup, backticks and line wraps must not decide whether a rule is present.
   const plain = (file: string) =>
