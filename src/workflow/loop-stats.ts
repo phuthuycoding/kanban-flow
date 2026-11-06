@@ -130,6 +130,8 @@ export interface LoggedRun {
   ts: number;
 }
 
+const VERIFY_HEADER = /^## kf verify (\S+) exit=(\d+)$/;
+
 export interface VerifyLog {
   /** The runs `kf verify` logged, oldest first. */
   runs: LoggedRun[];
@@ -138,9 +140,14 @@ export interface VerifyLog {
 }
 
 export function parseVerifyLog(text: string): VerifyLog {
-  const headers = [...text.matchAll(/^## kf verify (\S+) exit=(\d+)$/gm)];
-  const runs = headers.map((m) => ({ ts: Date.parse(m[1]), exit: Number(m[2]) }));
-  const leading = text.slice(0, headers[0]?.index ?? text.length).trim();
+  // Split on \n only: with the m flag, ^ also matches after a bare CR inside indented command output.
+  const lines = text.split("\n");
+  const first = lines.findIndex((l) => VERIFY_HEADER.test(l));
+  const runs = lines.flatMap((l) => {
+    const m = VERIFY_HEADER.exec(l);
+    return m ? [{ ts: Date.parse(m[1]), exit: Number(m[2]) }] : [];
+  });
+  const leading = (first === -1 ? lines : lines.slice(0, first)).join("").trim();
   return leading === "" ? { runs } : { runs, handWrittenUntil: runs[0]?.ts ?? Infinity };
 }
 

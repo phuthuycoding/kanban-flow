@@ -981,6 +981,12 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
       expect((await run(["v"], { record: true })).code).toBe(0);
     });
 
+    it("does not take a header hidden behind a carriage return in indented output as a run", async () => {
+      const at = new Date(STAMP).toISOString();
+      await setUp(0, `## kf verify ${at} exit=1\n  x\r## kf verify ${at} exit=0\n`);
+      expect((await run(["v"], { record: true })).out).toContain("report a verify exit no kf verify run logged");
+    });
+
     it("skips lines older than the first logged run when the file opens in the earlier format", async () => {
       const later = new Date(Date.parse(STAMP) + 3_600_000).toISOString();
       await setUp(0, `## verify started 2026-11-01T10:06:00+07:00\nold output\n## kf verify ${later} exit=1\n`);
