@@ -171,6 +171,8 @@ export async function checkPlugin(root: string): Promise<DoctorFinding[]> {
         message: `plugin ${PLUGIN_ID} path is stale: registered at ${state.readFromFolder || "an unknown folder"}, this kf runs from ${PKG_ROOT} — the plugin fails to load (cache-miss)`,
         action,
       }];
+    case "outdated":
+      return [{ level: "ERROR", area: PLUGIN_AREA, message: `plugin ${PLUGIN_ID} is ${state.installed}, this kf is ${state.available}`, action }];
     case "unknown":
       return [{ level: "WARNING", area: PLUGIN_AREA, message: `${UNKNOWN_SOURCE} — claude does not report the folder plugin ${PLUGIN_ID} reads from, so kf cannot tell whether it matches ${PKG_ROOT}`, action: `check claude plugin list --json; if kf does not load from ${PKG_ROOT}, run claude plugin marketplace add ${PKG_ROOT}` }];
   }

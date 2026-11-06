@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS, STAGE_INDEX, REVIEW_CI_VALUES, REVIEW_LANDING_VALUES, type ArtifactId } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
+import { runGit } from "../shared/git.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
@@ -122,6 +123,16 @@ function legacyReportLandedByPr(feature: Feature, fm: Record<string, string>, pr
  * `legacyPrMerged` — true when the caller verified that the recorded PR is merged — lets a report with
  * neither key through; `kf validate` passes false, so it stays offline and still names the missing keys.
  */
+/** A PASS names the commit it reviewed; a later commit on the item branch is outside it. Reports before `commit:` carry none. */
+export function checkReviewedCommit(feature: Feature, fm: Record<string, string>): Finding[] {
+  const path = feature.meta?.worktree?.path;
+  if (fm.status !== "PASS" || !fm.commit || !path || !existsSync(path)) return [];
+  const head = runGit(path, ["rev-parse", "HEAD"]);
+  if (head.code !== 0 || head.stdout.trim().startsWith(fm.commit)) return [];
+  return [finding(feature, "WARNING", ARTIFACTS["review-report"].file, "review_stale",
+    `The review passed ${fm.commit.slice(0, 7)} but the item branch is at ${head.stdout.trim().slice(0, 7)}: review the new commits before merging.`)];
+}
+
 export function checkReviewDelivery(feature: Feature, fm: Record<string, string>, legacyPrMerged = false): Finding[] {
   if (fm.status !== "PASS") return [];
   if (legacyReportLandedByPr(feature, fm, legacyPrMerged)) return [];
@@ -166,7 +177,7 @@ export function checkReviewReport(feature: Feature): Finding[] {
   }
   // Only while in review: items archived before `ci:`/`landing:` existed carry reports without
   // them, and the review → done gate (checkDirectionGate) enforces the same rule at close.
-  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm, false));
+  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm, false), ...checkReviewedCommit(feature, fm));
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
       `Review ${status.toUpperCase()}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));

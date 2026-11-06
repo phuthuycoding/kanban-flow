@@ -29,6 +29,7 @@ export type PluginState =
   | { status: "missing" }
   | { status: "disabled"; scope: string; /** set only when the plugin also reads another folder than this package */ readFromFolder?: string }
   | { status: "stale"; readFromFolder: string }
+  | { status: "outdated"; installed: string; available: string }
   | { status: "unknown" }
   | { status: "current" };
 
@@ -111,6 +112,10 @@ export async function pluginState(run: ClaudeRun = defaultRun, scope?: SkillScop
   }
   if (folder === undefined) return { status: "unknown" };
   if (resolve(folder) !== resolve(PKG_ROOT)) return { status: "stale", readFromFolder: folder };
+  // The plugin runs from a cached copy, so the right folder alone does not mean the right version.
+  if (typeof entry.version === "string" && typeof entry.folderVersion === "string" && entry.version !== entry.folderVersion) {
+    return { status: "outdated", installed: entry.version, available: entry.folderVersion };
+  }
   return { status: "current" };
 }
 
@@ -145,6 +150,10 @@ export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRu
       case "stale":
         await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
         return { code: 0, changed: true, stdout: `✓ Claude Code: marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder || "an unknown folder"} to ${PKG_ROOT}` };
+      case "outdated":
+        await call(run, ["plugin", "marketplace", "update", MARKETPLACE_NAME]);
+        await call(run, ["plugin", "update", PLUGIN_ID, "--scope", target]);
+        return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} updated from ${state.installed} to ${state.available}` };
       case "unknown":
         return { code: 0, changed: false, stdout: `· Claude Code: plugin ${PLUGIN_ID} source unknown (claude does not report readFromFolder); left as it is` };
       case "current":

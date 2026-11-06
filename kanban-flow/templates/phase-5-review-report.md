@@ -3,6 +3,7 @@ feature: "{feature_name}"
 context: "{context}"
 created: "{timestamp}"
 execution: "{execution_id}"
+commit: "{commit}"
 status: REJECT
 ci: "{ci}"
 landing: "{landing}"

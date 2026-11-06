@@ -37,6 +37,16 @@ const entry = (extra: Record<string, unknown>) =>
 const enoent = () => Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" });
 
 describe("ensurePlugin", () => {
+  it("updates an outdated plugin instead of calling it current", async () => {
+    const { run, calls } = stub(entry({ version: "0.14.0", folderVersion: "0.15.0" }));
+    const res = await ensurePlugin("global", run);
+    expect(res.code).toBe(0);
+    expect(res.changed).toBe(true);
+    expect(res.stdout).toContain("updated from 0.14.0 to 0.15.0");
+    expect(calls).toContainEqual(["plugin", "marketplace", "update", "kanban-flow"]);
+    expect(calls).toContainEqual(["plugin", "update", "kf@kanban-flow", "--scope", "user"]);
+  });
+
   it("adds the marketplace then installs a missing plugin at user scope for global", async () => {
     const { run, calls } = stub("[]");
     const res = await ensurePlugin("global", run);
@@ -170,6 +180,15 @@ describe("pluginState", () => {
 
   it("is current when the plugin reads from the package root", async () => {
     expect(await pluginState(stub(entry({})).run)).toEqual({ status: "current" });
+  });
+
+  it("is outdated when the installed copy lags the folder it reads from", async () => {
+    expect(await pluginState(stub(entry({ version: "0.14.0", folderVersion: "0.15.0" })).run)).toEqual({
+      status: "outdated",
+      installed: "0.14.0",
+      available: "0.15.0",
+    });
+    expect(await pluginState(stub(entry({ version: "0.15.0", folderVersion: "0.15.0" })).run)).toEqual({ status: "current" });
   });
 
   it("is stale and names the folder it reads from", async () => {
