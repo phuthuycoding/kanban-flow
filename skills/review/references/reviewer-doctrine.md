@@ -12,7 +12,7 @@ Every reviewer brief names this file as the first thing to read (T1, T1C, every 
 
 ## Rules are findings
 
-Before reviewing, read every rule file the pack's `## Rules` block lists — the project's `.kf/review/rules/*.md`, the user's `~/.kf/review/rules/*.md`, the package rules — plus the repository's `AGENTS.md` or `CLAUDE.md`. A violated rule is a finding that cites the rule's `file:line`. Project rules override user rules override package rules when a filename repeats.
+Before reviewing, read every rule file the pack's `## Rules` block lists — the project's `.kf/review/rules/*.md`, the user's `~/.kf/review/rules/*.md`, the package rules — plus the repository's `AGENTS.md` or `CLAUDE.md`. A violated rule is a finding whose `file`, `line` and `evidence` point at the offending code in the diff; name the rule's `path:line` in `issue`, never in `file` (rule files live outside the checkout and verification refutes a path outside it). Project rules override user rules override package rules when a filename repeats.
 
 ## The contract is the intent
 

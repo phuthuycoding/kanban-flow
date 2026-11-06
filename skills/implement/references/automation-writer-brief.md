@@ -30,6 +30,9 @@ Agent:
        in its browser is not evidence. The evidence is the headless `npx playwright test`
        run (or the project's own Playwright command), with its real exit code.
     3. Do not commit; inside a task the developer commits your spec files unchanged.
+       Resumed with review findings about your specs: fix the spec against the test case,
+       re-run it headless, append a fix report to [REPORT_FILE] (task-NNN-e2e-report.md);
+       never edit production code or commit.
     4. Never spawn agents or reviewers.
 
     ## Report

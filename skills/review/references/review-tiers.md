@@ -46,7 +46,7 @@ Do not review as one unit, and do not ask the human — report the split.
 1. Group the changed files into bundles of at most ~600 code lines by directory or by plan task; write the manifest once: `git diff --name-only "$BASE" > <item>/reviews/<id>/manifest.txt`.
 2. Build one package per bundle with the script's pathspec form: `review-package "$BASE" HEAD <item>/reviews/<id>/bundle-<n>.diff --untracked -- <paths of bundle n>`.
 3. Dispatch **one all-dimension reviewer per bundle** on `sonnet` (`opus` when `CRITICAL=1`), each given its bundle package plus the manifest so it knows the other half of a contract may have changed elsewhere, and **one `contracts` reviewer** on `opus` given the manifest and every bundle's stat section.
-4. Merge, dedup by `title + file`, verify, report per bundle and in total.
+4. Merge every bundle's arrays into one, verify it with `scripts/verify-findings.mjs` (which then dedups by `title + file`), report per bundle and in total.
 
 More than eight bundles means the item should have been more than one work item: record `split recommended: <N> bundles` in the report's `## Reviewer` section and continue — the human reads it before the merge, not as a mid-review question.
 

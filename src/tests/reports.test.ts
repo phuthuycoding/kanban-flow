@@ -75,6 +75,21 @@ describe("testing_exit_code", () => {
     expect(commandExitCodes(`${table(["| a | 0 | x |"])}\n${other}`)).toEqual(["0"]);
     expect(commandExitCodes("# nothing")).toBeNull();
   });
+
+  it("accepts a backticked 0 and a pipe inside the command cell, raw or escaped", async () => {
+    await testingBug("PASS", table([
+      "| `npm test` | `0` | ok |",
+      "| `npm test \\| tee out.log` | 0 | ok |",
+      "| npm test | grep -c pass | 0 | 3 |",
+    ]));
+    expect(codes()).toEqual([]);
+    expect(commandExitCodes(table(["| a \\| b | `1` | x |", "| a | b | c | 0 | x |"]))).toEqual(["1", "0"]);
+  });
+
+  it("finds the Exit code column by its header, wherever it sits", () => {
+    const body = "## Commands and Evidence\n\n| Evidence | Command | Exit code |\n|---|---|---:|\n| ok | npm test | 0 |\n| boom | a | b | 2 |\n";
+    expect(commandExitCodes(body)).toEqual(["0", "2"]);
+  });
 });
 
 const PR = "https://github.com/acme/app/pull/7";

@@ -9,7 +9,7 @@ import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
 import { splitFrontmatter, isFilledFile } from "../../shared/frontmatter.js";
 import { ARTIFACTS } from "../../workflow/schema.js";
 import { findRoot, ghFailure, noRepository } from "./helpers.js";
-import { gh } from "../../integrations/github.js";
+import { checkMergeGate, gh } from "../../integrations/github.js";
 import { renderArchive } from "./archive.js";
 import { archiveItem } from "../../workflow/archive.js";
 import type { ParsedArgs } from "../args.js";
@@ -129,16 +129,19 @@ async function cmdCreate(root: string, repo: string, name: string | undefined, l
   return { code: 0, stdout: `Created ${url}\nRecorded on work item '${f.name}' (${f.dir}/.kfw.json).` };
 }
 
-async function cmdLink(root: string, repo: string, name: string | undefined, target: string | undefined, isPr: boolean): Promise<CmdResult> {
+async function cmdLink(root: string, repo: string, name: string | undefined, target: string | undefined, isPr: boolean, replace: boolean): Promise<CmdResult> {
   if (!name || !target) {
-    return { code: 1, stdout: "Usage: kf issues link <feature> <issue-number-or-url|--pr> — a pull request URL (…/pull/<n>) or --pr records the PR that delivers the item.", stderr: "missing args" };
+    return { code: 1, stdout: "Usage: kf issues link <feature> <issue-number-or-url|--pr> [--replace] — a pull request URL (…/pull/<n>) or --pr records the PR that delivers the item; --replace swaps a recorded PR that was closed without merging.", stderr: "missing args" };
   }
   const f = findFeature(root, name);
   if (!f) return { code: 1, stdout: `Unknown feature '${name}'. Run: kf list`, stderr: "unknown feature" };
   // Bare numbers stay "issue" — issue and PR numbers share a sequence; disambiguate with --pr or a /pull/ URL.
   const isPrRef = isPr || /^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(target);
-  if (isPrRef && f.meta?.pr) {
-    return { code: 1, stdout: `'${f.name}' already links PR ${f.meta.pr}.`, stderr: "pr exists" };
+  if (replace && !isPrRef) {
+    return { code: 1, stdout: "--replace applies to a pull request link only (a …/pull/<n> URL or --pr); an issue link is never replaced.", stderr: "replace needs pr" };
+  }
+  if (isPrRef && f.meta?.pr && !replace) {
+    return { code: 1, stdout: `'${f.name}' already links PR ${f.meta.pr}. If it was closed without merging, link the new PR with --replace.`, stderr: "pr exists" };
   }
   if (!isPrRef && f.meta?.issue) {
     return { code: 1, stdout: `'${f.name}' already links to ${f.meta.issue}.`, stderr: "issue exists" };
@@ -154,8 +157,35 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
     else return { code: 1, stdout: `'${target}' is neither an issue number nor a GitHub issue URL.`, stderr: "invalid issue" };
   }
   if (!f.meta) return { code: 1, stdout: `'${f.name}' has no metadata file — cannot record the link.`, stderr: "no meta" };
+  const replaced = isPrRef && replace ? f.meta.pr : undefined;
+  if (replaced) {
+    if (replaced === url) return { code: 1, stdout: `'${f.name}' already links ${url} — nothing to replace.`, stderr: "same pr" };
+    const refusal = replaceRefusal(f.name, replaced, checkMergeGate(f, repo));
+    if (refusal) return refusal;
+  }
   await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, ...(isPrRef ? { pr: url } : { issue: url }) }));
-  return { code: 0, stdout: `Linked '${f.name}' → ${url}` };
+  return { code: 0, stdout: replaced ? `Linked '${f.name}' → ${url} (replaced ${replaced}, closed without merging)` : `Linked '${f.name}' → ${url}` };
+}
+
+/**
+ * --replace may swap out only a recorded PR that GitHub reports CLOSED and not merged — the one
+ * state that otherwise refuses every close forever. Looked up through the same merge gate
+ * archive and status use; a merged, open or unverifiable PR keeps its link.
+ */
+function replaceRefusal(name: string, pr: string, gate: ReturnType<typeof checkMergeGate>): CmdResult | null {
+  if (gate.kind === "failed" && gate.failure.reason === "not-merged" && gate.failure.state === "CLOSED") return null;
+  const why = gate.kind === "merged"
+    ? `it is merged — close the item with kf status --change ${name} instead`
+    : gate.kind === "no-pr"
+      ? "no PR is recorded"
+      : gate.failure.reason === "not-merged"
+        ? `it is ${gate.failure.state.toLowerCase()}, not closed — close it on GitHub first if it is abandoned`
+        : gate.failure.reason === "no-repository"
+          ? 'no "repository" is configured to verify it'
+          : gate.failure.reason === "unverifiable"
+            ? `its state could not be verified — unverifiable is not closed (${gate.failure.detail})`
+            : `gh pr view returned unexpected output (${gate.failure.output})`;
+  return { code: 1, stdout: `Cannot replace ${pr} on '${name}': --replace needs a PR closed without merging, but ${why}.`, stderr: "pr not replaceable" };
 }
 
 /**
@@ -181,12 +211,12 @@ export async function cmdIssues(args: ParsedArgs, cwd: string): Promise<CmdResul
   const sub = args.positionals[0];
   if (sub === "create") return cmdCreate(root.root, repo, args.positionals[1], args.options.label, args.options.title);
   if (sub === "sync") return cmdSync(root.root, repo, args.positionals[1]);
-  if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2], Boolean(args.options.pr));
+  if (sub === "link") return cmdLink(root.root, repo, args.positionals[1], args.positionals[2], Boolean(args.options.pr), Boolean(args.options.replace));
   if (sub === "done") return cmdDoneAlias(root.root, args.positionals[1]);
   if (sub === "view") return cmdView(repo, args.positionals[1]);
   if (sub !== undefined && /^\d+$/.test(sub)) return cmdView(repo, sub);
   if (sub !== undefined) {
-    return { code: 1, stdout: `Unknown issues subcommand '${sub}'. Usage: kf issues [view <n>|create <feature>|link <feature> <n|url> [--pr]|sync <feature>|done <feature> (deprecated alias for kf archive)].`, stderr: "unknown subcommand" };
+    return { code: 1, stdout: `Unknown issues subcommand '${sub}'. Usage: kf issues [view <n>|create <feature>|link <feature> <n|url> [--pr [--replace]]|sync <feature>|done <feature> (deprecated alias for kf archive)].`, stderr: "unknown subcommand" };
   }
   return cmdList(repo, args);
 }

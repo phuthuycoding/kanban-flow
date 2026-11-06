@@ -81,8 +81,12 @@ describe("the CI watcher's settle window", () => {
     expect((await watch([[[1, "success", "CI"], [2, "cancelled", "CI"]]])).status).toBe(5);
   });
 
-  it("still calls a failed run red when a later run of the same workflow succeeded", async () => {
-    expect((await watch([[[1, "failure", "CI"], [2, "success", "CI"]]])).status).toBe(1);
+  it("decides each workflow on its latest run: a later success supersedes an earlier failure", async () => {
+    expect((await watch([[[1, "failure", "CI"], [2, "success", "CI"]]])).status).toBe(0);
+  });
+
+  it("calls a workflow red when its latest run failed after an earlier success", async () => {
+    expect((await watch([[[1, "success", "CI"], [2, "failure", "CI"]]])).status).toBe(1);
   });
 
   it("keeps a cancelled run open when only another workflow file with the same name succeeded", async () => {

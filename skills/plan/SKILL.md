@@ -19,11 +19,11 @@ kf status --change {feature_name}   # must show stage = planning
 
 If approval is already valid, keep the contract unchanged and go to section 4: `kf approve` re-runs the move. If the approval is changed or pending, finish the applicable contract and obtain fresh human approval.
 
-Read work item kind from `kf status --change {feature_name} --json`. For `kind: bug`, use the confirmed bug report as the contract: reproduction, expected fix, scope, regression strategy and docs impact. Skip section 2; present this concise contract and run approval in sections 3 and 4. Do not create feature planning artifacts for a bug. If the request introduces behavior beyond correcting the defect, explain the scope change and follow the user's decision before creating a related feature.
+Read work item kind from `kf status --change {feature_name} --json`. For `kind: bug`, use the confirmed bug report as the contract: reproduction, expected fix, scope, regression strategy and docs impact. Skip section 2 (a bug runs no scout and no spec-reviewer); present this concise contract and run approval in sections 3 and 4, leaving out what only a feature has: the `kf tasks --graph` block, the `Execution:` lines, the developer cap, the research choices and the plan's Definition of Done. Do not create feature planning artifacts for a bug. If the request introduces behavior beyond correcting the defect, explain the scope change and follow the user's decision before creating a related feature.
 
 ## 2. Write the four plan artifacts (in order)
 
-Read the confirmed Test Strategy from `phase-1-spec-requirement.md` (`Level` in a feature spec, `Test Level` in a bug report, plus `UI Tests`, `Tools`, `Coverage Target`) — it was agreed with the human in Phase 1. Everything below must honour it.
+Read the confirmed Test Strategy from `phase-1-spec-requirement.md` (feature spec: `Level`, `UI Tests`, `Tools`, `Coverage Target`; a bug report has `Test Level`, `Tools`, `Coverage Target` and no `UI Tests`) — it was agreed with the human in Phase 1. Everything below must honour it.
 
 ### Who writes what
 
@@ -39,15 +39,15 @@ The four artifacts depend on each other: the UC list drives the diagram and the 
 | d. Diagram + test cases | You | `use-case-diagram`, `test-cases` |
 | e. Contract review | `Agent(kf:spec-reviewer)` with a fresh context, `model: opus` | Findings returned to you before section 3; advisory, never a gate on its own |
 
-Skip the subagents and do every step yourself when the change is small (two UCs or fewer, or a survey that fits in a few files): each handover re-reads the spec and the code, which costs more than it saves at that size. Research done inline must still write `<item>/reviews/research-<slug>.md`: the self-review fails a choice without that report. If your runtime has no subagent tool, do the same steps yourself in the same order.
+When the change is small (two UCs or fewer), skip the per-UC-file subagents of step c and write those files yourself: each handover re-reads the spec and the code, which costs more than it saves at that size. The scout (step a) and the spec-reviewer (step e) are never skipped for a feature. Research done inline must still write `<item>/reviews/research-<slug>.md`: the self-review fails a choice without that report. If your runtime has no subagent tool, do the same steps yourself in the same order.
 
 **Subagent prompt contract** — every subagent prompt must state:
 
 - Task: its step (c for a UC file; the scout and spec-reviewer agents carry their own contracts), and for step c the exact `UC-###`, slug and goal from the index
 - Files to read: `phase-1-spec-requirement.md`, the skeleton artifacts, the relevant source paths
-- Files it may write: step c only, exactly its one `use-cases/UC-###-<slug>.md`; steps a and e write nothing
+- Files it may write: step c, exactly its one `use-cases/UC-###-<slug>.md`; step e, only its report file; step a writes nothing
 - Constraints: never rename or renumber a `UC-###`/`FR-###`, never add scope beyond the confirmed requirement, never edit another artifact, never run `kf approve`, `kf stage` or `kf archive`
-- Context: `.works/planning/{feature_name}/` (from `kf status --change {feature_name}`)
+- Context: `.works/planning/{feature_name}_{ts}/` (from `kf status --change {feature_name}`)
 
 **Subagent status protocol** — require every subagent to end with:
 
@@ -90,7 +90,7 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 ### implementation-plan
 - Scope: now / supporting / future / not-in-scope
 - `TASK-###` breakdown (fill **Files** for every task; Dependencies are `TASK-###` tokens or `-`), complexity, impact analysis (backend / frontend / DB / API / infra / security / performance / regression / deps)
-- **Execution mode per wave**: read `kf tasks <f> --graph` once the breakdown is written and record one line per wave, under Task Breakdown after the table — `Execution: wave <w> inline` for a wave of one task, otherwise `Execution: wave <w> parallel, <N> developers` with N = the wave width (no clamp). The line is the most the wave can use; the live developer cap decides how many run. An inline wave spawns no developer: the controller fills the seat (`kf:implement` § Inline waves). Narrow Files allowlists widen waves.
+- **Execution mode per wave**: read `kf tasks <f> --graph` once the breakdown is written and record one line per wave, under Task Breakdown after the table — `Execution: wave <w> inline` for a wave of one task, otherwise `Execution: wave <w> parallel, <N> developers` with N = the largest set of the wave's tasks whose Files do not overlap one another (each task's `overlaps` in `kf tasks <f> --json`; no clamp). Tasks of one wave whose Files overlap run in sequence, so N can be smaller than the wave. The line is the most the wave can use; the live developer cap decides how many run. An inline wave spawns no developer: the controller fills the seat (`kf:implement` § Inline waves). Waves come from Dependencies only.
 - **Files** is the task's allowlist and must name everything the task will touch — registering a flag in `args.ts` counts. A task that touches a file outside its Files makes `kf verify --task` exit 2: `kf stage <f> planning`, edit Files, the human approves, `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`. When unsure, prefer directories or globs.
 - Read the spec's `## Affected surfaces` first: every declared surface gets a task row or a `## Documentation Impact` entry — `kf validate` warns on any surface the plan never mentions. `N/A` means none owed.
 - **Global Constraints**: the spec's project-wide requirements that bind every task (version floors, dependency limits, naming and copy rules, exact values), one line each, verbatim — the task reviewer in `kf:implement` receives this section word for word. `None` when the spec states none.
@@ -119,7 +119,7 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 
 ### e. Contract review
 
-Before section 3, run your own self-review first (spec coverage: every FR has a task and a TC; type and name consistency across tasks; every Review Focus line has a pinning test; proportion: a plan several times longer than its spec is a transcript; research: the self-review fails a plan that chooses between approaches or libraries, or pins an external dependency or API version, without a research report). Then dispatch **`Agent(kf:spec-reviewer)`** once, `model: opus`, with a fresh context: the brief names the work item folder, says the contract is at planning, points at the user's request (the spec's Objective, or an excerpt file you write) and names a report file under the item folder (`<item>/reviews/contract-review.md`). It reports only requirement gaps, untestable FR/AC/TC, traceability breaks (an `FR-###` with no `TC-###`, a `TC-###` citing an unknown FR or UC, an index/file id mismatch, an uncovered Affected surface), scope drift, contradictions and ungrounded names. It edits nothing. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report` and say the review is missing — do not narrate a missing report as clean. Fix what it finds yourself, or record why a finding does not apply; HIGH findings you did not fix go into the approval summary.
+Before section 3, run your own self-review first (spec coverage: every FR has a task and a TC; type and name consistency across tasks; every Review Focus line has a pinning test; proportion: a plan several times longer than its spec is a transcript; research: the self-review fails a plan that chooses between approaches or libraries, or pins an external dependency or API version, without a research report). Then dispatch **`Agent(kf:spec-reviewer)`** once, `model: opus`, with a fresh context: the brief names the work item folder, says the contract is at planning, carries a verbatim excerpt of the user's request (in the brief or a file you write under the item folder; never only the spec's Objective), names the git ref to ground names against and names a report file under the item folder (`<item>/reviews/contract-review.md`). It reports only requirement gaps, untestable FR/AC/TC, traceability breaks (an `FR-###` with no `TC-###`, a `TC-###` citing an unknown FR or UC, an index/file id mismatch, an uncovered Affected surface), scope drift, contradictions and ungrounded names. It edits nothing. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report` and say the review is missing — do not narrate a missing report as clean. Fix what it finds yourself, or record why a finding does not apply; HIGH findings you did not fix go into the approval summary.
 
 ## 3. Human approval gate
 
@@ -148,7 +148,7 @@ Ask once: **"approve?"** The reply carries the start: "approve" starts implement
 | approve | `kf approve {feature_name}` | approval recorded, item → implementation (worktree provisioned when enabled), `Next: load the kf:implement skill` |
 | approve, backlog | `kf approve {feature_name} --backlog` | approval recorded, item → backlog; it starts later with `kf stage {feature_name} implementation` on the user's word |
 
-A refused move (hook, worktree provisioning, base behind) leaves the item in planning with the approval not kept: fix what the message names and re-run the same command. A deferred item keeps its approved contract in `backlog`.
+A refused move (hook, worktree provisioning) leaves the item in planning with the approval not kept: fix what the message names and re-run the same command. A base behind its upstream does not refuse the move; report any `⚠ base` line in the `kf approve` output to the user. A deferred item keeps its approved contract in `backlog`.
 
 ---
 

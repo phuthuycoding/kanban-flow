@@ -537,4 +537,45 @@ describe("preserved primitives", () => {
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("already links PR");
   });
+
+  it("kf issues link --pr --replace swaps a PR closed without merging, and the item then closes on the new one", async () => {
+    await reviewStage();
+    await link("shipit", { pr: PR });
+    process.env.GH_PR_STATE_9 = "CLOSED";
+    expect((await cmdArchive(args("archive", ["shipit"]), root)).stdout).toContain("kf issues link shipit <url> --pr --replace");
+
+    const res = await cmdIssues(args("issues", ["link", "shipit", "11"], { pr: true, replace: true }), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain(`replaced ${PR}`);
+    expect(readFeatureMeta(feature().dir)!.pr).toBe("https://github.com/o/r/pull/11");
+    expect(ghCalls()).toContain(`gh pr view ${PR} -R o/r --json state,headRefName,headRefOid`);
+
+    process.env.GH_PR_STATE_11 = "MERGED";
+    expect((await cmdArchive(args("archive", ["shipit"]), root)).code).toBe(0);
+    expect(feature().stage).toBe("done");
+  });
+
+  it("kf issues link --replace refuses a merged, open or unverifiable recorded PR and keeps the link", async () => {
+    await reviewStage();
+    await link("shipit", { pr: PR });
+    const replace = () => cmdIssues(args("issues", ["link", "shipit", "https://github.com/o/r/pull/11"], { replace: true }), root);
+
+    for (const [state, why] of [["MERGED", "it is merged"], ["OPEN", "it is open, not closed"]] as const) {
+      process.env.GH_PR_STATE_9 = state;
+      const res = await replace();
+      expect(res.code).toBe(1);
+      expect(res.stdout).toContain(`Cannot replace ${PR} on 'shipit'`);
+      expect(res.stdout).toContain(why);
+    }
+    process.env.GH_FAIL = "1";
+    const res = await replace();
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("could not be verified");
+    delete process.env.GH_FAIL;
+    expect(readFeatureMeta(feature().dir)!.pr).toBe(PR);
+
+    const issue = await cmdIssues(args("issues", ["link", "shipit", "12"], { replace: true }), root);
+    expect(issue.code).toBe(1);
+    expect(issue.stdout).toContain("--replace applies to a pull request link only");
+  });
 });

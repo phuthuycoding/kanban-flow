@@ -14,9 +14,19 @@ export const LEDGER_SHAPES = {
   complete: /^(TASK-\d+): complete \(.*\)$/,
 } as const;
 
-export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))$/;
+// `+hhmm` is accepted beside `+hh:mm`: the same instant, and a hand-written ledger drops the colon easily.
+export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))$/;
 
 const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
+
+/** A line that claims a shape behind a markdown bullet or indentation; it fails the grammar but must not pass as other-timed. */
+const LOOSE_KEYWORD = /^\s*(?:[-*+]\s+)?TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
+
+/** An attempted timestamp that TS_SUFFIX rejects (a space for `T`, a missing seconds field, ...): such a line is not untimed. */
+const STAMP_ATTEMPT = /@\s*\d{4}-\d{2}-\d{2}/;
+
+/** Date.parse is only specified for `+hh:mm`; normalise `+hhmm` before parsing. */
+const parseStamp = (stamp: string): number => Date.parse(stamp.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
 
 export const SEATS = ["test-writer", "developer", "automation-writer", "code-reviewer"] as const;
 export type Seat = (typeof SEATS)[number];
@@ -76,9 +86,9 @@ function shapeFields(shape: ShapeName, m: RegExpExecArray): Partial<LedgerLine> 
 
 function classify(text: string, line: number): LedgerLine {
   const suffix = TS_SUFFIX.exec(text);
-  if (!suffix) return { line, kind: "untimed" };
+  if (!suffix) return { line, kind: LOOSE_KEYWORD.test(text) && STAMP_ATTEMPT.test(text) ? "unparsed" : "untimed" };
   const stamp = suffix[1];
-  const ts = Date.parse(stamp);
+  const ts = parseStamp(stamp);
   const body = text.slice(0, suffix.index);
   // Only one suffix is stripped; a claimed shape still carrying one fails it (an open shape such as developerWaits would otherwise absorb it).
   if (SHAPE_KEYWORD.test(body) && TS_SUFFIX.test(body)) return { line, kind: "unparsed", ts, stamp };
@@ -86,14 +96,15 @@ function classify(text: string, line: number): LedgerLine {
     const m = LEDGER_SHAPES[shape].exec(body);
     if (m) return { line, kind: "shape", shape, task: m[1], ts, stamp, ...shapeFields(shape, m) };
   }
-  return { line, kind: SHAPE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
+  return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
 }
 
 /** Classify every ledger line after the header; blank lines are skipped. */
 export function parseLedger(text: string): ParsedLedger {
   const lines: LedgerLine[] = [];
   text.split("\n").forEach((raw, i) => {
-    const content = raw.replace(/\r$/, "");
+    // Trailing whitespace (a stray space, a CR) carries no meaning; it must not hide the timestamp suffix.
+    const content = raw.trimEnd();
     if (i === 0 || content.trim() === "") return;
     lines.push(classify(content, i + 1));
   });

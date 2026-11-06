@@ -247,6 +247,19 @@ function localTip(root: string, branch: string): string | null {
   return res.code === 0 ? res.stdout.trim() || null : null;
 }
 
+/**
+ * The local branch tip and how many of its commits the merged head lacks — a tip past the merged
+ * head carries work the PR did not deliver. Null when the branch is absent locally or the merged
+ * head is not a known commit here (nothing can be counted against it).
+ */
+export function tipPastMergedHead(root: string, branch: string, mergedSha: string): { tip: string; count: number } | null {
+  const tip = localTip(root, branch);
+  if (tip === null) return null;
+  if (tip === mergedSha) return { tip, count: 0 };
+  const ahead = runGit(root, ["rev-list", "--count", `${mergedSha}..${tip}`]);
+  return ahead.code === 0 ? { tip, count: Number(ahead.stdout.trim()) || 0 } : null;
+}
+
 function commitsPastHead(count: number): string {
   return count === 0 ? "it is behind the merged head, so deleting it by hand is safe" : `${count} commits after the merged head`;
 }

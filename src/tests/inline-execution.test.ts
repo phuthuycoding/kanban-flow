@@ -26,11 +26,11 @@ describe("the plan skill's execution mode per wave", () => {
     expect(PLAN()).toContain("Execution: wave <w> inline");
   });
 
-  it("writes a parallel Execution line whose N is the wave width, with no clamp", () => {
+  it("writes a parallel Execution line whose N is the largest non-overlapping set of the wave, with no clamp", () => {
     const text = PLAN();
     expect(text).toContain("Execution: wave <w> parallel, <N> developers");
     expect(text).not.toContain("min(wave width, 4)");
-    expect(text).toMatch(/N = the wave width/);
+    expect(text).toMatch(/N = the largest set of the wave's tasks whose Files do not overlap/);
   });
 
   it("states in the approval summary that the developer cap starts at min(2, `harness.developers.max`) and scales itself", () => {

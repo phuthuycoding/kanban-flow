@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Refute findings whose `evidence` quote is not where the reviewer said it is.
+// Refute findings whose `evidence` quote is not where the reviewer said it is, then dedup the kept ones.
 //
 // Usage: node verify-findings.mjs ROOT [FINDINGS_JSON]   (reads stdin when no file is given)
 //   ROOT           the checkout the findings cite paths against (the item worktree)
-//   FINDINGS_JSON  a JSON array in the shape of references/finding-schema.md
+//   FINDINGS_JSON  ONE JSON array in the shape of references/finding-schema.md — every reviewer's
+//                  array merged first (e.g. `jq -s add reviewer-*.json`)
 //
-// Prints {"kept":[...],"refuted":[{...,"reason":"..."}],"counts":{"kept":N,"refuted":M}} to stdout.
+// Prints {"kept":[...],"refuted":[{...,"reason":"..."}],"duplicates":[{...,"reason":"..."}],
+//         "counts":{"kept":N,"refuted":M,"duplicates":D}} to stdout.
 //
 // What refutes a finding (each reason is printed):
 //   - a `file` with no `evidence`             — the schema requires the quote; a made-up location
@@ -15,6 +17,10 @@
 //   - the quote absent from the file, or present only far from the cited `line` (±WINDOW lines);
 //     a generic quote such as "} catch {" must sit where the finding says it does
 // A finding with no `file` cannot be checked and is kept as-is.
+//
+// Dedup runs after verification, on kept findings only: one per `title + file`, the highest
+// severity wins (the first on a tie); the others go to `duplicates`. Refuted findings are never
+// deduped, so every refutation stays listed for the report.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 
@@ -102,5 +108,20 @@ for (const f of findings) {
   kept.push({ ...f, verifiedLine: String(near) });
 }
 
-process.stdout.write(`${JSON.stringify({ kept, refuted, counts: { kept: kept.length, refuted: refuted.length } }, null, 2)}\n`);
-process.stderr.write(`verify-findings: kept ${kept.length}, refuted ${refuted.length}\n`);
+const RANK = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+const rank = (f) => RANK[String(f.severity ?? "").trim().toUpperCase()] ?? 0;
+const keyOf = (f) => `${String(f.title ?? "").trim()}\u0000${typeof f.file === "string" ? f.file.trim() : ""}`;
+const best = new Map();
+for (const f of kept) {
+  const key = keyOf(f);
+  const held = best.get(key);
+  if (held === undefined || rank(f) > rank(held)) best.set(key, f);
+}
+const unique = kept.filter((f) => best.get(keyOf(f)) === f);
+const duplicates = kept
+  .filter((f) => best.get(keyOf(f)) !== f)
+  .map((f) => ({ ...f, reason: `duplicate of a kept ${best.get(keyOf(f)).severity} finding with the same title + file` }));
+
+const counts = { kept: unique.length, refuted: refuted.length, duplicates: duplicates.length };
+process.stdout.write(`${JSON.stringify({ kept: unique, refuted, duplicates, counts }, null, 2)}\n`);
+process.stderr.write(`verify-findings: kept ${unique.length}, refuted ${refuted.length}, duplicates ${duplicates.length}\n`);

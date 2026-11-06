@@ -9,7 +9,7 @@ Argument: `<feature_name>`.
 
 Close the work item with traceable results and the appropriate documentation.
 
-**Closing is internal — nobody is asked for it.** Once the human merges a review-PASS item's recorded PR on GitHub, the next `kf status`, `kf sync` or `kf archive` closes it; a `landing: none` item closes when its branch has 0 commits ahead of its base. `kf archive` is the explicit form of the same transaction: it refuses while a recorded `pr` is not verifiably merged (exit 1, no side effects, no `--force` escape). Until the merge, the item waits in `review`, listed under `Waiting to merge` in `kf status --all`. The close moves it to `done`, syncs canonical docs, closes the issue, moves the board and stamps `delivered` — all idempotent, so a re-run reconciles.
+**Closing is internal — nobody is asked for it.** Once the human merges a review-PASS item's recorded PR on GitHub, `kf status --change {feature_name}` (or `kf status --all`), `kf sync` or `kf archive` closes it; a `landing: none` item closes when its branch has 0 commits ahead of its base. `kf archive` is the explicit form of the same transaction: it refuses while a recorded `pr` is not verifiably merged (exit 1, no side effects, no `--force` escape). Until the merge, the item waits in `review`, listed under `Waiting to merge` in `kf status --all`. The close moves it to `done`, syncs canonical docs, closes the issue, moves the board and stamps `delivered` — all idempotent, so a re-run reconciles.
 
 ---
 
@@ -29,7 +29,7 @@ Write the feature report at review PASS (`kf:review` step 10): the close validat
 
 ## 2. Sync docs
 
-For a feature, let the close copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement mirror under `docs/requirement/` was already written in Phase 1 — `kf archive` rewrites it from the Phase 1 artifact. Every canonical copy except the test result is stamped `status: archived`, and the UC index rows flip from `planned` to `implemented`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure.
+For a feature, let the close copy requirement, UC index/files/diagram and test plan/current result into canonical docs. The requirement under `docs/requirement/` is written here, from the Phase 1 artifact; brainstorm writes nothing under `docs/`. Every canonical copy except the test result is stamped `status: archived`, and the UC index rows flip from `planned` to `implemented`. Do not manually copy the UC index/files, diagram or test plan before archive, and do not change approved source artifacts during closure.
 
 ### 2b. Reconcile superseded docs (mandatory, in review)
 
@@ -45,7 +45,13 @@ kf archive {feature_name}           # the explicit form of the same close; idemp
 kf validate --change {feature_name}
 ```
 
-The close requires current PASS reports, verifies the recorded PR is merged (or, with `landing: none`, that the branch has 0 commits ahead of its base), refuses while the item worktree is dirty, runs the done hook — which closes the issue and moves the board to `statusMap.done` — removes the item worktree, deletes the merged branch locally and on origin, syncs canonical docs for a feature, moves review → done and stamps `delivered`/`deliveredAt` last. Bugs skip canonical docs. If it refuses on an unmerged PR, the item is not done — the human merges it first. A PR closed without merge keeps the item in review: report it and ask. Validate after archive and check reported canonical destinations for a feature. Do not report completion if validation fails.
+The close requires current PASS reports, verifies the recorded PR is merged (or, with `landing: none`, that the branch has 0 commits ahead of its base), refuses while the item worktree is dirty, runs the done hook — which closes the issue and moves the board to `statusMap.done` — removes the item worktree, deletes the merged branch locally and on origin, syncs canonical docs for a feature, moves review → done and stamps `delivered`/`deliveredAt` last. Bugs skip canonical docs. If it refuses on an unmerged PR, the item is not done — the human merges it first. Other refusals:
+
+- **PR closed without merge** — the item stays in review: report it and ask. The human reopens the PR, or opens a new one and records it with `kf issues link {feature_name} <new PR URL> --pr --replace` (`--replace` is allowed only when the recorded PR was closed unmerged).
+- **Done hook refused** — unticked acceptance criteria on the linked issue stop the close. Report which, and ask the human: they tick them, or approve `kf archive {feature_name} --skip-hooks`, a recorded bypass.
+- **Local branch past the merged head** — the item branch has commits the merged PR does not; the close refuses rather than delete them. Report the commits and ask.
+
+`kf sync` closes a `landing: none` item even when `.kf/config.json` sets no `repository`. Validate after archive and check reported canonical destinations for a feature. Do not report completion if validation fails.
 
 When refreshing an item already in done, canonical docs may include later bug fixes. If the CLI reports changed canonical docs, preserve them with `--skip-specs`; do not use `--force` to restore an older snapshot without explicit user direction — a forced overwrite is recorded as a bypass.
 
@@ -55,7 +61,7 @@ When refreshing an item already in done, canonical docs may include later bug fi
 git status
 ```
 
-The close runs after the change merged, so its output is a docs-only change, written to exactly one place and printed: the working tree when the primary checkout is on a clean default branch not behind origin; otherwise an unpushed `docs/<context>-<feature>` branch cut from `origin/<default>` (`meta.docsBranch`), leaving the primary working tree untouched. The reconciled docs of step 2b already merged with the PR; only a reconcile run late for an item already in done goes to the same place — for a docs branch, `git worktree add <tmp> docs/<context>-<feature>`, edit and commit there, then remove the temporary worktree. Push the docs branch and open its PR only when the user requested it or project instructions require it; until then `kf status --all` lists it under `Waiting to merge`. Commit messages:
+The close runs after the change merged, so its output is a docs-only change, written to exactly one place and printed: the working tree when the repository has no `origin` or `origin/HEAD` is not set (the output says so), or when the primary checkout is on the default branch, not behind origin, with no uncommitted changes to tracked files (untracked files do not count); otherwise an unpushed `docs/<context>-<feature>` branch cut from `origin/<default>` (`meta.docsBranch`), leaving the primary working tree untouched. The reconciled docs of step 2b already merged with the PR; only a reconcile run late for an item already in done goes to the same place — for a docs branch, `git worktree add <tmp> docs/<context>-<feature>`, edit and commit there, then remove the temporary worktree. Push the docs branch and open its PR only when the user requested it or project instructions require it; until then `kf status --all` lists it under `Waiting to merge`. Commit messages:
 
 - Feature: `docs({context}): sync canonical docs for {feature_name}` — the canonical copies (plus a late step 2b reconcile, when one ran here).
 - Bug: none — its related-docs update was the review-time reconcile commit, merged with the PR.

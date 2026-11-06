@@ -62,7 +62,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   issues: {
-    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr; done is deprecated and forwards to kf archive",
+    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr [--replace]] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr (--replace swaps a recorded PR closed without merging); done is deprecated and forwards to kf archive",
     allowPositionals: true,
     options: {
       state: { type: "string" },
@@ -71,6 +71,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       label: { type: "string", multiple: true },
       json: { type: "boolean" },
       pr: { type: "boolean" },
+      replace: { type: "boolean" },
     },
   },
   show: {

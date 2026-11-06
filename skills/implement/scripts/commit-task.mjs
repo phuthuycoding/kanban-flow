@@ -102,7 +102,10 @@ function runGit(args) {
   process.exit(result.status ?? 1);
 }
 
-const { message, allows, paths } = parseArgs(process.argv.slice(2));
+const parsed = parseArgs(process.argv.slice(2));
+const { message, allows } = parsed;
+// Allow entries drop a leading ./ in normalise(); paths get the same treatment so ./a and a match alike.
+const paths = parsed.paths.map((p) => p.replace(/^(?:\.\/)+/, ""));
 
 for (const path of paths) {
   const reason = unsafeReason(path, allows);
@@ -110,7 +113,7 @@ for (const path of paths) {
     process.stderr.write(`BLOCKED: ${path} ${reason}\n`);
     process.exit(4);
   }
-  if (normalise(path) === "." || statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
+  if (path === "" || normalise(path) === "." || statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
     process.stderr.write(`BLOCKED: ${path} is a directory; name each file\n`);
     process.exit(4);
   }

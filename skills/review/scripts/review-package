@@ -22,7 +22,10 @@
 # commit, a repeated sha, or --untracked. Exit 3: HEAD is not a descendant of BASE, or the
 # range is empty and nothing is untracked (a wrong branch, or an implementer that
 # committed nothing — send it back; DONE requires a commit); with --commits, the listed
-# commits have an empty diff.
+# commits have an empty diff. Exit 4 (BASE HEAD mode only): tracked files have uncommitted
+# changes — the package shows only committed BASE..HEAD while the review's checks see the
+# working tree, so the review runs on a committed tree (commit or stop first). --commits
+# skips this check: parallel seats share the worktree and their edits are not this package's.
 set -euo pipefail
 
 MAX_LINES=400
@@ -121,16 +124,28 @@ git rev-parse --verify --quiet "$base" >/dev/null || { echo "bad BASE: $base" >&
 git rev-parse --verify --quiet "$head" >/dev/null || { echo "bad HEAD: $head" >&2; exit 2; }
 git merge-base --is-ancestor "$base" "$head" || { echo "HEAD is not a descendant of BASE: ${base}..${head}" >&2; exit 3; }
 
+dirty=0
+git diff --quiet HEAD -- || dirty=$?
+case "$dirty" in
+  0) ;;
+  1)
+    echo "tracked files have uncommitted changes; the package shows only committed ${base}..${head} — commit them or stop before packaging:" >&2
+    git status --porcelain --untracked-files=no >&2
+    exit 4
+    ;;
+  *) echo "git diff HEAD failed (exit ${dirty})" >&2; exit 2 ;;
+esac
+
 commits=$(git rev-list --count "${base}..${head}")
-new=""
+new=()
 if [ "$untracked" = "1" ]; then
-  if [ ${#pathspec[@]} -gt 0 ]; then
-    new=$(git -c core.quotePath=false ls-files --others --exclude-standard -- "${pathspec[@]}")
-  else
-    new=$(git -c core.quotePath=false ls-files --others --exclude-standard)
-  fi
+  # NUL-separated so names git would C-quote (quotes, backslashes, tabs, newlines) arrive verbatim.
+  listing=$(mktemp)
+  trap 'rm -f "$listing"' EXIT
+  git ls-files -z --others --exclude-standard -- ${pathspec[@]+"${pathspec[@]}"} > "$listing"
+  while IFS= read -r -d '' f; do new+=("$f"); done < "$listing"
 fi
-if [ "$commits" -eq 0 ] && [ -z "$new" ]; then
+if [ "$commits" -eq 0 ] && [ ${#new[@]} -eq 0 ]; then
   echo "empty commit range: ${base}..${head} (and nothing untracked)" >&2
   exit 3
 fi
@@ -149,11 +164,10 @@ skipped=()
   echo
   echo "## Diff"
   git diff -U10 "${base}..${head}" -- ${pathspec[@]+"${pathspec[@]}"}
-  if [ -n "$new" ]; then
+  if [ ${#new[@]} -gt 0 ]; then
     echo
     echo "## Untracked new files"
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
+    for f in "${new[@]}"; do
       case "$f" in .works/*|.worktrees/*) skipped+=("$f (kanban work dir)"); continue ;; esac
       if [ -L "$f" ]; then skipped+=("$f (symlink)"); continue; fi
       [ -f "$f" ] || { skipped+=("$f (not a regular file)"); continue; }
@@ -168,7 +182,7 @@ skipped=()
       else
         cat -- "$f"
       fi
-    done <<< "$new"
+    done
     if [ ${#skipped[@]} -gt 0 ]; then
       echo
       echo "### Skipped untracked files (listed by name only)"
@@ -177,4 +191,4 @@ skipped=()
   fi
 } > "$out"
 
-echo "wrote ${out}: ${commits} commit(s), $(printf '%s\n' "$new" | grep -c . || true) untracked file(s) (${#skipped[@]} skipped), $(wc -c < "$out" | tr -d ' ') bytes"
+echo "wrote ${out}: ${commits} commit(s), ${#new[@]} untracked file(s) (${#skipped[@]} skipped), $(wc -c < "$out" | tr -d ' ') bytes"

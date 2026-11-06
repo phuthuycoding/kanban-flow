@@ -106,19 +106,19 @@ describe("the ledger grammar in task-loop.md", () => {
 
   it("gives one example per shape and two wait lines, each parsed by kf loop-stats into that shape, then a ruling and a hashes line read as timed notes", () => {
     const example = ledgerExample();
-    expect(example).toHaveLength(12);
+    expect(example).toHaveLength(15);
     const parsed = parseLedger(`# header\n${example.join("\n")}`).lines;
-    expect(parsed).toHaveLength(12);
-    expect(parsed.slice(0, 10).map((l) => l.kind)).toEqual(Array(10).fill("shape"));
-    const shapes = parsed.slice(0, 10).map((l) => l.shape);
+    expect(parsed).toHaveLength(15);
+    expect(parsed.slice(0, 13).map((l) => l.kind)).toEqual(Array(13).fill("shape"));
+    const shapes = parsed.slice(0, 13).map((l) => l.shape);
     expect([...new Set(shapes)]).toEqual(SHAPE_ORDER);
     expect(shapes.filter((shape) => shape === "developerWaits")).toHaveLength(2);
     const waits = example.filter((l) => l.includes("developer waits"));
     expect(waits.some((l) => /developer waits — Files overlap \S+ \/ \S+ \(TASK-\d+\)/.test(l)), "overlap wait").toBe(true);
     expect(waits.some((l) => /developer waits — \d+ developers in flight/.test(l)), "cap wait").toBe(true);
-    expect(example[10].startsWith("Ruling:"), example[10]).toBe(true);
-    expect(example[11].startsWith("TASK-001: test hashes"), example[11]).toBe(true);
-    expect(parsed.slice(10).map((l) => l.kind)).toEqual(["other-timed", "other-timed"]);
+    expect(example[13].startsWith("Ruling:"), example[13]).toBe(true);
+    expect(example[14].startsWith("TASK-001: test hashes"), example[14]).toBe(true);
+    expect(parsed.slice(13).map((l) => l.kind)).toEqual(["other-timed", "other-timed"]);
     for (const line of parsed) {
       expect(line.kind).not.toBe("unparsed");
       expect(line.kind).not.toBe("untimed");
@@ -213,7 +213,7 @@ describe("resuming the task loop from the ledger", () => {
     expect(implement()).not.toContain("a task whose last line is a fix round resumes at the next round");
   });
 
-  it("rebuilds every open task, each at its first unmet step, in eleven ordered steps", () => {
+  it("rebuilds every open task, each at its first unmet step, in twelve ordered steps", () => {
     const text = implement();
     const intro = paragraphWith(text, "Resume from the ledger");
     expect(intro).toContain("every open task");
@@ -224,20 +224,21 @@ describe("resuming the task loop from the ledger", () => {
     const end = after.search(/\n(\*\*|#)/);
     const list = (end === -1 ? after : after.slice(0, end)).trim();
     const items = list.split(/\n(?=\d+\. )/).filter((i) => /^\d+\. /.test(i));
-    expect(items.map((i) => Number(/^(\d+)\./.exec(i)?.[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(items.map((i) => Number(/^(\d+)\./.exec(i)?.[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     for (const n of [0, 1]) expect(items[n]).toContain("test-writer");
     expect(items[2]).toContain("developer waits");
     expect(items[3]).toMatch(/developer`? `?done/);
-    for (const n of [4, 5]) expect(items[n]).toContain("verify");
-    expect(items[6]).toContain("code-reviewer");
+    expect(items[4]).toMatch(/automation-writer`? `?done/);
+    for (const n of [5, 6]) expect(items[n]).toContain("verify");
+    expect(items[7]).toContain("code-reviewer");
     // A round's own test-writer or automation-writer seat must not count as the round's developer dispatch.
-    expect(items[7]).toMatch(/test-writer[\s\S]*automation-writer`? `?dispatched[\s\S]*round=/);
-    expect(items[7]).toContain("next fix round");
-    expect(items[7]).toContain("breaker");
-    expect(items[7]).toContain("resume the developer to commit them unchanged");
-    expect(items[7]).toContain("developer waits — <N> developers in flight");
-    expect(items[9]).toContain("cascade re-review owed");
-    expect(items[10]).toContain("completion check");
+    expect(items[8]).toMatch(/test-writer[\s\S]*automation-writer`? `?dispatched[\s\S]*round=/);
+    expect(items[8]).toContain("next fix round");
+    expect(items[8]).toContain("breaker");
+    expect(items[8]).toContain("resume the developer to commit them unchanged");
+    expect(items[8]).toContain("developer waits — <N> developers in flight");
+    expect(items[10]).toContain("cascade re-review owed");
+    expect(items[11]).toContain("completion check");
   });
 
   it("re-dispatches every unanswered seat and re-runs every unfinished verify before any new developer", () => {

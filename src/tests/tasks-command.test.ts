@@ -75,6 +75,8 @@ describe("kf tasks", () => {
     for (const t of out.tasks) expect(t).not.toHaveProperty("role");
     expect(out.tasks[1].files).toEqual(["src/b.ts", "src/c.ts"]);
     expect(out.tasks[1].dependencies).toEqual(["TASK-001"]);
+    expect(out.tasks[1].refs).toBe("FR-001 / UC-001");
+    expect(out.tasks[1].expectedOutput).toBe("Change merged");
     expect(out.tasks[2].files).toBeNull();
   });
 
@@ -222,7 +224,7 @@ describe("kf tasks --graph", () => {
   it("lists the tasks byte-identically and appends the developer ceiling in --json without --graph", async () => {
     await writePlan(graphPlan);
     const task = (id: string, description: string, dependencies: string[], files: string[], wave: number, state: string) =>
-      ({ id, description, dependencies, files, wave, overlaps: [], state });
+      ({ id, description, dependencies, files, refs: "FR-001 / UC-001", expectedOutput: "Change merged", wave, overlaps: [], state });
     const expected = JSON.stringify({
       feature: "demo",
       tasks: [
@@ -273,6 +275,18 @@ describe("kf tasks --graph", () => {
       );
       expect(outcome.code).not.toBe(0);
       expect(outcome.text).toContain("harness.developers.max must be an integer from 1 to 16");
+    });
+
+    it("keeps the task list when another config key is invalid, with an unknown ceiling reading 1", async () => {
+      await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+        schema: "kanban-flow", created: "20260919_1200", defaultContext: "app", worktree: { domains: "no" },
+      }));
+      const res = await cmdTasks(args({ json: true }), root);
+      expect(res.code).toBe(0);
+      const out = JSON.parse(res.stdout) as { tasks: unknown[]; developers: { max: number; source: string; error: string } };
+      expect(out.tasks.length).toBeGreaterThan(0);
+      expect(out.developers).toMatchObject({ max: 1, source: "invalid-config" });
+      expect(out.developers.error).toContain("worktree.domains must be boolean");
     });
 
     it("keeps the graph JSON key set free of developers", async () => {

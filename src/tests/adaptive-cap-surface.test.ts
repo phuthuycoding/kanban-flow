@@ -110,7 +110,7 @@ describe("stepping the cap up", () => {
     for (const [name, text] of both()) {
       const holders = paragraphs(text).filter((p) => p.includes("Note wave <w>: no step-up"));
       expect(holders.length, name).toBeGreaterThan(0);
-      for (const reason of ["not clean", "inline", "ceiling", "widest incomplete wave"]) {
+      for (const reason of ["not clean", "inline", "ceiling", "last wave", "widest incomplete wave"]) {
         expect(holders.some((p) => p.includes(reason)), `${name}: ${reason}`).toBe(true);
       }
     }

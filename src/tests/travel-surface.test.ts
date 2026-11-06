@@ -153,10 +153,11 @@ describe("the travel skill", () => {
     }
   });
 
-  it("names the owner as a session other than the travel session that wrote the line", () => {
+  it("names the owner by the owner token on the travel ledger line", () => {
     for (const other of ["flow", "implement"]) {
       const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
-      expect(text, other).toContain("a session other than the travel session that wrote the line");
+      expect(text, other).toContain("a session that is not travel never runs a task loop for an `owner=travel` line");
+      expect(text, other).toContain("`owner=human`");
     }
   });
 

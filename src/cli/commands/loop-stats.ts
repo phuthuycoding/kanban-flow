@@ -39,6 +39,15 @@ function seatLine(name: string, f: SeatFigures): string {
 const lagText = (n: number | null): string => (n === null ? "-" : String(n));
 const lagPart = (name: string, f: LagFigures): string => `${name} median ${lagText(f.median)} max ${lagText(f.max)} (n=${f.n})`;
 
+/** The unparsed and orphan line numbers as one phrase, or `null` when the ledger has none. */
+function brokenLines(stats: LoopStats): string | null {
+  const parts = [
+    ...(stats.unparsed.length > 0 ? [`unparsed lines ${list(stats.unparsed)}`] : []),
+    ...(stats.orphans.length > 0 ? [`orphan lines ${list(stats.orphans)}`] : []),
+  ];
+  return parts.length > 0 ? `ledger ${parts.join(" and ")}` : null;
+}
+
 function renderReport(feature: string, stats: LoopStats): string {
   const byModel = Object.entries(stats.byModel).map(([k, v]) => `${k} ${min(v)}`);
   return [
@@ -129,7 +138,11 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
   const stats = loopStats(parsed, dependencies);
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
-  if (!record) return { code: 0, stdout: report };
+  const broken = brokenLines(stats);
+  if (!record) {
+    // Plain reporting still exits 0; the lines left out of every figure are named on stderr so they are not missed.
+    return broken ? { code: 0, stdout: report, stderr: `warning: ${broken} are left out of every figure; fix those lines in ${ledgerPath}` } : { code: 0, stdout: report };
+  }
 
   const completed = new Set(parsed.lines.filter((l) => l.shape === "complete").map((l) => l.task));
   // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
@@ -138,6 +151,9 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   const missing = ids.filter((id) => !completed.has(id));
   if (missing.length > 0) {
     return refused(`cannot record ${item.name}: no complete line for ${missing.join(", ")}`, "loop not complete");
+  }
+  if (broken) {
+    return refused(`cannot record ${item.name}: ${broken} are left out of every figure; fix those lines in ${ledgerPath} and record again`, "ledger has broken lines");
   }
   let path: string;
   try {

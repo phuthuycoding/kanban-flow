@@ -1,10 +1,10 @@
 # Scoped re-review brief — after a fix round
 
-Use this template after a fix round. The re-reviewer verdicts each finding and inspects the fix diff for new breakage — nothing else. It is not a fresh review; the full review already happened.
+Use this template after a fix round. The re-reviewer verdicts each finding and inspects the fix diff for new breakage — nothing else. It is not a fresh review; the full review already happened. When the `code-reviewer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:
-  subagent_type: kf:code-reviewer     # or general-purpose
+  subagent_type: kf:code-reviewer     # or general-purpose (stand-in; paste the agent body first)
   model: [MODEL]                          # REQUIRED — a small fix diff takes sonnet
   description: "Re-review TASK-NNN fix round R"
   prompt: |
@@ -40,10 +40,10 @@ Agent:
     ## Tests
     The fixing seat re-ran the covering tests and appended the results. Confirm the fix
     report names them and shows their output; verify the claims against the diff. Do not
-    re-run the suite; a focused test only when reading raises a specific doubt.
+    run anything: a doubt that needs a run is a finding or a `Declined:` line.
 
     ## Output
-    Your reply is the report (you have no write tool; the controller saves it). Reply with:
+    Your reply is the report (you must not write files; the controller saves it). Reply with:
     ### Finding verdicts
     - <finding one-liner> — ADDRESSED | NOT ADDRESSED, file:line evidence. "Attempted" is not
       addressed: the specific defect must no longer exist.
@@ -58,6 +58,8 @@ Agent:
 **Placeholders**
 
 - `[MODEL]` — REQUIRED; `sonnet` for a small fix diff.
+- `[BRIEF_FILE]` — the task's brief, `<item>/loop/task-NNN-brief.md`.
+- `[REPORT_FILE]` — the fixing seat's report, where its fix report is appended: developer → `<item>/loop/task-NNN-report.md`, test-writer → `<item>/loop/task-NNN-tests-report.md`, automation-writer → `<item>/loop/task-NNN-e2e-report.md`.
 - `[FINDINGS]` — copied verbatim from the previous review, one bullet each.
 - `[FIX_BASE_SHA]` — the head the previous review saw; `[HEAD_SHA]` the current head; `[DIFF_FILE]` the package `review-package --commits <fix sha>[,<fix sha>…] …` wrote from the round's fix commits (for a cascade re-review, from this task's own commits).
 - `[CASCADE_FIX_DIFF]` — for a cascade re-review (`cascade=<sha7>`), the path of the package `review-package --commits <sha7>` wrote from the fixed dependency's fix commit; "none" otherwise.

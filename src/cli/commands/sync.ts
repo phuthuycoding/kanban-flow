@@ -1,5 +1,5 @@
 import { readProjectConfig } from "../../project/config.js";
-import { listFeatures } from "../../workflow/features.js";
+import { listFeatures, type Feature } from "../../workflow/features.js";
 import { findRoot, noRepository } from "./helpers.js";
 import { closeDetails } from "./archive.js";
 import { archiveItem } from "../../workflow/archive.js";
@@ -12,7 +12,8 @@ import type { CmdResult } from "../result.js";
  * `kf sync` — the pull-model delivery sweep. Every review/done item with a recorded PR goes
  * through archiveItem, whose merge gate (`gh pr view`) closes the merged ones and refuses the
  * rest; a review item whose current PASS report says `landing: none` closes under the landing
- * rule. Other items without `pr` are never touched. Runnable by hand or from cron/launchd; no
+ * rule. Other items without `pr` are never touched. Without a configured repository only the
+ * items with no recorded PR are swept; PR-linked ones are refused. Runnable by hand or from cron/launchd; no
  * daemon. A done item already
  * `delivered` is skipped: the flag is stamped last, so nothing is left to finalize, and its
  * canonical docs may legitimately carry later edits (superseded banners) that a re-archive
@@ -23,16 +24,23 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
   const migration = await migrateLegacyStages(root.root);
   const repo = readProjectConfig(root.root).repository;
-  if (!repo) {
-    const refusal = noRepository();
-    const code = migration.failed ? 1 : refusal.code;
-    return migration.lines.length > 0 ? { ...refusal, code, stdout: `${migration.lines.join("\n")}\n\n${refusal.stdout}` } : refusal;
-  }
 
   const candidates = listFeatures(root.root).filter(
     (f) => ((f.stage === "review" || (f.stage === "done" && !f.meta?.delivered)) && Boolean(f.meta?.pr))
       || (f.stage === "review" && currentReportStatus(f, "review-report") === "PASS"),
   );
+  if (!repo) {
+    // Items with no recorded PR (the landing: none closes) never reach gh, so a missing
+    // repository does not hold them back; only PR-linked items need it to verify the merge.
+    const local = candidates.filter((f) => !f.meta?.pr);
+    const lines: string[] = [...migration.lines];
+    const failed = (await sweep(root.root, local, lines)) || migration.failed;
+    if (local.length > 0 && local.length === candidates.length) return { code: failed ? 1 : 0, stdout: lines.join("\n") };
+    // Today's refusal for the rest: PR-linked items cannot be verified without a repository.
+    const refusal = noRepository();
+    return lines.length > 0 ? { ...refusal, stdout: `${lines.join("\n")}\n\n${refusal.stdout}` } : refusal;
+  }
+
   if (candidates.length === 0) {
     return {
       code: migration.failed ? 1 : 0,
@@ -41,9 +49,15 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
   }
 
   const lines: string[] = [...migration.lines];
-  let failed = migration.failed;
-  for (const f of candidates) {
-    const outcome = await archiveItem(root.root, f.name, { trigger: "sync" });
+  const failed = (await sweep(root.root, candidates, lines)) || migration.failed;
+  return { code: failed ? 1 : 0, stdout: lines.join("\n") };
+}
+
+/** Close each item through archiveItem, one result line per item; true when any close failed. */
+async function sweep(root: string, items: Feature[], lines: string[]): Promise<boolean> {
+  let failed = false;
+  for (const f of items) {
+    const outcome = await archiveItem(root, f.name, { trigger: "sync" });
     switch (outcome.kind) {
       case "archived":
         lines.push(`✓ ${f.name}: archived (${outcome.pr ? "PR merged" : "nothing to land"})${closeDetails(outcome)}`);
@@ -58,7 +72,7 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
           lines.push(`- ${f.name}: skipped (another close of it is running)`);
         } else if (outcome.merge?.reason === "not-merged") {
           lines.push(outcome.merge.state === "CLOSED"
-            ? `⚠ ${f.name}: skipped — ${outcome.merge.pr} was closed without merging; reopen and merge it, or move the item back`
+            ? `⚠ ${f.name}: skipped — ${outcome.merge.pr} was closed without merging; reopen and merge it, link a new PR (kf issues link ${f.name} <url> --pr --replace), or move the item back`
             : `- ${f.name}: skipped (PR ${outcome.merge.state.toLowerCase()})`);
         } else if (outcome.merge) {
           lines.push(`⚠ ${f.name}: could not verify ${outcome.merge.pr} — skipped`);
@@ -78,5 +92,5 @@ export async function cmdSync(args: ParsedArgs, cwd: string): Promise<CmdResult>
         break;
     }
   }
-  return { code: failed ? 1 : 0, stdout: lines.join("\n") };
+  return failed;
 }

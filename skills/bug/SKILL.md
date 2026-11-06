@@ -20,6 +20,8 @@ Only use this skill when the metadata says `kind: bug` and the work item is in `
 
 ## 2. Triage contract
 
+**Ground the names first.** Before writing the report, check every file, function, command, field, endpoint and config key it names against its definition, not a call site. A name you cannot find is a question for the user, not an assumption. A bug runs no `scout` and no `spec-reviewer`, so this is the only grounding its contract gets.
+
 Read and fill `phase-1-spec-requirement.md` using the bug template (`kf instruct spec-requirement --change {bug_name}`):
 
 - Severity and the affected environments.
@@ -30,7 +32,7 @@ Read and fill `phase-1-spec-requirement.md` using the bug template (`kf instruct
 - Regression test strategy and acceptance criteria that can be checked.
 - The related feature when you can identify it, and the docs impact: which file needs changing and why, or that no docs change is needed.
 
-- **Sibling entry points**: list what else reaches the broken code. Review will ask which of them the fix covers, so naming them here is cheaper than discovering them later.
+- **Sibling entry points**: list what else reaches the broken code, under the report's `## Scope` — `### In Scope` for those the fix covers, `### Out of Scope` for the rest. Review will ask which of them the fix covers, so naming them here is cheaper than discovering them later.
 
 Do not guess a root cause to make the report look finished. If you cannot reproduce it, report the blocker plainly and never assume the bug is PASS.
 

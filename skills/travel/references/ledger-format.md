@@ -13,7 +13,7 @@ t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-t
 
 ## 2026-10-31
 slots: 3 · budget: 8 points (median of 3 days)
-t1 · workflow-slim · feature · L · driving · est0=L · estmin=40 · seat re-dispatched after the human's fix
+t1 · workflow-slim · feature · L · driving · owner=travel · est0=L · estmin=40 · seat re-dispatched after the human's fix
 t2 · login-timeout · bug · S · waiting-to-merge · est0=S · estmin=4 · https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequential with t1
 ```
@@ -25,16 +25,16 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 - `id`: `t1`, `t2`, … unique within the day.
 - `kind`: `feature` | `bug` | `pr`.
 - `size`: `S` | `M` | `L` | `XL` — today's estimate the human approved; a carried line is re-sized each morning from the remaining work (budget and batching only).
-- `note`: everything after the fifth ` · `; it carries `est0=<size>` (the size approved when the line was first planned, passed to `measure` as `--est`) and `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`) — both kept by a carried line — the PR URL and merge command, the blocked reason and next command, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`.
+- `note`: everything after the fifth ` · `; it carries `est0=<size>` (the size approved when the line was first planned, passed to `measure` as `--est`) and `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`) — both kept by a carried line — `owner=travel` or `owner=human` on a `driving` or `blocked` line, the PR URL and merge command, the blocked reason and next command, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`.
 
 ## States
 
 | State | Meaning | Owner |
 |---|---|---|
 | `queued` | approved for today, not started | travel |
-| `driving` | this travel session is running that item's phases in the item's worktree, seats working in the background; the item resumes from its `loop/progress.md` | travel — no other session runs it |
+| `driving` | this travel session is running that item's phases in the item's worktree, seats working in the background; the item resumes from its `loop/progress.md` | `owner=travel` — no other session runs it |
 | `waiting-to-merge` | review PASS with the PR open; the note has the URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` | the human merges |
-| `blocked` | a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker); the note has the reason and the next command | travel, until the human opens it in a session — then that session, until the human says it is done |
+| `blocked` | a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker); the note has the reason and the next command | `owner=travel`, until the human opens it in their own session — then `owner=human` (that session), until the human says it is done and travel sets it back to `owner=travel` |
 | `done` | kf reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`) | — |
 | `carry-over` | end-of-day rewrite of any line not `done`; the note keeps why | tomorrow's plan |
 

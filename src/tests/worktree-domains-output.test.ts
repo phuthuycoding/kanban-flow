@@ -144,14 +144,15 @@ describe("worktree output with domains off", () => {
 });
 
 describe("status with an invalid project config", () => {
-  it("falls back to the domain line and reports the config problem", async () => {
+  it("falls back to the direct URL and reports the config problem", async () => {
     await writeCfg({ domains: true });
     await approvedItem();
     await cmdStage(args("stage", ["demo", "implementation"]), root);
     await writeCfg({ domains: "no" });
     const res = await cmdStatus(args("status", [], { change: "demo" }), root);
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain("Domain:   http://");
+    expect(res.stdout).toContain(`Direct:   http://127.0.0.1:${PORT}`);
+    expect(res.stdout).not.toContain("Domain:");
     const configLine = res.stdout.split("\n").find((l) => l.startsWith("Config:   invalid .kf/config.json — "));
     expect(configLine).toBeDefined();
     expect(configLine).toContain("worktree.domains must be boolean");

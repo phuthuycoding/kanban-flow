@@ -24,7 +24,7 @@ import {
 import { checkMergeGate, type MergeGateFailure } from "../integrations/github.js";
 import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
-import { assertWorktreeClean, deleteItemBranch, teardownWorktree, type BranchDeletion, type LandedProof, type TeardownResult } from "../worktree/lifecycle.js";
+import { assertWorktreeClean, deleteItemBranch, teardownWorktree, tipPastMergedHead, type BranchDeletion, type LandedProof, type TeardownResult } from "../worktree/lifecycle.js";
 import { branchExists, WorktreeDirtyError } from "../worktree/manager.js";
 import { branchPushed, countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
@@ -182,7 +182,7 @@ function mergeRefusal(name: string, failure: MergeGateFailure): ArchiveOutcome {
       return refuse("merge-gate", "pr view parse", `Cannot archive '${name}': gh pr view ${failure.pr} returned unexpected output:\n${failure.output}`);
     case "not-merged":
       if (failure.state === "CLOSED") {
-        return refuse("merge-gate", "pr closed", `Cannot archive '${name}': PR ${failure.pr} is not merged — it was closed without merging. Reopen and merge it, or decide what happens to the item (kf stage ${name} implementation, or kf cancel ${name}).`);
+        return refuse("merge-gate", "pr closed", `Cannot archive '${name}': PR ${failure.pr} is not merged — it was closed without merging. Reopen and merge it, open a new PR and record it (kf issues link ${name} <url> --pr --replace), or decide what happens to the item (kf stage ${name} implementation, or kf cancel ${name}).`);
       }
       return refuse("merge-gate", "pr not merged", `Cannot archive '${name}': PR ${failure.pr} is not merged (state: ${failure.state}) — merge it first, then archive.`);
   }
@@ -397,6 +397,12 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const itemBranch = f.meta?.worktree?.branch ?? null;
   if (merge.kind === "merged" && itemBranch && merge.headRefName !== itemBranch) {
     return refuse("pr-branch", "pr branch mismatch", `Cannot archive '${name}': PR ${merge.pr} merged ${merge.headRefName}, not the item branch ${itemBranch}. Fix the recorded pr link, then re-run: ${rerun}`);
+  }
+  // Commits pushed after the merge (repair rounds) never reached the default branch: closing
+  // as delivered would stamp a tree the PR did not ship.
+  const past = merge.kind === "merged" && itemBranch ? tipPastMergedHead(root, itemBranch, merge.headRefOid) : null;
+  if (merge.kind === "merged" && itemBranch && past && past.count > 0) {
+    return refuse("pr-branch", "branch past merged head", `Cannot archive '${name}': the item branch ${itemBranch} is at ${past.tip.slice(0, 12)}, ${past.count} commits past ${merge.headRefOid.slice(0, 12)} that PR ${merge.pr} merged — those commits were not delivered. Land them in a follow-up PR or drop them, then reset ${itemBranch} to ${merge.headRefOid.slice(0, 12)} and re-run: ${rerun}`);
   }
 
   // Landing rule: with no PR to verify, `landing: none` may close only when the item branch

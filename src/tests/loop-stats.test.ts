@@ -791,3 +791,126 @@ describe("a live-cap ledger", () => {
     expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 1, max: 1, n: 7 });
   });
 });
+
+/*
+ * Near-miss seat lines. Harmless variants are read as written: trailing whitespace, a `+hhmm` offset.
+ * Any other line that claims a shape (TASK-NNN: + a seat or verify keyword, also behind a markdown
+ * bullet) and fails it is unparsed with its line number — before, a bullet made it other-timed and a
+ * space for `T` made it untimed, both silently.
+ */
+describe("near-miss ledger lines", () => {
+  const H = "# Task loop ledger — x\n";
+  const kindsOf = async (body: string): Promise<Record<number, string>> => {
+    const { parseLedger } = await loopStatsModule();
+    return Object.fromEntries(parseLedger(`${H}${body}`).lines.map((l) => [l.line, l.kind]));
+  };
+
+  it("reads a +hhmm offset as the same instant as +hh:mm and pairs it", async () => {
+    const { parseLedger, loopStats } = await loopStatsModule();
+    const parsed = parseLedger(`${H}TASK-001: developer dispatched model=opus @ 2026-11-01T18:00:00+0700\nTASK-001: developer done status=DONE @ 2026-11-01T18:10:00+07:00\n`);
+    expect(parsed.lines[0]).toMatchObject({ kind: "shape", shape: "dispatched", ts: utc(11, 0), stamp: "2026-11-01T18:00:00+0700" });
+    const stats = loopStats(parsed);
+    expect(stats.seats.developer).toEqual({ count: 1, sum: 10, median: 10 });
+    expect(stats.unparsed).toEqual([]);
+  });
+
+  it("ignores trailing whitespace after the timestamp", async () => {
+    expect(await kindsOf("TASK-001: verify started @ 2026-11-01T09:00:00Z  \t\nTASK-001: verify done exit=0 @ 2026-11-01T09:02:00Z \n")).toEqual({ 2: "shape", 3: "shape" });
+  });
+
+  it("lists a done line carrying round= as unparsed and its dispatch as an orphan", async () => {
+    const { parseLedger, loopStats } = await loopStatsModule();
+    const stats = loopStats(parseLedger(`${H}TASK-007: test-writer dispatched model=opus round=1 @ 2026-11-01T09:00:00Z\nTASK-007: test-writer done status=DONE round=1 @ 2026-11-01T09:10:00Z\n`));
+    expect(stats.unparsed).toEqual([3]);
+    expect(stats.orphans).toEqual([2]);
+    expect(stats.seatMinutes).toBe(0);
+  });
+
+  it("lists a seat line behind a markdown bullet as unparsed, not other-timed", async () => {
+    expect(await kindsOf("- TASK-003: developer dispatched model=sonnet @ 2026-11-01T09:00:00Z\n* TASK-003: developer done status=DONE @ 2026-11-01T09:05:00Z\n")).toEqual({ 2: "unparsed", 3: "unparsed" });
+  });
+
+  it("lists a seat line whose timestamp has a space for T as unparsed, not untimed", async () => {
+    expect(await kindsOf("TASK-001: developer dispatched model=opus @ 2026-11-01 09:00:00Z\n")).toEqual({ 2: "unparsed" });
+  });
+
+  it("keeps an old seat line with no timestamp at all untimed and a bulleted non-seat line other-timed", async () => {
+    expect(await kindsOf("TASK-001: fix round 1/5 (nit)\n- Ruling: keep @ 2026-11-01T09:00:00Z\nNote TASK-001: reopened — review 1a2b3c4d @ 2026-11-01T09:01:00Z\n")).toEqual({ 2: "untimed", 3: "other-timed", 4: "other-timed" });
+  });
+});
+
+/*
+ * review-repair.ledger.md — all Z, minutes from 09:00; one task completed, reopened by review, completed again.
+ *   test-writer [0,5]=5, round 1 [41,44]=3 → count 2, sum 8, median 4 (opus)
+ *   developer   [6,16]=10, round 1 [45,53]=8 → count 2, sum 18, median 9 (opus)
+ *   code-reviewer [17,21]=4, round 1 [54,57]=3 → count 2, sum 7, median 3.5 (sonnet)
+ *   seat 33; no verify; intervals disjoint → busy 33, saved 0; wall 09:00 → 09:58 (second complete) = 58; controller 25
+ *   the Note line is other-timed; no fix round line → rounds 0
+ */
+describe("a review-stage repair after complete", () => {
+  it("counts the seat lines after the first complete and ends the wall at the second complete", async () => {
+    const stats = await statsOf("review-repair");
+    expect(stats).toMatchObject({
+      inProgress: false,
+      wallMinutes: 58,
+      seats: {
+        "test-writer": { count: 2, sum: 8, median: 4 },
+        developer: { count: 2, sum: 18, median: 9 },
+        "automation-writer": { count: 0, sum: 0, median: 0 },
+        "code-reviewer": { count: 2, sum: 7, median: 3.5 },
+      },
+      seatMinutes: 33,
+      busyMinutes: 33,
+      savedMinutes: 0,
+      controllerMinutes: 25,
+      rounds: 0,
+      tasks: 1,
+      byModel: { "test-writer/opus": 8, "developer/opus": 18, "code-reviewer/sonnet": 7 },
+      unparsed: [],
+      orphans: [],
+      openWaits: [],
+      otherTimed: 1,
+      untimed: 0,
+    });
+  });
+
+  it("records the repaired item", async () => {
+    await item("r", ["TASK-001"], "review-repair.ledger.md");
+    const res = await run(["r"], { record: true });
+    expect(res.code).toBe(0);
+    expect(nonBlank(await readFile(historyPath(), "utf8"))).toEqual([HEADER, "2026-11-01 · r · 1 · 58 · 33 · 25 · 0 · 0 · 8 · 18 · 0 · 7 · 0 · 0 · 0 · 0"]);
+  });
+});
+
+/*
+ * broken-lines.ledger.md — L3 done carries round= (unparsed) so L2 is an orphan; L4 is bulleted (unparsed),
+ * so L5 is a done with no dispatch (unparsed). Every task has a complete line.
+ */
+describe("kf loop-stats with unparsed or orphan lines", () => {
+  it("refuses --record with exit 1 naming the line numbers, writing nothing", async () => {
+    const dir = await item("b", ["TASK-001"], "broken-lines.ledger.md");
+    const res = await run(["b"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("cannot record b: ledger unparsed lines 3, 4, 5 and orphan lines 2");
+    expect(res.out).toContain(`fix those lines in ${join(dir, "loop", "progress.md")}`);
+    expect(existsSync(historyPath())).toBe(false);
+  });
+
+  it("reports with exit 0 and names the lines in a stderr warning, text and JSON alike", async () => {
+    await item("b", ["TASK-001"], "broken-lines.ledger.md");
+    const { cmdLoopStats } = await loopStatsCommand();
+    const text = await cmdLoopStats(cliArgs(["b"]), root);
+    expect(text.code).toBe(0);
+    expect(text.stdout.split("\n")[0]).toBe("Loop stats — b");
+    expect(text.stderr).toMatch(/^warning: ledger unparsed lines 3, 4, 5 and orphan lines 2 are left out of every figure/);
+    const json = await cmdLoopStats(cliArgs(["b"], { json: true }), root);
+    expect(json.code).toBe(0);
+    expect(JSON.parse(json.stdout)).toMatchObject({ unparsed: [3, 4, 5], orphans: [2] });
+    expect(json.stderr).toContain("unparsed lines 3, 4, 5");
+  });
+
+  it("emits no warning for a clean ledger", async () => {
+    const { cmdLoopStats } = await loopStatsCommand();
+    expect((await cmdLoopStats(cliArgs(["f"]), root)).stderr).toBeUndefined();
+  });
+});

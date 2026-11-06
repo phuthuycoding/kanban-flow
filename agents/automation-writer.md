@@ -50,6 +50,10 @@ The Playwright MCP drives **one shared browser instance**. Use it **only to disc
 
 Run headless with the project's command, or `npx playwright test <your spec files>` when it has none. Report the real command, its exit code, the pass/fail count and, for each failure, the assertion that failed and the path of its trace or screenshot. A spec that fails because the UI is not built yet (case 2 above) is reported as such, not as a pass. A spec that fails because of the spec itself (a wrong locator, a missing wait) is your bug: fix it and run again. A spec that fails because the product is wrong is a finding to report — never bend the spec to match the product.
 
+## After review findings
+
+You may be dispatched again with the task review's findings about your spec files, verbatim. Re-read the TC each finding names, not the production code. Fix the spec against the TC — never bend it to match what the product does today — and touch nothing the findings do not name. Re-run the amended specs headless and append a fix report to your report file (`<item>/loop/task-NNN-e2e-report.md`): what changed, the command, its real exit code and the pass/fail count. A finding that the product, not the spec, is wrong stays a product defect in the report. You still never edit production code and never commit; the developer commits the fixed specs unchanged. Reply with the same final shape.
+
 ## Rules
 
 - English only, in specs, comments and the report.

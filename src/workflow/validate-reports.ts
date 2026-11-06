@@ -11,10 +11,17 @@ const TEST_RESULTS = /^(PASS|FAIL|REJECT|BLOCKED)$/;
 const REVIEW_RESULTS = /^(PASS|FAIL|REJECT|REQUIREMENT_BUG)$/;
 const COMMANDS_HEADING = /^##\s+Commands and Evidence\b/i;
 
+/** The cells of a markdown table row, outer pipes dropped. */
+function tableCells(line: string): string[] {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
 /**
  * Exit-code column of every data row in the table under "## Commands and Evidence".
- * Returns null when the section is absent. Cells are split on "|" so an escaped
- * pipe inside a cell is not supported — the template never needs one.
+ * Returns null when the section is absent. The column is found by its "Exit code" header
+ * (the second column when no header names it). A pipe inside an earlier cell — escaped `\|`
+ * or raw, as a shell command often has — splits that cell, so a row with more cells than the
+ * header is read counting from the right. A backticked code (`` `0` ``) reads as the bare number.
  */
 export function commandExitCodes(body: string): string[] | null {
   const lines = body.split("\n");
@@ -22,12 +29,21 @@ export function commandExitCodes(body: string): string[] | null {
   if (start === -1) return null;
   const codes: string[] = [];
   let rows = 0;
+  let header: string[] = [];
+  let column = 1;
   for (const line of lines.slice(start + 1)) {
     if (/^##\s/.test(line)) break;
     if (!line.trim().startsWith("|")) continue;
     rows += 1;
+    if (rows === 1) {
+      header = tableCells(line);
+      const named = header.findIndex((cell) => /^exit\s*code$/i.test(cell));
+      if (named !== -1) column = named;
+    }
     if (rows <= 2) continue;
-    codes.push(line.split("|").map((cell) => cell.trim())[2] ?? "");
+    const cells = tableCells(line);
+    const index = cells.length > header.length ? cells.length - (header.length - column) : column;
+    codes.push((cells[index] ?? "").replace(/^`(\S+)`$/, "$1"));
   }
   return codes;
 }
