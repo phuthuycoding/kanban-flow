@@ -311,6 +311,16 @@ describe("auto-close on merge", () => {
     expect(onOrigin("t/demo")).toContain("t/demo");
   }, 15_000);
 
+  it("closes a merged item whose review passed another commit, and says so", async () => {
+    await reviewItem();
+    const report = join(feature().dir, "phase-5-review-report.md");
+    writeFileSync(report, readFileSync(report, "utf8").replace("---\n", "---\ncommit: 1234567890abcdef\n"));
+    const res = await status();
+    expect(feature().stage).toBe("done");
+    expect(res.stdout).toContain("the review passed 1234567 but");
+    expect(res.stdout).toContain("the review did not see the last commits");
+  }, 15_000);
+
   it("a branch with a commit past the merged head refuses the close before any side effect, naming both shas", async () => {
     await reviewItem();
     const wt = feature().meta!.worktree!;

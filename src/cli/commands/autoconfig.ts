@@ -44,6 +44,7 @@ function pluginLine(probe: PluginProbe, scope: SkillScope): string {
     case "disabled": return `installed but disabled (scope: ${s.scope})`;
     case "unknown": return `installed (scope: ${at}) — claude does not report its source folder`;
     case "stale": return `installed (scope: ${at}) but reading ${s.readFromFolder || "an unknown folder"}, not this package`;
+    case "outdated": return `installed (scope: ${at}) at ${s.installed}, this package is ${s.available}`;
     case "missing": return `not installed (scope: ${at})`;
   }
 }

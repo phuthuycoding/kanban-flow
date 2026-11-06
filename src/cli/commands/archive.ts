@@ -51,7 +51,8 @@ function docsBranchNote(outcome: Extract<ArchiveOutcome, { kind: "archived" }>):
 export function closeDetails(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
   const removed = outcome.teardown ? worktreeNote(outcome.teardown, outcome.worktreePath) : "";
   const counted = outcome.countNote ? `\n  ⚠ ${outcome.countNote}` : "";
-  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${docsBranchNote(outcome)}`;
+  const reviewed = outcome.reviewNote ? `\n  ⚠ ${outcome.reviewNote}` : "";
+  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${reviewed}${docsBranchNote(outcome)}`;
 }
 
 function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {

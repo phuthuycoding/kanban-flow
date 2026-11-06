@@ -57,6 +57,8 @@ flowchart LR
     I -->|scope change| P
 ```
 
+A PASS report names the commit it judged in `commit:`. While an item with a worktree is in review, a branch that moved past it raises the warning `review_stale`. The close never refuses for this, since the merge already happened, but it prints which commit was reviewed and which was merged.
+
 The review → done direction gate adds the delivery checks on a PASS report: `review_ci_missing` (no `ci: green` or `ci: none`), `review_ci_red` (`ci: red` cannot pass; write FAIL and return to implementation), `review_landing_missing` (no `landing: pr` or `landing: none`) and `review_pr_missing` (`landing: pr` without a recorded PR). Merging on GitHub then closes the item; see [Review and closing](lifecycle.md#review-and-closing) for the close order and the branch-deletion safety.
 
 `implementation → testing` is also blocked while `tasks.md` still holds an unfinished checkbox, which is the definition of done. `tasks.md` is not a required artifact: with no such file, this gate does not apply. The task loop ticks a task only after its commit passes `kf verify --task`.

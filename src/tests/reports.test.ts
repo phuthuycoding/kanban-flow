@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ensureWorksStructure, findFeature, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
+import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
 import { validateFeature } from "../workflow/validate.js";
-import { commandExitCodes } from "../workflow/validate-reports.js";
+import { sameCommit, commandExitCodes } from "../workflow/validate-reports.js";
 
 let root: string;
 let dir: string;
@@ -115,6 +116,41 @@ async function reviewBug(fm: string, opts: { pr?: string; stage?: "review" | "do
   await writeFile(join(dir, "phase-4-testing-result.md"), `---\nstatus: PASS\nexecution: run-1\n---\n# Testing Result\n\n${table(["| npm test | 0 | ok |"])}`);
   await writeFile(join(dir, "phase-5-review-report.md"), `---\nexecution: run-1\n${fm}\n---\n# Review Report\nReviewed.\n`);
 }
+
+describe("the commit a review passed", () => {
+  const stale = () => validateFeature(findFeature(root, "demo")!).issues.filter((i) => i.code === "review_stale");
+  const worktree = async (commit: string | null): Promise<string> => {
+    const wt = join(root, "wt");
+    await mkdir(wt, { recursive: true });
+    const run = (...a: string[]) => execFileSync("git", ["-C", wt, ...a], { encoding: "utf8" }).trim();
+    run("init", "-q");
+    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x");
+    const head = run("rev-parse", "HEAD");
+    await reviewBug(`status: PASS\nci: green\nlanding: pr${commit === null ? "" : `\ncommit: ${commit || head}`}`, { pr: PR });
+    const meta = readFeatureMeta(dir)!;
+    await writeFeatureMeta(dir, { ...meta, worktree: { path: wt, branch: "b", domain: "d", port: 5100, createdAt: "20260919_1200" } });
+    return head;
+  };
+
+  it("warns when the item branch moved past the reviewed commit", async () => {
+    await worktree("1234567890abcdef");
+    expect(stale().map((i) => i.severity)).toEqual(["WARNING"]);
+    expect(stale()[0].message).toContain("review the new commits before merging");
+  });
+
+  it("stays quiet at the reviewed commit, and for a report that names none", async () => {
+    await worktree("");
+    expect(stale()).toEqual([]);
+    await worktree(null);
+    expect(stale()).toEqual([]);
+  });
+
+  it("matches an abbreviated or uppercase commit, and no value shorter than seven characters", () => {
+    expect(sameCommit("abcdef1234", "abcdef1")).toBe(true);
+    expect(sameCommit("abcdef1234", "ABCDEF1")).toBe(true);
+    expect(sameCommit("abcdef1234", "a")).toBe(false);
+  });
+});
 
 const DELIVERY = ["review_ci_red", "review_ci_missing", "review_pr_missing", "review_landing_missing"];
 const delivery = () => validateFeature(findFeature(root, "demo")!).issues

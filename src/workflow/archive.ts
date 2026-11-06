@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { sameCommit } from "./validate-reports.js";
 
 import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type Stage } from "./schema.js";
 import { findFeature, stageDir, assertPathName, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
@@ -78,6 +79,8 @@ export type ArchiveOutcome =
       countNote: string | null;
       /** The recorded PR the close was verified against; null when the item had nothing to land. */
       pr: string | null;
+      /** Why the reviewed commit is not the merged one; null when they agree or the report names none. */
+      reviewNote: string | null;
       /** Where the canonical docs went: the working tree, or a branch cut from origin's default branch. */
       docsOn: "tree" | "branch";
       /** Unpushed branch the docs were committed to (then `docs` are repository-relative); null when they went into the working tree. */
@@ -222,6 +225,18 @@ function reviewLanding(dir: string): string | null {
   const p = join(dir, ARTIFACTS["review-report"].file);
   if (!existsSync(p)) return null;
   return splitFrontmatter(readFileSync(p, "utf8")).fm.landing ?? null;
+}
+
+/**
+ * The merge already happened and only the human can undo it, so a review of another commit is reported, never a refusal.
+ * Null when the report predates its `commit:` field or the heads agree.
+ */
+function reviewMismatch(dir: string, mergedHead: string): string | null {
+  const p = join(dir, ARTIFACTS["review-report"].file);
+  if (!existsSync(p)) return null;
+  const reviewed = splitFrontmatter(readFileSync(p, "utf8")).fm.commit;
+  if (!reviewed || sameCommit(mergedHead, reviewed)) return null;
+  return `the review passed ${reviewed.slice(0, 7)} but ${mergedHead.slice(0, 7)} was merged: the review did not see the last commits`;
 }
 
 /** The docs-branch record after a reconcile: kept, landed, or the branch the docs were re-landed on. */
@@ -404,6 +419,9 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   if (merge.kind === "merged" && itemBranch && past && past.count > 0) {
     return refuse("pr-branch", "branch past merged head", `Cannot archive '${name}': the item branch ${itemBranch} is at ${past.tip.slice(0, 12)}, ${past.count} commits past ${merge.headRefOid.slice(0, 12)} that PR ${merge.pr} merged — those commits were not delivered. Land them in a follow-up PR or drop them, then reset ${itemBranch} to ${merge.headRefOid.slice(0, 12)} and re-run: ${rerun}`);
   }
+
+  // Read now: the item folder moves to done before the outcome is built.
+  const reviewNote = merge.kind === "merged" ? reviewMismatch(f.dir, merge.headRefOid) : null;
 
   // Landing rule: with no PR to verify, `landing: none` may close only when the item branch
   // carries nothing — otherwise unpushed work would be counted as delivered.
@@ -592,6 +610,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     branch,
     countNote: ahead?.note ?? null,
     pr: f.meta?.pr ?? null,
+    reviewNote,
     docsOn: docsTarget.kind === "branch" ? "branch" : "tree",
     docsBranch,
     docsNote: docsTarget.kind === "branch" ? docsTarget.why : docsTarget.kind === "tree" ? docsTarget.note ?? null : null,

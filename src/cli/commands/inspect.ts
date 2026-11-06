@@ -242,6 +242,7 @@ async function pluginPathWarning(root: string): Promise<string | null> {
   try {
     const state = await pluginState(claudeRunner(root, STATUS_PLUGIN_PROBE_MS), scope);
     if (state.status === "stale") return "⚠ kf plugin path is stale — run kf install";
+    if (state.status === "outdated") return `⚠ kf plugin is ${state.installed}, this package is ${state.available} — run kf install`;
     return state.status === "unknown" ? "⚠ kf plugin source unknown — claude does not report the folder it reads the plugin from" : null;
   } catch (err) {
     if (err instanceof ClaudePluginError) return `⚠ kf plugin state unknown: ${err.message}`;

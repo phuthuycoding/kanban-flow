@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS, STAGE_INDEX, REVIEW_CI_VALUES, REVIEW_LANDING_VALUES, type ArtifactId } from "./schema.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
+import { runGit } from "../shared/git.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
@@ -115,6 +116,22 @@ function legacyReportLandedByPr(feature: Feature, fm: Record<string, string>, pr
   return prMerged && fm.ci === undefined && fm.landing === undefined && Boolean(feature.meta?.pr);
 }
 
+/** A full sha against a report's `commit:`, which may be abbreviated. Too short a value matches nothing rather than everything. */
+export function sameCommit(full: string, reported: string): boolean {
+  const short = reported.toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(short) && full.toLowerCase().startsWith(short);
+}
+
+/** A PASS names the commit it reviewed; a later commit on the item branch is outside it. Reports before `commit:` carry none, and an item with no worktree has no branch to compare. */
+export function checkReviewedCommit(feature: Feature, fm: Record<string, string>): Finding[] {
+  const path = feature.meta?.worktree?.path;
+  if (fm.status !== "PASS" || !fm.commit || !path || !existsSync(path)) return [];
+  const head = runGit(path, ["rev-parse", "HEAD"]);
+  if (head.code !== 0 || sameCommit(head.stdout.trim(), fm.commit)) return [];
+  return [finding(feature, "WARNING", ARTIFACTS["review-report"].file, "review_stale",
+    `The review passed ${fm.commit.slice(0, 7)} but the item branch is at ${head.stdout.trim().slice(0, 7)}: review the new commits before merging.`)];
+}
+
 /**
  * Delivery half of a PASS review report: CI is green or absent (`ci: none`), and the code either lands through a
  * recorded PR (`landing: pr` + `meta.pr`) or there is nothing to land (`landing: none`).
@@ -166,7 +183,7 @@ export function checkReviewReport(feature: Feature): Finding[] {
   }
   // Only while in review: items archived before `ci:`/`landing:` existed carry reports without
   // them, and the review → done gate (checkDirectionGate) enforces the same rule at close.
-  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm, false));
+  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm, false), ...checkReviewedCommit(feature, fm));
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
       `Review ${status.toUpperCase()}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));
