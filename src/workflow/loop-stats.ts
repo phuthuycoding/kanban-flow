@@ -14,9 +14,21 @@ export const LEDGER_SHAPES = {
   complete: /^(TASK-\d+): complete \(.*\)$/,
 } as const;
 
-export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))$/;
+// `+hhmm` is accepted beside `+hh:mm`: the same instant, and a hand-written ledger drops the colon easily.
+export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))$/;
 
 const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
+
+/** A line that claims a shape behind a markdown bullet or indentation; it fails the grammar but must not pass as other-timed. */
+const LOOSE_KEYWORD = /^\s*(?:[-*+]\s+)?TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
+
+const REOPENED = /^Note (TASK-\d+): reopened — /;
+
+/** An attempted timestamp that TS_SUFFIX rejects (a space for `T`, a missing seconds field, ...): such a line is not untimed. */
+const STAMP_ATTEMPT = /@\s*\d{4}-\d{2}-\d{2}/;
+
+/** Date.parse is only specified for `+hh:mm`; normalise `+hhmm` before parsing. */
+const parseStamp = (stamp: string): number => Date.parse(stamp.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
 
 export const SEATS = ["test-writer", "developer", "automation-writer", "code-reviewer"] as const;
 export type Seat = (typeof SEATS)[number];
@@ -41,6 +53,8 @@ export interface LedgerLine {
   reason?: string;
   otherTask?: string;
   sha?: string;
+  /** Set on a `Note TASK-NNN: reopened — …` line: it cancels the task's earlier `complete` line. */
+  reopened?: boolean;
 }
 
 export interface ParsedLedger {
@@ -76,9 +90,9 @@ function shapeFields(shape: ShapeName, m: RegExpExecArray): Partial<LedgerLine> 
 
 function classify(text: string, line: number): LedgerLine {
   const suffix = TS_SUFFIX.exec(text);
-  if (!suffix) return { line, kind: "untimed" };
+  if (!suffix) return { line, kind: LOOSE_KEYWORD.test(text) && STAMP_ATTEMPT.test(text) ? "unparsed" : "untimed" };
   const stamp = suffix[1];
-  const ts = Date.parse(stamp);
+  const ts = parseStamp(stamp);
   const body = text.slice(0, suffix.index);
   // Only one suffix is stripped; a claimed shape still carrying one fails it (an open shape such as developerWaits would otherwise absorb it).
   if (SHAPE_KEYWORD.test(body) && TS_SUFFIX.test(body)) return { line, kind: "unparsed", ts, stamp };
@@ -86,14 +100,105 @@ function classify(text: string, line: number): LedgerLine {
     const m = LEDGER_SHAPES[shape].exec(body);
     if (m) return { line, kind: "shape", shape, task: m[1], ts, stamp, ...shapeFields(shape, m) };
   }
-  return { line, kind: SHAPE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
+  const reopened = REOPENED.exec(body);
+  if (reopened) return { line, kind: "other-timed", task: reopened[1], reopened: true, ts, stamp };
+  return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
+}
+
+/** Orphans no later open of the same seat or verify answers: a resume re-dispatches a lost seat, which leaves an honest orphan. */
+export function unansweredOrphans(parsed: ParsedLedger, orphans: number[]): number[] {
+  const key = (l: LedgerLine): string | null => (l.shape === "dispatched" ? `${l.task} ${l.seat}` : l.shape === "verifyStarted" ? `${l.task} verify` : null);
+  return orphans.filter((n) => {
+    const line = parsed.lines.find((l) => l.line === n);
+    const own = line ? key(line) : null;
+    return own === null || !parsed.lines.some((l) => l.line > n && key(l) === own);
+  });
+}
+
+/** Tasks whose latest `complete` line no later `reopened` note cancels. */
+export function completedTasks(parsed: ParsedLedger): Set<string> {
+  const done = new Set<string>();
+  for (const l of parsed.lines) {
+    if (l.shape === "complete") done.add(l.task!);
+    else if (l.reopened) done.delete(l.task!);
+  }
+  return done;
+}
+
+export interface LoggedRun {
+  exit: number;
+  ts: number;
+}
+
+const VERIFY_HEADER = /^## kf verify (\S+) exit=(\d+)$/;
+
+export interface VerifyLog {
+  /** The runs `kf verify` logged, oldest first. */
+  runs: LoggedRun[];
+  /** Set when the file opens with text a controller wrote under the earlier format: ledger lines before this time have no logged run. */
+  handWrittenUntil?: number;
+}
+
+export function parseVerifyLog(text: string): VerifyLog {
+  // Split on \n only: with the m flag, ^ also matches after a bare CR inside indented command output.
+  const lines = text.split("\n");
+  const first = lines.findIndex((l) => VERIFY_HEADER.test(l));
+  const runs = lines.flatMap((l) => {
+    const m = VERIFY_HEADER.exec(l);
+    return m ? [{ ts: Date.parse(m[1]), exit: Number(m[2]) }] : [];
+  });
+  const leading = (first === -1 ? lines : lines.slice(0, first)).join("").trim();
+  return leading === "" ? { runs } : { runs, handWrittenUntil: runs[0]?.ts ?? Infinity };
+}
+
+/** How far a `verify done` stamp may sit from its run: a background verify can report late. */
+const VERIFY_STAMP_TOLERANCE_MS = 15 * 60_000;
+
+/**
+ * Check every `verify done` line against the runs `kf verify` logged. Each line takes the unclaimed run with its exit
+ * code nearest its stamp: `unlogged` when there is none, so the line did not come from `kf verify`; `offClock` when that
+ * run is far away. Logged runs a ledger omits are fine (a run can finish after its session died). Exit 3 ran nothing and
+ * is not logged, and a line older than the log's first run under the earlier format has nothing to check against.
+ */
+export function checkVerifyLines(parsed: ParsedLedger, logOf: (task: string) => VerifyLog): { unlogged: number[]; offClock: number[] } {
+  const unlogged: number[] = [];
+  const offClock: number[] = [];
+  const claimed = new Map<string, Set<number>>();
+  for (const l of parsed.lines) {
+    if (l.shape !== "verifyDone" || l.exit === 3) continue;
+    const { runs, handWrittenUntil } = logOf(l.task!);
+    if (handWrittenUntil !== undefined && l.ts! < handWrittenUntil) continue;
+    const taken = claimed.get(l.task!) ?? new Set<number>();
+    claimed.set(l.task!, taken);
+    let best = -1;
+    runs.forEach((run, i) => {
+      if (run.exit !== l.exit || taken.has(i)) return;
+      if (best === -1 || Math.abs(run.ts - l.ts!) < Math.abs(runs[best].ts - l.ts!)) best = i;
+    });
+    if (best === -1) {
+      unlogged.push(l.line);
+      continue;
+    }
+    taken.add(best);
+    if (Math.abs(l.ts! - runs[best].ts) > VERIFY_STAMP_TOLERANCE_MS) offClock.push(l.line);
+  }
+  return { unlogged, offClock };
+}
+
+/** Margin for a coarse file clock: a stamp only counts as late past it. */
+const LATE_STAMP_MARGIN_MS = 60_000;
+
+/** Lines stamped after the ledger was last written, so the clock did not produce them. Best effort: a later write to the file hides them. */
+export function lateStamps(parsed: ParsedLedger, writtenAt: number): number[] {
+  return parsed.lines.filter((l) => l.ts !== undefined && l.ts > writtenAt + LATE_STAMP_MARGIN_MS).map((l) => l.line);
 }
 
 /** Classify every ledger line after the header; blank lines are skipped. */
 export function parseLedger(text: string): ParsedLedger {
   const lines: LedgerLine[] = [];
   text.split("\n").forEach((raw, i) => {
-    const content = raw.replace(/\r$/, "");
+    // Trailing whitespace (a stray space, a CR) carries no meaning; it must not hide the timestamp suffix.
+    const content = raw.trimEnd();
     if (i === 0 || content.trim() === "") return;
     lines.push(classify(content, i + 1));
   });
@@ -305,7 +410,7 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
   const dispatched = of("dispatched");
   const taskIds = new Set(dispatched.map((l) => l.task!));
   const completes = of("complete");
-  const completed = new Set(completes.map((l) => l.task!));
+  const completed = completedTasks(parsed);
   const inProgress = [...taskIds].some((t) => !completed.has(t));
 
   const timed = parsed.lines.filter((l) => l.ts !== undefined).map((l) => l.ts!);

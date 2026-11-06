@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `adaptive-developer-cap`:** the fixed developer cap of 4 no longer holds — the loop runs a live developer cap that starts at min(2, ceiling), steps up by one after each clean parallel wave and halves on a contention-shaped verify failure, ceiling `harness.developers.max` (default 6); the wait line reads `<N> developers in flight`. Kept for history.
+
 > **Partly superseded by `parallel-developers`:** the one-developer-per-worktree rule and the head/next two-task window no longer hold — up to 4 developers run at once under the dispatch conditions, test-writers run for the next 4 tasks, tasks complete out of order and a cascade reaches only dependents. Kept for history.
 
 ## Feature

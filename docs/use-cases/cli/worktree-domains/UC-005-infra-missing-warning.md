@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `adaptive-developer-cap`:** the domain infrastructure is now switchable — with `worktree.domains: false` there are no `.test` DNS or proxy probes, no `worktree_infra_missing` warning, `kf status` prints only `http://127.0.0.1:<port>` and hooks get no `KFW_WORKTREE_DOMAIN`; with it absent or `true` this doc still holds. Kept for history.
+
 ## Overview
 
 | Field | Value |

@@ -46,7 +46,7 @@ The CLI checks the files, the placeholders, secret-like content, ID references, 
 
 ## On close into `done`
 
-A review PASS item closes on the next `kf status`, `kf sync` or `kf archive` once its PR is merged (or at once when `landing: none` and nothing is ahead of the default branch), and `kf archive` is the explicit form. The close leaves the artifact set in `.works/done/{feature}_{timestamp}/` for audit. For a feature, the CLI copies the documents people actually read into the canonical docs:
+A review PASS item closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged (or at once when `landing: none` and nothing is ahead of the default branch), and `kf archive` is the explicit form. The close leaves the artifact set in `.works/done/{feature}_{timestamp}/` for audit. For a feature, the CLI copies the documents people actually read into the canonical docs:
 
 | Canonical doc | Contents |
 |---|---|
@@ -69,7 +69,7 @@ When the primary checkout is on a clean, current default branch, the canonical d
 
 ## The loop metrics file `.works/loop-metrics.md`
 
-`kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. Lines that cannot be parsed or have no time are counted in the row, not dropped.
+`kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, or `verify done` lines the `kf verify` log does not back, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.
 
 ## The day files under `.kf/travel/`
 
@@ -77,7 +77,7 @@ The `travel` skill keeps its state outside any work item, in two plain files und
 
 | File | Contents |
 |---|---|
-| `progress.md` | The ledger: one `## YYYY-MM-DD` section per day, one line per item with its state (`driving`, `blocked`, `waiting-to-merge`, `carry-over`, `done`), its size, and the PR URL or the reason and next command where there is one. A `driving` or `blocked` line is owned by travel |
+| `progress.md` | The ledger: one `## YYYY-MM-DD` section per day, one line per item with its state (`driving`, `blocked`, `waiting-to-merge`, `carry-over`, `done`), its size, and the PR URL or the reason and next command where there is one. A `driving` or `blocked` line carries an owner token: `owner=travel` while travel drives it, `owner=human` once the human takes a blocked item |
 | `estimates.md` | One line appended when a ledger line becomes `done`, fields in this order: `date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap`. `work` is the sum of the implementation seat durations travel observed for the item, `files` the item worktree's diff against its base, and `actual` the size the higher of the two implies (`-` for a cancelled or restarted item, which stays out of the stats) |
 
 Sizes are S=1, M=2, L=4, XL=8 points. The morning budget is the median daily total of `actual` points once three days of estimates exist, otherwise 10 tasks; after 20 measured lines the thresholds are learned from the recent rows instead of the defaults.

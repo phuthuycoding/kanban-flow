@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { findFeature } from "../../workflow/features.js";
@@ -8,8 +8,13 @@ import {
   NUMERIC_COLUMNS,
   PER_TASK_BUCKETS,
   SEATS,
+  checkVerifyLines,
+  completedTasks,
+  lateStamps,
   loopStats,
   parseLedger,
+  parseVerifyLog,
+  unansweredOrphans,
   readHistory,
   recordRow,
   summarise,
@@ -20,6 +25,7 @@ import {
   type SeatFigures,
 } from "../../workflow/loop-stats.js";
 import { taskView } from "../../workflow/tasks.js";
+import { verifyLogPath } from "../../workflow/verify.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -38,6 +44,32 @@ function seatLine(name: string, f: SeatFigures): string {
 
 const lagText = (n: number | null): string => (n === null ? "-" : String(n));
 const lagPart = (name: string, f: LagFigures): string => `${name} median ${lagText(f.median)} max ${lagText(f.max)} (n=${f.n})`;
+
+/** The unparsed and orphan line numbers as one phrase, or `null` when the ledger has none. */
+function brokenLines(unparsed: number[], orphans: number[]): string | null {
+  const parts = [
+    ...(unparsed.length > 0 ? [`unparsed lines ${list(unparsed)}`] : []),
+    ...(orphans.length > 0 ? [`orphan lines ${list(orphans)}`] : []),
+  ];
+  return parts.length > 0 ? `ledger ${parts.join(" and ")}` : null;
+}
+
+/** The problems that make a ledger's figures wrong, as one phrase, or `null` when it has none. */
+function ledgerProblems(stats: LoopStats, parsed: ParsedLedger, itemDir: string, ledgerPath: string): string | null {
+  const broken = brokenLines(stats.unparsed, unansweredOrphans(parsed, stats.orphans));
+  const late = lateStamps(parsed, statSync(ledgerPath).mtimeMs);
+  const { unlogged, offClock } = checkVerifyLines(parsed, (task) => {
+    const log = verifyLogPath(itemDir, task);
+    return parseVerifyLog(existsSync(log) ? readFileSync(log, "utf8") : "");
+  });
+  const parts = [
+    ...(broken ? [`${broken} are left out of every figure`] : []),
+    ...(unlogged.length > 0 ? [`ledger lines ${list(unlogged)} report a verify exit no kf verify run logged`] : []),
+    ...(offClock.length > 0 ? [`ledger lines ${list(offClock)} are stamped over 15 minutes from the kf verify run they report`] : []),
+    ...(late.length > 0 ? [`ledger lines ${list(late)} are stamped after the file was last written, so those times did not come from the clock`] : []),
+  ];
+  return parts.length > 0 ? `${parts.join("; ")}; fix those lines in ${ledgerPath}` : null;
+}
 
 function renderReport(feature: string, stats: LoopStats): string {
   const byModel = Object.entries(stats.byModel).map(([k, v]) => `${k} ${min(v)}`);
@@ -129,15 +161,22 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
   const stats = loopStats(parsed, dependencies);
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
-  if (!record) return { code: 0, stdout: report };
+  const problems = ledgerProblems(stats, parsed, item.dir, ledgerPath);
+  if (!record) {
+    // Plain reporting still exits 0; what makes the figures wrong is named on stderr so it is not missed.
+    return problems ? { code: 0, stdout: report, stderr: `warning: ${problems}` } : { code: 0, stdout: report };
+  }
 
-  const completed = new Set(parsed.lines.filter((l) => l.shape === "complete").map((l) => l.task));
+  const completed = completedTasks(parsed);
   // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
   const planned = tasks.map((t) => t.id);
   const ids = planned.length > 0 ? planned : [...new Set(parsed.lines.filter((l) => l.shape === "dispatched").map((l) => l.task!))];
   const missing = ids.filter((id) => !completed.has(id));
   if (missing.length > 0) {
     return refused(`cannot record ${item.name}: no complete line for ${missing.join(", ")}`, "loop not complete");
+  }
+  if (problems) {
+    return refused(`cannot record ${item.name}: ${problems} and record again`, "ledger has broken lines");
   }
   let path: string;
   try {

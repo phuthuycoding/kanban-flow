@@ -88,14 +88,11 @@ describe("the task loop seats", () => {
     expect(reference("task-loop.md")).toContain("\n## Model selection\n");
   });
 
-  it("carries no stage-worker or task-worker paragraph and keeps the single-implementer brief", () => {
+  it("carries no stage-worker or task-worker paragraph", () => {
     const skill = implement();
     expect(skill).not.toContain("Invoked through `kf run`");
     expect(skill).not.toContain("**Task worker:**");
     expect(skill).not.toContain("kf-run:");
-    const implementer = reference("implementer-brief.md");
-    expect(implementer).toContain("subagent_type: general-purpose");
-    expect(implementer).toContain("TDD is mandatory");
   });
 
   it("runs kf verify for the task after the developer's commit and before the code-reviewer", () => {

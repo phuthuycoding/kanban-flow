@@ -12,14 +12,14 @@ Plugin root: `${CLAUDE_PLUGIN_ROOT}` — the reference files of this skill write
 **ARGUMENTS:** `<context> <feature_name>` — e.g. `kanban auth user-login` or `kanban billing payment-timeout --type bug`
 
 ```
-0 kf status ──► 1 classify ──► 2 brainstorm ──confirm──► 3 plan ──approve──► 4 implement ──► 5 test ──► 6 review + PR + CI ──PASS──► 7 merge on GitHub ──► done
-                 spike │ bounded │ architectural                                   ▲                │  FAIL / REJECT  │
-                 (no item)                                                         └────────────────┴─────────────────┘
+kf status --all ──► classify ──► 1 brainstorm ──confirm──► 2 plan ──approve──► 3 implement ──► 4 test ──► 5 review + PR + CI ──PASS──► merge on GitHub ──► 6 done
+                    spike │ bounded │ architectural                                  ▲                │  FAIL / REJECT  │
+                    (no item)                                                        └────────────────┴─────────────────┘
 ```
 
 State is enforced by `kf`: artifact gates, approval fingerprints, execution ids, report statuses and traceability. The agent authors and verifies the content; file presence alone never proves that code was tested.
 
-**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. Stop and ask only for `REQUIREMENT_BUG`, a scope change, or a stop code that names the human.
+**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. Stop and ask only for `REQUIREMENT_BUG`, a scope change, or a stop code that names the human; a testing `BLOCKED` stops and reports the blocker.
 
 **Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; `kf init -i` when the user should answer the setup questions). Detect stack and tooling by READING the repository — never assume.
 
@@ -31,19 +31,20 @@ A step invoked as a tool renders one line carrying its name; a step merely *perf
 
 | Step | Named line(s) in the transcript | Skipped when |
 |---|---|---|
-| 2 Brainstorm | `Skill(kf:brainstorm)` · `Agent(kf:spec-reviewer)` once before the confirmation ask · `Agent(kf:researcher)` per outside-knowledge question | the spec was written without the reviewer, or confirmed without the user's word |
-| 3 Plan | `Skill(kf:plan)` · `Agent(kf:scout)` per thing that changes · `Agent(kf:researcher)` per outside-knowledge question · `Agent(kf:spec-reviewer)` before the approval ask | the impact survey was done inline, or the plan presented without the reviewer |
-| 4 Implement | `Skill(kf:implement)` with `Agent(kf:test-writer)`, `Agent(kf:developer)` and `Agent(kf:code-reviewer)` per task · `Agent(kf:researcher)` for a blocker that needs outside knowledge | a task was marked complete without its test-writer, developer or review seat |
-| 5 Test | `Skill(kf:test)` | a PASS report with no command and exit code behind it |
-| 6 Review | `Skill(kf:review)` · `Agent(kf:code-reviewer)` × the tier `select-tier` chose · the landing board `cat` from its file · `gh pr create` (first review only) and the CI watcher, both after the reviewer PASS | the orchestrator wrote findings itself, dispatched fewer seats than the tier, summarised the board instead of printing it, or opened the PR before the reviewer passed |
+| 1 Brainstorm | `Skill(kf:brainstorm)` · `Agent(kf:spec-reviewer)` once before the confirmation ask · `Agent(kf:researcher)` per outside-knowledge question | the spec was written without the reviewer, or confirmed without the user's word |
+| 2 Plan | `Skill(kf:plan)` · `Agent(kf:scout)` per thing that changes · `Agent(kf:researcher)` per outside-knowledge question · `Agent(kf:spec-reviewer)` before the approval ask | the impact survey was done inline, or the plan presented without the reviewer |
+| 1–2 Bug | `Skill(kf:bug)`, then `Skill(kf:plan)` on its bug branch; no `scout` and no `spec-reviewer` — triage grounds the names itself | the report confirmed without the user's word, or a root cause stated without evidence |
+| 3 Implement | `Skill(kf:implement)` with `Agent(kf:test-writer)`, `Agent(kf:developer)` and `Agent(kf:code-reviewer)` per task · `Agent(kf:researcher)` for a blocker that needs outside knowledge | a task was marked complete without its test-writer, developer or review seat |
+| 4 Test | `Skill(kf:test)` · `Agent(kf:automation-writer)` when the level is `full` and a UI test case has no spec | a PASS report with no command and exit code behind it |
+| 5 Review | `Skill(kf:review)` · `Agent(kf:code-reviewer)` × the tier `select-tier` chose · the landing board `cat` from its file · `gh pr create` (first review only) and the CI watcher, both after the reviewer PASS | the orchestrator wrote findings itself, dispatched fewer seats than the tier, summarised the board instead of printing it, or opened the PR before the reviewer passed |
 | Spike (no item) | `Skill(kf:spike)` · `Agent(kf:researcher)` per question research can answer | the probe was run without the skill, or a work item was opened for a question |
-| 7 Merge / close | the PR URL handed to the human, then `kf status` showing `done` after their merge | a close before the PR merged, or a merge made by the agent |
+| 6 Merge / close | the PR URL handed to the human, then `kf status --change {feature}` showing `done` after their merge | a close before the PR merged, or a merge made by the agent |
 
 The seven agent bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md`; the kf plugin registers them with Claude Code (`kf install` runs the plugin install), and other runtimes paste the body into a plain subagent. **A session never fills the review seat itself.** The action → tool mapping per runtime is in [references/harness-tools.md](references/harness-tools.md).
 
 ---
 
-## 1. Classify the request — and say it out loud
+## Classify the request — and say it out loud
 
 Before `kf new`, name the path so the user can override it:
 
@@ -59,7 +60,7 @@ Before `kf new`, name the path so the user can override it:
 
 ---
 
-## 2–7. Phase model & artifact contract
+## Phase model & artifact contract
 
 ```
 brainstorm → planning → implementation → testing → review ──merge on GitHub──→ done
@@ -70,13 +71,13 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 
 | Phase | Skill | Gate artifacts (filled to LEAVE) | Notes |
 |-------|-------|----------------------------------|-------|
-| 2. Brainstorm / Bug triage | `kf:brainstorm` or `kf:bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Ground the names first; `spec-reviewer` before the confirmation ask; human confirms |
-| 3. Planning | `kf:plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | `scout` per surface, saved under `<item>/reviews/`; `spec-reviewer` before approval; **human approves: `kf approve` starts, `kf approve --backlog` defers** |
+| 1. Brainstorm / Bug triage | `kf:brainstorm` or `kf:bug` | `phase-1-spec-requirement.md` (`status: confirmed`) | Ground the names first; a feature runs `spec-reviewer` before the confirmation ask, a bug runs none; human confirms |
+| 2. Planning | `kf:plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | Feature: `scout` per surface, saved under `<item>/reviews/`, and `spec-reviewer` before approval; a bug runs neither; **human approves: `kf approve` starts, `kf approve --backlog` defers** |
 | Backlog | — | Approved planning contract remains intact | Waiting for the explicit decision to start (`kf stage <f> implementation`) |
-| 4. Implement | `kf:implement` | — (tasks.md and the `loop/progress.md` ledger track) | The subagent-driven task loop — `test-writer` → `developer` → `code-reviewer` per task, `kf verify --task` after each task commit, bounded fix loop |
-| 5. Testing | `kf:test` | `phase-4-testing-result.md` (`status: PASS`) | Counts, not verdicts; a changed behaviour no test covers is run for real; FAIL/REJECT → loop to implementation |
-| 6. Review | `kf:review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents at the tier the diff earns, evidence verified; the landing board stamps every check with the tree's fingerprint; only after the reviewer PASS is the item branch pushed and the PR opened, then CI is watched (`ci:` / `landing:` in the report); FAIL/REJECT or red CI → loop; REQUIREMENT_BUG → STOP |
-| 7. Closure | `kf:archive` | Feature: `phase-6-feature-report.md` (written at review PASS); bug: current test/review evidence | Internal: once the PR is merged on GitHub, `kf status` / `kf sync` close the item to `done` (a `landing: none` item with no commits closes on the next `kf status`); `kf archive` is the explicit, idempotent form |
+| 3. Implement | `kf:implement` | — (tasks.md and the `loop/progress.md` ledger track) | The subagent-driven task loop — `test-writer` → `developer` → `code-reviewer` per task, `kf verify --task` after each task commit, bounded fix loop |
+| 4. Testing | `kf:test` | `phase-4-testing-result.md` (`status: PASS`) | Counts, not verdicts; a changed behaviour no test covers is run for real; FAIL/REJECT → loop to implementation; BLOCKED → stop and report |
+| 5. Review | `kf:review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents at the tier the diff earns, evidence verified; the landing board stamps every check with the tree's fingerprint; only after the reviewer PASS is the item branch pushed and the PR opened, then CI is watched (`ci:` / `landing:` in the report); FAIL/REJECT or red CI → loop; REQUIREMENT_BUG → STOP |
+| 6. Closure | `kf:archive` at review PASS (feature report) or to repair a done item | Feature: `phase-6-feature-report.md` (written at review PASS); bug: current test/review evidence | The normal close loads no skill: once the PR is merged on GitHub, `kf status --change {feature}` (or `--all`) / `kf sync` close the item to `done` silently (a `landing: none` item with no commits closes the same way); `kf archive` is the explicit, idempotent form |
 
 **Two gate layers on every move:**
 1. **Artifact gate** — files exist and contain no template placeholders.
@@ -89,7 +90,7 @@ Feature canonical docs are synced by the CLI on close:
 - Use cases: `docs/use-cases/{context}/{feature_name}/README.md`, one `UC-###(-<slug>).md` per use case and `diagram.md`
 - Test plan/result: `docs/testplan/{context}/{feature_name}.md` and `{feature_name}-result.md`
 
-Work item type is stored in `.kfw.json` as `kind: feature|bug`. Create a bug with `kf new <name> --type bug`; route it to `kf:bug` for reproduction and triage before planning. Bug closure updates the existing related feature docs only if needed; never auto-create feature docs for a bug or overwrite a feature requirement with bug-report content.
+Work item type is stored in `.kfw.json` as `kind: feature|bug`. Create a bug with `kf new <name> --type bug`; route it to `kf:bug` for reproduction and triage before planning. A bug's related feature docs are updated in review (`kf:review` step 2b) when needed, and the close changes no bug docs; never auto-create feature docs for a bug or overwrite a feature requirement with bug-report content.
 
 ---
 
@@ -104,15 +105,15 @@ kf status --change {feature}   # current phase + artifact checklist + Next: + Ap
 
 Then **load the skill for the feature's CURRENT phase** and follow it to its endpoint (each skill ends pointing at the next one). Do not re-read phase instructions you have already executed; go straight at the target.
 
-The approval is the start: `kf approve {feature}` moves the item to implementation (worktree provisioned when enabled), `kf approve {feature} --backlog` parks it when the human's reply defers; there is no second question. If planning is already approved and its fingerprint is unchanged, `kf approve` re-runs the move. Before presenting the plan, check `.kf/config.json`: when `worktree.enabled` is not `true`, implementation and `kf verify` run in the main checkout, not an item worktree — say so in the approval summary. After the approval, load `kf:implement`. If an item is in backlog, do not start implementation without an explicit user decision (`kf stage {feature} implementation`). If review has a current PASS report, the only next step is the human's merge on GitHub; `kf status` (or `kf sync`) then closes the item to `done` — a feature needs `phase-6-feature-report.md` first, which `kf:review` writes at PASS. A PR closed without merge keeps the item in review: report it and ask. If already in done, validate and finish only missing closure work (`kf:archive`); never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and done and ends with the `Needs you` and `Waiting to merge` buckets.
+The approval is the start: `kf approve {feature}` moves the item to implementation (worktree provisioned when enabled), `kf approve {feature} --backlog` parks it when the human's reply defers; there is no second question. If planning is already approved and its fingerprint is unchanged, `kf approve` re-runs the move. Before presenting the plan, check `.kf/config.json`: when `worktree.enabled` is not `true`, implementation and `kf verify` run in the main checkout, not an item worktree — say so in the approval summary. After the approval, load `kf:implement`. If an item is in backlog, do not start implementation without an explicit user decision (`kf stage {feature} implementation`). If review has a current PASS report, the only next step is the human's merge on GitHub; `kf status --change {feature}` (or `--all`, or `kf sync`) then closes the item to `done` silently, loading no skill — a feature needs `phase-6-feature-report.md` first, which `kf:review` writes at PASS (the one place `kf:archive` is loaded besides repairing a done item). A PR closed without merge keeps the item in review: report it and ask. If already in done, validate and finish only missing closure work (`kf:archive`); never implement again. Resume existing artifacts and tasks instead of recreating the item or approved plan. `kf status --all` includes backlog and done and ends with the `Needs you` and `Waiting to merge` buckets.
 
-**Ownership:** a ledger line `driving` or `blocked` in `.kf/travel/progress.md` (when a travel day is running) means travel owns that item; a session other than the travel session that wrote the line does not implement it. When the human opens a `blocked` item in this session, this session owns the fix until they say it is done; travel takes it back after that, not this session. If you are resuming mid-pipeline, skip straight to the phase skill for the current phase. **Never trust a folder location alone — a stage folder is not "done"; artifact + report completeness is.**
+**Ownership:** a `driving` or `blocked` line in `.kf/travel/progress.md` (when a travel day is running) carries an owner token. Only one travel session runs per day; a session that is not travel never runs a task loop for an `owner=travel` line. When the human opens a `blocked` item in this session, rewrite its token to `owner=human`; this session owns the fix until the human says it is done, then travel sets it back to `owner=travel`. If you are resuming mid-pipeline, skip straight to the phase skill for the current phase. **Never trust a folder location alone — a stage folder is not "done"; artifact + report completeness is.**
 
 ## Multi-agent harness
 
 **In-session agents** (`scout`, `spec-reviewer`, `test-writer`, `developer`, `automation-writer`, `code-reviewer`, `researcher`) are subagents the phase skills dispatch from the session running the skill, each for a bounded job with a fresh context and a short report back: `Agent(kf:scout)` and `Agent(kf:spec-reviewer)` at brainstorm and planning, `Agent(kf:test-writer)` → `Agent(kf:developer)` → `Agent(kf:code-reviewer)` per task in `kf:implement`, `Agent(kf:automation-writer)` for UI tests, `Agent(kf:code-reviewer)` × the tier at review, and `Agent(kf:researcher)` for a question the repository cannot answer (brainstorm, planning, a developer's blocker, a spike). The phase skill decides who fills each seat; a session never fills a review seat itself.
 
-**Mechanical verification:** `kf verify {feature} --task TASK-### --base <sha>` runs the `harness.verify.task` commands and checks the task's changed files against its Files allowlist; `kf verify {feature} --task TASK-### --commits <sha>[,<sha>…]` checks exactly those commits and runs the commands in a temporary detached worktree at the newest (`--base` stays the single-task form); `kf verify {feature} --stage` runs `harness.verify.stage`. Exit 0 pass, 1 a verify command failed, 2 a changed file is outside the task's Files, 3 bad input or kf verify could not run (nothing ran). `kf:implement` says where the loop calls them. `kf drive`, `kf run`, `kf runs` and `kf harness` were removed; `kf doctor --fix` clears the config keys they used.
+**Mechanical verification:** `kf verify {feature} --task TASK-### --base <sha>` runs the `harness.verify.task` commands and checks the task's changed files against its Files allowlist; `kf verify {feature} --task TASK-### --commits <sha>[,<sha>…]` checks exactly those commits and runs the commands in a temporary detached worktree at the newest, or at HEAD with `--at-head` (`--base` stays the single-task form); `kf verify {feature} --stage` runs `harness.verify.stage`. Exit 0 pass, 1 a verify command failed, 2 a changed file is outside the task's Files, 3 bad input or kf verify could not run (nothing ran). `kf:implement` says where the loop calls them. `kf drive`, `kf run`, `kf runs` and `kf harness` were removed; `kf doctor --fix` clears the config keys they used.
 
 ---
 
@@ -141,9 +142,12 @@ kf approve {feature} [--backlog]   # Phase 2 HITL gate: approve and start (imple
 kf validate --change {feature}  # gate + traceability issues
 kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
 kf tasks {feature} [--json] [--graph]    # tasks parsed from the approved plan, with state; --graph adds critical path and max width
-kf verify {feature} --task TASK-### --base <sha> | --commits <sha>[,<sha>…] | --stage   # harness.verify commands + the task's Files allowlist check
+kf verify {feature} --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | --stage   # harness.verify commands + the task's Files allowlist check
 kf loop-stats {feature} [--json] [--record] | --all [--json]   # measure a task loop from its ledger; --record writes (replacing any earlier) the item's row in .works/loop-metrics.md
 kf archive {feature}           # explicit, idempotent close: merged-PR (or landing: none) check → review → done + docs + issue close + board + delivered stamp; kf status / kf sync run it after the merge
+kf sync                        # close sweep: closes every review item whose recorded PR merged, or with landing: none and nothing to land
+kf issues link {feature} <url> --pr [--replace]   # record the item's PR; --replace only when the recorded PR was closed unmerged
+kf cancel {feature} --reason "<why>"   # drop the item for good — propose it, the human decides
 ```
 
 Contexts: a project may declare the ones it uses in `.kf/config.json`, and the first entry is the default. `kf new` refuses a context outside that list and names the nearest declared one; a case-only variant is refused too. Run `kf contexts --json` before `kf new` and use a declared name exactly. Never add a context to the config to get past a refusal — naming a business domain is the human's call.

@@ -203,3 +203,24 @@ describe("review-package range mode", () => {
     expect(newRun.stderr).toBe(oldRun.stderr);
   });
 });
+
+describe("review-package BASE HEAD on the working tree", () => {
+  it("exits 4 when a tracked file has uncommitted changes, so the pack never differs from the sized tree", () => {
+    writeFileSync(join(repo, "src", "a-file.txt"), "alpha\nuncommitted\n");
+    const r = run(script, [root, "HEAD", out]);
+    expect(r.status).toBe(4);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("still packages a dirty tree with --commits, which parallel seats share", () => {
+    writeFileSync(join(repo, "src", "a-file.txt"), "alpha\nuncommitted\n");
+    expect(run(script, ["--commits", a, out]).status).toBe(0);
+  });
+
+  it("packages an untracked file whose name git would quote", () => {
+    writeFileSync(join(repo, "src", 'q"uote.txt'), "quoted body\n");
+    const r = run(script, [root, "HEAD", out, "--untracked"]);
+    expect(r.status).toBe(0);
+    expect(readFileSync(out, "utf8")).toContain("quoted body");
+  });
+});

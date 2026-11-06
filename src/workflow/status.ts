@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -12,7 +12,8 @@ import {
 } from "./schema.js";
 import { splitFrontmatter, isFilledFile } from "../shared/frontmatter.js";
 import type { Feature } from "./features.js";
-import { executionContractHash } from "./features.js";
+import { executionContractHash, findWorksRoot } from "./features.js";
+import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
 
@@ -163,6 +164,28 @@ export function computeStatus(feature: Feature): FeatureStatus {
   };
 }
 
+interface DomainsFlag { domains: boolean; error?: string }
+const domainsCache = new Map<string, DomainsFlag>();
+
+/** Reads only `worktree.domains`; keyed by the config file's mtime so a rewritten config is seen
+ *  while status --all / the dashboard do not re-read it per item. A broken config reads as off and
+ *  reports why: the direct URL works whatever the flag says, a domain URL may lead nowhere. */
+function resolveDomains(root: string): DomainsFlag {
+  const file = join(root, ".kf", "config.json");
+  const key = `${root}\0${((st) => (st ? `${st.mtimeMs}:${st.size}` : "none"))(statSync(file, { throwIfNoEntry: false }))}`;
+  const hit = domainsCache.get(key);
+  if (hit) return hit;
+  let flag: DomainsFlag;
+  try {
+    flag = { domains: readProjectConfig(root).worktree?.domains ?? true };
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    flag = { domains: false, error: err.message };
+  }
+  domainsCache.set(key, flag);
+  return flag;
+}
+
 /** Render a human-readable status snapshot (mirrors `openspec status`). */
 export function renderStatusText(s: FeatureStatus): string {
   const lines: string[] = [];
@@ -188,7 +211,12 @@ export function renderStatusText(s: FeatureStatus): string {
   const wt = s.feature.meta?.worktree;
   if (wt) {
     lines.push(`Worktree: ${wt.path}  (branch ${wt.branch})`);
-    lines.push(`Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`);
+    const root = findWorksRoot(s.feature.dir);
+    const flag: DomainsFlag = root === null ? { domains: true } : resolveDomains(root);
+    lines.push(flag.domains
+      ? `Domain:   http://${wt.domain}  (direct: http://127.0.0.1:${wt.port})`
+      : `Direct:   http://127.0.0.1:${wt.port}`);
+    if (flag.error) lines.push(`Config:   invalid .kf/config.json — ${flag.error}`);
   }
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);
@@ -216,7 +244,7 @@ export function renderStatusText(s: FeatureStatus): string {
     lines.push(`Next: merge ${s.close.pr} on GitHub, then kf status --change ${s.feature.name}`);
   } else if (s.close?.kind === "pr-closed" && !s.next && s.blockers.length === 0) {
     lines.push("");
-    lines.push(`Next: human decision — ${s.close.pr} was closed without merging: reopen and merge it, or kf stage "${s.feature.name}" implementation, or kf cancel "${s.feature.name}"`);
+    lines.push(`Next: human decision — ${s.close.pr} was closed without merging: reopen and merge it, or open a new PR and run kf issues link "${s.feature.name}" <url> --pr --replace, or kf stage "${s.feature.name}" implementation, or kf cancel "${s.feature.name}"`);
   } else if (s.next) {
     lines.push("");
     lines.push(`Next: kf instruct ${s.next} --change "${s.feature.name}"`);
@@ -312,7 +340,7 @@ export function computeBuckets(
       if (review === "FAIL" || review === "REJECT" || review === "REQUIREMENT_BUG") {
         needsYou.push({ feature: f.name, decision: `review ${review} — repair (kf stage ${f.name} implementation) or revise the plan` });
       } else if (s.close?.kind === "pr-closed") {
-        needsYou.push({ feature: f.name, decision: `${s.close.pr} was closed without merging — reopen and merge it, or move the item back` });
+        needsYou.push({ feature: f.name, decision: `${s.close.pr} was closed without merging — reopen and merge it, open a new PR and run kf issues link ${f.name} <url> --pr --replace, or move the item back` });
       } else if (s.close?.kind === "awaiting-merge") {
         const number = /\/pull\/(\d+)$/.exec(s.close.pr)?.[1];
         waitingToMerge.push({ feature: f.name, pr: s.close.pr, command: number ? `gh pr merge ${number}` : `gh pr merge ${s.close.pr}` });

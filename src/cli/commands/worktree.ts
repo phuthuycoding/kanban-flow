@@ -22,8 +22,9 @@ const USAGE = `Usage: kf worktree <subcommand>
   setup [--print]            — one-time domain infra: dnsmasq rule, resolver, launchd proxy daemon (needs sudo)
 `;
 
-function worktreeInfoLines(wt: { path: string; branch: string; domain: string; port: number }): string {
-  return `  path:   ${wt.path}\n  branch: ${wt.branch}\n  domain: http://${wt.domain}\n  direct: http://127.0.0.1:${wt.port}`;
+function worktreeInfoLines(wt: { path: string; branch: string; domain: string; port: number }, domains: boolean): string {
+  const domainLine = domains ? `\n  domain: http://${wt.domain}` : "";
+  return `  path:   ${wt.path}\n  branch: ${wt.branch}${domainLine}\n  direct: http://127.0.0.1:${wt.port}`;
 }
 
 async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -41,7 +42,7 @@ async function cmdWorktreeCreate(args: ParsedArgs, cwd: string): Promise<CmdResu
     await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, worktree: wt }));
   }
   const syncNote = sync.warning ? `\n  ⚠ ${sync.warning}` : sync.note ? `\n  ${sync.note}` : "";
-  return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt)}${syncNote}` };
+  return { code: 0, stdout: `Worktree for '${name}':\n${worktreeInfoLines(wt, cfg.domains)}${syncNote}` };
 }
 
 async function cmdWorktreeRemove(args: ParsedArgs, cwd: string): Promise<CmdResult> {
@@ -80,7 +81,9 @@ async function cmdWorktreeList(args: ParsedArgs, cwd: string): Promise<CmdResult
     lines.push(`${i.item} (${i.stage})`);
     lines.push(`  path:   ${i.path}${i.missing ? "  (missing)" : ""}`);
     lines.push(`  branch: ${i.branch}${i.dirty === null ? "" : i.dirty ? "  (dirty)" : ""}`);
-    lines.push(`  domain: http://${i.domain}  → 127.0.0.1:${i.port}`);
+    lines.push(cfg.domains
+      ? `  domain: http://${i.domain}  → 127.0.0.1:${i.port}`
+      : `  direct: http://127.0.0.1:${i.port}`);
   }
   if (orphans.length > 0) {
     lines.push("", "Orphans:");

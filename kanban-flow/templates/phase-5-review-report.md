@@ -20,7 +20,7 @@ landing: "{landing}"
 
 | Field | Value | Meaning |
 |---|---|---|
-| `ci` | {ci} | `green`: the PR checks passed on the reviewed sha. `red`: a check failed; the report cannot be PASS, write FAIL and return to implementation. `none`: the repository runs no GitHub Actions on the PR (no `.github/workflows`), so no watch ran. |
+| `ci` | {ci} | `green`: the PR checks passed on the reviewed sha. `red`: a check failed; the report cannot be PASS, write FAIL and return to implementation. `none`: the repository runs no GitHub Actions on the PR (no `.github/workflows`), so no watch ran. `not-run`: a FAIL, REJECT or REQUIREMENT_BUG written before any CI watch — no PR was pushed for this tree, so CI has not been asked; never valid on PASS. |
 | `landing` | {landing} | `pr`: the reviewed code lands through the PR recorded with `kf issues link <feature> <url> --pr`. `none`: nothing to land (no tracked code changed), no PR is opened and the item closes without a merge. |
 
 PASS requires `ci: green` or `ci: none` (any other or missing value is refused), and either `landing: pr` with the PR recorded or `landing: none`.

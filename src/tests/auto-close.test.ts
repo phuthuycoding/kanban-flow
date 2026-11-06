@@ -311,22 +311,30 @@ describe("auto-close on merge", () => {
     expect(onOrigin("t/demo")).toContain("t/demo");
   }, 15_000);
 
-  it("a branch with a commit past the merged head closes the item and keeps the branch locally", async () => {
+  it("a branch with a commit past the merged head refuses the close before any side effect, naming both shas", async () => {
     await reviewItem();
     const wt = feature().meta!.worktree!;
-    process.env.GH_PR_HEAD_OID = git(origin, "rev-parse", "refs/heads/t/demo");
+    const merged = git(origin, "rev-parse", "refs/heads/t/demo");
+    process.env.GH_PR_HEAD_OID = merged;
     writeFileSync(join(wt.path, "late.txt"), "late");
     git(wt.path, "add", ".");
     git(wt.path, "commit", "-qm", "after merge");
+    const tip = git(root, "rev-parse", "t/demo");
 
-    const res = await status();
-    expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain(`✓ done demo (PR merged: ${PR})`);
-    expect(res.stdout).toContain("Branch t/demo: kept locally, deleted on origin");
-    expect(res.stdout).toContain("kept t/demo: 1 commits after the merged head");
-    expect(feature().stage).toBe("done");
-    expect(git(root, "log", "-1", "--format=%s", "t/demo")).toBe("after merge");
-    expect(onOrigin("t/demo")).toBe("");
+    const res = await cmdArchive(args("archive", ["demo"]), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain(`the item branch t/demo is at ${tip.slice(0, 12)}, 1 commits past ${merged.slice(0, 12)} that PR ${PR} merged`);
+    expect(feature().stage).toBe("review");
+    expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
+    expect(existsSync(wt.path)).toBe(true);
+    expect(git(root, "rev-parse", "t/demo")).toBe(tip);
+    expect(onOrigin("t/demo")).toContain("t/demo");
+    expect(existsSync(join(scratch, "hook.out"))).toBe(false);
+
+    // kf status runs the same close and reports the refusal instead of closing.
+    const st = await status();
+    expect(st.stdout).toContain("1 commits past");
+    expect(feature().stage).toBe("review");
   }, 15_000);
 
   it("a remote branch that moved past the merged head is kept on origin", async () => {

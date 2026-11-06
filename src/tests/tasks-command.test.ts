@@ -75,6 +75,8 @@ describe("kf tasks", () => {
     for (const t of out.tasks) expect(t).not.toHaveProperty("role");
     expect(out.tasks[1].files).toEqual(["src/b.ts", "src/c.ts"]);
     expect(out.tasks[1].dependencies).toEqual(["TASK-001"]);
+    expect(out.tasks[1].refs).toBe("FR-001 / UC-001");
+    expect(out.tasks[1].expectedOutput).toBe("Change merged");
     expect(out.tasks[2].files).toBeNull();
   });
 
@@ -219,10 +221,10 @@ describe("kf tasks --graph", () => {
     });
   });
 
-  it("leaves --json without --graph byte-identical to the task listing", async () => {
+  it("lists the tasks byte-identically and appends the developer ceiling in --json without --graph", async () => {
     await writePlan(graphPlan);
     const task = (id: string, description: string, dependencies: string[], files: string[], wave: number, state: string) =>
-      ({ id, description, dependencies, files, wave, overlaps: [], state });
+      ({ id, description, dependencies, files, refs: "FR-001 / UC-001", expectedOutput: "Change merged", wave, overlaps: [], state });
     const expected = JSON.stringify({
       feature: "demo",
       tasks: [
@@ -233,8 +235,66 @@ describe("kf tasks --graph", () => {
         task("TASK-005", "Do TASK-005", [], ["src/e.ts"], 1, "ready"),
         task("TASK-006", "Do TASK-006", [], ["src/f.ts"], 1, "ready"),
       ],
+      developers: { max: 6, source: "default" },
     }, null, 2);
     expect((await cmdTasks(args({ json: true }), root)).stdout).toBe(expected);
+  });
+
+  describe("the developer ceiling in --json", () => {
+    const writeConfig = (developers?: unknown) =>
+      writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+        schema: "kanban-flow", created: "20260919_1200", defaultContext: "app",
+        harness: developers === undefined ? {} : { developers },
+      }));
+
+    it("reports the default of 6 when the key is not set", async () => {
+      await writeConfig();
+      const out = JSON.parse((await cmdTasks(args({ json: true }), root)).stdout) as Record<string, unknown>;
+      expect(Object.keys(out)).toEqual(["feature", "tasks", "developers"]);
+      expect(out.developers).toEqual({ max: 6, source: "default" });
+    });
+
+    it("reports the default when developers is set without a max", async () => {
+      await writeConfig({});
+      const out = JSON.parse((await cmdTasks(args({ json: true }), root)).stdout) as Record<string, unknown>;
+      expect(out.developers).toEqual({ max: 6, source: "default" });
+    });
+
+    it("reports the configured max with source config", async () => {
+      await writeConfig({ max: 3 });
+      const res = await cmdTasks(args({ json: true }), root);
+      expect(res.code).toBe(0);
+      expect((JSON.parse(res.stdout) as Record<string, unknown>).developers).toEqual({ max: 3, source: "config" });
+    });
+
+    it("fails with the max message when the configured max is 0", async () => {
+      await writeConfig({ max: 0 });
+      const outcome = await cmdTasks(args({ json: true }), root).then(
+        (r) => ({ code: r.code, text: `${r.stdout}\n${r.stderr ?? ""}` }),
+        (e: Error) => ({ code: 1, text: e.message }),
+      );
+      expect(outcome.code).not.toBe(0);
+      expect(outcome.text).toContain("harness.developers.max must be an integer from 1 to 16");
+    });
+
+    it("keeps the task list when another config key is invalid, with an unknown ceiling reading 1", async () => {
+      await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+        schema: "kanban-flow", created: "20260919_1200", defaultContext: "app", worktree: { domains: "no" },
+      }));
+      const res = await cmdTasks(args({ json: true }), root);
+      expect(res.code).toBe(0);
+      const out = JSON.parse(res.stdout) as { tasks: unknown[]; developers: { max: number; source: string; error: string } };
+      expect(out.tasks.length).toBeGreaterThan(0);
+      expect(out.developers).toMatchObject({ max: 1, source: "invalid-config" });
+      expect(out.developers.error).toContain("worktree.domains must be boolean");
+    });
+
+    it("keeps the graph JSON key set free of developers", async () => {
+      await writeConfig({ max: 3 });
+      const out = JSON.parse((await cmdTasks(args({ graph: true, json: true }), root)).stdout) as Record<string, unknown>;
+      expect(Object.keys(out)).not.toContain("developers");
+      expect(Object.keys(out).sort()).toEqual(["criticalPath", "earliestStart", "feature", "length", "maxWidth", "maxWidthExact", "widthSet"]);
+    });
   });
 
   it("prints none and zero for a plan without tasks", async () => {

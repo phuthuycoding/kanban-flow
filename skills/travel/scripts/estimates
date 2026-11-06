@@ -37,6 +37,7 @@ const FACTOR_MAX = 3;
 const DEFAULT_TASKS = 10;
 const MIN_DAYS = 3;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const KINDS = ["feature", "bug", "pr"];
 
 class InputError extends Error {}
 
@@ -137,7 +138,7 @@ async function cmdSize(args) {
   let text = "defaults (0 rows measured)";
   if (args.length === 4) {
     const kind = args[3];
-    if (kind === "") fail("kind must not be empty");
+    if (!KINDS.includes(kind)) fail(`kind must be feature|bug|pr: ${kind}`);
     const f = factorFor(await loadRows(args[2]), kind);
     if (f.raw === null) text = `defaults (${f.usable} ${kind} rows with estmin)`;
     else {
@@ -156,6 +157,7 @@ function parseFlags(args) {
     const a = args[i];
     if (!a.startsWith("--")) fail(`unexpected argument: ${a}`);
     const key = a.slice(2);
+    if (Object.hasOwn(flags, key)) fail(`--${key} given more than once`);
     if (key === "cancelled") { flags.cancelled = true; continue; }
     const value = args[i + 1];
     if (value === undefined || value.startsWith("--")) fail(`--${key} needs a value`);
@@ -187,10 +189,12 @@ async function cmdMeasure(args) {
   const estmin = f.estmin === undefined ? undefined : positive("--estmin", f.estmin);
   const work = number("--work", f.work, false);
   const review = number("--review", f.review, false);
+  // review is the part of work spent in review seats, so it can never exceed work.
+  if (review > work) fail(`--review (${f.review}) must not exceed --work (${f.work})`);
   const files = number("--files", f.files, true);
   const rounds = number("--rounds", f.rounds, true);
   const kind = cell("kind", f.kind);
-  if (!["feature", "bug", "pr"].includes(kind)) fail(`--kind must be feature|bug|pr: ${kind}`);
+  if (!KINDS.includes(kind)) fail(`--kind must be feature|bug|pr: ${kind}`);
   const date = f.date === undefined ? today() : f.date;
   if (!realDate(date)) fail(`--date must be YYYY-MM-DD: ${date}`);
   // Parsed only to refuse appending to a malformed file.

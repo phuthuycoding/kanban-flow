@@ -320,7 +320,7 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
   // never an ERROR that blocks a gate. It surfaces here because `kf validate` is the command
   // agents are trained to run.
   const wtCfg = worktreeConfig(root.root, readProjectConfig(root.root).worktree);
-  if (wtCfg.enabled && features.length > 0) {
+  if (wtCfg.enabled && wtCfg.domains && features.length > 0) {
     const machine = readMachineConfig();
     const infra = await probeDomainInfra(machine, wtCfg.routesFile);
     const failed = infra.probes.filter((p) => !p.ok);

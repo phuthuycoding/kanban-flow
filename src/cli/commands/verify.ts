@@ -1,10 +1,10 @@
-import { verifyStage, verifyTask, verifyTaskCommits } from "../../workflow/verify.js";
+import { appendVerifyLog, verifyStage, verifyTask, verifyTaskCommits } from "../../workflow/verify.js";
 import { ProjectConfigError } from "../../project/config.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
-const USAGE = "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] | kf verify <feature> --stage";
+const USAGE = "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage";
 
 const badInput = (reason: string): CmdResult => ({ code: 3, stdout: `${reason}\n${USAGE}`, stderr: "bad input" });
 
@@ -16,6 +16,8 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
   const base = typeof args.options.base === "string" ? args.options.base : undefined;
   const commits = typeof args.options.commits === "string" ? args.options.commits : undefined;
   const stage = args.options.stage === true;
+  const atHead = args.options["at-head"] === true;
+  if (atHead && commits === undefined) return badInput("--at-head goes with --commits.");
   if (stage && commits !== undefined) return badInput("--commits goes with --task, not --stage.");
   if (task !== undefined && stage) return badInput("Give either --task or --stage, not both.");
   if (task === undefined && !stage) return badInput("Give --task TASK-### --base <sha>, or --stage.");
@@ -32,11 +34,19 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
   let res;
   try {
     if (task === undefined) res = verifyStage(item.root, item.item);
-    else if (shas !== undefined) res = verifyTaskCommits(item.root, item.item, task, shas);
+    else if (shas !== undefined) res = verifyTaskCommits(item.root, item.item, task, shas, atHead);
     else res = verifyTask(item.root, item.item, task, base!);
   } catch (err) {
     if (err instanceof ProjectConfigError) return badInput(err.message);
     return { code: 3, stdout: `kf verify could not run: ${err instanceof Error ? err.message : String(err)}`, stderr: err instanceof Error ? (err.stack ?? err.message) : String(err) };
+  }
+  // Exit 3 ran nothing. A failed append must not replace the verdict of commands that did run.
+  if (task !== undefined && res.code !== 3) {
+    try {
+      appendVerifyLog(item.item.dir, task, res);
+    } catch (err) {
+      return { code: res.code, stdout: res.lines.join("\n"), stderr: `warning: could not write the verify log: ${err instanceof Error ? err.message : String(err)}` };
+    }
   }
   return { code: res.code, stdout: res.lines.join("\n") };
 }

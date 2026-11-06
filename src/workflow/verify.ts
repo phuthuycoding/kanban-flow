@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -119,9 +119,10 @@ export function verifyTask(root: string, feature: Feature, taskId: string, base:
 /**
  * Check the union of files changed by exactly the listed commits (each against its parent) against the task's
  * Files, then run `harness.verify.task` in a temporary detached worktree at the newest listed commit, so
- * uncommitted work in the item worktree never reaches the verify commands.
+ * uncommitted work in the item worktree never reaches the verify commands. `atHead` moves that worktree to HEAD:
+ * parallel tasks interleave commits on one branch, so a task's own commit may not build without a neighbour's.
  */
-export function verifyTaskCommits(root: string, feature: Feature, taskId: string, shas: string[]): VerifyResult {
+export function verifyTaskCommits(root: string, feature: Feature, taskId: string, shas: string[], atHead = false): VerifyResult {
   const found = taskAndDir(root, feature, taskId);
   if ("code" in found) return found;
   const { task, dir } = found;
@@ -166,7 +167,10 @@ export function verifyTaskCommits(root: string, feature: Feature, taskId: string
 
   const commands = readProjectConfig(root).harness?.verify?.task;
   if (!commands || commands.length === 0) return runCommands(commands, dir, "task", lines);
-  return runDetached(dir, resolved[resolved.length - 1], commands, lines);
+  if (!atHead) return runDetached(dir, resolved[resolved.length - 1], commands, lines);
+  const head = runGit(dir, ["rev-parse", "HEAD"]);
+  if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
+  return runDetached(dir, head.stdout.trim(), commands, lines);
 }
 
 /** Run the task commands in a temporary detached worktree of `itemDir` at `sha`, removing it on every exit path. */
@@ -217,4 +221,15 @@ export function verifyStage(root: string, feature: Feature): VerifyResult {
   const { dir, line } = itemDir(root, feature);
   if (!existsSync(dir)) return { code: 3, lines: [`The item worktree ${dir} does not exist.`] };
   return runCommands(readProjectConfig(root).harness?.verify?.stage, dir, "stage", [line]);
+}
+
+/** The log `kf verify` writes beside the ledger: the ledger's verify lines are checked against it. */
+export function verifyLogPath(itemDir: string, taskId: string): string {
+  return join(itemDir, "loop", `${taskId.toLowerCase()}-verify.log`);
+}
+
+/** Append one run: a `## kf verify <ISO> exit=<n>` header, then the run's output indented, so output can never read as a header. */
+export function appendVerifyLog(itemDir: string, taskId: string, result: VerifyResult, at: Date = new Date()): void {
+  mkdirSync(join(itemDir, "loop"), { recursive: true });
+  appendFileSync(verifyLogPath(itemDir, taskId), `## kf verify ${at.toISOString()} exit=${result.code}\n${result.lines.join("\n").split("\n").map((l) => `  ${l}`).join("\n")}\n`);
 }

@@ -9,7 +9,7 @@ Argument: optional `slots=N` (default 3).
 
 Travel runs the **day**, and after approval it is the controller: this session runs each item's phase skills itself (implementation, testing, review, each with its seats), the way one `kf:flow` session would. It keeps up to `slots=N` items started. One started item = one slot = its own worktree. It dispatches an item's seats (test-writer, developer, code-reviewer) in the background and advances another item while they run, so the slots overlap. `slots=1` behaves like one kanban-flow session: one item at a time, its phases in order. Travel writes no product code and edits no work item artifact.
 
-**Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main. It may run the forward `kf stage` moves (implementation to testing to review) and the item branch push and `gh pr create` that kf:test and kf:review prescribe, inside the item worktree. A backward, planning or backlog `kf stage` move is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
+**Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main. It may run the forward `kf stage` moves (implementation to testing to review), `kf stage <f> implementation` from testing or review on a FAIL or REJECT verdict (the repair loop), and the item branch push and `gh pr create` that kf:test and kf:review prescribe, inside the item worktree. Every other backward, planning or backlog `kf stage` move, and every REQUIREMENT_BUG, is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
 
 State lives in two files under `.kf/travel/`, which is gitignored: `kf init` adds the `.gitignore` entry, and `kf doctor --fix` adds it to an upgraded project:
 
@@ -31,13 +31,13 @@ kf status --all --json
 
 Read the last `## ` section of `.kf/travel/progress.md`.
 
-- **Last section is today** → same-day re-entry: do not rebuild the plan. Go to §3 and resume the loop from the ledger.
+- **Last section is today** → same-day re-entry. A session starting fresh, with no run of its own to continue, reads the `session:` line first: stamped under 60 minutes ago, stop and ask the human whether another travel session is running. Otherwise do not rebuild the plan. Go to §3 and resume the loop from the ledger; every `driving` `owner=travel` line is yours to resume; a `blocked` line stays blocked until the human says the fix is done (§5).
 - **Earlier day, or no ledger** → §1.
 
 ## 1. Morning plan
 
-1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why). A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
-2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item a ledger line marks `driving` or `blocked` with another owner (§5).
+1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why), except a `blocked` line and one marked `owner=human`: those stay under Needs you and are copied unchanged into each new day's section until the human says the fix is done. A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
+2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item with a `blocked` or `owner=human` line in the last section (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry in `waitingToMerge[]` (a canonical-docs branch awaiting push, or not proven merged with a `reason`, with the entry's own `command`) and a `canonical docs for <f> never landed` decision in `needsYou[]` (a docs branch with nothing left to push and no landing proven: re-land or leave them), or a `run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed` one when the lookup could not run until the human fixes the origin.
 5. **Size every line** — [references/estimation.md](references/estimation.md): estimate agent minutes and files for the remaining work, then `estimates size <minutes> <files> .kf/travel/estimates.md <kind>`; it corrects the minutes by the kind's learned factor and sizes with the default thresholds. That size feeds only today's budget and batching. A line planned for the first time records `est0=<size>` (the size the human approves) and your raw minutes as `estmin=<n>`. A carried line keeps its first `est0` and `estmin`, because `work` is measured across days. XL is marked `should split` and is not dispatched until the human splits it or overrides it in the plan.
@@ -57,11 +57,12 @@ After approval, append to `.kf/travel/progress.md`:
 ```text
 ## YYYY-MM-DD
 slots: N · budget: <budget line>
+session: <ISO time from the clock>
 t1 · <feature> · <kind> · <size> · queued · est0=<size> · estmin=<n> · <note>
 …
 ```
 
-Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already); a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
+Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already), leaving `blocked` and `owner=human` lines as they are; a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
 
 ## 3. The loop
 
@@ -69,8 +70,8 @@ Each **tick**:
 
 1. **Collect** the seats that reported since the last tick (background notifications). For each, read the item's `loop/progress.md` and act as the item's phase skill says: the next task, the `kf verify` gate, the review, the fix loop. Advance every item whose seat reported; add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`, on its `.kf/travel/progress.md` line, except an implementation-phase seat when the item's ledger has timestamped seat lines, whose minutes `measure` takes from `kf loop-stats` (§6); dispatch the next seat of each in the background, then move on to another item while it runs. Never wait on one item's seat while another item has work to do.
 2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done`, then measure (§6).
-3. **Refill**: while started items < `slots=N`, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once. Start an item by creating or entering its worktree (`kf status --change <f> --json` → `worktree.path`) and running the phase skill for its current stage, exactly as a `kf:flow` session would; the line becomes `driving`.
-4. **Print the progress block** (below) — every tick, even when every slot is full.
+3. **Refill**: while started items < `slots=N`, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once. Start an item by creating or entering its worktree (`kf status --change <f> --json` → `worktree.path`) and running the phase skill for its current stage, exactly as a `kf:flow` session would; the line becomes `driving` with `owner=travel`.
+4. **Print the progress block** (below) — every tick, even when every slot is full — and re-stamp the day's `session:` line from the clock.
 5. **Wait** for the next seat to report (the runtime's wait/monitor tool; a background `sleep` of 2–5 minutes when nothing is due), then tick again.
 
 **End of day** when the human says stop, or nothing is `driving` and nothing `queued` is dispatchable: §6.
@@ -79,10 +80,10 @@ Each **tick**:
 
 ### Line states
 
-- `driving` — this travel session is running that item's phases (implementation, testing or review), with a seat possibly working in the background.
-- `blocked` — a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker): the line carries the reason and the next command, and goes to Needs you. It returns to `queued` only when the human says the fix is done.
+- `driving` — this travel session is running that item's phases (implementation, testing or review), with a seat possibly working in the background; the note carries `owner=travel`.
+- `blocked` — a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker): the line carries the reason, the next command and its owner (§5), and goes to Needs you. It returns to `queued` only when the human says the fix is done.
 - `waiting-to-merge` — review PASS with the PR open: the line carries the PR URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` (§6 needs them after the worktree is gone). The human merges.
-- `done` — `kf status` reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`): measure at once (§6).
+- `done` — `kf status --all --json` reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`): measure at once (§6).
 
 ### Progress block
 
@@ -113,18 +114,19 @@ A phase skill stops for the human in a few ways. Travel does not retry or work a
 
 | Stop | Ledger line | Action |
 |---|---|---|
-| REQUIREMENT_BUG, a plan change | `blocked` | the contract needs the human: Needs you with the next command the phase skill names (a `kf stage … planning` travel prints, never runs) |
-| fix-loop breaker | `blocked` | reason + next command → Needs you |
+| REQUIREMENT_BUG, a plan change | `blocked` · `owner=travel` | the contract needs the human: Needs you with the next command the phase skill names (a `kf stage … planning` travel prints, never runs) |
+| FAIL or REJECT in testing or review | stays `driving` | run `kf stage <f> implementation` in the item worktree and continue the fix loop the phase skill names |
+| fix-loop breaker | `blocked` · `owner=travel` | reason + next command → Needs you |
 | a usage limit on a seat | stays `driving`, note `usage limit — reset <text>` | dispatch nothing new; wait for the reset, then re-dispatch the seat that was running |
-| any other stop the phase skill reports | `blocked` | its reason + next command → Needs you |
+| any other stop the phase skill reports | `blocked` · `owner=travel` | its reason + next command → Needs you |
 | review PASS, PR open | `waiting-to-merge` | note the PR URL, `! gh pr merge <n>`, `files=<n>`, `work=<n> review=<n>` |
 | review PASS, nothing to land | `done` | measure at once (§6) |
 
-Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `done` (the human merged; `kf status` closed it): line → `done`, then measure (§6).
+Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `done` (the human merged; `kf status --all` closed it): line → `done`, then measure (§6).
 
 ## 5. Ownership
 
-A ledger line `driving` or `blocked` means travel owns that item's phases: `kf:flow` and `kf:implement` sessions do not start a second run on it. When the human opens a `blocked` item in another session, that session owns the fix until the human says it is done; travel then re-queues the line. A second travel session that finds a line `driving` lists it under Running and starts nothing for it.
+Only one travel session runs per day, and the `session:` line under the day's heading (`references/ledger-format.md`) keeps a second one out: §0 stops and asks the human when it is under 60 minutes old. A ledger line `driving` or `blocked` means travel owns that item's phases while its note says `owner=travel`; it says `owner=human` once the human takes a `blocked` item into their own session (that session rewrites the token). A same-day re-entry of travel (§0, after a restart or compaction) is that same travel session: it resumes every `driving` `owner=travel` line and leaves `blocked` lines blocked. A session that is not travel never runs a task loop for an `owner=travel` line. An `owner=human` line belongs to the human's session until the human says the fix is done; travel then sets `owner=travel` and re-queues the line, and starts nothing for it before that.
 
 ## 6. Measure and end of day
 
@@ -149,7 +151,7 @@ Day YYYY-MM-DD — done: X | blocked: Z | waiting-to-merge: W | carry-over: C | 
 <estimates stats lines: hit rate, bias, throughput, calibration, kind (hit rate, bias, factor), warning>
 ```
 
-Then rewrite every line that is not `done` as `carry-over` with its note kept; `waiting-to-merge` and `blocked` keep their reason in the note so tomorrow's plan shows it.
+Then rewrite every line that is not `done`, `blocked` or `owner=human` as `carry-over` with its note kept; `waiting-to-merge` keeps its reason in the note so tomorrow's plan shows it.
 
 ---
 

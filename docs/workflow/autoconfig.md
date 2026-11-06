@@ -65,7 +65,7 @@ Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
 - Leftover legacy folders `.works/dones/` or `.works/shipping/`; the next `kf status` (or `kf sync`) migrates them.
 - A `.gitignore` without `.kf/travel/`; `kf doctor --fix` adds the entry.
 - `docs_branch_unpushed` — canonical docs for a closed item sit on an unpushed `docs/<context>-<feature>` branch.
-- `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out.
+- `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out. `worktree.domains` (boolean, default `true`) switches the domain infrastructure; the check is skipped when it is `false`: with it `false`, there are no `.test` DNS or proxy probes, `kf status` prints only `http://127.0.0.1:<port>`, hooks get no `KFW_WORKTREE_DOMAIN`, and ports and routes are still allocated and JSON outputs still carry `domain`.
 
 ## Phase hooks
 
@@ -91,7 +91,7 @@ Two **event hooks** sit outside stage transitions and only exist under worktrees
 | `worktree-create.sh` | Right after a worktree is provisioned (cwd = the worktree, so `npm install`, `cp .env.example .env`, or booting a dev server on `$KFW_WORKTREE_PORT` happen in the right place). Not on reuse — the environment already exists | the worktree (and a freshly created branch) is rolled back and the transition fails, so a retry provisions clean |
 | `worktree-remove.sh` | Right before `git worktree remove`, still inside the worktree — kill dev servers, `docker compose down`, release ports | a WARNING in the command output; teardown still proceeds |
 
-They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
+They get the full `KFW_*` set above plus `KFW_EVENT` (`worktree-create`/`worktree-remove`), `KFW_WORKTREE_PATH`, `KFW_WORKTREE_PORT`, `KFW_WORKTREE_DOMAIN` and `KFW_WORKTREE_BRANCH`. `KFW_WORKTREE_DOMAIN` is set only when `worktree.domains` is on. `KFW_FEATURE_DIR` still points at the `.works/` item folder — only `cwd` moves into the worktree.
 
 The `drive-stop.sh` hook was removed together with `kf drive`; delete it if your project has one.
 

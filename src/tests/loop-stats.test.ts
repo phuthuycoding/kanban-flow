@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { existsSync, readFileSync, realpathSync, utimesSync } from "node:fs";
+import { appendFile, mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,6 +75,27 @@ import type { ParsedArgs } from "../cli/args.js";
  *     and automation-writer done 29 → 31 = 2; 001 developer done 27 → 34 = 7; 006 29 → 30 = 1; 005 43 → 44 = 1;
  *     003 44 → 45 = 1 → sorted 1,1,1,1,2,7: n 6, median 1, max 7
  *   the "4 developers in flight" text sits beside a peak of 3: the wait is only ledger text here.
+ *
+ * adaptive-cap.ledger.md — all Z, minutes counted from 09:00; no dependency map.
+ *   test-writer wave 1 [0,4]=4, [0,5]=5, [0,6]=6; wave 2 [26,29]=3, [26,30]=4, [26,31]=5, [26,32]=6
+ *     count 7, sum 33, sorted 3,4,4,5,5,6,6 → median 5
+ *   developer 001 [5,15]=10 opus, 002 [6,18]=12 sonnet, 003 [16,24]=8 sonnet, 004 [30,38]=8 opus,
+ *     005 [31,46]=15 sonnet, 006 [32,48]=16 sonnet, 007 [39,50]=11 opus     count 7, sum 80, sorted 8,8,10,11,12,15,16 → median 11
+ *   verify TASK-004 failed run [40,42]=2, re-run [51,54]=3                  count 2, sum 5, median 2.5
+ *   models: dev opus 10+8+11=29, sonnet 12+8+15+16=51; tw opus 33
+ *   seat = 33+80 = 113; verify 5; union: [0,24] (tw 0-6, dev 5-15, 6-18, 16-24) = 24;
+ *     [26,50] (tw 26-32, dev 30-38, 31-46, 32-48, 39-50, verify 40-42 nested) = 24; [51,54] verify = 3 → busy 51
+ *   saved = 113+5-51 = 67; wall 09:00 → 09:58 (TASK-007 complete, last) = 58; controller = 58-51 = 7
+ *   waits: TASK-003 "2 developers in flight" 09:07 → its dispatch 09:16 = 9; TASK-007 "3 developers in flight"
+ *     09:33 → 09:39 = 6 → 15
+ *   other-timed: two wave lines, three Ruling lines, one Note line = 6; untimed 0; rounds 0; cascades 0; tasks 7
+ *   open developers: 5-6 one; 6-15 two; 15-16 one; 16-18 two; 18-24 one; 24-30 none; 30-31 one; 31-32 two;
+ *     32-38 three; 38-39 two; 39-46 three; 46-48 two; 48-50 one → peak 3;
+ *     two or more open [6,15]=9 + [16,18]=2 + [31,48]=17 → developerOverlapMinutes 28
+ *   developer lag: 001 tw done 4 → 5, 002 5 → 6, 004 29 → 30, 005 30 → 31, 006 31 → 32 = 1 each;
+ *     003: latest of tw done 6 and the first developer done after its wait (001 at 15) → 16 = 1;
+ *     007: latest of tw done 32 and the first developer done after its wait (004 at 38) → 39 = 1 → n 7, median 1, max 1
+ *   code-reviewer: no dispatch → null, null, 0; unparsed, orphans, open waits empty
  *
  * Existing fixtures, new figures: no developer intervals overlap in two-tasks, mid-loop and resumed → peak 1, overlap 0.
  *   two-tasks developer lag: TASK-001 test-writer done 10 → dispatch 11 = 1; TASK-002 done 14 → 33 = 19 (the
@@ -419,6 +440,10 @@ async function item(feature: string, taskIds: string[], ledger: string | null): 
   if (ledger !== null) {
     await mkdir(join(dir, "loop"), { recursive: true });
     await writeFile(join(dir, "loop", "progress.md"), fixture(ledger));
+    // A fixture's verify lines stand for real runs, so each gets the log block kf verify would have written.
+    for (const m of fixture(ledger).matchAll(/^(TASK-\d+): verify done exit=(\d+) @ (\S+)$/gm)) {
+      await appendFile(join(dir, "loop", `${m[1].toLowerCase()}-verify.log`), `## kf verify ${new Date(m[3]).toISOString()} exit=${m[2]}\n`);
+    }
   }
   return dir;
 }
@@ -734,5 +759,294 @@ describe("kf loop-stats --all", () => {
       expect(res.code).toBe(1);
       expect(res.out).toContain("no loop measured yet");
     }
+  });
+});
+
+describe("a live-cap ledger", () => {
+  it("computes every figure of a loop with cap rulings, contention notes and a verify re-run", async () => {
+    const stats = await statsWithDeps(fixture("adaptive-cap.ledger.md"));
+    expect(stats).toMatchObject(withoutTasks(expected("adaptive-cap")));
+    expect(taskCount(stats.tasks)).toBe(7);
+  });
+
+  it("lists nothing as unparsed, orphaned or still waiting", async () => {
+    const stats = await statsOf("adaptive-cap");
+    expect(stats.unparsed).toEqual([]);
+    expect(stats.orphans).toEqual([]);
+    expect(stats.openWaits).toEqual([]);
+  });
+
+  it("counts the cap rulings, wave lines and contention note as other-timed lines, not as shapes", async () => {
+    const stats = await statsOf("adaptive-cap");
+    expect(stats.otherTimed).toBe(7);
+    expect(stats.untimed).toBe(0);
+  });
+
+  it("pairs the failed verify and its re-run as two separate verify intervals", async () => {
+    const stats = await statsOf("adaptive-cap");
+    expect(stats.verify).toEqual({ count: 2, sum: 5, median: 2.5 });
+    expect(stats.verifyMinutes).toBe(5);
+  });
+
+  it("gates the waits on 2 and 3 developers in flight on the next developer done", async () => {
+    const stats = await statsOf("adaptive-cap");
+    // TASK-003 waits 09:07 → 09:16 and TASK-007 waits 09:33 → 09:39; each lags 1 minute behind the developer done that freed a seat.
+    expect(stats.waitMinutes).toBe(15);
+    expect((stats.dispatchLag as Record<string, unknown>).developer).toEqual({ median: 1, max: 1, n: 7 });
+  });
+});
+
+/*
+ * Near-miss seat lines. Harmless variants are read as written: trailing whitespace, a `+hhmm` offset.
+ * Any other line that claims a shape (TASK-NNN: + a seat or verify keyword, also behind a markdown
+ * bullet) and fails it is unparsed with its line number — before, a bullet made it other-timed and a
+ * space for `T` made it untimed, both silently.
+ */
+describe("near-miss ledger lines", () => {
+  const H = "# Task loop ledger — x\n";
+  const kindsOf = async (body: string): Promise<Record<number, string>> => {
+    const { parseLedger } = await loopStatsModule();
+    return Object.fromEntries(parseLedger(`${H}${body}`).lines.map((l) => [l.line, l.kind]));
+  };
+
+  it("reads a +hhmm offset as the same instant as +hh:mm and pairs it", async () => {
+    const { parseLedger, loopStats } = await loopStatsModule();
+    const parsed = parseLedger(`${H}TASK-001: developer dispatched model=opus @ 2026-11-01T18:00:00+0700\nTASK-001: developer done status=DONE @ 2026-11-01T18:10:00+07:00\n`);
+    expect(parsed.lines[0]).toMatchObject({ kind: "shape", shape: "dispatched", ts: utc(11, 0), stamp: "2026-11-01T18:00:00+0700" });
+    const stats = loopStats(parsed);
+    expect(stats.seats.developer).toEqual({ count: 1, sum: 10, median: 10 });
+    expect(stats.unparsed).toEqual([]);
+  });
+
+  it("ignores trailing whitespace after the timestamp", async () => {
+    expect(await kindsOf("TASK-001: verify started @ 2026-11-01T09:00:00Z  \t\nTASK-001: verify done exit=0 @ 2026-11-01T09:02:00Z \n")).toEqual({ 2: "shape", 3: "shape" });
+  });
+
+  it("lists a done line carrying round= as unparsed and its dispatch as an orphan", async () => {
+    const { parseLedger, loopStats } = await loopStatsModule();
+    const stats = loopStats(parseLedger(`${H}TASK-007: test-writer dispatched model=opus round=1 @ 2026-11-01T09:00:00Z\nTASK-007: test-writer done status=DONE round=1 @ 2026-11-01T09:10:00Z\n`));
+    expect(stats.unparsed).toEqual([3]);
+    expect(stats.orphans).toEqual([2]);
+    expect(stats.seatMinutes).toBe(0);
+  });
+
+  it("lists a seat line behind a markdown bullet as unparsed, not other-timed", async () => {
+    expect(await kindsOf("- TASK-003: developer dispatched model=sonnet @ 2026-11-01T09:00:00Z\n* TASK-003: developer done status=DONE @ 2026-11-01T09:05:00Z\n")).toEqual({ 2: "unparsed", 3: "unparsed" });
+  });
+
+  it("lists a seat line whose timestamp has a space for T as unparsed, not untimed", async () => {
+    expect(await kindsOf("TASK-001: developer dispatched model=opus @ 2026-11-01 09:00:00Z\n")).toEqual({ 2: "unparsed" });
+  });
+
+  it("keeps an old seat line with no timestamp at all untimed and a bulleted non-seat line other-timed", async () => {
+    expect(await kindsOf("TASK-001: fix round 1/5 (nit)\n- Ruling: keep @ 2026-11-01T09:00:00Z\nNote TASK-001: reopened — review 1a2b3c4d @ 2026-11-01T09:01:00Z\n")).toEqual({ 2: "untimed", 3: "other-timed", 4: "other-timed" });
+  });
+});
+
+/*
+ * review-repair.ledger.md — all Z, minutes from 09:00; one task completed, reopened by review, completed again.
+ *   test-writer [0,5]=5, round 1 [41,44]=3 → count 2, sum 8, median 4 (opus)
+ *   developer   [6,16]=10, round 1 [45,53]=8 → count 2, sum 18, median 9 (opus)
+ *   code-reviewer [17,21]=4, round 1 [54,57]=3 → count 2, sum 7, median 3.5 (sonnet)
+ *   seat 33; no verify; intervals disjoint → busy 33, saved 0; wall 09:00 → 09:58 (second complete) = 58; controller 25
+ *   the Note line is other-timed; no fix round line → rounds 0
+ */
+describe("a review-stage repair after complete", () => {
+  it("counts the seat lines after the first complete and ends the wall at the second complete", async () => {
+    const stats = await statsOf("review-repair");
+    expect(stats).toMatchObject({
+      inProgress: false,
+      wallMinutes: 58,
+      seats: {
+        "test-writer": { count: 2, sum: 8, median: 4 },
+        developer: { count: 2, sum: 18, median: 9 },
+        "automation-writer": { count: 0, sum: 0, median: 0 },
+        "code-reviewer": { count: 2, sum: 7, median: 3.5 },
+      },
+      seatMinutes: 33,
+      busyMinutes: 33,
+      savedMinutes: 0,
+      controllerMinutes: 25,
+      rounds: 0,
+      tasks: 1,
+      byModel: { "test-writer/opus": 8, "developer/opus": 18, "code-reviewer/sonnet": 7 },
+      unparsed: [],
+      orphans: [],
+      openWaits: [],
+      otherTimed: 1,
+      untimed: 0,
+    });
+  });
+
+  it("records the repaired item", async () => {
+    await item("r", ["TASK-001"], "review-repair.ledger.md");
+    const res = await run(["r"], { record: true });
+    expect(res.code).toBe(0);
+    expect(nonBlank(await readFile(historyPath(), "utf8"))).toEqual([HEADER, "2026-11-01 · r · 1 · 58 · 33 · 25 · 0 · 0 · 8 · 18 · 0 · 7 · 0 · 0 · 0 · 0"]);
+  });
+});
+
+/*
+ * broken-lines.ledger.md — L3 done carries round= (unparsed) so L2 is an orphan; L4 is bulleted (unparsed),
+ * so L5 is a done with no dispatch (unparsed). Every task has a complete line.
+ */
+describe("kf loop-stats with unparsed or orphan lines", () => {
+  it("refuses --record with exit 1 naming the line numbers, writing nothing", async () => {
+    const dir = await item("b", ["TASK-001"], "broken-lines.ledger.md");
+    const res = await run(["b"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("cannot record b: ledger unparsed lines 3, 4, 5 and orphan lines 2");
+    expect(res.out).toContain(`fix those lines in ${join(dir, "loop", "progress.md")}`);
+    expect(existsSync(historyPath())).toBe(false);
+  });
+
+  it("reports with exit 0 and names the lines in a stderr warning, text and JSON alike", async () => {
+    await item("b", ["TASK-001"], "broken-lines.ledger.md");
+    const { cmdLoopStats } = await loopStatsCommand();
+    const text = await cmdLoopStats(cliArgs(["b"]), root);
+    expect(text.code).toBe(0);
+    expect(text.stdout.split("\n")[0]).toBe("Loop stats — b");
+    expect(text.stderr).toMatch(/^warning: ledger unparsed lines 3, 4, 5 and orphan lines 2 are left out of every figure/);
+    const json = await cmdLoopStats(cliArgs(["b"], { json: true }), root);
+    expect(json.code).toBe(0);
+    expect(JSON.parse(json.stdout)).toMatchObject({ unparsed: [3, 4, 5], orphans: [2] });
+    expect(json.stderr).toContain("unparsed lines 3, 4, 5");
+  });
+
+  it("names lines stamped after the file was last written, and refuses to record them", async () => {
+    const dir = await item("late", ["TASK-001", "TASK-002"], "two-tasks.ledger.md");
+    // The fixture's last stamps sit after this moment, as a ledger with estimated times does.
+    const ledger = join(dir, "loop", "progress.md");
+    const stamps = [...readFileSync(ledger, "utf8").matchAll(/ @ (\S+)$/gm)].map((m) => Date.parse(m[1]));
+    const written = new Date(stamps[0] + 1000);
+    utimesSync(ledger, written, written);
+    const { cmdLoopStats } = await loopStatsCommand();
+    const report = await cmdLoopStats(cliArgs(["late"]), root);
+    expect(report.code).toBe(0);
+    expect(report.stderr).toContain("are stamped after the file was last written, so those times did not come from the clock");
+    const res = await run(["late"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("cannot record late:");
+    expect(res.out).toContain("are stamped after the file was last written");
+  });
+
+  describe("against the log kf verify writes", () => {
+    const ledgerOf = (lines: string[]): string => ["# Task loop ledger — v — plan: /p", ...lines, ""].join("\n");
+    const STAMP = "2026-11-01T10:10:00+07:00";
+    const lines = (exit: number): string[] => [
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:05:00+07:00",
+      "TASK-001: verify started @ 2026-11-01T10:06:00+07:00",
+      `TASK-001: verify done exit=${exit} @ ${STAMP}`,
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:12:00+07:00",
+    ];
+    const setUp = async (exit: number, log: string | null): Promise<string> => {
+      const dir = await item("v", ["TASK-001"], "two-tasks.ledger.md");
+      await rm(join(dir, "loop"), { recursive: true, force: true });
+      await mkdir(join(dir, "loop"));
+      await writeFile(join(dir, "loop", "progress.md"), ledgerOf(lines(exit)));
+      if (log !== null) await writeFile(join(dir, "loop", "task-001-verify.log"), log);
+      return dir;
+    };
+
+    it("records when every verify line has its logged run", async () => {
+      await setUp(0, `## kf verify ${new Date(STAMP).toISOString()} exit=1\noutput\n## kf verify ${new Date(STAMP).toISOString()} exit=0\n`);
+      const res = await run(["v"], { record: true });
+      expect(res.code, res.out).toBe(0);
+    });
+
+    it("refuses a verify line no logged run backs, the way a hand-written exit reads", async () => {
+      await setUp(0, null);
+      const res = await run(["v"], { record: true });
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("ledger lines 5 report a verify exit no kf verify run logged");
+    });
+
+    it("refuses an exit code the log contradicts", async () => {
+      await setUp(0, `## kf verify ${new Date(STAMP).toISOString()} exit=1\n`);
+      expect((await run(["v"], { record: true })).out).toContain("report a verify exit no kf verify run logged");
+    });
+
+    it("pairs a line with the nearest run, so an earlier run of a dead session does not read as far away", async () => {
+      const earlier = new Date(Date.parse(STAMP) - 2 * 3_600_000).toISOString();
+      await setUp(0, `## kf verify ${earlier} exit=0\n## kf verify ${new Date(STAMP).toISOString()} exit=0\n`);
+      const res = await run(["v"], { record: true });
+      expect(res.code, res.out).toBe(0);
+    });
+
+    it("does not check a log from before this format, or a line for exit 3, which ran nothing", async () => {
+      await setUp(0, "## verify started 2026-11-01T10:06:00+07:00\nold output\n");
+      expect((await run(["v"], { record: true })).code).toBe(0);
+      await setUp(3, null);
+      expect((await run(["v"], { record: true })).code).toBe(0);
+    });
+
+    it("does not take a header hidden behind a carriage return in indented output as a run", async () => {
+      const at = new Date(STAMP).toISOString();
+      await setUp(0, `## kf verify ${at} exit=1\n  x\r## kf verify ${at} exit=0\n`);
+      expect((await run(["v"], { record: true })).out).toContain("report a verify exit no kf verify run logged");
+    });
+
+    it("skips lines older than the first logged run when the file opens in the earlier format", async () => {
+      const later = new Date(Date.parse(STAMP) + 3_600_000).toISOString();
+      await setUp(0, `## verify started 2026-11-01T10:06:00+07:00\nold output\n## kf verify ${later} exit=1\n`);
+      expect((await run(["v"], { record: true })).code).toBe(0);
+    });
+
+    it("refuses a stamp far from the run it reports, the way an estimated time reads", async () => {
+      await setUp(0, `## kf verify ${new Date(Date.parse(STAMP) + 3 * 3_600_000).toISOString()} exit=0\n`);
+      const res = await run(["v"], { record: true });
+      expect(res.code).toBe(1);
+      expect(res.out).toContain("stamped over 15 minutes from the kf verify run");
+    });
+  });
+
+  it("does not take a reopened task's earlier complete line as complete", async () => {
+    await item("again", ["TASK-001"], "two-tasks.ledger.md");
+    const ledger = join(root, ".works", "implementation", "again_20261101_0900", "loop", "progress.md");
+    await writeFile(ledger, [
+      "# Task loop ledger — again — plan: /p",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:05:00+07:00",
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:06:00+07:00",
+      "Note TASK-001: reopened — review 1234abcd @ 2026-11-01T11:00:00+07:00",
+      "",
+    ].join("\n"));
+    const res = await run(["again"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("no complete line for TASK-001");
+  });
+
+  it("reports a reopened task as in progress", async () => {
+    await item("open", ["TASK-001"], "two-tasks.ledger.md");
+    const ledger = join(root, ".works", "implementation", "open_20261101_0900", "loop", "progress.md");
+    await writeFile(ledger, [
+      "# Task loop ledger — open — plan: /p",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:05:00+07:00",
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:06:00+07:00",
+      "Note TASK-001: reopened — review 1234abcd @ 2026-11-01T11:00:00+07:00",
+      "",
+    ].join("\n"));
+    expect((await run(["open"])).stdout.split("\n")[0]).toBe("Loop stats — open (in progress)");
+  });
+
+  it("records a ledger whose only orphan is a seat a resume dispatched again", async () => {
+    const dir = await item("resumed", ["TASK-001"], "two-tasks.ledger.md");
+    await writeFile(join(dir, "loop", "progress.md"), [
+      "# Task loop ledger — resumed — plan: /p",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:20:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:30:00+07:00",
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:31:00+07:00",
+      "",
+    ].join("\n"));
+    const res = await run(["resumed"], { record: true });
+    expect(res.code, res.out).toBe(0);
+  });
+
+  it("emits no warning for a clean ledger", async () => {
+    const { cmdLoopStats } = await loopStatsCommand();
+    expect((await cmdLoopStats(cliArgs(["f"]), root)).stderr).toBeUndefined();
   });
 });

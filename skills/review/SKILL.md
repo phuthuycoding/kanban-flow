@@ -23,7 +23,7 @@ kf stage {feature_name} review
 
 (Already there → skip. If the move is refused, run `kf validate --change {feature_name}` — a missing, stale or non-PASS testing report blocks this direction; loop back through kf:test.)
 
-Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `Worktree:`/`Domain:` block. **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, so uncommitted review-relevant changes are a finding, not a footnote.
+Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `worktree` object (`path`, `branch`, `domain`, `port`; `null` without a worktree) — the text form prints it as the `Worktree:` with `Domain:` or `Direct:` block. When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then). **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, and the review runs on a committed tree (step 2).
 
 Create the run folder: `<item>/reviews/<executionId>/`. Every file this review produces goes there; a re-review after a repair loop gets a new execution id and a new folder, so old evidence is never mistaken for current.
 
@@ -35,16 +35,19 @@ Facts are what the reviewer judges from; they are never a verdict.
 
 **Baseline.** Read the `## Baseline` section of `tasks.md` (starting HEAD plus pre-existing working-tree changes). `BASE` is that HEAD, else the branch point (`git merge-base origin/<default> HEAD`). The review covers `BASE..HEAD` plus untracked, non-ignored files. Preserve unrelated pre-existing changes; they are not this item's.
 
+**The review runs on a committed tree.** Tracked files with uncommitted changes → commit them on the item branch when they are this item's work, otherwise stop and ask the human; never commit unrelated changes as this item's. The checks below read the working tree while `review-package` (step 4) packages only committed `BASE..HEAD`, so it refuses a dirty tree (exit 4).
+
 **Static checks.** Detect the real tooling from the repository (never assume `npm`), then run lint, build/typecheck and the suite in the worktree, recording each command, its exit code and the counts it printed. A suite that ran nothing is not a pass — report the count. Confirm the testing report is `PASS` for the current execution id.
 
 **Regression tests fail on the baseline (bugs, and any task that fixes behaviour).** A test that is green with the fix removed protects nothing. Run the new or changed test files against `BASE` in a throwaway worktree (`git worktree add <tmp> "$BASE"`, copy the test files in, run them, remove the worktree): they must fail there and pass on `HEAD`. Record `regression on BASE: <N> failed (expected), on HEAD: <N> passed` under `## Verified`; a test that passes on `BASE` is a HIGH finding you record directly.
 
-**Anti-pattern scan on added code lines** (prose files excluded — a skill that documents the scan is not a hit) — each hit is a HIGH finding you record directly, with the line as evidence:
+**Anti-pattern scan on added code lines** (prose files excluded — a skill that documents the scan is not a hit; untracked, non-ignored files count as added) — each hit is a HIGH finding you record directly, with the line as evidence:
 
 ```bash
-ADDED_LINES=$(git diff "$BASE" -- . ':(exclude)*.md' | grep '^+' | grep -v '^+++')
+ADDED_LINES=$( { git diff "$BASE" -- . ':(exclude)*.md' | grep '^+' | grep -v '^+++'
+  git ls-files -z --others --exclude-standard -- . ':(exclude)*.md' | xargs -0 -r grep -Ih '' -- | sed 's/^/+/'; } )
 printf '%s\n' "$ADDED_LINES" | grep -nE '^\+(<<<<<<<|>>>>>>>)'            # conflict marker
-printf '%s\n' "$ADDED_LINES" | grep -nE '\.only\(|fdescribe\(|fit\('         # focused test locks out its siblings
+printf '%s\n' "$ADDED_LINES" | grep -nE '\.only\(|(^|[^A-Za-z0-9_$.])(fdescribe|fit)\('   # focused test locks out its siblings; not benefit( or x.fit(
 printf '%s\n' "$ADDED_LINES" | grep -nE '(^|[^A-Za-z_])debugger([^A-Za-z_]|$)'
 ```
 
@@ -58,7 +61,7 @@ The docs commit goes into the reviewed diff, so the reviewers see it and the boa
 
 **Every run of 2b** (a later execution after a repair loop, and a re-run of the same execution after an interrupted run or the human's answer to an open question) first reads the existing `<item>/reviews/<id>/docs-reconciled.md` when present and never replaces rows already there. It then adds a row for each commit that `git log --format='%h %s' --grep 'reconcile docs superseded by' "$BASE"..HEAD` lists and the file lacks (by commit sha; take the row text from the earlier `<item>/reviews/*/docs-reconciled.md` when it has one), and reconciles only what is new. Docs already bannered are not a reason to write `None`. A review that ends `FAIL` keeps its docs commit on the branch.
 
-The commit changes the tree after step 2's checks: the board (step 7a) runs lint, build and the suite again at the final fingerprint.
+Record `fp` (step 7a) at the end of step 2. When the docs commit changes it, the board runs lint, build, the suite and the regression-on-BASE check again at the final fingerprint; when it does not, the board stamps step 2's results. Its Testing report line re-reads the report's `execution:` and `status:`; nothing to re-run.
 
 ## 3. Size the diff and pick the tier
 
@@ -98,11 +101,11 @@ For `kind: bug`, the brief adds: review against the bug report and existing feat
 ## 6. Verify the evidence and merge
 
 ```bash
-# every reviewer's JSON array concatenated into one file
+jq -s add <item>/reviews/<id>/reviewer-*.json > <item>/reviews/<id>/findings.json   # every reviewer's array merged into ONE array
 node ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/verify-findings.mjs <worktree> <item>/reviews/<id>/findings.json > <item>/reviews/<id>/verified.json
 ```
 
-Dedup by `title + file` keeping the highest severity. A finding whose `evidence` quote is not in the cited file is **refuted**: list it under "refuted at verification" in the report and do not count it. Carry every `Declined:` line and every `Deferred:` verdict into the report.
+The script verifies the evidence first, then dedups the kept findings by `title + file`, keeping the highest severity (`duplicates` in its output). A finding whose `evidence` quote is not in the cited file is **refuted** and is never deduped: list every refuted finding under "refuted at verification" in the report and do not count it. Carry every `Declined:` line and every `Deferred:` verdict into the report.
 
 Do not reopen findings an earlier review verified and do not undo user-chosen scope, libraries or thresholds. A security finding without a reachable attack path is LOW; the reviewer should have threat-modelled it — if it did not, record that as the reason for the downgrade.
 
@@ -115,7 +118,7 @@ From the verified findings, exactly one of:
 - `REJECT` — the change does not meet the DoD or acceptance criteria although it builds and its tests pass.
 - `REQUIREMENT_BUG` — an `intent` finding shows the requirement itself is wrong against the real product need. This is the orchestrator's call on the reviewer's evidence; the reviewer does not set it.
 
-**No PR for a tree the reviewer did not pass.** `FAIL`, `REJECT` and `REQUIREMENT_BUG` skip steps 7a–9 (the docs commit of step 2b stays on the branch): write the report (step 10) with `ci: none` and the landing the item will need, then step 11. A PR is opened for reviewed code only.
+**No PR for a tree the reviewer did not pass.** `FAIL`, `REJECT` and `REQUIREMENT_BUG` skip steps 7a–9 (the docs commit of step 2b stays on the branch): write the report (step 10) with `ci: not-run` (`none` means the repository has no CI) and the landing the item will need, then step 11. A PR is opened for reviewed code only.
 
 ## 7a. The landing board — every check stamped with the tree it was earned on
 
@@ -135,13 +138,13 @@ Verified at fingerprint = <FP>
 ✅/❌ Build / typecheck      (<FP>)  <command> → exit <code>
 ✅/❌ Tests                  (<FP>)  <N passed / M failed> — <command>; changed behaviour no test touches: <list or none>
 ✅/❌ Regression on BASE     (<FP>)  <N failed on BASE, N passed on HEAD> — bugs and behaviour fixes; "n/a" otherwise
-✅/❌ Testing report         (<FP>)  phase-4-testing-result.md status PASS, execution <id>
+✅/❌ Testing report         (<FP>)  phase-4-testing-result.md re-read now: status PASS, execution <id>
 ✅/❌ Independent review     (<FP>)  tier <T>, <seats> on <models>, <N> findings kept / <M> refuted, 0 HIGH open
 ✅/❌ Worktree clean         (<FP>)  git status --porcelain empty
 Landable: YES only if every line above is ✅ at the current fingerprint
 ```
 
-A ❌ means the item does not leave review forward: the report is `FAIL` (or stays unwritten until the check is green), and the failing line says where the item goes back to. Once a PR exists and CI has answered, append `✅/❌ CI (<sha>) <workflows>` to the same board; step 10b appends `Mergeable (<PR>) <mergeStateStatus>` as information, never a ❌.
+Lint, build, tests and regression on BASE are commands run at `<FP>`; a result from step 2 is never stamped with a later fingerprint. A ❌ means the item does not leave review forward: the report is `FAIL` (or stays unwritten until the check is green), and the failing line says where the item goes back to. Once a PR exists and CI has answered, append `✅/❌ CI (<sha>) <workflows>` to the same board; step 10b appends `Mergeable (<PR>) <mergeStateStatus>` as information, never a ❌.
 
 **Gate log.** Append one line per board to `<item>/reviews/review-gate.tsv` (`<UTC time>\t<feature>\t<FP>\tLANDABLE|BLOCKED\t<the check that blocked, or ->`), then print `blocked <N> of the last <M>` twice: for this item from that file, and for the project from every `.works/*/*/reviews/review-gate.tsv` under the primary checkout. The log lives in the item folder because `.works/` is ignored by every kf-initialised repository; never write it inside the item worktree (`.kf/` is tracked there, an untracked file dirties the tree and the close refuses `worktree-dirty`) or the primary checkout (a dirty primary sends every close's canonical docs to a docs branch). A gate that has blocked nothing in a long run is not a gate; the number stays visible so the question stays answerable.
 
@@ -149,7 +152,7 @@ A ❌ means the item does not leave review forward: the report is `FAIL` (or sta
 
 Only a `PASS` verdict on a `Landable: YES` board reaches this step.
 
-**Nothing to land** — `git rev-list --count origin/<default>..HEAD` in the item worktree is `0` (docs kept inside `.works`, research, a decision made elsewhere): open no PR, set `landing: none` and `ci: none` with the reason, skip step 9. kf closes it on the next `kf status`. Any commit ahead — the step 2b reconcile commit included — is something to land: take **Code to land** and set `landing: pr`; `landing: none` with commits ahead makes every close refuse `landing: none but the branch has N commits`.
+**Nothing to land** — `git rev-list --count origin/<default>..HEAD` in the item worktree is `0` (docs kept inside `.works`, research, a decision made elsewhere): open no PR, set `landing: none` and `ci: none` with the reason, skip step 9. `kf status --change {feature_name}` (or `kf status --all`) closes it. Any commit ahead — the step 2b reconcile commit included — is something to land: take **Code to land** and set `landing: pr`; `landing: none` with commits ahead makes every close refuse `landing: none but the branch has N commits`.
 
 **Code to land** — in the item worktree:
 
@@ -163,7 +166,11 @@ gh pr create --head "$BRANCH" --title "<title in the repository's commit convent
 kf issues link {feature_name} <PR URL> --pr        # records the PR; needs repository in .kf/config.json
 ```
 
-A repair loop with a recorded PR pushes to the same branch, which updates that PR — never a second one, and no `kf issues link` (it refuses with `already links PR <url>` once one is recorded). That refusal naming the same URL is success; naming another URL → stop and report. Set `landing: pr`. The push, `gh pr create` or `kf issues link` otherwise failing (no remote, no auth, no `repository`) → stop and report; never fake a PR and never write `PASS` without one.
+A repair loop with a recorded open PR pushes to the same branch, which updates that PR — never a second one, and no `kf issues link` (it refuses with `already links PR <url>` once one is recorded). That refusal naming the same URL is success; naming another URL → stop and report.
+
+**The recorded PR is closed without merge** (`gh pr view <url> --json state,mergedAt,headRefName`: `CLOSED`, no `mergedAt`): someone closed it, so stop and ask the human. On their word, reopen it (`gh pr reopen <url>`) when its `headRefName` is still `$BRANCH`, or open a new PR (`gh pr create` as above) and record it with `kf issues link {feature_name} <new URL> --pr --replace`, which needs the recorded PR closed and not merged, and the new one open on this item's branch.
+
+Set `landing: pr`. The push, `gh pr create` or `kf issues link` otherwise failing (no remote, no auth, no `repository`) → stop and report; never fake a PR and never write `PASS` without one.
 
 ## 9. Watch CI on the pushed commit
 
@@ -171,10 +178,10 @@ Follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run
 
 | CI outcome | `ci:` | What happens |
 |---|---|---|
-| all runs green | `green` | append the `CI` line to the board; write the report now (step 10) |
-| a run failed | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. A second red round → hand back to the human with both rounds' failed runs |
+| every workflow's latest run on the sha green | `green` | append the `CI` line to the board; write the report now (step 10) |
+| a workflow's latest run on the sha red (a later success supersedes an earlier failure) | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. A second red round → hand back to the human with both rounds' failed runs |
 | no `.github/workflows` | `none` | nothing to watch; the report says "no CI" |
-| `gh` kept failing, no run appeared while workflows exist, runs still pending (or finished but not yet held still for 60s) at the deadline, or, once the run set held still for 60s, a run was `cancelled` with no later successful run of that workflow file on the sha | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line verbatim (for the deadline, whichever of `ci-watch: CI still running at <time>` and `ci-watch: every run finished but the run set had not held still for 60s at <time>` it printed, then `re-run the review to watch again`). Not `FAIL` — the code is not failing (the reference says why no report is written) |
+| `gh` kept failing, no run appeared while workflows exist, runs still pending (or finished but not yet held still for 60s) at the deadline, or, once the run set held still for 60s, a workflow's latest run on the sha is `cancelled` or `stale` | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line verbatim (for the deadline, whichever of `ci-watch: CI still running at <time>` and `ci-watch: every run finished but the run set had not held still for 60s at <time>` it printed, then `re-run the review to watch again`). Not `FAIL` — the code is not failing (the reference says why no report is written) |
 
 Never re-run, cancel or approve a workflow, never resolve a review thread, never update the branch from its base and never merge the PR.
 
@@ -184,7 +191,7 @@ Never re-run, cancel or approve a workflow, never resolve a review thread, never
 kf instruct review-report --change {feature_name}
 ```
 
-Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 8–9 (the template's `## Delivery` table); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
+Fill `phase-5-review-report.md`. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 7–9 (the template's `## Delivery` table; `ci: not-run` for a `FAIL`, `REJECT` or `REQUIREMENT_BUG` written before any CI watch); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
 
 For a bug, also record the verified root cause and its docs impact from `<item>/reviews/<id>/docs-reconciled.md` (the docs updated, or `No documentation update required — <reason>`; after a step 2 short-circuit there is none — say so).
 

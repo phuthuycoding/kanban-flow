@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -140,6 +141,30 @@ describe("kf sync — delivery sweep (UC-006, TC-019/TC-020)", () => {
     const res = await cmdSync(args(), root);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("repository");
+  });
+
+  it("without a repository still closes landing: none items, and gh is never called", async () => {
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: false } }));
+    await reviewBug("nothingbug");
+    const res = await cmdSync(args(), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("✓ nothingbug: archived (nothing to land)");
+    expect(res.stdout).not.toContain("No repository configured");
+    expect(feature("nothingbug").stage).toBe("done");
+    expect(existsSync(callsFile())).toBe(false);
+  });
+
+  it("without a repository closes the landing: none items first, then refuses for PR-linked ones", async () => {
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: false } }));
+    await reviewBug("nothingbug");
+    await seedItem("review", "linked", { pr: "https://github.com/o/r/pull/10" });
+    const res = await cmdSync(args(), root);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("✓ nothingbug: archived (nothing to land)");
+    expect(res.stdout).toContain("No repository configured");
+    expect(feature("nothingbug").stage).toBe("done");
+    expect(feature("linked").stage).toBe("review");
+    expect(existsSync(callsFile())).toBe(false);
   });
 
   it("exits 1 without a repository when a legacy folder could not be migrated", async () => {

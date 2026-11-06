@@ -20,7 +20,7 @@ Brainstorming is **divergence then convergence**: first open the problem up from
 `kf:flow` names a path before this skill runs; if you were called directly, name it now — "this looks bounded, so the spec will be a page and I skip the divergence framework" — so the user can override it:
 
 - **Spike** — a question or a one-shot operation that lands no code. **Stop here: no `kf new`.** Hand off to `Skill(kf:spike)`, which owns the procedure. If the answer becomes work, classify again.
-- **Bounded** — a change to a flow that already exists in this repository. Run sections 1, 3, 4 and 5; **skip section 2** (the frameworks). The spec is a page: the restated journey, one or two FRs, the Affected surfaces, a Test Strategy, acceptance criteria. Every gate below still applies.
+- **Bounded** — a change to a flow that already exists in this repository. Run sections 1, 3, 4 and 5; **skip section 2** (the frameworks). The spec is a page: the restated journey, one or two FRs, the Affected surfaces, a Test Strategy, acceptance criteria. Its Scope comes from the restated journey and the user's answers, since there is no synthesis. Every gate below still applies.
 - **Architectural** — everything else. All sections.
 
 One-way ratchet: if the bounded spec grows a second surface or a new subsystem mid-way, say so and step up to architectural; never the reverse.
@@ -227,9 +227,9 @@ kf contexts --json   # declared: [...], restricted: true|false
 ```
 
 - `restricted: true` — use one of the declared names, spelled exactly. `Auth` is refused next to `auth`, because accepting both is how a second docs tree appears.
-- `restricted: false` — nothing is declared; any valid name works, and the `brief` field tells you how to propose a list. Proposing one is a suggestion for the human to confirm, never something to write into the config yourself.
+- `restricted: false` — nothing is declared; any valid name works, and the `brief` field tells you how to propose a list. Show the proposal to the human; once they confirm it, write only the list they confirmed to `.kf/config.json` as `"contexts"` (the first entry is the default). Never write a list they have not confirmed. The edit dirties the checkout and makes `kf stage` skip its base fast-forward, so ask the human to commit it before the stage move.
 
-If `kf new` refuses the name, it prints the nearest declared one. Take that suggestion or ask the human — do not invent a new context to get past the refusal, and do not add one to `.kf/config.json`.
+If `kf new` refuses the name, it prints the nearest declared one. Take that suggestion or ask the human — do not invent a new context to get past the refusal, and do not add one to `.kf/config.json` on your own.
 
 ```bash
 kf new {feature_name} --context {context}
@@ -252,8 +252,8 @@ kf instruct spec-requirement --change {feature_name}
 Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence to sections:
 
 - **Objective / Problem Statement** — the restated challenge (sharpened by the framework).
-- **Scope (in & out)** — the SCOPE DECISION from synthesis. Explicit "out" items are valuable: they stop Phase 2-3 from drifting.
-- **Affected surfaces** — every user-facing surface the change touches (README, docs site, landing page, CLI `-h`, examples, changelog, packaging, API reference), one bullet each, or the literal `N/A`. The spec cannot leave brainstorm without it. Ask the human when the surface list is ambiguous — they own what counts as user-facing.
+- **Scope (in & out)** — the SCOPE DECISION from synthesis; on the bounded path, the restated journey and the user's answers. Explicit "out" items are valuable: they stop Phase 2-3 from drifting.
+- **Affected surfaces** — every user-facing surface the change touches (README, docs site, landing page, CLI `-h`, examples, changelog, packaging, API reference), one bullet each, or the literal `N/A`. Each bullet is the bare surface name (`README.md`, not `README.md — new flag`): `kf validate` matches it as a lowercase substring of the plan. The spec cannot leave brainstorm without it. Ask the human when the surface list is ambiguous — they own what counts as user-facing.
 - **Functional Requirements `FR-###`** — **the traceability anchor.** One behavior per FR, phrased so a test could pass/fail on it. Include the priority (must/should/could) and a note carrying any framework rationale.
 - **Non-Functional Requirements** — performance, security, UX, accessibility, compliance.
 - **Main Use Cases** — one line each with `UC-###` ids (full narratives live in Phase 2).
@@ -264,13 +264,11 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
     - `unit+integration` — unit tests plus tests where the change meets another system, the database or an API. The default for an API or a datastore.
     - `full` — unit, integration and **UI/E2E** (Playwright, Cypress, Detox and so on). The default for anything with a user interface or a critical flow, such as a web todo list, a login or a checkout.
   - When the user picks `full`, ask how wide the UI coverage goes: *"UI tests for every flow, or only the critical ones?"* → `{test_level}: full`, `{ui_test_scope}: critical|all`.
-  - Record it in the spec under the labels that template actually uses: `Level` in the feature template, `Test Level` in the bug template, plus `UI Tests`, `Tools` (the framework name and the file that runs it) and `Coverage Target` (80% by default).
+  - Record it in the spec under the labels that template actually uses: the feature template has `Level`, `UI Tests`, `Tools` (the framework name and the file that runs it) and `Coverage Target` (80% by default); the bug template has `Test Level`, `Tools` and `Coverage Target`, and no `UI Tests`.
   - **Let the nature of the feature set the default.** Do not ask again when the answer is obvious: a CRUD API is `unit+integration`, an app with a UI is `full`. Ask only when you genuinely cannot decide.
 - **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Under `full`, at least one criterion per FR must read as a UI action: what is clicked, what is typed, what appears on screen.
 
-Set `status: pending` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation).
-
-Mirror the requirement to `docs/requirement/{context}/{feature_name}.md` (canonical, human-readable; create the context dir if missing — `kf archive` refreshes it later).
+Set `status: pending` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation). Write nothing under `docs/` here: the close writes the canonical requirement, and a file in the main checkout would make `kf stage … planning` skip its base fast-forward.
 
 ```bash
 kf status --change {feature_name}
@@ -284,7 +282,7 @@ The checklist reports content completion; human confirmation is still required b
 
 **Self-review first**, with fresh eyes: placeholders or vague requirements; sections that contradict each other; a scope too wide for one implementation plan; a requirement that could be read two ways. Fix inline.
 
-**Then dispatch `Agent(kf:spec-reviewer)` once**, `model: opus`, with a fresh context: the brief names the work item folder, points at the user's original request (an excerpt file you write under the item folder, or the Objective) and names a report file (`<item>/reviews/spec-review.md`). It reports only requirement gaps, untestable FRs or acceptance criteria, internal contradictions and ungrounded names — never new scope. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report`. HIGH findings go into the confirmation ask below; the review never blocks on its own, the human does. When the runtime has no subagent tool, run the same four checks yourself and say so.
+**Then dispatch `Agent(kf:spec-reviewer)` once**, `model: opus`, with a fresh context: the brief names the work item folder, carries a verbatim excerpt of the user's original request (in the brief or a file you write under the item folder; never only the Objective), names the git ref to ground names against and names a report file (`<item>/reviews/spec-review.md`). It reports only requirement gaps, untestable FRs or acceptance criteria, internal contradictions and ungrounded names — never new scope. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report`. HIGH findings go into the confirmation ask below; the review never blocks on its own, the human does. When the runtime has no subagent tool, run the same four checks yourself and say so.
 
 Present a tight summary (do not dump the whole file):
 
@@ -317,14 +315,14 @@ SPEC REVIEW (spec-reviewer, <model>): {n HIGH, n MEDIUM, n LOW}
 Please confirm the requirement.
 ```
 
-- On confirmation → set `status: confirmed`, mirror canonical requirement, run `kf stage {feature_name} planning`, then load kf:plan.
+- On confirmation → set `status: confirmed`, run `kf stage {feature_name} planning`, then load kf:plan.
 - If the user pushes back → update the spec, re-confirm. This is normal; the spec exists to absorb disagreement cheaply here, not in implementation.
 
 ---
 
 ## Done
 
-The requirement is confirmed and mirrored. Hand off to **Phase 2 — Planning**:
+The requirement is confirmed. Hand off to **Phase 2 — Planning**:
 
 ```text
 Load the kf:plan skill and write the four plan artifacts (implementation-plan, use-case-specification, use-case-diagram, test-cases). The one-line use-case summaries and the FR/UC ids from phase-1-spec-requirement.md are the input — the full narratives are written in Phase 2, not carried over from Phase 1. Do not re-derive the ids from scratch.

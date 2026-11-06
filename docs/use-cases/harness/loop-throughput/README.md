@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case Index
 
+> **Partly superseded by `adaptive-developer-cap`:** the fixed developer cap of 4 no longer holds — the loop runs a live developer cap that starts at min(2, ceiling), steps up by one after each clean parallel wave and halves on a contention-shaped verify failure, ceiling `harness.developers.max` (default 6); the wait line reads `<N> developers in flight`. Kept for history.
+
 > **Partly superseded by `parallel-developers`:** the one-developer seat and the head/next two-task window no longer hold — up to 4 developers run under the dispatch conditions. Kept for history.
 
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md`. Do not write a combined narrative here.

@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ProjectConfigError, readProjectConfig } from "../../project/config.js";
+import { DEFAULT_DEVELOPER_MAX } from "../../project/harness-config.js";
 import type { Feature } from "../../workflow/features.js";
 import { checkTaskGraph, taskGraphSummary, taskView, type TaskViewRow } from "../../workflow/tasks.js";
 import { resolveItem } from "./helpers.js";
@@ -39,6 +41,21 @@ function renderRow(t: ShownTask): string {
   return `${t.id}  wave ${t.wave}  ${t.state.padEnd(9)}  deps: ${deps}  files: ${files}`;
 }
 
+/**
+ * The ceiling `kf tasks --json` reports. A bad `harness.developers` is refused; any other config error must not
+ * hide the task list, and since the configured ceiling is then unknown it reads 1, which every project allows.
+ */
+function readDeveloperCeiling(root: string): { max: number; source: string; error?: string } | { failed: string } {
+  try {
+    const max = readProjectConfig(root).harness?.developers?.max;
+    return max === undefined ? { max: DEFAULT_DEVELOPER_MAX, source: "default" } : { max, source: "config" };
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    if (err.message.includes("harness.developers")) return { failed: err.message };
+    return { max: 1, source: "invalid-config", error: err.message };
+  }
+}
+
 export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: "Usage: kf tasks <feature> [--json] [--graph]", stderr: "missing feature" };
@@ -71,7 +88,9 @@ export async function cmdTasks(args: ParsedArgs, cwd: string): Promise<CmdResult
 
   const view = showTasks(feature, taskView(feature));
   if (args.options.json) {
-    return { code: 0, stdout: JSON.stringify({ feature: feature.name, tasks: view }, null, 2) };
+    const developers = readDeveloperCeiling(root.root);
+    if ("failed" in developers) return { code: 1, stdout: developers.failed, stderr: "invalid project config" };
+    return { code: 0, stdout: JSON.stringify({ feature: feature.name, tasks: view, developers }, null, 2) };
   }
   if (view.length === 0) return { code: 0, stdout: "No planned tasks." };
   return { code: 0, stdout: view.map(renderRow).join("\n") };

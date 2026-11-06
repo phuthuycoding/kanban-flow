@@ -8,10 +8,10 @@ Every reviewer the kanban skills dispatch — the whole-branch review in `kf:rev
 | --- | --- | --- |
 | `dimension` | yes | `bugs` \| `security` \| `perf` \| `contracts` \| `intent` \| `quality`. `intent` judges the diff against the approved requirement and plan: intent not implemented, scope added, behaviour the requirement rules out. `quality` covers the AI-risk lens and rule violations that are none of the others. |
 | `severity` | yes | `HIGH` \| `MEDIUM` \| `LOW` — the same three levels the review rules use. HIGH must be fixed before merge (security risk, data loss, crash, a requirement not met, a test that asserts nothing where the requirement needs one). MEDIUM should be fixed before merge (performance, maintainability, a weak test). LOW is a suggestion. |
-| `title` | yes | Short label; the orchestrator dedups by `title + file`. |
+| `title` | yes | Short label; `verify-findings.mjs` dedups kept findings by `title + file`. |
 | `issue` | yes | One sentence: what is wrong and why it matters. |
 | `fix` | yes | A concrete recommendation. |
-| `file` | recommended | Repo-relative path. |
+| `file` | recommended | Repo-relative path of the code the finding is about. For a rule violation it is the offending code, never the rule file (rule files live outside the checkout); the rule's `path:line` goes in `issue`. |
 | `line` | recommended | The line, or range, the finding anchors to. |
 | `evidence` | required with `file` | One **verbatim** line of code (at least 6 characters) copied from the file at or near `line`, without the diff's `+`/`-` marker. `scripts/verify-findings.mjs` matches it against the real file within 20 lines of `line` and refutes a finding whose quote is missing, too short, elsewhere in the file, or whose path leaves the root. |
 
@@ -37,8 +37,7 @@ Shippable: YES | NO
 
 ## How the orchestrator uses it
 
-1. Concatenate every reviewer's array (T2/T3 fan-out, or one per bundle).
-2. Dedup by `title + file`, keeping the highest severity.
-3. `node ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/verify-findings.mjs <root> findings.json` → `kept` and `refuted`, each kept finding carrying `verifiedLine` (the line where the quote was found, within 20 lines of the cited one). Refuted findings — no evidence, a quote under 6 characters, a path outside the root or not a regular file, a quote absent or far from the cited line — are listed in the report under "refuted at verification" and do not count.
-4. Rank kept findings HIGH → MEDIUM → LOW and copy them into the report's Findings table, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = `fix`.
-5. The report `status:` follows the gate semantics, not the reviewer's word: `PASS` only with zero open HIGH findings and every MEDIUM assessed against acceptance and the Definition of Done.
+1. Merge every reviewer's array (T2/T3 fan-out, or one per bundle) into ONE JSON array, e.g. `jq -s add reviewer-*.json > findings.json`.
+2. `node ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/verify-findings.mjs <root> findings.json` verifies the evidence first, then dedups the kept findings by `title + file`, keeping the highest severity. It prints `kept`, `refuted` and `duplicates`; each kept finding carries `verifiedLine` (the line where the quote was found, within 20 lines of the cited one). Refuted findings — no evidence, a quote under 6 characters, a path outside the root or not a regular file, a quote absent or far from the cited line — are never deduped; they are listed in the report under "refuted at verification" and do not count. Duplicates are not listed.
+3. Rank kept findings HIGH → MEDIUM → LOW and copy them into the report's Findings table, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = `fix`.
+4. The report `status:` follows the gate semantics, not the reviewer's word: `PASS` only with zero open HIGH findings and every MEDIUM assessed against acceptance and the Definition of Done.

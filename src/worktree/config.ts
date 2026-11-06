@@ -10,6 +10,9 @@ import { basename, isAbsolute, join, resolve } from "node:path";
  */
 export interface WorktreeConfig {
   enabled: boolean;
+  /** When false, no DNS/proxy infra probes run, no domain URL is printed and KFW_WORKTREE_DOMAIN is not
+   *  exported; routes are still registered so ports stay unique. */
+  domains: boolean;
   /** Directory worktrees are created under; default `<repo>/.worktrees` inside the repo. */
   baseDir: string;
   branchPrefix: string;
@@ -62,6 +65,8 @@ export function parseWorktreeConfig(raw: unknown, file: string): Partial<Worktre
   const w = raw as Record<string, unknown>;
   if (w.enabled !== undefined && typeof w.enabled !== "boolean")
     throw new Error(`Invalid project config: ${file} — worktree.enabled must be boolean`);
+  if (w.domains !== undefined && typeof w.domains !== "boolean")
+    throw new Error(`Invalid project config: ${file} — worktree.domains must be boolean`);
   if (w.baseDir !== undefined && typeof w.baseDir !== "string")
     throw new Error(`Invalid project config: ${file} — worktree.baseDir must be a string`);
   if (w.branchPrefix !== undefined && typeof w.branchPrefix !== "string")
@@ -110,6 +115,7 @@ function defaultBranchPrefix(root: string, gitconfigName: string | undefined): s
 export function worktreeConfig(root: string, raw: Partial<WorktreeConfig> | undefined): WorktreeConfig {
   return {
     enabled: raw?.enabled ?? false,
+    domains: raw?.domains ?? true,
     baseDir: raw?.baseDir ?? join(root, ".worktrees"),
     branchPrefix: raw?.branchPrefix ?? defaultBranchPrefix(root, raw?.gitconfigName),
     baseDomain: raw?.baseDomain ?? `${repoSlug(root)}.test`,

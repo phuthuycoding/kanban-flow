@@ -8,6 +8,8 @@ status: archived
 
 > **Partly superseded by `drive-retire`:** the statements that `kf drive`, `kf run --task`, `harness.roles` and the `kf-run:` worker paragraphs of `kanban-implement` stay unchanged no longer hold — all are removed; the in-session loop is the only path. Kept for history.
 
+> **Partly superseded by the workflow review fixes (2026-11-02):** `skills/implement/references/implementer-brief.md` is deleted — its only consumer, the removed `kf run` task worker, is gone; the developer brief is the single implementer dispatch. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
 

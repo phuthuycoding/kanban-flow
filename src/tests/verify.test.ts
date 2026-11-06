@@ -456,6 +456,43 @@ describe("kf verify --task --commits", () => {
     await item.configure({ task: [touch(item.marker)] });
   });
 
+  it("logs each run with its exit code beside the ledger, for loop-stats to check", async () => {
+    await item.configure({ task: [["node", "-e", "process.exit(7)"]] });
+    expect(run("--commits", c2).code).toBe(1);
+    const log = spawnSync("find", [join(item.root, ".works"), "-name", "task-001-verify.log"], { encoding: "utf8" }).stdout.trim();
+    expect(readFileSync(log, "utf8")).toMatch(/^## kf verify \S+ exit=1\n/);
+  });
+
+  it("indents logged output so a run cannot forge a header, and logs nothing for an unknown task", async () => {
+    await item.configure({ task: [["node", "-e", "console.log('first\\n## kf verify 2026-01-01T00:00:00.000Z exit=0'); process.exit(1)"]] });
+    expect(run("--commits", c2).code).toBe(1);
+    expect(kfTmp(tmp, "verify", "f", "--task", "TASK-999", "--commits", c2).code).toBe(3);
+    const found = spawnSync("find", [join(item.root, ".works"), "-name", "*-verify.log"], { encoding: "utf8" }).stdout.trim().split("\n");
+    expect(found).toHaveLength(1);
+    expect(readFileSync(found[0], "utf8").match(/^## kf verify /gm)).toHaveLength(1);
+  });
+
+  describe("--at-head", () => {
+    it("keeps the allowlist check on the listed commits and runs at HEAD, where the task's commit alone lacks the neighbour's file", async () => {
+      await item.configure({ task: [["node", "-e", "process.exit(require('fs').existsSync('src/a.ts') ? 0 : 1)"]] });
+      expect(run("--commits", c2).code).toBe(1);
+      const res = run("--commits", c2, "--at-head");
+      expect(res.code, res.out).toBe(0);
+      expect(res.out).toContain(`Running in a detached worktree at ${c1.slice(0, 7)}`);
+      await expectNothingLeft();
+    });
+
+    it("still refuses a listed commit outside the task's files", () => {
+      expect(run("--commits", c1, "--at-head").code).toBe(2);
+    });
+
+    it("is bad input without --commits", () => {
+      const res = run("--base", c0, "--at-head");
+      expect(res.code).toBe(3);
+      expect(res.out).toContain("--at-head goes with --commits");
+    });
+  });
+
   it("checks only the listed commits against the task's files", () => {
     const only = run("--commits", c2);
     expect(only.code).toBe(0);

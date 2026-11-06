@@ -142,6 +142,10 @@ export interface TaskViewRow {
   description: string;
   dependencies: string[];
   files: string[] | null;
+  /** The plan row's "FR / UC references" cell; absent when the plan has none. */
+  refs?: string;
+  /** The plan row's "Expected output" cell; absent when the plan has none. */
+  expectedOutput?: string;
   wave: number;
   overlaps: { task: string; entries: [string, string] | null }[];
 }
@@ -158,6 +162,8 @@ export function taskView(feature: Feature): TaskViewRow[] {
     description: t.description,
     dependencies: t.dependencies,
     files: t.files,
+    ...(t.refs ? { refs: t.refs } : {}),
+    ...(t.expectedOutput ? { expectedOutput: t.expectedOutput } : {}),
     wave: waves[t.id],
     overlaps: tasks
       .filter((o) => o.id !== t.id && filesOverlap(t.files, o.files))

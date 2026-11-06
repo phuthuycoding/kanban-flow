@@ -1,7 +1,11 @@
 export interface HarnessConfig {
   /** Verification argv lists kf runs without a shell; set only by a human in .kf/config.json. */
   verify?: { task?: string[][]; stage?: string[][] };
+  /** Ceiling on parallel developer seats in the task loop; the loop starts lower and steps up to it. */
+  developers?: { max?: number };
 }
+
+export const DEFAULT_DEVELOPER_MAX = 6;
 
 /** Keys the removed drive runtime read. They are ignored on load; only `kf doctor --fix` deletes them. */
 export const LEGACY_HARNESS_KEYS = ["main", "roles", "stages", "runners", "parallel", "retries", "maxLoops", "budget"] as const;
@@ -22,8 +26,8 @@ function validateArgvList(at: string, value: unknown, fail: Fail): void {
 }
 
 /**
- * Validate the `harness` block of .kf/config.json; throws with the offending field. Only `verify` is
- * checked. Every other key is carried through unvalidated: init writes this object back, so dropping
+ * Validate the `harness` block of .kf/config.json; throws with the offending field. Only `verify` and
+ * `developers` are checked. Every other key is carried through unvalidated: init writes this object back, so dropping
  * or rejecting a legacy key here would erase it or block every command before `kf doctor --fix` runs.
  */
 export function validateHarness(value: unknown, file: string): HarnessConfig {
@@ -37,6 +41,13 @@ export function validateHarness(value: unknown, file: string): HarnessConfig {
     const v = h.verify as Record<string, unknown>;
     if (v.task !== undefined) validateArgvList("harness.verify.task", v.task, fail);
     if (v.stage !== undefined) validateArgvList("harness.verify.stage", v.stage, fail);
+  }
+  if (h.developers !== undefined) {
+    if (!h.developers || typeof h.developers !== "object" || Array.isArray(h.developers)) fail("harness.developers", "must be an object { max? }");
+    const max = (h.developers as Record<string, unknown>).max;
+    if (max !== undefined && (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 16)) {
+      fail("harness.developers.max", "must be an integer from 1 to 16");
+    }
   }
   return h as HarnessConfig;
 }

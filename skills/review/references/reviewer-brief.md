@@ -19,7 +19,8 @@ Agent:
     ## The review pack
     Read this file next; it is your whole input: [PACK_FILE]
     Its ## Rules block lists the rule files that bind this review — read every one; a violated
-    rule is a finding citing the rule's file:line. Its ## Diff block names the review package
+    rule is a finding whose file, line and evidence are the offending code line; the rule's
+    path:line goes in issue. Its ## Diff block names the review package
     and the checkout path for reading files.
 
     ## Read-only
@@ -41,7 +42,7 @@ Agent:
 - `[DOCTRINE_FILE]`, `[SCHEMA_FILE]` — absolute paths of this skill's `references/reviewer-doctrine.md` and `references/finding-schema.md` (the reviewer has Read; pasting them costs output tokens on every dispatch).
 - `[PACK_FILE]` — the pack the orchestrator wrote: `<item>/reviews/<execution-id>/pack.md`.
 
-**After the reply:** save it verbatim to `<item>/reviews/<execution-id>/reviewer-<dimension>.md`, then extract the JSON array into `findings.json` for `scripts/verify-findings.mjs`.
+**After the reply:** save it verbatim to `<item>/reviews/<execution-id>/reviewer-<dimension>.md`, then extract its JSON array into `<item>/reviews/<execution-id>/reviewer-<dimension>.json` (`reviewer-<dimension>-<bundle>.json` for bundles); the skill's step 6 merges every one of them into a single `findings.json` for `scripts/verify-findings.mjs`.
 
 **What never goes in the brief:** "do not flag X", "treat Y as at most LOW", "the plan chose this on purpose". That is pre-judging; let the reviewer raise it and assess the finding against the contract when it arrives.
 

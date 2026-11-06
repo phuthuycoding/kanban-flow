@@ -225,10 +225,21 @@ describe("estimates measure", () => {
     [["--date", "2026-02-30"], "--date must be YYYY-MM-DD"],
     [["--bogus", "1"], "unknown flag --bogus"],
   ])("rejects %j", (override, message) => {
-    const flags = [...FLAGS, ...override];
+    // An override replaces the flag's value; a repeated flag is refused on its own.
+    const at = FLAGS.indexOf(override[0]);
+    const flags = at === -1 ? [...FLAGS, ...override] : [...FLAGS.slice(0, at), ...override, ...FLAGS.slice(at + 2)];
     const r = run("measure", "--file", join(dir, "e.md"), ...flags);
     expect(r.code).toBe(1);
     expect(r.err).toContain(message);
+  });
+
+  it("refuses a repeated flag and a review share larger than the work", () => {
+    const repeated = run("measure", "--file", join(dir, "e.md"), ...FLAGS, "--work", "99");
+    expect(repeated.code).toBe(1);
+    expect(repeated.err).toContain("--work given more than once");
+    const at = FLAGS.indexOf("--review");
+    const flags = [...FLAGS.slice(0, at), "--review", "99", ...FLAGS.slice(at + 2)];
+    expect(run("measure", "--file", join(dir, "e.md"), ...flags).code).toBe(1);
   });
 
   it("requires every field", () => {

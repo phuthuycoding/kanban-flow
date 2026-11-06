@@ -62,7 +62,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   issues: {
-    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr; done is deprecated and forwards to kf archive",
+    help: "Usage: kf issues [--state open|closed|all] [--limit <n>] [--json] | kf issues view <n> | kf issues create <feature> [--title <t>] [--label <l> ...] | kf issues link <feature> <n|url> [--pr [--replace]] | kf issues sync <feature> | kf issues done <feature>  — GitHub issues on the project's repository (.kf/config.json), via gh. link accepts an issue number/URL or a pull request URL/--pr (--replace swaps a recorded PR closed without merging); done is deprecated and forwards to kf archive",
     allowPositionals: true,
     options: {
       state: { type: "string" },
@@ -71,6 +71,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       label: { type: "string", multiple: true },
       json: { type: "boolean" },
       pr: { type: "boolean" },
+      replace: { type: "boolean" },
     },
   },
   show: {
@@ -221,17 +222,18 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   verify: {
-    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits), or run harness.verify.stage. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
+    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
     allowPositionals: true,
     options: {
       task: { type: "string" },
       base: { type: "string" },
       commits: { type: "string" },
+      "at-head": { type: "boolean" },
       stage: { type: "boolean" },
     },
   },
   worktree: {
-    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
+    help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation; set \"worktree.domains\": false to skip the .test domain infrastructure and use http://127.0.0.1:<port>); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
