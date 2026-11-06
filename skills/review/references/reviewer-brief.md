@@ -42,7 +42,7 @@ Agent:
 - `[DOCTRINE_FILE]`, `[SCHEMA_FILE]` — absolute paths of this skill's `references/reviewer-doctrine.md` and `references/finding-schema.md` (the reviewer has Read; pasting them costs output tokens on every dispatch).
 - `[PACK_FILE]` — the pack the orchestrator wrote: `<item>/reviews/<execution-id>/pack.md`.
 
-**After the reply:** save it verbatim to `<item>/reviews/<execution-id>/reviewer-<dimension>.md`, then extract its JSON array into `<item>/reviews/<execution-id>/reviewer-<dimension>.json`; the skill's step 6 merges every one of them into a single `findings.json` for `scripts/verify-findings.mjs`.
+**After the reply:** save it verbatim to `<item>/reviews/<execution-id>/reviewer-<dimension>.md`, then extract its JSON array into `<item>/reviews/<execution-id>/reviewer-<dimension>.json` (`reviewer-<dimension>-<bundle>.json` for bundles); the skill's step 6 merges every one of them into a single `findings.json` for `scripts/verify-findings.mjs`.
 
 **What never goes in the brief:** "do not flag X", "treat Y as at most LOW", "the plan chose this on purpose". That is pre-judging; let the reviewer raise it and assess the finding against the contract when it arrives.
 

@@ -57,6 +57,22 @@ export type MergeGateResult =
  * A merged PR comes back with its head branch and head commit: deleting the item branch is
  * safe only for the commits that PR merged. A MERGED answer without them is a parse failure.
  */
+/** Why `pr` cannot replace a closed PR, or null: it must be open on this repository and, when known, on the item's branch. */
+export function replacementRefusal(pr: string, repo: string, branch: string | undefined): string | null {
+  if (!pr.includes(`/${repo}/pull/`)) return `${pr} is not a pull request of ${repo}`;
+  const res = gh(["pr", "view", pr, "-R", repo, "--json", "state,headRefName"]);
+  if (!res.ok) return `${pr} could not be verified: ${res.missing ? "gh CLI not found" : res.stderr.trim() || res.stdout.trim()}`;
+  let view: { state?: string; headRefName?: string };
+  try {
+    view = JSON.parse(res.stdout) as typeof view;
+  } catch (err) {
+    return `${pr} could not be verified: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  if (view.state?.toUpperCase() !== "OPEN") return `${pr} is ${view.state ?? "in an unknown state"}, not open`;
+  if (branch && view.headRefName !== branch) return `${pr} is on ${view.headRefName ?? "an unknown branch"}, not ${branch}`;
+  return null;
+}
+
 export function checkMergeGate(
   feature: { meta?: { pr?: string } | null },
   repo: string | undefined,

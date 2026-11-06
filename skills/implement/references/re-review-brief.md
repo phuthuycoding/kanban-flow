@@ -1,6 +1,6 @@
 # Scoped re-review brief — after a fix round
 
-Use this template after a fix round. The re-reviewer verdicts each finding and inspects the fix diff for new breakage — nothing else. It is not a fresh review; the full review already happened. When the `code-reviewer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template after a fix round. The re-reviewer verdicts each finding and inspects the fix diff for new breakage — nothing else. It is not a fresh review; the full review already happened. When the `code-reviewer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` pasted first and a `Note TASK-NNN: code-reviewer stand-in general-purpose` line in the ledger.
 
 ```
 Agent:

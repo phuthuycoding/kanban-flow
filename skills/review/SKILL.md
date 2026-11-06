@@ -45,7 +45,7 @@ Facts are what the reviewer judges from; they are never a verdict.
 
 ```bash
 ADDED_LINES=$( { git diff "$BASE" -- . ':(exclude)*.md' | grep '^+' | grep -v '^+++'
-  git ls-files -z --others --exclude-standard -- . ':(exclude)*.md' | xargs -0 -r grep -Ih '' | sed 's/^/+/'; } )
+  git ls-files -z --others --exclude-standard -- . ':(exclude)*.md' | xargs -0 -r grep -Ih '' -- | sed 's/^/+/'; } )
 printf '%s\n' "$ADDED_LINES" | grep -nE '^\+(<<<<<<<|>>>>>>>)'            # conflict marker
 printf '%s\n' "$ADDED_LINES" | grep -nE '\.only\(|(^|[^A-Za-z0-9_$.])(fdescribe|fit)\('   # focused test locks out its siblings; not benefit( or x.fit(
 printf '%s\n' "$ADDED_LINES" | grep -nE '(^|[^A-Za-z_])debugger([^A-Za-z_]|$)'
@@ -61,7 +61,7 @@ The docs commit goes into the reviewed diff, so the reviewers see it and the boa
 
 **Every run of 2b** (a later execution after a repair loop, and a re-run of the same execution after an interrupted run or the human's answer to an open question) first reads the existing `<item>/reviews/<id>/docs-reconciled.md` when present and never replaces rows already there. It then adds a row for each commit that `git log --format='%h %s' --grep 'reconcile docs superseded by' "$BASE"..HEAD` lists and the file lacks (by commit sha; take the row text from the earlier `<item>/reviews/*/docs-reconciled.md` when it has one), and reconciles only what is new. Docs already bannered are not a reason to write `None`. A review that ends `FAIL` keeps its docs commit on the branch.
 
-The commit changes the tree after step 2's checks: the board (step 7a) runs lint, build, the suite and the regression-on-BASE check again at the final fingerprint — never copies step 2's results. Its Testing report line re-reads the report's `execution:` and `status:`; nothing to re-run.
+Record `fp` (step 7a) at the end of step 2. When the docs commit changes it, the board runs lint, build, the suite and the regression-on-BASE check again at the final fingerprint; when it does not, the board stamps step 2's results. Its Testing report line re-reads the report's `execution:` and `status:`; nothing to re-run.
 
 ## 3. Size the diff and pick the tier
 
@@ -168,7 +168,7 @@ kf issues link {feature_name} <PR URL> --pr        # records the PR; needs repos
 
 A repair loop with a recorded open PR pushes to the same branch, which updates that PR — never a second one, and no `kf issues link` (it refuses with `already links PR <url>` once one is recorded). That refusal naming the same URL is success; naming another URL → stop and report.
 
-**The recorded PR is closed without merge** (`gh pr view <url> --json state,mergedAt,headRefName`: `CLOSED`, no `mergedAt`): reopen it (`gh pr reopen <url>`) when its `headRefName` is still `$BRANCH`; otherwise open a new PR (`gh pr create` as above) and record it with `kf issues link {feature_name} <new URL> --pr --replace` — `--replace` is accepted only while the recorded PR is closed and not merged.
+**The recorded PR is closed without merge** (`gh pr view <url> --json state,mergedAt,headRefName`: `CLOSED`, no `mergedAt`): someone closed it, so stop and ask the human. On their word, reopen it (`gh pr reopen <url>`) when its `headRefName` is still `$BRANCH`, or open a new PR (`gh pr create` as above) and record it with `kf issues link {feature_name} <new URL> --pr --replace`, which needs the recorded PR closed and not merged, and the new one open on this item's branch.
 
 Set `landing: pr`. The push, `gh pr create` or `kf issues link` otherwise failing (no remote, no auth, no `repository`) → stop and report; never fake a PR and never write `PASS` without one.
 

@@ -9,7 +9,7 @@ import { findFeature, updateFeatureMeta } from "../../workflow/features.js";
 import { splitFrontmatter, isFilledFile } from "../../shared/frontmatter.js";
 import { ARTIFACTS } from "../../workflow/schema.js";
 import { findRoot, ghFailure, noRepository } from "./helpers.js";
-import { checkMergeGate, gh } from "../../integrations/github.js";
+import { checkMergeGate, gh, replacementRefusal } from "../../integrations/github.js";
 import { renderArchive } from "./archive.js";
 import { archiveItem } from "../../workflow/archive.js";
 import type { ParsedArgs } from "../args.js";
@@ -162,6 +162,8 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
     if (replaced === url) return { code: 1, stdout: `'${f.name}' already links ${url} — nothing to replace.`, stderr: "same pr" };
     const refusal = replaceRefusal(f.name, replaced, checkMergeGate(f, repo));
     if (refusal) return refusal;
+    const unfit = replacementRefusal(url, repo, f.meta.worktree?.branch);
+    if (unfit) return { code: 1, stdout: `Not replaced: ${unfit}.`, stderr: "replacement refused" };
   }
   await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, ...(isPrRef ? { pr: url } : { issue: url }) }));
   return { code: 0, stdout: replaced ? `Linked '${f.name}' → ${url} (replaced ${replaced}, closed without merging)` : `Linked '${f.name}' → ${url}` };

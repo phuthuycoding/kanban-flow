@@ -11,6 +11,7 @@ import {
   lateStamps,
   loopStats,
   parseLedger,
+  unansweredOrphans,
   readHistory,
   recordRow,
   summarise,
@@ -41,20 +42,20 @@ const lagText = (n: number | null): string => (n === null ? "-" : String(n));
 const lagPart = (name: string, f: LagFigures): string => `${name} median ${lagText(f.median)} max ${lagText(f.max)} (n=${f.n})`;
 
 /** The unparsed and orphan line numbers as one phrase, or `null` when the ledger has none. */
-function brokenLines(stats: LoopStats): string | null {
+function brokenLines(unparsed: number[], orphans: number[]): string | null {
   const parts = [
-    ...(stats.unparsed.length > 0 ? [`unparsed lines ${list(stats.unparsed)}`] : []),
-    ...(stats.orphans.length > 0 ? [`orphan lines ${list(stats.orphans)}`] : []),
+    ...(unparsed.length > 0 ? [`unparsed lines ${list(unparsed)}`] : []),
+    ...(orphans.length > 0 ? [`orphan lines ${list(orphans)}`] : []),
   ];
   return parts.length > 0 ? `ledger ${parts.join(" and ")}` : null;
 }
 
 /** The problems that make a ledger's figures wrong, as one phrase, or `null` when it has none. */
-function ledgerProblems(stats: LoopStats, late: number[], ledgerPath: string): string | null {
-  const broken = brokenLines(stats);
+function ledgerProblems(stats: LoopStats, parsed: ParsedLedger, late: number[], ledgerPath: string): string | null {
+  const broken = brokenLines(stats.unparsed, unansweredOrphans(parsed, stats.orphans));
   const parts = [
     ...(broken ? [`${broken} are left out of every figure`] : []),
-    ...(late.length > 0 ? [`ledger lines ${list(late)} are stamped after the file was last written, so their times are invented`] : []),
+    ...(late.length > 0 ? [`ledger lines ${list(late)} are stamped after the file was last written, so those times did not come from the clock`] : []),
   ];
   return parts.length > 0 ? `${parts.join("; ")}; fix those lines in ${ledgerPath}` : null;
 }
@@ -149,7 +150,7 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
   const stats = loopStats(parsed, dependencies);
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
-  const problems = ledgerProblems(stats, lateStamps(parsed, statSync(ledgerPath).mtimeMs), ledgerPath);
+  const problems = ledgerProblems(stats, parsed, lateStamps(parsed, statSync(ledgerPath).mtimeMs), ledgerPath);
   if (!record) {
     // Plain reporting still exits 0; what makes the figures wrong is named on stderr so it is not missed.
     return problems ? { code: 0, stdout: report, stderr: `warning: ${problems}` } : { code: 0, stdout: report };

@@ -480,7 +480,7 @@ describe("the docs describe concurrent developers in one worktree", () => {
       .split("\n")
       .find((l) => l.startsWith("| `kf tasks <feature>")) ?? "";
     expect(row, "the kf tasks row").toContain("`developers: {max, source}`");
-    expect(row).toMatch(/`config` or `default`/);
+    expect(row).toContain("`config`, `default` or `invalid-config`");
   });
 
   it("no longer states the one-developer-at-a-time rule", () => {

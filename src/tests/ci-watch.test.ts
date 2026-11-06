@@ -19,16 +19,16 @@ const loop = documented
   .replace("settle=$((SECONDS+60))", "settle=$((SECONDS+2))");
 
 /** A conclusion of `in_progress` lists the run as still running. The workflow id defaults to one per workflow name. */
-type Run = [id: number, conclusion: string, workflow: string, workflowId?: number];
+type Run = [id: number, conclusion: string, workflow: string, workflowId?: number, event?: string];
 
 /** Runs the documented loop against a stub `gh` whose n-th call lists `calls[n]` (the last entry repeats). */
 async function watch(calls: Run[][], script = loop): Promise<{ status: number | null; calls: number; stdout: string }> {
   const dir = await mkdtemp(join(tmpdir(), "kf-ci-watch-settle-"));
   const ids = new Map<string, number>();
-  const row = ([id, c, w, wid]: Run): string => {
+  const row = ([id, c, w, wid, event = "push"]: Run): string => {
     if (!ids.has(w)) ids.set(w, 100 + ids.size);
     const [status, conclusion] = c === "in_progress" ? ["in_progress", "-"] : ["completed", c];
-    return `${id}\t${status}\t${conclusion}\t${wid ?? ids.get(w)}\t${w}\thttps://example.test/${id}\n`;
+    return `${id}\t${status}\t${conclusion}\t${wid ?? ids.get(w)}\t${w}\thttps://example.test/${id}\t${event}\n`;
   };
   try {
     for (const [i, runs] of calls.entries()) {
@@ -83,6 +83,10 @@ describe("the CI watcher's settle window", () => {
 
   it("decides each workflow on its latest run: a later success supersedes an earlier failure", async () => {
     expect((await watch([[[1, "failure", "CI"], [2, "success", "CI"]]])).status).toBe(0);
+  });
+
+  it("keeps a failure of one event red when another event's later run of the workflow succeeded", async () => {
+    expect((await watch([[[1, "failure", "CI", 7, "pull_request"], [2, "success", "CI", 7, "push"]]])).status).toBe(1);
   });
 
   it("calls a workflow red when its latest run failed after an earlier success", async () => {

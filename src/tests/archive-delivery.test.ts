@@ -542,6 +542,7 @@ describe("preserved primitives", () => {
     await reviewStage();
     await link("shipit", { pr: PR });
     process.env.GH_PR_STATE_9 = "CLOSED";
+    process.env.GH_PR_STATE_11 = "OPEN";
     expect((await cmdArchive(args("archive", ["shipit"]), root)).stdout).toContain("kf issues link shipit <url> --pr --replace");
 
     const res = await cmdIssues(args("issues", ["link", "shipit", "11"], { pr: true, replace: true }), root);
@@ -553,6 +554,20 @@ describe("preserved primitives", () => {
     process.env.GH_PR_STATE_11 = "MERGED";
     expect((await cmdArchive(args("archive", ["shipit"]), root)).code).toBe(0);
     expect(feature().stage).toBe("done");
+  });
+
+  it("kf issues link --replace refuses a new PR that is not open on this repository", async () => {
+    await reviewStage();
+    await link("shipit", { pr: PR });
+    process.env.GH_PR_STATE_9 = "CLOSED";
+    process.env.GH_PR_STATE_11 = "MERGED";
+    const merged = await cmdIssues(args("issues", ["link", "shipit", "11"], { pr: true, replace: true }), root);
+    expect(merged.code).toBe(1);
+    expect(merged.stdout).toContain("not open");
+    const foreign = await cmdIssues(args("issues", ["link", "shipit", "https://github.com/x/y/pull/11"], { replace: true }), root);
+    expect(foreign.code).toBe(1);
+    expect(foreign.stdout).toContain("is not a pull request of o/r");
+    expect(readFeatureMeta(feature().dir)!.pr).toBe(PR);
   });
 
   it("kf issues link --replace refuses a merged, open or unverifiable recorded PR and keeps the link", async () => {

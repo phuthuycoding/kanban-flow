@@ -231,7 +231,7 @@ no `.test` DNS or proxy probes, `kf status` prints only `http://127.0.0.1:<port>
 ```bash
 kf tasks user-login                                   # the task graph: waves, states, files
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
-kf verify user-login --task TASK-002 --commits <sha>[,<sha>…]  # exactly those commits, in a detached worktree at the newest (pipelined loop)
+kf verify user-login --task TASK-002 --commits <sha>[,<sha>…] [--at-head]  # exactly those commits, in a detached worktree at the newest, or at HEAD (pipelined loop)
 kf loop-stats user-login --record                     # where the loop's time went; writes (replacing any earlier) the item's row in .works/loop-metrics.md
 kf verify user-login --stage                          # runs harness.verify.stage
 kf doctor --fix                                       # strips the removed harness keys and leftover run state
@@ -282,14 +282,13 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
   `Files` are disjoint, each committing through `commit-task.mjs` (path-limited, lock-safe),
   while the next task's `test-writer` runs beside them; a task whose `Files` overlap an
   open one waits (`kf tasks --json` `overlaps`). An open task has a `test-writer dispatched`
-  or `developer dispatched` line and no `complete` line; a test-written task does not hold
-  back an earlier task's developer, but a task whose test-writer is in flight holds back
-  every overlapping task. `kf tasks <feature> --graph` shows the critical path and the max width.
+  or `developer dispatched` line and no `complete` line; overlapping tasks open in wave order.
+  `kf tasks <feature> --graph` shows the critical path and the max width.
 - The live developer cap starts at min(2, ceiling), steps up by one after each clean parallel
   wave, and halves (never below 1) on a contention-shaped verify failure; the ceiling is
   `harness.developers.max` (integer 1..16, default 6). When the cap is full a developer waits:
   `TASK-NNN: developer waits — <N> developers in flight`. `kf tasks --json` reports
-  `developers: {max, source}`, where source is `config` or `default`.
+  `developers: {max, source}`, where source is `config`, `default` or `invalid-config`.
 - A new session resumes from the ledger at `<item>/loop/progress.md`; its lines end
   in ` @ <ISO>`, and `kf loop-stats` turns them into the loop's measurements.
 

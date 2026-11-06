@@ -25,7 +25,7 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 - `id`: `t1`, `t2`, … unique within the day.
 - `kind`: `feature` | `bug` | `pr`.
 - `size`: `S` | `M` | `L` | `XL` — today's estimate the human approved; a carried line is re-sized each morning from the remaining work (budget and batching only).
-- `note`: everything after the fifth ` · `; it carries `est0=<size>` (the size approved when the line was first planned, passed to `measure` as `--est`) and `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`) — both kept by a carried line — `owner=travel` or `owner=human` on a `driving` or `blocked` line, the PR URL and merge command, the blocked reason and next command, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`.
+- `note`: everything after the fifth ` · `; it carries `est0=<size>` (the size approved when the line was first planned, passed to `measure` as `--est`) and `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`) — both kept by a carried line — `owner=travel` or `owner=human` on a `driving` or `blocked` line, and `owner=human` kept on its `carry-over` line, the PR URL and merge command, the blocked reason and next command, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`.
 
 ## States
 

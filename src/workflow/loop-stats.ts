@@ -99,10 +99,20 @@ function classify(text: string, line: number): LedgerLine {
   return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
 }
 
+/** Orphans no later open of the same seat or verify answers: a resume re-dispatches a lost seat, which leaves an honest orphan. */
+export function unansweredOrphans(parsed: ParsedLedger, orphans: number[]): number[] {
+  const key = (l: LedgerLine): string | null => (l.shape === "dispatched" ? `${l.task} ${l.seat}` : l.shape === "verifyStarted" ? `${l.task} verify` : null);
+  return orphans.filter((n) => {
+    const line = parsed.lines.find((l) => l.line === n);
+    const own = line ? key(line) : null;
+    return own === null || !parsed.lines.some((l) => l.line > n && key(l) === own);
+  });
+}
+
 /** Margin for a coarse file clock: a stamp only counts as late past it. */
 const LATE_STAMP_MARGIN_MS = 60_000;
 
-/** Lines stamped after the ledger was last written: the clock did not produce them, so their times are invented. */
+/** Lines stamped after the ledger was last written, so the clock did not produce them. Best effort: a later write to the file hides them. */
 export function lateStamps(parsed: ParsedLedger, writtenAt: number): number[] {
   return parsed.lines.filter((l) => l.ts !== undefined && l.ts > writtenAt + LATE_STAMP_MARGIN_MS).map((l) => l.line);
 }

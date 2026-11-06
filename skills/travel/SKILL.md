@@ -31,12 +31,12 @@ kf status --all --json
 
 Read the last `## ` section of `.kf/travel/progress.md`.
 
-- **Last section is today** → same-day re-entry: do not rebuild the plan. Go to §3 and resume the loop from the ledger; every `owner=travel` line is yours to resume (§5).
+- **Last section is today** → same-day re-entry: do not rebuild the plan. Go to §3 and resume the loop from the ledger; every `driving` `owner=travel` line is yours to resume; a `blocked` line stays blocked until the human says the fix is done (§5).
 - **Earlier day, or no ledger** → §1.
 
 ## 1. Morning plan
 
-1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why). A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
+1. **Carry-over.** Every line of the last section whose state is not `done` becomes a candidate (its `carry-over` note says why), except one marked `owner=human`, which keeps that token on its `carry-over` line and is listed under Needs you. A line that was `driving` when the session ended is a candidate like any other; its item resumes from its own `loop/progress.md` (§3), never from the start.
 2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item a ledger line marks `owner=human` (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry in `waitingToMerge[]` (a canonical-docs branch awaiting push, or not proven merged with a `reason`, with the entry's own `command`) and a `canonical docs for <f> never landed` decision in `needsYou[]` (a docs branch with nothing left to push and no landing proven: re-land or leave them), or a `run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed` one when the lookup could not run until the human fixes the origin.

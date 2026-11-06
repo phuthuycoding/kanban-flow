@@ -45,6 +45,15 @@ describe("commit-task.mjs", () => {
     expect(git("diff", "--cached", "--name-only")).toBe("other.txt");
   });
 
+  it("commits a dot-slash path under its allow entry and refuses a bare dot-slash as a directory", async () => {
+    await writeFile(join(repo, "mine.txt"), "changed\n");
+    expect(run(["-m", "msg", "--allow", "mine.txt", "--", "./mine.txt"]).status).toBe(0);
+    expect(git("log", "-1", "--format=%s", "--", "mine.txt")).toBe("msg");
+    const bare = run(["-m", "msg", "--allow", "mine.txt", "--", "./"]);
+    expect(bare.status).toBe(4);
+    expect(bare.stderr).toContain("directory");
+  });
+
   it("refuses a path outside the allowlist and changes nothing", async () => {
     await writeFile(join(repo, "outside.txt"), "changed\n");
     const headBefore = git("rev-parse", "HEAD");

@@ -227,7 +227,7 @@ kf contexts --json   # declared: [...], restricted: true|false
 ```
 
 - `restricted: true` — use one of the declared names, spelled exactly. `Auth` is refused next to `auth`, because accepting both is how a second docs tree appears.
-- `restricted: false` — nothing is declared; any valid name works, and the `brief` field tells you how to propose a list. Show the proposal to the human; once they confirm it, write only the list they confirmed to `.kf/config.json` as `"contexts"` (the first entry is the default). Never write a list they have not confirmed.
+- `restricted: false` — nothing is declared; any valid name works, and the `brief` field tells you how to propose a list. Show the proposal to the human; once they confirm it, write only the list they confirmed to `.kf/config.json` as `"contexts"` (the first entry is the default). Never write a list they have not confirmed. The edit dirties the checkout and makes `kf stage` skip its base fast-forward, so ask the human to commit it before the stage move.
 
 If `kf new` refuses the name, it prints the nearest declared one. Take that suggestion or ask the human — do not invent a new context to get past the refusal, and do not add one to `.kf/config.json` on your own.
 

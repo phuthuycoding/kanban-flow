@@ -919,11 +919,25 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
     const { cmdLoopStats } = await loopStatsCommand();
     const report = await cmdLoopStats(cliArgs(["late"]), root);
     expect(report.code).toBe(0);
-    expect(report.stderr).toContain("are stamped after the file was last written, so their times are invented");
+    expect(report.stderr).toContain("are stamped after the file was last written, so those times did not come from the clock");
     const res = await run(["late"], { record: true });
     expect(res.code).toBe(1);
     expect(res.out).toContain("cannot record late:");
     expect(res.out).toContain("are stamped after the file was last written");
+  });
+
+  it("records a ledger whose only orphan is a seat a resume dispatched again", async () => {
+    const dir = await item("resumed", ["TASK-001"], "two-tasks.ledger.md");
+    await writeFile(join(dir, "loop", "progress.md"), [
+      "# Task loop ledger — resumed — plan: /p",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:00:00+07:00",
+      "TASK-001: developer dispatched model=sonnet @ 2026-11-01T10:20:00+07:00",
+      "TASK-001: developer done status=DONE @ 2026-11-01T10:30:00+07:00",
+      "TASK-001: complete (commits a1b2c3d, review clean) @ 2026-11-01T10:31:00+07:00",
+      "",
+    ].join("\n"));
+    const res = await run(["resumed"], { record: true });
+    expect(res.code, res.out).toBe(0);
   });
 
   it("emits no warning for a clean ledger", async () => {

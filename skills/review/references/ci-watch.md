@@ -23,15 +23,15 @@ Run the loop as a background command that wakes the session when it exits (`${CL
 REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>; appear=$((SECONDS+300)); deadline=$((SECONDS+WATCH)); errs=0; last=; settle=0
 while :; do
   if runs=$(gh run list -R "$REPO" --commit "$SHA" -L 1000 --json databaseId,workflowDatabaseId,workflowName,status,conclusion,url \
-      --jq '.[] | [.databaseId, .status, (.conclusion // "-"), .workflowDatabaseId, .workflowName, .url] | @tsv'); then errs=0
+      --jq '.[] | [.databaseId, .status, (.conclusion // "-"), .workflowDatabaseId, .workflowName, .url, .event] | @tsv'); then errs=0
   else errs=$((errs+1)); [ "$errs" -lt 3 ] || { echo "ci-watch: gh run list failed 3 times in a row"; exit 2; }; sleep 20; continue; fi
   n=$(printf '%s' "$runs" | grep -c .)
   if [ "$n" -eq 0 ]; then
     [ "$SECONDS" -lt "$appear" ] || { echo "ci-watch: no workflow run for $SHA after 5 min"; exit 3; }
   elif ! printf '%s\n' "$runs" | cut -f2 | grep -qvx completed; then
-    # Each workflow file is decided by its LATEST run on this sha (highest id): a later run supersedes an earlier one,
-    # a failure included. Keyed on the workflow id: two workflow files may share a display name.
-    latest=$(printf '%s\n' "$runs" | awk -F'\t' '$1+0 > top[$4] { top[$4]=$1+0; l[$4]=$0 } END { for (w in l) print l[w] }')
+    # Each workflow file is decided per event by its LATEST run on this sha (highest id): a later run supersedes an
+    # earlier one, a failure included. Keyed on workflow id and event: a push run and a pull_request run test different refs.
+    latest=$(printf '%s\n' "$runs" | awk -F'\t' '{ k=$4 SUBSEP $7 } $1+0 > top[k] { top[k]=$1+0; l[k]=$0 } END { for (k in l) print l[k] }')
     red=$(printf '%s\n' "$latest" | awk -F'\t' '$3 !~ /^(success|skipped|neutral|cancelled|stale)$/')
     open=$(printf '%s\n' "$latest" | awk -F'\t' '$3 ~ /^(cancelled|stale)$/')
     # Decide only once the run set has held still for 60s: a pull_request run, or a new run after a cancel or a failure, can appear after the others finished.
