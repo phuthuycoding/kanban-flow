@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { sameCommit } from "./validate-reports.js";
 
 import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type Stage } from "./schema.js";
 import { findFeature, stageDir, assertPathName, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
@@ -234,7 +235,7 @@ function reviewMismatch(dir: string, mergedHead: string): string | null {
   const p = join(dir, ARTIFACTS["review-report"].file);
   if (!existsSync(p)) return null;
   const reviewed = splitFrontmatter(readFileSync(p, "utf8")).fm.commit;
-  if (!reviewed || mergedHead.startsWith(reviewed)) return null;
+  if (!reviewed || sameCommit(mergedHead, reviewed)) return null;
   return `the review passed ${reviewed.slice(0, 7)} but ${mergedHead.slice(0, 7)} was merged: the review did not see the last commits`;
 }
 

@@ -116,6 +116,22 @@ function legacyReportLandedByPr(feature: Feature, fm: Record<string, string>, pr
   return prMerged && fm.ci === undefined && fm.landing === undefined && Boolean(feature.meta?.pr);
 }
 
+/** A full sha against a report's `commit:`, which may be abbreviated. Too short a value matches nothing rather than everything. */
+export function sameCommit(full: string, reported: string): boolean {
+  const short = reported.toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(short) && full.toLowerCase().startsWith(short);
+}
+
+/** A PASS names the commit it reviewed; a later commit on the item branch is outside it. Reports before `commit:` carry none, and an item with no worktree has no branch to compare. */
+export function checkReviewedCommit(feature: Feature, fm: Record<string, string>): Finding[] {
+  const path = feature.meta?.worktree?.path;
+  if (fm.status !== "PASS" || !fm.commit || !path || !existsSync(path)) return [];
+  const head = runGit(path, ["rev-parse", "HEAD"]);
+  if (head.code !== 0 || sameCommit(head.stdout.trim(), fm.commit)) return [];
+  return [finding(feature, "WARNING", ARTIFACTS["review-report"].file, "review_stale",
+    `The review passed ${fm.commit.slice(0, 7)} but the item branch is at ${head.stdout.trim().slice(0, 7)}: review the new commits before merging.`)];
+}
+
 /**
  * Delivery half of a PASS review report: CI is green or absent (`ci: none`), and the code either lands through a
  * recorded PR (`landing: pr` + `meta.pr`) or there is nothing to land (`landing: none`).
@@ -123,16 +139,6 @@ function legacyReportLandedByPr(feature: Feature, fm: Record<string, string>, pr
  * `legacyPrMerged` — true when the caller verified that the recorded PR is merged — lets a report with
  * neither key through; `kf validate` passes false, so it stays offline and still names the missing keys.
  */
-/** A PASS names the commit it reviewed; a later commit on the item branch is outside it. Reports before `commit:` carry none. */
-export function checkReviewedCommit(feature: Feature, fm: Record<string, string>): Finding[] {
-  const path = feature.meta?.worktree?.path;
-  if (fm.status !== "PASS" || !fm.commit || !path || !existsSync(path)) return [];
-  const head = runGit(path, ["rev-parse", "HEAD"]);
-  if (head.code !== 0 || head.stdout.trim().startsWith(fm.commit)) return [];
-  return [finding(feature, "WARNING", ARTIFACTS["review-report"].file, "review_stale",
-    `The review passed ${fm.commit.slice(0, 7)} but the item branch is at ${head.stdout.trim().slice(0, 7)}: review the new commits before merging.`)];
-}
-
 export function checkReviewDelivery(feature: Feature, fm: Record<string, string>, legacyPrMerged = false): Finding[] {
   if (fm.status !== "PASS") return [];
   if (legacyReportLandedByPr(feature, fm, legacyPrMerged)) return [];

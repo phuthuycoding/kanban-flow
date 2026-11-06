@@ -120,7 +120,22 @@ export async function pluginState(run: ClaudeRun = defaultRun, scope?: SkillScop
 }
 
 function manualSteps(): string {
-  return `Install it by hand inside Claude Code:\n  /plugin marketplace add ${PKG_ROOT}\n  /plugin install ${PLUGIN_ID}`;
+  return `Install it by hand inside Claude Code:\n  /plugin marketplace add ${PKG_ROOT}\n  /plugin install ${PLUGIN_ID}\nOr update an older copy:\n  /plugin marketplace update ${MARKETPLACE_NAME}\n  /plugin update ${PLUGIN_ID}`;
+}
+
+/** Bring the cached copy up to the folder's version and prove it: an update claude accepted without changing the copy is a failure. */
+async function updatePlugin(run: ClaudeRun, scope: SkillScope, installed: string, available: string): Promise<string> {
+  await call(run, ["plugin", "marketplace", "update", MARKETPLACE_NAME]);
+  await call(run, ["plugin", "update", PLUGIN_ID, "--scope", claudeScope(scope)]);
+  const after = await pluginState(run, scope);
+  if (after.status === "outdated") throw new ClaudePluginError(`\`claude plugin update\` left ${PLUGIN_ID} at ${after.installed}, the folder is ${after.available}.`);
+  return `✓ Claude Code: plugin ${PLUGIN_ID} updated from ${installed} to ${available}`;
+}
+
+/** A repoint or an enable can reveal a cached copy behind the folder; update it in the same run. */
+async function withUpdate(run: ClaudeRun, scope: SkillScope, line: string): Promise<string> {
+  const after = await pluginState(run, scope);
+  return after.status === "outdated" ? `${line}\n${await updatePlugin(run, scope, after.installed, after.available)}` : line;
 }
 
 /** Names a claude that is absent or answered badly; anything else is a bug and propagates. */
@@ -144,16 +159,14 @@ export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRu
         await call(run, ["plugin", "enable", PLUGIN_NAME, "--scope", target]);
         if (state.readFromFolder !== undefined) {
           await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
-          return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target}) and marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder} to ${PKG_ROOT}` };
+          return { code: 0, changed: true, stdout: await withUpdate(run, scope, `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target}) and marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder} to ${PKG_ROOT}`) };
         }
-        return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target})` };
+        return { code: 0, changed: true, stdout: await withUpdate(run, scope, `✓ Claude Code: plugin ${PLUGIN_ID} enabled (scope: ${target})`) };
       case "stale":
         await call(run, ["plugin", "marketplace", "add", PKG_ROOT]);
-        return { code: 0, changed: true, stdout: `✓ Claude Code: marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder || "an unknown folder"} to ${PKG_ROOT}` };
+        return { code: 0, changed: true, stdout: await withUpdate(run, scope, `✓ Claude Code: marketplace ${MARKETPLACE_NAME} repointed from ${state.readFromFolder || "an unknown folder"} to ${PKG_ROOT}`) };
       case "outdated":
-        await call(run, ["plugin", "marketplace", "update", MARKETPLACE_NAME]);
-        await call(run, ["plugin", "update", PLUGIN_ID, "--scope", target]);
-        return { code: 0, changed: true, stdout: `✓ Claude Code: plugin ${PLUGIN_ID} updated from ${state.installed} to ${state.available}` };
+        return { code: 0, changed: true, stdout: await updatePlugin(run, scope, state.installed, state.available) };
       case "unknown":
         return { code: 0, changed: false, stdout: `· Claude Code: plugin ${PLUGIN_ID} source unknown (claude does not report readFromFolder); left as it is` };
       case "current":

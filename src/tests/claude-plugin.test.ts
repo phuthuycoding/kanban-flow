@@ -37,8 +37,37 @@ const entry = (extra: Record<string, unknown>) =>
 const enoent = () => Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" });
 
 describe("ensurePlugin", () => {
+  /** A claude whose `plugin list` answers each entry in turn, the last one repeating. */
+  const listing = (...lists: string[]): { run: Run; calls: string[][] } => {
+    const calls: string[][] = [];
+    let n = 0;
+    const run: Run = async (args) => {
+      calls.push(args);
+      return args[1] === "list" ? ok(lists[Math.min(n++, lists.length - 1)]) : ok();
+    };
+    return { run, calls };
+  };
+  const behind = entry({ version: "0.14.0", folderVersion: "0.15.0" });
+  const level = entry({ version: "0.15.0", folderVersion: "0.15.0" });
+
+  it("fails when claude accepts the update but the copy stays behind", async () => {
+    const res = await ensurePlugin("global", listing(behind).run);
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("left kf@kanban-flow at 0.14.0");
+  });
+
+  it("updates the copy a repoint or an enable reveals to be behind", async () => {
+    const stale = entry({ readFromFolder: "/old/kf" });
+    const repointed = await ensurePlugin("global", listing(stale, behind, level).run);
+    expect(repointed.code).toBe(0);
+    expect(repointed.stdout).toContain("repointed from /old/kf");
+    expect(repointed.stdout).toContain("updated from 0.14.0 to 0.15.0");
+    const enabled = await ensurePlugin("global", listing(entry({ enabled: false }), behind, level).run);
+    expect(enabled.stdout).toContain("updated from 0.14.0 to 0.15.0");
+  });
+
   it("updates an outdated plugin instead of calling it current", async () => {
-    const { run, calls } = stub(entry({ version: "0.14.0", folderVersion: "0.15.0" }));
+    const { run, calls } = listing(behind, level);
     const res = await ensurePlugin("global", run);
     expect(res.code).toBe(0);
     expect(res.changed).toBe(true);
@@ -82,6 +111,7 @@ describe("ensurePlugin", () => {
     expect(calls).toEqual([
       ["plugin", "list", "--json"],
       ["plugin", "marketplace", "add", PKG_ROOT],
+      ["plugin", "list", "--json"],
     ]);
   });
 
@@ -108,6 +138,7 @@ describe("ensurePlugin", () => {
     expect(user.calls).toEqual([
       ["plugin", "list", "--json"],
       ["plugin", "enable", "kf", "--scope", "user"],
+      ["plugin", "list", "--json"],
     ]);
 
     const project = stub(entry({ enabled: false, scope: "project" }));
@@ -115,6 +146,7 @@ describe("ensurePlugin", () => {
     expect(project.calls).toEqual([
       ["plugin", "list", "--json"],
       ["plugin", "enable", "kf", "--scope", "project"],
+      ["plugin", "list", "--json"],
     ]);
   });
 
