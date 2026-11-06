@@ -2,6 +2,14 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [0.15.1] - 2026-11-06
+
+### Fixed
+- **`kf install` updates an outdated plugin.** It reported the plugin as current while Claude Code ran an older cached copy. It now compares the two versions, updates the copy and fails if the update did not land. `kf doctor`, `kf status` and `kf autoconfig` report the lag.
+
+### Changed
+- **A review report names the commit it judged in `commit:`.** While an item with a worktree is in review, `kf validate` warns `review_stale` when the branch moves past it. The close prints which commit was reviewed and which was merged, and never refuses for it. Projects with a seeded `.kf/templates/phase-5-review-report.md` need `commit: "{commit}"` added to get the check.
+
 ## [0.15.0] - 2026-11-06
 
 ### Added
