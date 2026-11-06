@@ -981,6 +981,12 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
       expect((await run(["v"], { record: true })).code).toBe(0);
     });
 
+    it("skips lines older than the first logged run when the file opens in the earlier format", async () => {
+      const later = new Date(Date.parse(STAMP) + 3_600_000).toISOString();
+      await setUp(0, `## verify started 2026-11-01T10:06:00+07:00\nold output\n## kf verify ${later} exit=1\n`);
+      expect((await run(["v"], { record: true })).code).toBe(0);
+    });
+
     it("refuses a stamp far from the run it reports, the way an estimated time reads", async () => {
       await setUp(0, `## kf verify ${new Date(Date.parse(STAMP) + 3 * 3_600_000).toISOString()} exit=0\n`);
       const res = await run(["v"], { record: true });

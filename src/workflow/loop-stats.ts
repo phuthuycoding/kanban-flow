@@ -130,9 +130,18 @@ export interface LoggedRun {
   ts: number;
 }
 
-/** The runs `kf verify` logged, oldest first. */
-export function parseVerifyLog(text: string): LoggedRun[] {
-  return [...text.matchAll(/^## kf verify (\S+) exit=(\d+)$/gm)].map((m) => ({ ts: Date.parse(m[1]), exit: Number(m[2]) }));
+export interface VerifyLog {
+  /** The runs `kf verify` logged, oldest first. */
+  runs: LoggedRun[];
+  /** Set when the file opens with text a controller wrote under the earlier format: ledger lines before this time have no logged run. */
+  handWrittenUntil?: number;
+}
+
+export function parseVerifyLog(text: string): VerifyLog {
+  const headers = [...text.matchAll(/^## kf verify (\S+) exit=(\d+)$/gm)];
+  const runs = headers.map((m) => ({ ts: Date.parse(m[1]), exit: Number(m[2]) }));
+  const leading = text.slice(0, headers[0]?.index ?? text.length).trim();
+  return leading === "" ? { runs } : { runs, handWrittenUntil: runs[0]?.ts ?? Infinity };
 }
 
 /** How far a `verify done` stamp may sit from its run: a background verify can report late. */
@@ -142,16 +151,16 @@ const VERIFY_STAMP_TOLERANCE_MS = 15 * 60_000;
  * Check every `verify done` line against the runs `kf verify` logged. Each line takes the unclaimed run with its exit
  * code nearest its stamp: `unlogged` when there is none, so the line did not come from `kf verify`; `offClock` when that
  * run is far away. Logged runs a ledger omits are fine (a run can finish after its session died). Exit 3 ran nothing and
- * is not logged. `runsOf` returns null for a task whose log predates this format.
+ * is not logged, and a line older than the log's first run under the earlier format has nothing to check against.
  */
-export function checkVerifyLines(parsed: ParsedLedger, runsOf: (task: string) => LoggedRun[] | null): { unlogged: number[]; offClock: number[] } {
+export function checkVerifyLines(parsed: ParsedLedger, logOf: (task: string) => VerifyLog): { unlogged: number[]; offClock: number[] } {
   const unlogged: number[] = [];
   const offClock: number[] = [];
   const claimed = new Map<string, Set<number>>();
   for (const l of parsed.lines) {
     if (l.shape !== "verifyDone" || l.exit === 3) continue;
-    const runs = runsOf(l.task!);
-    if (runs === null) continue;
+    const { runs, handWrittenUntil } = logOf(l.task!);
+    if (handWrittenUntil !== undefined && l.ts! < handWrittenUntil) continue;
     const taken = claimed.get(l.task!) ?? new Set<number>();
     claimed.set(l.task!, taken);
     let best = -1;

@@ -64,6 +64,8 @@ describe("travel's stops for the human", () => {
 
   it("makes a fresh session read the session line before it resumes a day", () => {
     expect(travel()).toContain("reads the `session:` line first");
+    expect(travel()).toContain("session: <ISO time from the clock>");
+    expect(travel()).toContain("re-stamp the day's `session:` line");
     expect(read("skills/travel/references/ledger-format.md")).toContain("`session: <ISO time>`");
   });
 });

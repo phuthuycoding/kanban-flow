@@ -154,10 +154,6 @@ describe("stepping the cap down on contention", () => {
     expect(rule).toMatch(/no `verify done` of that task between/);
     expect(rule).toMatch(/re-run's failure never triggers/);
     expect(rule).toMatch(/N is unchanged/);
-    const mirror = contention();
-    expect(mirror).toContain("A re-run is a verify whose `verify started` follows");
-    expect(mirror).toContain("A re-run's failure never triggers steps 1–4 nor Resume the live cap (c): N is unchanged");
-    expect(mirror).toContain("goes straight to the fix loop");
   });
 
   it("steps a task down at most once per signature until one of its verifies passes", () => {

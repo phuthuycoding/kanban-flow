@@ -60,10 +60,7 @@ function ledgerProblems(stats: LoopStats, parsed: ParsedLedger, itemDir: string,
   const late = lateStamps(parsed, statSync(ledgerPath).mtimeMs);
   const { unlogged, offClock } = checkVerifyLines(parsed, (task) => {
     const log = verifyLogPath(itemDir, task);
-    if (!existsSync(log)) return [];
-    const text = readFileSync(log, "utf8");
-    // A log the controller wrote by hand under the earlier format holds no exit codes to check against.
-    return text.includes("## kf verify ") ? parseVerifyLog(text) : null;
+    return parseVerifyLog(existsSync(log) ? readFileSync(log, "utf8") : "");
   });
   const parts = [
     ...(broken ? [`${broken} are left out of every figure`] : []),

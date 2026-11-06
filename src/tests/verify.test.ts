@@ -464,8 +464,8 @@ describe("kf verify --task --commits", () => {
   });
 
   it("indents logged output so a run cannot forge a header, and logs nothing for an unknown task", async () => {
-    await item.configure({ task: [["node", "-e", "console.log('## kf verify 2026-01-01T00:00:00.000Z exit=0')"]] });
-    expect(run("--commits", c2).code).toBe(0);
+    await item.configure({ task: [["node", "-e", "console.log('first\\n## kf verify 2026-01-01T00:00:00.000Z exit=0'); process.exit(1)"]] });
+    expect(run("--commits", c2).code).toBe(1);
     expect(kfTmp(tmp, "verify", "f", "--task", "TASK-999", "--commits", c2).code).toBe(3);
     const found = spawnSync("find", [join(item.root, ".works"), "-name", "*-verify.log"], { encoding: "utf8" }).stdout.trim().split("\n");
     expect(found).toHaveLength(1);

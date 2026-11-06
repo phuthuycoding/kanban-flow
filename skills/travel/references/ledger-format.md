@@ -7,7 +7,7 @@ Gitignored. One section per day, newest last. The last section is the source of 
 
 ## 2026-10-30
 slots: 3 · budget: 10 tasks (default — fewer than 3 days measured)
-t1 · workflow-slim · feature · L · carry-over · est0=L · estmin=40 · blocked: fix-loop breaker — review round 3 still has open findings — next: kf stage workflow-slim implementation
+t1 · workflow-slim · feature · L · blocked · owner=travel · est0=L · estmin=40 · blocked: fix-loop breaker — review round 3 still has open findings — next: kf stage workflow-slim implementation
 t2 · cli-refactor · feature · M · done · est0=M · estmin=12 · merged https://github.com/<owner>/<repo>/pull/104
 t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-to-merge https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 
@@ -30,7 +30,7 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 - `id`: `t1`, `t2`, … unique within the day.
 - `kind`: `feature` | `bug` | `pr`.
 - `size`: `S` | `M` | `L` | `XL` — today's estimate the human approved; a carried line is re-sized each morning from the remaining work (budget and batching only).
-- `note`: everything after the fifth ` · `; it carries `est0=<size>` (the size approved when the line was first planned, passed to `measure` as `--est`) and `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`) — both kept by a carried line — `owner=travel` or `owner=human` on a `driving` or `blocked` line, and `owner=human` kept on its `carry-over` line, the PR URL and merge command, the blocked reason and next command, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`.
+- `note`: everything after the fifth ` · `; it carries `est0=<size>` (the size approved when the line was first planned, passed to `measure` as `--est`) and `estmin=<n>` (the raw minutes passed to `estimates size`, kept for `measure`) — both kept by a carried line — `owner=travel` or `owner=human` on a `driving` or `blocked` line, the PR URL and merge command, the blocked reason and next command, `files=<n>`, `work=<n> review=<n>`, `sequential with <id>`, `usage limit — reset <text>`.
 
 ## States
 
