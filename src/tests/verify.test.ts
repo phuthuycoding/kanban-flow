@@ -456,6 +456,27 @@ describe("kf verify --task --commits", () => {
     await item.configure({ task: [touch(item.marker)] });
   });
 
+  describe("--at-head", () => {
+    it("keeps the allowlist check on the listed commits and runs at HEAD, where the task's commit alone lacks the neighbour's file", async () => {
+      await item.configure({ task: [["node", "-e", "process.exit(require('fs').existsSync('src/a.ts') ? 0 : 1)"]] });
+      expect(run("--commits", c2).code).toBe(1);
+      const res = run("--commits", c2, "--at-head");
+      expect(res.code, res.out).toBe(0);
+      expect(res.out).toContain(`Running in a detached worktree at ${c1.slice(0, 7)}`);
+      await expectNothingLeft();
+    });
+
+    it("still refuses a listed commit outside the task's files", () => {
+      expect(run("--commits", c1, "--at-head").code).toBe(2);
+    });
+
+    it("is bad input without --commits", () => {
+      const res = run("--base", c0, "--at-head");
+      expect(res.code).toBe(3);
+      expect(res.out).toContain("--at-head goes with --commits");
+    });
+  });
+
   it("checks only the listed commits against the task's files", () => {
     const only = run("--commits", c2);
     expect(only.code).toBe(0);

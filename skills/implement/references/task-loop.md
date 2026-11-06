@@ -17,7 +17,7 @@ Use the least powerful model that can do the role, and **name it on every dispat
 
 Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/loop/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection.
 
-Every line after the header ends with ` @ <ISO-8601 timestamp with offset>` — the moment the line was written, a `T` between date and time and the offset as `±hh:mm`, e.g. ` @ 2026-11-01T18:41:26+07:00` — and nothing follows it; a line gets exactly one suffix, never a second suffix, and never starts with a markdown bullet. The suffix comes last so the `TASK-NNN:` that travel and the resume rule read stays first.
+Every line after the header ends with ` @ <ISO-8601 timestamp with offset>` — the moment the line was written, read from the clock with `date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'` and never estimated, a `T` between date and time and the offset as `±hh:mm`, e.g. ` @ 2026-11-01T18:41:26+07:00` — and nothing follows it; a line gets exactly one suffix, never a second suffix, and never starts with a markdown bullet. The suffix comes last so the `TASK-NNN:` that travel and the resume rule read stays first.
 
 The lines `kf loop-stats` reads follow one grammar:
 
@@ -35,7 +35,7 @@ TASK-NNN: complete (…) @ <ts>
 
 An inline developer seat has no dispatch and so no model to name: its `dispatched` line carries `model=inline` (`TASK-NNN: developer dispatched model=inline @ <ts>`), followed by `Note TASK-NNN: developer seat inline`.
 
-`<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase.
+`<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `verify done exit=<n>` is the exit code `kf verify` returned, never one from another command. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase.
 
 Fields are a closed set in a fixed order: a `dispatched` line carries `model=`, then `round=` when it has one, then `cascade=` when it has one, and nothing else; a `done` line carries `status=<STATUS>` and nothing else — never `round=`, `commits=`, `lane=` or any other field, and nothing after the status word. Detail goes on its own `Note TASK-NNN: <detail>` line. Parallel work on one task is not allowed: split it into tasks. `<R>` is the round number, counted from 1: on a round seat, the task's own round R of the fix loop (a review repair continues that count); on a cascade re-review, the round of TASK-MMM whose fix commit is `<sha7>`.
 
@@ -72,6 +72,7 @@ TASK-001: test hashes <file>=<sha> … @ <ts>
 TASK-001: test dispute <file:line> — <fixed | kept, Ruling | stopped> @ <ts>
 TASK-001: minor (deferred): <one-liner> @ <ts>
 TASK-001: parked — <finding> — Ruling: <why> @ <ts>
+TASK-001: unverified — <claim only a real run can answer> @ <ts>
 Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
 Note TASK-NNN: developer seat inline @ <ts>
 TASK-NNN: brief written @ <ts>

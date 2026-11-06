@@ -119,9 +119,10 @@ export function verifyTask(root: string, feature: Feature, taskId: string, base:
 /**
  * Check the union of files changed by exactly the listed commits (each against its parent) against the task's
  * Files, then run `harness.verify.task` in a temporary detached worktree at the newest listed commit, so
- * uncommitted work in the item worktree never reaches the verify commands.
+ * uncommitted work in the item worktree never reaches the verify commands. `atHead` moves that worktree to HEAD:
+ * parallel tasks interleave commits on one branch, so a task's own commit may not build without a neighbour's.
  */
-export function verifyTaskCommits(root: string, feature: Feature, taskId: string, shas: string[]): VerifyResult {
+export function verifyTaskCommits(root: string, feature: Feature, taskId: string, shas: string[], atHead = false): VerifyResult {
   const found = taskAndDir(root, feature, taskId);
   if ("code" in found) return found;
   const { task, dir } = found;
@@ -166,7 +167,10 @@ export function verifyTaskCommits(root: string, feature: Feature, taskId: string
 
   const commands = readProjectConfig(root).harness?.verify?.task;
   if (!commands || commands.length === 0) return runCommands(commands, dir, "task", lines);
-  return runDetached(dir, resolved[resolved.length - 1], commands, lines);
+  if (!atHead) return runDetached(dir, resolved[resolved.length - 1], commands, lines);
+  const head = runGit(dir, ["rev-parse", "HEAD"]);
+  if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
+  return runDetached(dir, head.stdout.trim(), commands, lines);
 }
 
 /** Run the task commands in a temporary detached worktree of `itemDir` at `sha`, removing it on every exit path. */

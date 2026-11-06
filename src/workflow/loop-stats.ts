@@ -99,6 +99,14 @@ function classify(text: string, line: number): LedgerLine {
   return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
 }
 
+/** Margin for a coarse file clock: a stamp only counts as late past it. */
+const LATE_STAMP_MARGIN_MS = 60_000;
+
+/** Lines stamped after the ledger was last written: the clock did not produce them, so their times are invented. */
+export function lateStamps(parsed: ParsedLedger, writtenAt: number): number[] {
+  return parsed.lines.filter((l) => l.ts !== undefined && l.ts > writtenAt + LATE_STAMP_MARGIN_MS).map((l) => l.line);
+}
+
 /** Classify every ledger line after the header; blank lines are skipped. */
 export function parseLedger(text: string): ParsedLedger {
   const lines: LedgerLine[] = [];

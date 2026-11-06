@@ -26,7 +26,7 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 
 ```
 kf verify <feature> --task TASK-### --base <sha>
-kf verify <feature> --task TASK-### --commits <sha>[,<sha>…]
+kf verify <feature> --task TASK-### --commits <sha>[,<sha>…] [--at-head]
 kf verify <feature> --stage
 ```
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, utimesSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -907,6 +907,23 @@ describe("kf loop-stats with unparsed or orphan lines", () => {
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout)).toMatchObject({ unparsed: [3, 4, 5], orphans: [2] });
     expect(json.stderr).toContain("unparsed lines 3, 4, 5");
+  });
+
+  it("names lines stamped after the file was last written, and refuses to record them", async () => {
+    const dir = await item("late", ["TASK-001", "TASK-002"], "two-tasks.ledger.md");
+    // The fixture's last stamps sit after this moment, as a ledger with estimated times does.
+    const ledger = join(dir, "loop", "progress.md");
+    const stamps = [...readFileSync(ledger, "utf8").matchAll(/ @ (\S+)$/gm)].map((m) => Date.parse(m[1]));
+    const written = new Date(stamps[0] + 1000);
+    utimesSync(ledger, written, written);
+    const { cmdLoopStats } = await loopStatsCommand();
+    const report = await cmdLoopStats(cliArgs(["late"]), root);
+    expect(report.code).toBe(0);
+    expect(report.stderr).toContain("are stamped after the file was last written, so their times are invented");
+    const res = await run(["late"], { record: true });
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("cannot record late:");
+    expect(res.out).toContain("are stamped after the file was last written");
   });
 
   it("emits no warning for a clean ledger", async () => {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { findFeature } from "../../workflow/features.js";
@@ -8,6 +8,7 @@ import {
   NUMERIC_COLUMNS,
   PER_TASK_BUCKETS,
   SEATS,
+  lateStamps,
   loopStats,
   parseLedger,
   readHistory,
@@ -46,6 +47,16 @@ function brokenLines(stats: LoopStats): string | null {
     ...(stats.orphans.length > 0 ? [`orphan lines ${list(stats.orphans)}`] : []),
   ];
   return parts.length > 0 ? `ledger ${parts.join(" and ")}` : null;
+}
+
+/** The problems that make a ledger's figures wrong, as one phrase, or `null` when it has none. */
+function ledgerProblems(stats: LoopStats, late: number[], ledgerPath: string): string | null {
+  const broken = brokenLines(stats);
+  const parts = [
+    ...(broken ? [`${broken} are left out of every figure`] : []),
+    ...(late.length > 0 ? [`ledger lines ${list(late)} are stamped after the file was last written, so their times are invented`] : []),
+  ];
+  return parts.length > 0 ? `${parts.join("; ")}; fix those lines in ${ledgerPath}` : null;
 }
 
 function renderReport(feature: string, stats: LoopStats): string {
@@ -138,10 +149,10 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
   const stats = loopStats(parsed, dependencies);
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
-  const broken = brokenLines(stats);
+  const problems = ledgerProblems(stats, lateStamps(parsed, statSync(ledgerPath).mtimeMs), ledgerPath);
   if (!record) {
-    // Plain reporting still exits 0; the lines left out of every figure are named on stderr so they are not missed.
-    return broken ? { code: 0, stdout: report, stderr: `warning: ${broken} are left out of every figure; fix those lines in ${ledgerPath}` } : { code: 0, stdout: report };
+    // Plain reporting still exits 0; what makes the figures wrong is named on stderr so it is not missed.
+    return problems ? { code: 0, stdout: report, stderr: `warning: ${problems}` } : { code: 0, stdout: report };
   }
 
   const completed = new Set(parsed.lines.filter((l) => l.shape === "complete").map((l) => l.task));
@@ -152,8 +163,8 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   if (missing.length > 0) {
     return refused(`cannot record ${item.name}: no complete line for ${missing.join(", ")}`, "loop not complete");
   }
-  if (broken) {
-    return refused(`cannot record ${item.name}: ${broken} are left out of every figure; fix those lines in ${ledgerPath} and record again`, "ledger has broken lines");
+  if (problems) {
+    return refused(`cannot record ${item.name}: ${problems} and record again`, "ledger has broken lines");
   }
   let path: string;
   try {
