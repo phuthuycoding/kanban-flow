@@ -92,6 +92,15 @@ describe("testing_exit_code", () => {
     expect(commandExitCodes(table(["| cmd | `2` | 0 | x |"]))).toEqual(["2"]);
   });
 
+  it("reads a passing row whose Evidence cell holds a pipe", () => {
+    expect(commandExitCodes(table(["| `git diff --stat` | 0 | `src/tests/drive.test.ts \\| 3 ++-`, 1 file changed |"]))).toEqual(["0"]);
+    expect(commandExitCodes(table(["| cmd | 0 | a | b |"]))).toEqual(["0"]);
+  });
+
+  it("reads a row with no number where the code should be as failed", () => {
+    expect(commandExitCodes(table(["| cmd | x | y | z |"]))).toEqual(["y"]);
+  });
+
   it("finds the Exit code column by its header, wherever it sits", () => {
     const body = "## Commands and Evidence\n\n| Evidence | Command | Exit code |\n|---|---|---:|\n| ok | npm test | 0 |\n| boom | a | b | 2 |\n";
     expect(commandExitCodes(body)).toEqual(["0", "2"]);

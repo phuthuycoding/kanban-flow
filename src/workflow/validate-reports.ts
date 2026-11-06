@@ -20,10 +20,10 @@ function tableCells(line: string): string[] {
 /**
  * Exit-code column of every data row in the table under "## Commands and Evidence".
  * Returns null when the section is absent. The column is found by its "Exit code" header
- * (the second column when no header names it). A pipe inside an earlier cell — escaped `\|`
- * or raw, as a shell command often has — splits that cell, so a row with more cells than the
- * header is read counting from the right, and fails on a non-zero number between the two readings. A backticked
- * code (`` `0` ``) reads as the bare number.
+ * (the second column when no header names it). A pipe inside any cell — escaped `\|` or raw —
+ * splits it, so a row with more cells than the header holds its code somewhere between the
+ * column counted from the left and from the right: any non-zero number there is the code, else
+ * a 0, else the row has none. A backticked code (`` `0` ``) reads as the bare number.
  */
 export function commandExitCodes(body: string): string[] | null {
   const lines = body.split("\n");
@@ -44,12 +44,12 @@ export function commandExitCodes(body: string): string[] | null {
     }
     if (rows <= 2) continue;
     const cells = tableCells(line);
-    const extra = cells.length > header.length;
-    const index = extra ? cells.length - (header.length - column) : column;
-    const code = (cells[index] ?? "").replace(/^`(\S+)`$/, "$1");
-    // A pipe in a later cell shifts the count too: the real code lies between the two readings, so any non-zero number there fails.
-    const between = cells.slice(column, index + 1).find((cell) => /^`?[1-9]\d*`?$/.test(cell));
-    codes.push(extra && between !== undefined ? between.replaceAll("`", "") : code);
+    const bare = (cell: string): string => cell.replace(/^`(\S+)`$/, "$1");
+    // A pipe may sit in any cell, so the real code lies between the reading from the left and the one from the right.
+    const lastCandidate = cells.length > header.length ? cells.length - (header.length - column) : column;
+    const candidates = cells.slice(column, lastCandidate + 1).map(bare);
+    const numbers = candidates.filter((cell) => /^\d+$/.test(cell));
+    codes.push(numbers.find((n) => Number(n) !== 0) ?? numbers[0] ?? candidates.at(-1) ?? "");
   }
   return codes;
 }
