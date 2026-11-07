@@ -68,6 +68,9 @@ describe("the round cap", () => {
     expect(implement()).toContain("superseded by contract");
     expect(loop()).toContain("superseded by contract");
     expect(implement()).toContain("waits for TASK-MMM's `complete` line");
+    expect(implement()).toContain("or at once under `superseded by contract`");
+    expect(implement()).toContain("no longer requires what failed");
+    expect(implement()).toContain("the re-approved plan listing TASK-MMM among its dependencies");
     expect(loop()).toContain("stops for the human at the cap");
     expect(loop()).toContain("Note TASK-NNN: cap reached — <failure> @ <ts>");
     expect(loop()).toContain("At the cap of a task never reopened");
