@@ -106,8 +106,28 @@ describe("testing_exit_code", () => {
     for (const [row, value] of rows) {
       expect(commandExitCodes(table([row]))).toEqual([value]);
     }
-    await testingBug("PASS", table([rows[0][0]]));
+  });
+
+  it("rejects a PASS report for every row whose exit cell is not a number", async () => {
+    const rows = [
+      "| npm test | killed | 0 failed \\| x |",
+      "| npm test | timeout | 0 | x |",
+      "| npm test | - | 0 tests | x |",
+      "| npm test |  | 0 tests | x |",
+      "| npm test | N/A | 0 tests | x |",
+    ];
+    for (const row of rows) {
+      await testingBug("PASS", table([row]));
+      expect(codes(), row).toHaveLength(1);
+    }
+  });
+
+  it("keeps an unescaped closing pipe only, and escaped pipes in the header, inside their cells", async () => {
+    expect(commandExitCodes(table(["| cmd | 0 \\|"]))).toEqual(["0 \\|"]);
+    await testingBug("PASS", table(["| cmd | 0 \\|"]));
     expect(codes()).toHaveLength(1);
+    const body = "## Commands and Evidence\n\n| Command \\| x | Exit code | Evidence |\n|---|---:|---|\n| a | 0 | ok |\n";
+    expect(commandExitCodes(body)).toEqual(["0"]);
   });
 
   it("reads a passing row whose Evidence cell holds a pipe or several cells", () => {
@@ -142,6 +162,7 @@ describe("testing_exit_code", () => {
     expect(commandExitCodes(`${head}| ok | npm test | 0 |\n`)).toEqual(["0"]);
     expect(commandExitCodes(`${head}| a \\| b | npm test | 2 |\n`)).toEqual(["2"]);
     expect(commandExitCodes(`${head}| a | b | npm test | 0 |\n`)).toEqual(["npm test"]);
+    expect(commandExitCodes(`${head}| boom | a | b | 2 |\n`)).toEqual(["b"]);
   });
 
   it("reads a row with fewer cells than the exit column as empty, and a two-column table by its second cell", () => {
