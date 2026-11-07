@@ -56,7 +56,11 @@ describe("the round cap", () => {
     expect(implement()).toContain("A task never reopened takes the breaker");
     expect(implement()).toContain("the `cap reached` stop (Repairing after the loop)");
     expect(implement()).toContain("never completes by parking");
-    expect(implement()).toContain("accepted by ruling");
+    expect(implement()).not.toContain("accepted by ruling");
+    expect(implement()).toContain("gives the work a new task with its own five rounds");
+    expect(implement()).toContain("holds every new dispatch of the item");
+    expect(implement()).toContain("it parked them itself at its five-round cap");
+    expect(implement()).toContain("a failure it parked at the cap");
     expect(loop()).toContain("stops for the human at the cap");
     expect(loop()).toContain("Note TASK-NNN: cap reached — <failure> @ <ts>");
     expect(loop()).toContain("At the cap of a task never reopened");
