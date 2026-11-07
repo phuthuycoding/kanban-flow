@@ -19,7 +19,7 @@ kf status --all ──► classify ──► 1 brainstorm ──confirm──►
 
 State is enforced by `kf`: artifact gates, approval fingerprints, execution ids, report statuses and traceability. The agent authors and verifies the content; file presence alone never proves that code was tested.
 
-**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. Stop and ask only for `REQUIREMENT_BUG`, a scope change, or a stop code that names the human; a testing `BLOCKED` stops and reports the blocker.
+**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. Stop and ask only for `REQUIREMENT_BUG`, a scope change, a reopened task at its round cap, or a stop code that names the human; a testing `BLOCKED` stops and reports the blocker.
 
 **Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; `kf init -i` when the user should answer the setup questions). Detect stack and tooling by READING the repository — never assume.
 

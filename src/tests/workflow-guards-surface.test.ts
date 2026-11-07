@@ -48,6 +48,25 @@ describe("the round cap", () => {
     expect(implement()).toContain("R counting every round of the task");
     expect(loop()).toContain("continues that count");
   });
+
+  it("stops a reopened task at the cap for the human instead of parking it or running more rounds", () => {
+    expect(implement()).toContain("Note TASK-NNN: cap reached — <failure>");
+    expect(implement()).toContain("never parked to completion");
+    expect(implement()).toContain("Five things stop you");
+    expect(implement()).toContain("The breaker parks review findings only");
+    expect(loop()).toContain("stops for the human at the cap");
+  });
+
+  it("lists a reopened task at its round cap among the stops for the human", () => {
+    expect(read("skills/flow/SKILL.md")).toContain("a reopened task at its round cap");
+    expect(implement()).toContain("a reopened task at its round cap");
+  });
+});
+
+describe("the test report's table cells", () => {
+  it("escapes a pipe inside a cell so the gate does not read the row as failed", () => {
+    expect(read("skills/test/SKILL.md")).toContain("is written `\\|`");
+  });
 });
 
 describe("one owner for the loop's rules", () => {

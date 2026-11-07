@@ -37,7 +37,7 @@ An inline developer seat has no dispatch and so no model to name: its `dispatche
 
 `<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `verify done exit=<n>` is the exit code `kf verify` returned, never one from another command. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase.
 
-Fields are a closed set in a fixed order: a `dispatched` line carries `model=`, then `round=` when it has one, then `cascade=` when it has one, and nothing else; a `done` line carries `status=<STATUS>` and nothing else — never `round=`, `commits=`, `lane=` or any other field, and nothing after the status word. Detail goes on its own `Note TASK-NNN: <detail>` line. Parallel work on one task is not allowed: split it into tasks. `<R>` is the round number, counted from 1: on a round seat, the task's own round R of the fix loop (a repair after a `reopened` note continues that count); on a cascade re-review, the round of TASK-MMM whose fix commit is `<sha7>`.
+Fields are a closed set in a fixed order: a `dispatched` line carries `model=`, then `round=` when it has one, then `cascade=` when it has one, and nothing else; a `done` line carries `status=<STATUS>` and nothing else — never `round=`, `commits=`, `lane=` or any other field, and nothing after the status word. Detail goes on its own `Note TASK-NNN: <detail>` line. Parallel work on one task is not allowed: split it into tasks. `<R>` is the round number, counted from 1: on a round seat, the task's own round R of the fix loop (a repair after a `reopened` note continues that count and stops for the human at the cap); on a cascade re-review, the round of TASK-MMM whose fix commit is `<sha7>`.
 
 `fix queued` is a legacy shape: the loop no longer writes it — a fix round held by the cap writes `developer waits — <N> developers in flight` instead — but older ledgers carry it, and `kf loop-stats` still reads it.
 
@@ -75,6 +75,7 @@ TASK-001: parked — <finding> — Ruling: <why> @ <ts>
 TASK-001: unverified — <claim only a real run can answer> @ <ts>
 Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
 Note TASK-NNN: developer seat inline @ <ts>
+Note TASK-NNN: cap reached — <failure> @ <ts>
 TASK-NNN: brief written @ <ts>
 TASK-NNN: review package <sha7>,… @ <ts>
 wave <w>: parallel test-writers TASK-A, TASK-B — disjoint Files @ <ts>
