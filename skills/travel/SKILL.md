@@ -116,7 +116,7 @@ A phase skill stops for the human in a few ways. Travel does not retry or work a
 |---|---|---|
 | REQUIREMENT_BUG, a plan change | `blocked` · `owner=travel` | the contract needs the human: Needs you with the next command the phase skill names (a `kf stage … planning` travel prints, never runs) |
 | FAIL or REJECT in testing or review | stays `driving` | run `kf stage <f> implementation` in the item worktree and continue the fix loop the phase skill names |
-| fix-loop breaker | `blocked` · `owner=travel` | reason + next command → Needs you |
+| fix-loop breaker, or a reopened task's `cap reached` stop | `blocked` · `owner=travel` | reason + next command → Needs you |
 | a usage limit on a seat | stays `driving`, note `usage limit — reset <text>` | dispatch nothing new; wait for the reset, then re-dispatch the seat that was running |
 | any other stop the phase skill reports | `blocked` · `owner=travel` | its reason + next command → Needs you |
 | review PASS, PR open | `waiting-to-merge` | note the PR URL, `! gh pr merge <n>`, `files=<n>`, `work=<n> review=<n>` |

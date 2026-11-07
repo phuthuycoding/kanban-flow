@@ -48,6 +48,45 @@ describe("the round cap", () => {
     expect(implement()).toContain("R counting every round of the task");
     expect(loop()).toContain("continues that count");
   });
+
+  it("stops a reopened task at the cap for the human instead of parking it or running more rounds", () => {
+    expect(implement()).toContain("Note TASK-NNN: cap reached — <failure>");
+    expect(implement()).toContain("never parked to completion");
+    expect(implement()).toContain("Five things stop you");
+    expect(implement()).toContain("A task never reopened takes the breaker");
+    expect(implement()).toContain("the `cap reached` stop (Repairing after the loop)");
+    expect(implement()).toContain("never completes by parking");
+    expect(implement()).not.toContain("accepted by ruling");
+    expect(implement()).toContain("gives the work a new task with its own five rounds");
+    expect(implement()).toContain("holds every new dispatch of the item");
+    expect(implement()).toContain("it parked them itself at its five-round cap");
+    expect(implement()).toContain("a failure it parked at the cap");
+    expect(implement()).toContain("superseded by TASK-MMM");
+    expect(implement()).toContain("no later `complete` line of its task holds every new dispatch");
+    expect(implement()).toContain("A task never reopened whose open findings");
+    expect(loop()).toContain("superseded by TASK-MMM");
+    expect(implement()).toContain("superseded by contract");
+    expect(loop()).toContain("superseded by contract");
+    expect(implement()).toContain("waits for TASK-MMM's `complete` line");
+    expect(implement()).toContain("or at once under `superseded by contract`");
+    expect(implement()).toContain("no longer requires what failed");
+    expect(implement()).toContain("the re-approved plan listing TASK-MMM among its dependencies");
+    expect(loop()).toContain("stops for the human at the cap");
+    expect(loop()).toContain("Note TASK-NNN: cap reached — <failure> @ <ts>");
+    expect(loop()).toContain("At the cap of a task never reopened");
+    expect(read("skills/travel/SKILL.md")).toContain("`cap reached` stop");
+  });
+
+  it("lists a reopened task at its round cap among the stops for the human", () => {
+    expect(read("skills/flow/SKILL.md")).toContain("a reopened task at its round cap");
+    expect(implement()).toContain("a reopened task at its round cap");
+  });
+});
+
+describe("the test report's table cells", () => {
+  it("escapes a pipe inside a cell so the gate does not read the row as failed", () => {
+    expect(read("skills/test/SKILL.md")).toContain("is written `\\|`");
+  });
 });
 
 describe("one owner for the loop's rules", () => {

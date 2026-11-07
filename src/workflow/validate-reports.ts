@@ -14,16 +14,19 @@ const COMMANDS_HEADING = /^##\s+Commands and Evidence\b/i;
 
 /** The cells of a markdown table row, outer pipes dropped. */
 function tableCells(line: string): string[] {
-  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  return line.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((cell) => cell.trim());
 }
 
 /**
  * Exit-code column of every data row in the table under "## Commands and Evidence".
  * Returns null when the section is absent. The column is found by its "Exit code" header
- * (the second column when no header names it). A pipe inside any cell — escaped `\|` or raw —
- * splits it, so a row with more cells than the header holds its code somewhere between the
- * column counted from the left and from the right: any non-zero number there is the code, else
- * a 0, else the row has none. A backticked code (`` `0` ``) reads as the bare number.
+ * (the second column when no header names it). Cells split only on an unescaped pipe: `\|` stays
+ * inside its cell. A cell is a code when it is an integer, optionally followed by a parenthesised
+ * note (`127 (not found)`), after its backticks are stripped; its value is the integer.
+ * When the cell under the column is not a code, the row's value is that cell's text (empty when
+ * absent) and nothing to its right is consulted, so any text there counts as failing. When it is a
+ * code, the cells up to the right-count of the column are scanned for codes: the first non-zero one
+ * wins, else the left code. Free text never supplies a code.
  */
 export function commandExitCodes(body: string): string[] | null {
   const lines = body.split("\n");
@@ -33,6 +36,8 @@ export function commandExitCodes(body: string): string[] | null {
   let rows = 0;
   let header: string[] = [];
   let column = 1;
+  const bare = (cell: string): string => cell.replace(/^`(\S+)`$/, "$1");
+  const codeOf = (cell: string): string | null => /^(\d+)(\s*\(.*\))?$/.exec(cell)?.[1] ?? null;
   for (const line of lines.slice(start + 1)) {
     if (/^##\s/.test(line)) break;
     if (!line.trim().startsWith("|")) continue;
@@ -43,14 +48,16 @@ export function commandExitCodes(body: string): string[] | null {
       if (named !== -1) column = named;
     }
     if (rows <= 2) continue;
-    const cells = tableCells(line);
-    const bare = (cell: string): string => cell.replace(/^`(\S+)`$/, "$1");
-    // A pipe may sit in any cell, so the real code lies between the reading from the left and the one from the right.
+    const cells = tableCells(line).map(bare);
+    const left = cells[column] ?? "";
+    const leftCode = codeOf(left);
+    if (leftCode === null) {
+      codes.push(left);
+      continue;
+    }
     const lastCandidate = cells.length > header.length ? cells.length - (header.length - column) : column;
-    const candidates = cells.slice(column, lastCandidate + 1).map(bare);
-    // A leading integer counts, so `127 (not found)` stays 127 and beats a later 0.
-    const numbers = candidates.flatMap((cell) => /^\d+\b/.exec(cell)?.[0] ?? []);
-    codes.push(numbers.find((n) => Number(n) !== 0) ?? numbers[0] ?? candidates.at(-1) ?? "");
+    const numbers = cells.slice(column, lastCandidate + 1).flatMap((cell) => codeOf(cell) ?? []);
+    codes.push(numbers.find((n) => Number(n) !== 0) ?? leftCode);
   }
   return codes;
 }

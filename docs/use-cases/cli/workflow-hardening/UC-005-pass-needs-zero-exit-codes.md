@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Partly superseded by `exit-code-cell`:** step 3 no longer reads a fixed second column — the cell under the `Exit code` header decides, and a raw `|` in a cell can fail the row.
+
 ## Overview
 
 | Field | Value |
