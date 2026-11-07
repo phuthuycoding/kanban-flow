@@ -53,8 +53,14 @@ describe("the round cap", () => {
     expect(implement()).toContain("Note TASK-NNN: cap reached — <failure>");
     expect(implement()).toContain("never parked to completion");
     expect(implement()).toContain("Five things stop you");
-    expect(implement()).toContain("The breaker parks review findings only");
+    expect(implement()).toContain("A task never reopened takes the breaker");
+    expect(implement()).toContain("the `cap reached` stop (Repairing after the loop)");
+    expect(implement()).toContain("never completes by parking");
+    expect(implement()).toContain("accepted by ruling");
     expect(loop()).toContain("stops for the human at the cap");
+    expect(loop()).toContain("Note TASK-NNN: cap reached — <failure> @ <ts>");
+    expect(loop()).toContain("At the cap of a task never reopened");
+    expect(read("skills/travel/SKILL.md")).toContain("`cap reached` stop");
   });
 
   it("lists a reopened task at its round cap among the stops for the human", () => {
