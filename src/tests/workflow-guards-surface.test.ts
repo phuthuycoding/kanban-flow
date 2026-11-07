@@ -42,6 +42,14 @@ describe("the ledger's clock and open questions", () => {
   });
 });
 
+describe("the round cap", () => {
+  it("keeps five rounds for the whole task, repairs included", () => {
+    expect(implement()).toContain("Five rounds is the whole life of a task");
+    expect(implement()).toContain("R counting every round of the task");
+    expect(loop()).toContain("continues that count");
+  });
+});
+
 describe("one owner for the loop's rules", () => {
   it("keeps cap, contention and resume in the skill, and only reasons in task-loop.md", () => {
     const section = loop().slice(loop().indexOf("## Parallel developers"), loop().indexOf("## The fix loop"));
