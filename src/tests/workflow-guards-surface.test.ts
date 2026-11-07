@@ -61,6 +61,10 @@ describe("the round cap", () => {
     expect(implement()).toContain("holds every new dispatch of the item");
     expect(implement()).toContain("it parked them itself at its five-round cap");
     expect(implement()).toContain("a failure it parked at the cap");
+    expect(implement()).toContain("superseded by TASK-MMM");
+    expect(implement()).toContain("no later `complete` line of its task holds every new dispatch");
+    expect(implement()).toContain("A task never reopened whose open findings");
+    expect(loop()).toContain("superseded by TASK-MMM");
     expect(loop()).toContain("stops for the human at the cap");
     expect(loop()).toContain("Note TASK-NNN: cap reached — <failure> @ <ts>");
     expect(loop()).toContain("At the cap of a task never reopened");
