@@ -48,7 +48,8 @@ export function commandExitCodes(body: string): string[] | null {
     // A pipe may sit in any cell, so the real code lies between the reading from the left and the one from the right.
     const lastCandidate = cells.length > header.length ? cells.length - (header.length - column) : column;
     const candidates = cells.slice(column, lastCandidate + 1).map(bare);
-    const numbers = candidates.filter((cell) => /^\d+$/.test(cell));
+    // A leading integer counts, so `127 (not found)` stays 127 and beats a later 0.
+    const numbers = candidates.flatMap((cell) => /^\d+\b/.exec(cell)?.[0] ?? []);
     codes.push(numbers.find((n) => Number(n) !== 0) ?? numbers[0] ?? candidates.at(-1) ?? "");
   }
   return codes;

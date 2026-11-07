@@ -97,6 +97,11 @@ describe("testing_exit_code", () => {
     expect(commandExitCodes(table(["| cmd | 0 | a | b |"]))).toEqual(["0"]);
   });
 
+  it("keeps a failed code with text after it from reading as a later 0", () => {
+    expect(commandExitCodes(table(["| cmd | 127 (not found) | 0 | x |"]))).toEqual(["127"]);
+    expect(commandExitCodes(table(["| cmd | 1 (failed) | 0 | x |"]))).toEqual(["1"]);
+  });
+
   it("reads a row with no number where the code should be as failed", () => {
     expect(commandExitCodes(table(["| cmd | x | y | z |"]))).toEqual(["y"]);
   });
