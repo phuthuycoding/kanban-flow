@@ -209,7 +209,7 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
       });
     const verifyStarted = (after: number): boolean => events.some((e) => e.line > after && e.type === "verifyStarted");
     const reviewerDispatched = (after: number): boolean =>
-      events.some((e) => e.line > after && e.type === "dispatched" && e.seat === "code-reviewer");
+      events.some((e) => e.line > after && e.type === "dispatched" && e.seat === "code-reviewer" && e.cascade === undefined);
     // A note after the trio ran would move the task's last commit past its verify, which the trio never re-names.
     if (unnamed.length > 0 && !(verifyStarted(latest.line) && reviewerDispatched(latest.line))) {
       const shas = unnamed.join(",");

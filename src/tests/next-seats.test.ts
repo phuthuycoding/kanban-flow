@@ -423,6 +423,22 @@ describe("seatActions after a developer's commit", () => {
     expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
   });
 
+  // A cascade re-review answers another task's commit; it must not stand in for the task's own review.
+  it("still names the task's own code-reviewer when only a cascade re-review was dispatched", () => {
+    const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+    const actions = seatActions(
+      developed(
+        commitsNote("TASK-001", "abc1234"),
+        { ...dispatched("TASK-001", "code-reviewer"), cascade: "9999999" } as Fields,
+      ),
+      inputs,
+      capOf(2),
+    );
+    expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
+      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new" },
+    ]);
+  });
+
   it("asks for a decide when a DONE developer has no commit in any source", () => {
     const actions = seatActions(developed(), inputsOf([task("TASK-001")]), capOf(2));
     expect(actions).toContainEqual(
