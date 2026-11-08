@@ -74,7 +74,7 @@ The `/kf:implement` loop keeps its state in the ledger `<item>/loop/progress.md`
 | Line | Meaning |
 |---|---|
 | `Scan: clean` | The pre-task conflict scan found no conflict; no seat opens before a `Scan:` line |
-| `Note TASK-NNN: commits <a7>,<b7>` | The task's commits, when its report or a review package does not name them |
+| `Note TASK-NNN: commits <a7>,<b7>` | The task's commits; `kf next` prints it after a developer's `done` for every reported commit no ledger line names yet, before the review. A commit lands at the first ledger line that names it (this note or a `review package` line), and cascades and verify waits are read from that position |
 | `Note TASK-NNN: decided — <what>` | The session's decision that closes one open `decide` of the task |
 | `Note TASK-NNN: verify routed — TASK-MMM` | The task's verify failure was sent to TASK-MMM as a fix round of TASK-MMM |
 

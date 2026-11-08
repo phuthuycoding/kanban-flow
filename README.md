@@ -254,7 +254,7 @@ tests, dual writes, why the code exists — a `file:line` map under 40 lines) an
 `spec-reviewer` with a fresh context before the human approves. `/kf:implement`
 runs the plan task by task: a `test-writer` writes the failing tests, a `developer`
 makes them pass (an `automation-writer` adds the UI specs under the full level), a
-`code-reviewer` reads the diff, a fix loop capped at five rounds, every decision in a ledger that survives
+`code-reviewer` reads the diff, a fix loop capped at five rounds (one minimal fix past the cap when only the smallest change is left), every decision in a ledger that survives
 compaction. `/kf:review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
