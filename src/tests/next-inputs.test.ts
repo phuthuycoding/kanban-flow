@@ -48,7 +48,7 @@ function featureOf(over: { kind?: "bug"; worktree?: { path: string; branch: stri
     meta: {
       schema: "kanban-flow", feature: "demo", context: "app", created: "20261107_1200",
       ...(over.kind ? { kind: over.kind } : {}),
-      ...(over.worktree ? { worktree: { ...over.worktree, domain: "demo.localhost", port: 3000 } } : {}),
+      ...(over.worktree ? { worktree: { ...over.worktree, domain: "demo.localhost", port: 3000, createdAt: "20261107_1200" } } : {}),
     },
   };
 }
