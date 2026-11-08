@@ -1,5 +1,6 @@
 import { firstOverlap } from "../allowlist.js";
 import { completedTaskIds, openSeats, taskCommits } from "./ledger-state.js";
+import { shellQuote } from "./record.js";
 import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask } from "./types.js";
 
 // FR-003, FR-004, FR-005, FR-018: which seats open now, as `kf:implement` lays out the conflict scan,
@@ -18,7 +19,7 @@ const line = (feature: string, text: string, task?: string): Write => ({
   kind: "write",
   ...(task ? { task } : {}),
   line: text,
-  record: `kf record ${feature} line -- ${text}`,
+  record: `kf record ${feature} line -- ${shellQuote(text)}`,
 });
 
 const ownEvents = (state: LedgerState, task: string): LedgerEvent[] => state.events.filter((e) => "task" in e && e.task === task);
@@ -177,7 +178,7 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
     waitsOut.push({ kind: "wait", task: id, reason });
     if (waitsOwed(id, reason)) {
       const text = `${id}: developer waits — ${reason}`;
-      writes.push({ kind: "write", task: id, line: text, record: `kf record ${f} waits ${id} -- ${reason}` });
+      writes.push({ kind: "write", task: id, line: text, record: `kf record ${f} waits ${id} -- ${shellQuote(reason)}` });
     }
   };
 

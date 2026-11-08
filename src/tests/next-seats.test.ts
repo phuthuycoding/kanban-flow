@@ -1,7 +1,12 @@
+import { execFileSync } from "node:child_process";
+
 import { describe, it, expect } from "vitest";
 
 import { seatActions } from "../workflow/next/seats.js";
 import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask, Seat, TestType } from "../workflow/next/types.js";
+
+/** The quoted form a printed record must carry: single quotes, each ' written as '\''. */
+const q = (text: string): string => `'${text.replace(/'/g, `'\\''`)}'`;
 
 // Ledger events and loop inputs are built as literals: the rule module is pure and reads nothing else.
 
@@ -99,7 +104,7 @@ describe("seatActions test-writers ahead", () => {
       expect.objectContaining({
         kind: "write",
         line: "TASK-003: no test-writer — <why>",
-        record: "kf record feat line -- TASK-003: no test-writer — <why>",
+        record: `kf record feat line -- ${q("TASK-003: no test-writer — <why>")}`,
       }),
     ]);
     expect(dispatches(actions, "developer")).toHaveLength(0);
@@ -111,7 +116,7 @@ describe("seatActions test-writers ahead", () => {
     expect(dispatches(actions, "test-writer").map((a) => a.task)).toEqual(["TASK-002", "TASK-003", "TASK-004"]);
     const line = "wave 1: parallel test-writers TASK-001, TASK-002, TASK-003, TASK-004, TASK-005, TASK-006 — disjoint Files";
     expect(writes(actions).filter((w) => w.line.startsWith("wave 1:"))).toEqual([
-      expect.objectContaining({ kind: "write", line, record: `kf record feat line -- ${line}` }),
+      expect.objectContaining({ kind: "write", line, record: `kf record feat line -- ${q(line)}` }),
     ]);
   });
 
@@ -135,7 +140,7 @@ describe("seatActions test-writers ahead", () => {
     expect(dispatches(actions, "test-writer").map((a) => a.task)).toEqual(["TASK-002", "TASK-004", "TASK-005"]);
     const line = "wave 1: sequential TASK-002, TASK-003 — Files overlap src/shared.ts / src/shared.ts";
     expect(writes(actions).filter((w) => w.line.startsWith("wave 1:"))).toEqual([
-      expect.objectContaining({ line, record: `kf record feat line -- ${line}` }),
+      expect.objectContaining({ line, record: `kf record feat line -- ${q(line)}` }),
     ]);
   });
 
@@ -164,7 +169,7 @@ describe("seatActions test-writers ahead", () => {
     expect(writes(actions)).toContainEqual(
       expect.objectContaining({
         line: "TASK-001: test hashes <file>=<sha> …",
-        record: "kf record feat line -- TASK-001: test hashes <file>=<sha> …",
+        record: `kf record feat line -- ${q("TASK-001: test hashes <file>=<sha> …")}`,
       }),
     );
     expect(dispatches(actions, "developer")).toHaveLength(0);
@@ -187,7 +192,7 @@ describe("seatActions developer release", () => {
     expect(writes(first).filter((w) => w.line.startsWith("TASK-002: developer waits"))).toEqual([
       expect.objectContaining({
         line: `TASK-002: developer waits — ${reason}`,
-        record: `kf record feat waits TASK-002 -- ${reason}`,
+        record: `kf record feat waits TASK-002 -- ${q(reason)}`,
       }),
     ]);
 
@@ -361,7 +366,7 @@ describe("seatActions after a developer's commit", () => {
     expect(writes(actions)).toContainEqual(
       expect.objectContaining({
         line: "TASK-001: review package abc1234,def5678",
-        record: "kf record feat line -- TASK-001: review package abc1234,def5678",
+        record: `kf record feat line -- ${q("TASK-001: review package abc1234,def5678")}`,
       }),
     );
     expect(verifies(actions, "TASK-001")).toEqual([
@@ -554,7 +559,7 @@ describe("seatActions after a developer's commit", () => {
     expect(writes(first).filter((w) => w.line.startsWith("TASK-001: developer waits"))).toEqual([
       expect.objectContaining({
         line: `TASK-001: developer waits — ${reason}`,
-        record: `kf record feat waits TASK-001 -- ${reason}`,
+        record: `kf record feat waits TASK-001 -- ${q(reason)}`,
       }),
     ]);
 
@@ -703,7 +708,7 @@ describe("seatActions after a developer's commit", () => {
     expect(writes(actions).filter((w) => w.line.includes("review package"))).toEqual([
       expect.objectContaining({
         line: "TASK-001: review package def5678,0123abc",
-        record: "kf record feat line -- TASK-001: review package def5678,0123abc",
+        record: `kf record feat line -- ${q("TASK-001: review package def5678,0123abc")}`,
       }),
     ]);
     expect(verifies(actions, "TASK-001")).toEqual([
@@ -712,5 +717,48 @@ describe("seatActions after a developer's commit", () => {
     expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
       { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new", round: 1 },
     ]);
+  });
+});
+
+describe("seatActions printed records are shell-safe", () => {
+  // The session runs the printed record in a shell: free text after `--` must reach it as one argument.
+  function argsAfterDashes(record: string): string[] {
+    const at = record.indexOf(" -- ");
+    expect(at).toBeGreaterThan(0);
+    const out = execFileSync("bash", ["-c", `printf '%s\\0' ${record.slice(at + 4)}`], { encoding: "utf8" });
+    return out.split("\0").slice(0, -1);
+  }
+
+  it("quotes a developer waits reason with parentheses and survives bash as one argument", () => {
+    const tasks = [
+      task("TASK-001", { files: ["src/shared.ts"], overlaps: ["TASK-002"] }),
+      task("TASK-002", { files: ["src/shared.ts"], overlaps: ["TASK-001"] }),
+    ];
+    const base = [scanClean, ...testsReady("TASK-001"), dispatched("TASK-001", "developer"), ...testsReady("TASK-002")];
+    const actions = seatActions(stateOf(...base), inputsOf(tasks), capOf(4));
+    const w = writes(actions).find((x) => x.line.startsWith("TASK-002: developer waits"));
+    expect(w?.record).toBe("kf record feat waits TASK-002 -- 'Files overlap src/shared.ts / src/shared.ts (TASK-001)'");
+    expect(argsAfterDashes(w!.record)).toEqual(["Files overlap src/shared.ts / src/shared.ts (TASK-001)"]);
+  });
+
+  it("quotes a wave line built from file names with quotes, semicolons, dollars and backticks as one argument", () => {
+    const odd = "src/it's (a); $HOME `id`.ts";
+    const tasks = [
+      task("TASK-001", { files: [odd], overlaps: ["TASK-002"] }),
+      task("TASK-002", { files: [odd], overlaps: ["TASK-001"] }),
+    ];
+    const actions = seatActions(stateOf(scanClean), inputsOf(tasks), capOf(2));
+    const w = writes(actions).find((x) => x.line.startsWith("wave 1:"));
+    expect(w?.record).toBe(`kf record feat line -- ${q(w!.line)}`);
+    expect(w!.line).toContain(odd);
+    expect(argsAfterDashes(w!.record)).toEqual([w!.line]);
+  });
+
+  it("quotes the wave line record with its dash and slashes as one argument", () => {
+    const ids = ["TASK-001", "TASK-002"];
+    const actions = seatActions(stateOf(scanClean), inputsOf(ids.map((id) => task(id))), capOf(2));
+    const w = writes(actions).find((x) => x.line.startsWith("wave 1:"));
+    expect(w?.record).toBe(`kf record feat line -- '${w?.line}'`);
+    expect(argsAfterDashes(w!.record)).toEqual([w!.line]);
   });
 });
