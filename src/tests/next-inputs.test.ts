@@ -361,6 +361,32 @@ describe("readLoopInputs: git log", () => {
 
   it("refuses with the git error when the log cannot be read", () => {
     const reason = refusal(readLoopInputs(root, featureOf()));
-    expect(reason.toLowerCase()).toContain("git");
+    expect(reason).toContain("git log");
+    // More than the prefix: git's own message about the unborn HEAD is carried.
+    expect(reason).toMatch(/HEAD|commits|revision/i);
+  });
+});
+
+describe("readLoopInputs: git log outside a repository", () => {
+  beforeEach(async () => {
+    await putItemFile(ARTIFACTS["implementation-plan"].file, plan([{ id: "TASK-001" }]));
+  });
+
+  it("gives an empty git log outside a repository", () => {
+    expect(ok(readLoopInputs(root, featureOf())).gitLog).toEqual([]);
+  });
+
+  it("gives an empty git log outside a repository when git speaks another language", () => {
+    const saved = { LANG: process.env.LANG, LC_ALL: process.env.LC_ALL };
+    process.env.LANG = "de_DE.UTF-8";
+    process.env.LC_ALL = "de_DE.UTF-8";
+    try {
+      expect(ok(readLoopInputs(root, featureOf())).gitLog).toEqual([]);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
   });
 });

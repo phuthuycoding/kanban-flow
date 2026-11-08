@@ -125,9 +125,10 @@ function readGitLog(root: string, feature: Feature): { sha: string; ts: number }
   const inWorktree = wt?.path !== undefined && existsSync(wt.path);
   const dir = inWorktree ? wt.path : root;
   const ref = inWorktree && wt.branch ? wt.branch : "HEAD";
-  const res = runGit(dir, ["log", "--format=%H %ct", "-n", "1000", ref, "--"]);
   // Outside any repository there is no history to schedule against, which is not a read failure.
-  if (res.code !== 0 && /not a git repository/i.test(res.stderr)) return [];
+  // The exit status of rev-parse decides it, so a localized git message cannot change the outcome.
+  if (runGit(dir, ["rev-parse", "--is-inside-work-tree"]).code !== 0) return [];
+  const res = runGit(dir, ["log", "--format=%H %ct", "-n", "1000", ref, "--"]);
   if (res.code !== 0) return `git log ${ref} failed (exit ${res.code}) in ${dir}: ${res.stderr.trim()}`;
   return res.stdout
     .split("\n")
