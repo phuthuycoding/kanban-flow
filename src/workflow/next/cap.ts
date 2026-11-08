@@ -1,4 +1,5 @@
 import { completedTaskIds } from "./ledger-state.js";
+import { shellQuote } from "./record.js";
 import type { Action, Cap, HeldRerun, LedgerEvent, LedgerState, LoopInputs, LoopTask } from "./types.js";
 
 // FR-006 / FR-007: the live cap N and the contention view, rebuilt from the ledger as `kf:implement`
@@ -29,7 +30,7 @@ const write = (feature: string, line: string, task?: string): Write => ({
   kind: "write",
   ...(task ? { task } : {}),
   line,
-  record: `kf record ${feature} line -- ${line}`,
+  record: `kf record ${feature} line -- ${shellQuote(line)}`,
 });
 
 const ofTask = (e: LedgerEvent, task: string): boolean => "task" in e && e.task === task;

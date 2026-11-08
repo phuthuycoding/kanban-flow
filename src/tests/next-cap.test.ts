@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+
 import { describe, it, expect } from "vitest";
 
 import { contentionSignature, liveCap } from "../workflow/next/cap.js";
@@ -5,6 +7,8 @@ import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask, Verif
 
 const FEATURE = "kf-next";
 const BASE = Date.parse("2026-11-01T10:00:00Z");
+/** One shell word: single quotes, each ' written as '\''. Computed here so the test does not lean on the production helper. */
+const q = (text: string): string => `'${text.replace(/'/g, "'\\''")}'`;
 const at = (minute: number): number => BASE + minute * 60_000;
 
 type EventBody = LedgerEvent extends infer E ? (E extends LedgerEvent ? Omit<E, "line" | "ts"> : never) : never;
@@ -77,7 +81,7 @@ describe("liveCap start value and ceiling", () => {
       expect.objectContaining({
         kind: "write",
         line: "Ruling: developer cap 2 — start — cost if wrong: <…>",
-        record: `kf record ${FEATURE} line -- Ruling: developer cap 2 — start — cost if wrong: <…>`,
+        record: `kf record ${FEATURE} line -- ${q(`Ruling: developer cap 2 — start — cost if wrong: <…>`)}`,
       }),
     ]);
   });
@@ -101,7 +105,7 @@ describe("liveCap start value and ceiling", () => {
     expect(cap.n).toBe(3);
     expect(cap.ceiling).toBe(3);
     expect(lines(cap)).toEqual(["Ruling: developer cap 4 → 3 — ceiling lowered to 3 — cost if wrong: <…>"]);
-    expect(writes(cap)[0].record).toBe(`kf record ${FEATURE} line -- Ruling: developer cap 4 → 3 — ceiling lowered to 3 — cost if wrong: <…>`);
+    expect(writes(cap)[0].record).toBe(`kf record ${FEATURE} line -- ${q(`Ruling: developer cap 4 → 3 — ceiling lowered to 3 — cost if wrong: <…>`)}`);
   });
 
   it("reads an invalid-config ceiling as 1 and owes a decide quoting the error", () => {
@@ -138,7 +142,7 @@ describe("liveCap step-up decisions", () => {
     expect(writes(cap)).toEqual([
       expect.objectContaining({
         line: "Ruling: developer cap 2 → 3 — wave 1 clean — cost if wrong: <…>",
-        record: `kf record ${FEATURE} line -- Ruling: developer cap 2 → 3 — wave 1 clean — cost if wrong: <…>`,
+        record: `kf record ${FEATURE} line -- ${q(`Ruling: developer cap 2 → 3 — wave 1 clean — cost if wrong: <…>`)}`,
       }),
     ]);
   });
@@ -156,7 +160,7 @@ describe("liveCap step-up decisions", () => {
     const cap = liveCap(state, inputs(wideNext));
     expect(cap.n).toBe(3);
     expect(lines(cap)).toEqual(["Note wave 2: no step-up — last wave"]);
-    expect(writes(cap)[0].record).toBe(`kf record ${FEATURE} line -- Note wave 2: no step-up — last wave`);
+    expect(writes(cap)[0].record).toBe(`kf record ${FEATURE} line -- ${q(`Note wave 2: no step-up — last wave`)}`);
   });
 
   it("decides owed waves in wave order, each against the ledger up to its due complete line", () => {
@@ -237,9 +241,26 @@ describe("liveCap contention step-down", () => {
     const cap = liveCap(state, inputs(tasks, { verifyRuns: { "TASK-001": [block(3, 1, EADDR)] } }));
     expect(cap.n).toBe(2);
     expect(writes(cap).map((w) => [w.line, w.record])).toEqual([
-      ["Ruling: developer cap 4 → 2 — EADDRINUSE in TASK-001 verify — cost if wrong: <…>", `kf record ${FEATURE} line -- Ruling: developer cap 4 → 2 — EADDRINUSE in TASK-001 verify — cost if wrong: <…>`],
-      ["Note TASK-001: verify rerun — contention EADDRINUSE", `kf record ${FEATURE} line -- Note TASK-001: verify rerun — contention EADDRINUSE`],
+      ["Ruling: developer cap 4 → 2 — EADDRINUSE in TASK-001 verify — cost if wrong: <…>", `kf record ${FEATURE} line -- ${q(`Ruling: developer cap 4 → 2 — EADDRINUSE in TASK-001 verify — cost if wrong: <…>`)}`],
+      ["Note TASK-001: verify rerun — contention EADDRINUSE", `kf record ${FEATURE} line -- ${q(`Note TASK-001: verify rerun — contention EADDRINUSE`)}`],
     ]);
+  });
+
+  it("prints records whose free text survives a real shell as one argument", () => {
+    const id = "TASK-001 (a); $HOME `x` it's";
+    const odd = [task(id, 1), task("TASK-002", 1), task("TASK-003", 1), task("TASK-004", 2)];
+    const state = ledger(capAt(4), e(2, { type: "verifyStarted", task: id }), e(3, { type: "verifyDone", task: id, exit: 1 }));
+    const cap = liveCap(state, inputs(odd, { verifyRuns: { [id]: [block(3, 1, EADDR)] } }));
+    const owed = writes(cap);
+    expect(owed.length).toBeGreaterThan(0);
+    for (const w of owed) {
+      const prefix = `kf record ${FEATURE} line -- `;
+      expect(w.record.startsWith(prefix)).toBe(true);
+      const word = w.record.slice(prefix.length);
+      const out = execFileSync("bash", ["-c", `printf '%s' ${word}`], { encoding: "utf8" });
+      expect(out).toBe(w.line);
+    }
+    expect(owed.some((w) => w.line.includes("(a); $HOME `x` it's"))).toBe(true);
   });
 
   it("halves N once per event: from 2 to 1 on a later, separate event", () => {
