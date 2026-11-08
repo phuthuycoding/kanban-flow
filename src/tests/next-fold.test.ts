@@ -336,6 +336,33 @@ describe("an automation-writer seat closed by a decision", () => {
       expect(t.seats["automation-writer"]).toEqual({ kind: "reported", status: "DONE_WITH_CONCERNS", answers: lineOf(4) });
     },
   );
+
+  it.each([
+    ["decided note", "NEEDS_CONTEXT", decided(TASK)],
+    ["Ruling", "NEEDS_CONTEXT", ruling(TASK)],
+    ["decided note", "BLOCKED", decided(TASK)],
+    ["Ruling", "BLOCKED", ruling(TASK)],
+    ["decided note", "FAILED", decided(TASK)],
+    ["Ruling", "FAILED", ruling(TASK)],
+  ] as const)("owes the specs again with the seat idle when a %s closes an automation-writer that ended %s", (_name, status, decision) => {
+    const t = taskOf(fold([...toSpecs, done(TASK, "automation-writer", status), decision], { tasks: [uiTask], level: "full" }));
+    expect(t.judgements).toEqual([]);
+    expect(t.phase).toMatchObject({ kind: "cycle", implementer: { kind: "specsOwed" } });
+    expect(t.seats["automation-writer"]).toEqual({ kind: "idle" });
+  });
+});
+
+describe("a round test-writer closed by a decision", () => {
+  const firstPass: Spec[] = [...toDeveloper, dev(TASK), done(TASK, "developer", "DONE"), commits(TASK, "aaaaaaa")];
+
+  // The fold today leaves the round cycle's implementer step as it was opened (owed) and the seat idle; the test-writer
+  // redispatch intent reads exactly that pair.
+  it("leaves the seat idle in the round's owed phase when a decided note closes a test-writer that ended NEEDS_CONTEXT", () => {
+    const t = taskOf(fold([...firstPass, { type: "fixRound", task: TASK, round: 2 }, tw(TASK, 2), done(TASK, "test-writer", "NEEDS_CONTEXT"), decided(TASK)]));
+    expect(t.judgements).toEqual([]);
+    expect(t.seats["test-writer"]).toEqual({ kind: "idle" });
+    expect(t.phase).toMatchObject({ kind: "cycle", cycle: "round", round: 2, implementer: { kind: "owed", round: 2 } });
+  });
 });
 
 describe("a fix round's developer", () => {
@@ -361,6 +388,21 @@ describe("completion and reopening", () => {
 
   it("stays how complete when the complete note says not superseded", () => {
     const t = taskOf(fold([...toDeveloper, { type: "complete", task: TASK, text: "complete (not superseded — the cascade is still live)" }]));
+    expect(t.phase).toEqual({ kind: "complete", how: "complete" });
+  });
+
+  it.each([
+    ["the canonical closing template", "superseded — the contract replaced it"],
+    ["the template with the parentheses kept", "complete (superseded — the contract replaced it)"],
+    ["a superseded by note", "superseded by TASK-019"],
+    ["a superseded by note with the parentheses kept", "complete (superseded by TASK-019)"],
+  ])("is how superseded on %s", (_name, text) => {
+    const t = taskOf(fold([...toDeveloper, { type: "complete", task: TASK, text }]));
+    expect(t.phase).toEqual({ kind: "complete", how: "superseded" });
+  });
+
+  it("stays how complete when the canonical template text says not superseded", () => {
+    const t = taskOf(fold([...toDeveloper, { type: "complete", task: TASK, text: "not superseded — the cascade is still live" }]));
     expect(t.phase).toEqual({ kind: "complete", how: "complete" });
   });
 

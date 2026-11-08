@@ -125,6 +125,10 @@ describe("readLedgerState events", () => {
     expect(eventOf("TASK-001: complete (commits abc1234)")).toMatchObject({ type: "complete", task: "TASK-001", text: "commits abc1234" });
   });
 
+  it("parses a superseded closing note into the text inside its parentheses", () => {
+    expect(eventOf("TASK-001: complete (superseded — the contract replaced it)")).toMatchObject({ type: "complete", task: "TASK-001", text: "superseded — the contract replaced it" });
+  });
+
   it("parses the implemented, no test-writer, test hashes and review package lines", () => {
     expect(eventOf("TASK-001: implemented, test-writer seat: none, review seat: none")).toMatchObject({ type: "implemented", task: "TASK-001" });
     expect(eventOf("TASK-001: no test-writer — docs only")).toMatchObject({ type: "noTestWriter", task: "TASK-001", reason: "docs only" });

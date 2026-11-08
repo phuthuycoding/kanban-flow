@@ -287,7 +287,7 @@ const onTestHashes: RegionHandler<"testHashes"> = (t) => {
 const toReady: RegionHandler<"noTestWriter"> = (t) => withPhase(t, { kind: "ready" });
 
 const onComplete: RegionHandler<"complete"> = (t, e) =>
-  withPhase(t, { kind: "complete", how: e.text.includes("superseded by") ? "superseded" : "complete" });
+  withPhase(t, { kind: "complete", how: /(?<!not )superseded\b/.test(e.text) ? "superseded" : "complete" });
 
 const onImplemented: RegionHandler<"implemented"> = (t) => withPhase(t, { kind: "complete", how: "implemented" });
 
