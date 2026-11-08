@@ -8,6 +8,7 @@ import { performance } from "node:perf_hooks";
 
 import { readLedgerState } from "../workflow/next/ledger-state.js";
 import { readLoopInputs } from "../workflow/next/inputs.js";
+import { checkLiveness } from "../workflow/next/liveness.js";
 import type { Action, InFlight, LedgerEvent, LedgerState, LoopInputs, LoopTask, NextResult, Seat, TestType } from "../workflow/next/types.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import type { Feature } from "../workflow/features.js";
@@ -549,6 +550,165 @@ describe("schedule: a reopened task at its round cap", () => {
       expect(completedIn(actions)).toContain("TASK-001");
     });
   });
+
+  // One minimal fix per task: a later note never re-arms a fix that already ran.
+  it("keeps the cap stop and dispatches no second fix when a second minimal-fix note follows a failed fix", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        verifyDone("TASK-001", 0),
+        done("TASK-001", "code-reviewer", "findings"),
+        decided("TASK-001", "minimal fix past the cap: also cap the backoff delay"),
+      ),
+    );
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, plan(), { resume });
+
+      expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+      expect(dispatchesOf(actions, "TASK-001", "developer")).toEqual([]);
+      expect(completedIn(actions)).not.toContain("TASK-001");
+    }
+  });
+
+  it("dispatches no second fix developer when the minimal-fix note is repeated while the fix is in flight", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(minimalFix("TASK-001"), dispatched("TASK-001", "developer"), minimalFix("TASK-001")),
+    );
+
+    const result = schedule(state, plan(), { resume: false });
+
+    expect(dispatchesOf(result.actions, "TASK-001", "developer")).toEqual([]);
+    expect(result.actions.filter((a) => a.kind === "stop")).toEqual([]);
+    expect(result.inFlight).toContainEqual({ task: "TASK-001", seat: "developer" });
+  });
+
+  // The at-head re-run checks the tree as it was before the fix landed: its failure is not the fix's.
+  it("keeps the cap stop lifted when a waits at-head re-run of the pre-fix tree fails after the fix is dispatched", async () => {
+    const schedule = await loadSchedule();
+    const events = atCap();
+    const round5Verify = events.map((e) => e.type === "verifyDone" && e.task === "TASK-001").lastIndexOf(true);
+    events.splice(round5Verify, 1);
+    const state = stateOf([
+      ...events,
+      verifyDone("TASK-001", 1),
+      { type: "verifyWaits", task: "TASK-001", file: "src/task-002.ts", otherTask: "TASK-002" },
+      minimalFix("TASK-001"),
+      dispatched("TASK-001", "developer"),
+      verifyStarted("TASK-001"),
+      verifyDone("TASK-001", 1),
+      done("TASK-001", "developer"),
+      commits("TASK-001", "bbb0001"),
+    ]);
+    const starts = state.events.filter((e) => e.type === "verifyStarted" && e.task === "TASK-001");
+    const failure = "FAIL src/tests/task-001.test.ts\nAssertionError: expected 2 to be 3";
+    // Logged failures with no contention signature: each is kept as the task's own, never held for a re-run.
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })], {
+      verifyRuns: {
+        "TASK-001": [
+          { ts: starts.at(-2)!.ts + 30_000, exit: 1, text: failure },
+          { ts: starts.at(-1)!.ts + 30_000, exit: 1, text: failure },
+        ],
+      },
+    });
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop" && a.reason.includes("five-round cap"))).toEqual([]);
+  });
+
+  // Ruled with the human: cascade findings after the minimal fix of a reopened task leave no round and no second
+  // fix, so they are the human's — a stop, never a silent task or a completion.
+  it("stops when a cascade re-review after the fix returns findings", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        verifyDone("TASK-001", 0),
+        done("TASK-001", "code-reviewer", "clean"),
+        { type: "cascadeOwed", task: "TASK-001", sha: "ccc0002", otherTask: "TASK-002" },
+        { type: "dispatched", task: "TASK-001", seat: "code-reviewer", model: "sonnet", cascade: "ccc0002" },
+        done("TASK-001", "code-reviewer", "findings"),
+      ),
+    );
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, plan(), { resume });
+
+      expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+      expect(dispatchesOf(actions, "TASK-001", "developer")).toEqual([]);
+      expect(completedIn(actions)).not.toContain("TASK-001");
+    }
+  });
+});
+
+describe("schedule: a never-reopened task past its breaker", () => {
+  const minimalFix = (task: string): Fields =>
+    decided(task, "minimal fix past the cap: bound the retry loop to three attempts");
+
+  /** TASK-001 was never reopened and its fifth round still left findings; TASK-002 has not started. */
+  const pastBreaker = (...tail: Fields[]): Fields[] => [
+    scan,
+    capStart(2),
+    ...testsReady("TASK-001"),
+    ...committedAndUnderReview("TASK-001", "aaa0000"),
+    verifyDone("TASK-001", 0),
+    done("TASK-001", "code-reviewer", "findings"),
+    ...fiveRoundsWithFindings("TASK-001", "aaa000"),
+    ...tail,
+  ];
+  const plan = (): LoopInputs => inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })]);
+  const fixDeveloper = { kind: "dispatch", task: "TASK-001", seat: "developer", mode: "fresh" };
+
+  // A minimal-fix ruling is not a parked closure: the task waits for the fix instead of completing on the parked lines.
+  it("names the fix developer and completes only once the fix's review is clean and its verify passes, when findings are parked beside the minimal fix", async () => {
+    const schedule = await loadSchedule();
+    const ruled: Fields[] = [parked("TASK-001", "naming of the helper"), minimalFix("TASK-001")];
+    const fixCommitted: Fields[] = [...ruled, ...committedAndUnderReview("TASK-001", "bbb0001")];
+
+    const beforeFix = schedule(stateOf(pastBreaker(...ruled)), plan(), { resume: false }).actions;
+    expect(beforeFix).toContainEqual(fixDeveloper);
+    expect(completedIn(beforeFix)).not.toContain("TASK-001");
+
+    const underReview = schedule(stateOf(pastBreaker(...fixCommitted, verifyDone("TASK-001", 0))), plan(), { resume: false }).actions;
+    expect(completedIn(underReview)).not.toContain("TASK-001");
+
+    const verifyPending = schedule(stateOf(pastBreaker(...fixCommitted, done("TASK-001", "code-reviewer", "clean"))), plan(), {
+      resume: false,
+    }).actions;
+    expect(completedIn(verifyPending)).not.toContain("TASK-001");
+
+    const reviewFindings = schedule(
+      stateOf(pastBreaker(...fixCommitted, verifyDone("TASK-001", 0), done("TASK-001", "code-reviewer", "findings"))),
+      plan(),
+      { resume: false },
+    ).actions;
+    expect(completedIn(reviewFindings)).not.toContain("TASK-001");
+
+    const fixClean = schedule(
+      stateOf(pastBreaker(...fixCommitted, verifyDone("TASK-001", 0), done("TASK-001", "code-reviewer", "clean"))),
+      plan(),
+      { resume: false },
+    ).actions;
+    expect(completedIn(fixClean)).toContain("TASK-001");
+  });
+
+  // Without a parked line the minimal-fix note still closes the breaker: the task must not go silent.
+  it("names the fix developer, fresh and with no round, when only the minimal-fix note closes the breaker, with and without resume", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(pastBreaker(minimalFix("TASK-001")));
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, plan(), { resume });
+
+      expect(actions).toContainEqual(fixDeveloper);
+      expect(completedIn(actions)).not.toContain("TASK-001");
+    }
+  });
 });
 
 describe("schedule: a dependent task owed a cascade re-review", () => {
@@ -934,6 +1094,299 @@ describe("schedule: the developer-waits record", () => {
     const quoted = `'${reason.replace(/'/g, `'\\''`)}'`;
     expect(writes[0].record).toBe(`kf record feat waits ${writes[0].task} -- ${quoted}`);
     expect(writes[0].line).toBe(`${writes[0].task}: developer waits — ${reason}`);
+  });
+
+  it("writes a developer's wait once and keeps the wait printed after it is recorded", async () => {
+    const schedule = await loadSchedule();
+    const reason = "1 developers in flight";
+    const held: Fields[] = [scan, capStart(1), ...testsReady("TASK-001"), ...testsReady("TASK-002"), dispatched("TASK-001", "developer")];
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002")]);
+    const waitsWrite = (actions: Action[]) => actions.filter((a) => a.kind === "write" && a.line === `TASK-002: developer waits — ${reason}`);
+
+    const first = schedule(stateOf(held), inputs, { resume: false }).actions;
+    expect(first).toContainEqual({ kind: "wait", task: "TASK-002", reason });
+    expect(waitsWrite(first)).toHaveLength(1);
+
+    const again = schedule(stateOf([...held, { type: "developerWaits", task: "TASK-002", reason }]), inputs, { resume: false }).actions;
+    expect(again).toContainEqual({ kind: "wait", task: "TASK-002", reason });
+    expect(waitsWrite(again)).toEqual([]);
+  });
+});
+
+describe("schedule: one decided note closes one gate across the task's regions", () => {
+  const T1 = "TASK-001";
+  const built = (): Fields[] => [scan, capStart(2), ...testsReady(T1), ...committedAndUnderReview(T1, "aaa0001")];
+  const exit2Stops = (actions: Action[]) => actions.filter((a) => a.kind === "stop" && a.task === T1 && a.reason.includes("verify exit 2"));
+  const seatDecides = (actions: Action[]) => decidesOf(actions, "Seat status").filter((d) => d.task === T1);
+  const plan = (): LoopInputs => inputsOf([task(T1)]);
+
+  it("closes an earlier verify exit 2 stop first and a later reviewer seat status with the next note", async () => {
+    const schedule = await loadSchedule();
+    const events: Fields[] = [...built(), verifyDone(T1, 2), done(T1, "code-reviewer", "BLOCKED")];
+
+    const open = schedule(stateOf(events), plan(), { resume: false }).actions;
+    expect(exit2Stops(open)).toHaveLength(1);
+    expect(seatDecides(open)).toHaveLength(1);
+
+    const one = schedule(stateOf([...events, decided(T1, "plan re-approved")]), plan(), { resume: false }).actions;
+    expect(exit2Stops(one)).toEqual([]);
+    expect(seatDecides(one)).toHaveLength(1);
+
+    const two = schedule(stateOf([...events, decided(T1, "plan re-approved"), decided(T1, "review goes on")]), plan(), { resume: false }).actions;
+    expect(exit2Stops(two)).toEqual([]);
+    expect(seatDecides(two)).toEqual([]);
+  });
+
+  it("closes an earlier reviewer seat status first and a later verify exit 2 stop with the next note", async () => {
+    const schedule = await loadSchedule();
+    const events: Fields[] = [...built(), done(T1, "code-reviewer", "BLOCKED"), verifyDone(T1, 2)];
+
+    const open = schedule(stateOf(events), plan(), { resume: false }).actions;
+    expect(seatDecides(open)).toHaveLength(1);
+    expect(exit2Stops(open)).toHaveLength(1);
+
+    const one = schedule(stateOf([...events, decided(T1, "review goes on")]), plan(), { resume: false }).actions;
+    expect(seatDecides(one)).toEqual([]);
+    expect(exit2Stops(one)).toHaveLength(1);
+
+    const two = schedule(stateOf([...events, decided(T1, "review goes on"), decided(T1, "plan re-approved")]), plan(), { resume: false }).actions;
+    expect(seatDecides(two)).toEqual([]);
+    expect(exit2Stops(two)).toEqual([]);
+  });
+});
+
+describe("schedule: a round test-writer closed by a decision", () => {
+  const T1 = "TASK-001";
+  const roundWriterGated: Fields[] = [
+    scan,
+    capStart(2),
+    ...testsReady(T1),
+    ...committedAndUnderReview(T1, "aaa0000"),
+    verifyDone(T1, 0),
+    done(T1, "code-reviewer", "findings"),
+    dispatched(T1, "test-writer", { round: 1 }),
+    done(T1, "test-writer", "NEEDS_CONTEXT"),
+  ];
+
+  // The test-writer the session sent the finding to never reported DONE: closing its gate owes it again, in its round.
+  it.each([
+    ["a decided note", decided(T1, "the fixture path is src/tests/fixtures/retry")],
+    ["a Ruling naming the task", other(`Ruling: ${T1} — the fixture path is src/tests/fixtures/retry — cost if wrong: one more seat`)],
+  ])("dispatches the round's test-writer again after %s", async (_how, close) => {
+    const schedule = await loadSchedule();
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(stateOf([...roundWriterGated, close]), inputsOf([task(T1)]), { resume });
+
+      expect(actions).toContainEqual(expect.objectContaining({ kind: "dispatch", task: T1, seat: "test-writer", round: 1 }));
+      expect(decidesOf(actions, "Seat status").filter((d) => d.task === T1)).toEqual([]);
+    }
+  });
+});
+
+describe("schedule: a re-run lost under the full cap", () => {
+  const T1 = "TASK-001";
+  const T2 = "TASK-002";
+  const contention = "Error: listen EADDRINUSE: address already in use :::3000";
+  const rerunNote = `Note ${T1}: verify rerun — contention EADDRINUSE`;
+
+  /** The cap stepped down to 1 on TASK-001's contention; its re-run started and was lost; TASK-002's developer fills N. */
+  const lostRerun = (): LedgerState =>
+    stateOf([
+      scan,
+      capStart(2),
+      ...testsReady(T1),
+      ...testsReady(T2),
+      dispatched(T2, "developer"),
+      ...committedAndUnderReview(T1, "aaa0001"),
+      verifyDone(T1, 1),
+      { type: "capRuling", from: 2, to: 1, cause: { kind: "contention", signature: "EADDRINUSE", task: T1 } },
+      { type: "verifyRerun", task: T1, signature: "EADDRINUSE" },
+      verifyStarted(T1),
+    ]);
+  const inputsFor2 = (state: LedgerState): LoopInputs => {
+    const firstStart = state.events.find((e) => e.type === "verifyStarted" && e.task === T1)!;
+    return inputsOf([task(T1), task(T2)], { verifyRuns: { [T1]: [{ ts: firstStart.ts + 30_000, exit: 1, text: contention }] } });
+  };
+
+  it("writes the verify rerun note again under resume while the cap is full, and runs no re-run yet", async () => {
+    const schedule = await loadSchedule();
+    const state = lostRerun();
+
+    const { actions } = schedule(state, inputsFor2(state), { resume: true });
+
+    expect(actions).toContainEqual(expect.objectContaining({ kind: "write", task: T1, line: rerunNote }));
+    expect(verifiesOf(actions, T1)).toEqual([]);
+  });
+
+  it("keeps the running re-run in flight without resume and owes no note", async () => {
+    const schedule = await loadSchedule();
+    const state = lostRerun();
+
+    const result = schedule(state, inputsFor2(state), { resume: false });
+
+    expect(result.inFlight).toContainEqual({ task: T1, seat: "verify" });
+    expect(result.actions.filter((a) => a.kind === "write" && a.line === rerunNote)).toEqual([]);
+  });
+});
+
+describe("schedule: the fix round line at the cap", () => {
+  // Ruled: the fix round 5/5 line is not printed beside the repeating Breaker decide; the session writes it when it
+  // closes that decide, so the decide's closes text names it.
+  it("names the fix round 5/5 line in the Breaker's closes and prints no fix round write beside it", async () => {
+    const schedule = await loadSchedule();
+    const rounds = fiveRoundsWithFindings("TASK-001", "aaa000");
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady("TASK-001"),
+      ...committedAndUnderReview("TASK-001", "aaa0000"),
+      verifyDone("TASK-001", 0),
+      done("TASK-001", "code-reviewer", "findings"),
+      ...rounds.slice(0, -1),
+    ]);
+
+    const { actions } = schedule(state, inputsOf([task("TASK-001")]), { resume: false });
+
+    const breaker = decidesOf(actions, "Breaker").filter((d) => d.task === "TASK-001");
+    expect(breaker).toHaveLength(1);
+    expect(breaker[0].closes).toContain("TASK-001: fix round 5/5");
+    expect(actions.filter((a) => a.kind === "write" && a.line.startsWith("TASK-001: fix round 5/5"))).toEqual([]);
+  });
+});
+
+describe("schedule: completion and witnesses of a committed task", () => {
+  const T1 = "TASK-001";
+  const T2 = "TASK-002";
+  /** Fix round `round`: its developer done with one commit, the review package, a verify and its reviewer dispatched. */
+  const committedAndUnderReviewRound = (t: string, sha: string, round: number): Fields[] => [
+    dispatched(t, "developer", { round }),
+    done(t, "developer"),
+    commits(t, sha),
+    reviewPackage(t, sha),
+    verifyStarted(t),
+    dispatched(t, "code-reviewer", { round }),
+  ];
+
+  // Round 5's commit landed after the last passing verify; parking the findings does not stand in for its verify.
+  it("does not complete a task parked at the Breaker whose last commit has no verify after it, and owes that verify", async () => {
+    const schedule = await loadSchedule();
+    const events: Fields[] = [scan, capStart(2), ...testsReady(T1), ...committedAndUnderReview(T1, "aaa0000"), verifyDone(T1, 0), done(T1, "code-reviewer", "findings")];
+    for (let r = 1; r <= 4; r++) {
+      events.push(...committedAndUnderReviewRound(T1, `aaa000${r}`, r), verifyDone(T1, 0), done(T1, "code-reviewer", "findings"), fixRound(T1, r));
+    }
+    events.push(
+      dispatched(T1, "developer", { round: 5 }),
+      done(T1, "developer"),
+      commits(T1, "aaa0005"),
+      reviewPackage(T1, "aaa0005"),
+      dispatched(T1, "code-reviewer", { round: 5 }),
+      done(T1, "code-reviewer", "findings"),
+      fixRound(T1, 5),
+      parked(T1, "naming of the helper"),
+      decided(T1, "findings parked at the cap"),
+    );
+
+    const { actions } = schedule(stateOf(events), inputsOf([task(T1)]), { resume: false });
+
+    expect(completedIn(actions)).not.toContain(T1);
+    expect(verifiesOf(actions, T1)).toHaveLength(1);
+  });
+
+  // A committed, reviewed-clean task whose failing verify is held for a contention re-run behind the full cap.
+  it("gives a witness to a reviewed task whose contention re-run is held by the full cap", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady(T1),
+      ...testsReady(T2),
+      dispatched(T2, "developer"),
+      ...committedAndUnderReview(T1, "aaa0001"),
+      done(T1, "code-reviewer", "clean"),
+      verifyDone(T1, 1),
+      { type: "capRuling", from: 2, to: 1, cause: { kind: "contention", signature: "EADDRINUSE", task: T1 } },
+      { type: "verifyRerun", task: T1, signature: "EADDRINUSE" },
+    ]);
+    const start = state.events.find((e) => e.type === "verifyStarted" && e.task === T1)!;
+    const inputs = inputsOf([task(T1), task(T2)], {
+      verifyRuns: { [T1]: [{ ts: start.ts + 30_000, exit: 1, text: "Error: listen EADDRINUSE: address already in use :::3000" }] },
+    });
+
+    const result = schedule(state, inputs, { resume: false });
+
+    expect(checkLiveness(result, state, inputs)).toEqual({ silent: [], emptyCloses: [] });
+    expect(result.actions.filter((a) => a.kind === "stop")).toEqual([]);
+    expect(completedIn(result.actions)).not.toContain(T1);
+  });
+
+  // A commit landed while the verify ran, then a rerun note: one fresh verify is owed, and no developer is held for it.
+  it("owes one verify and holds no developer when a rerun note follows a verify a commit made stale", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady(T1),
+      ...testsReady(T2),
+      ...committedAndUnderReview(T1, "aaa0001"),
+      commits(T1, "aaa0002"),
+      { type: "verifyRerun", task: T1, signature: "EADDRINUSE" },
+    ]);
+
+    const { actions } = schedule(state, inputsOf([task(T1), task(T2)]), { resume: false });
+
+    expect(verifiesOf(actions, T1)).toHaveLength(1);
+    expect(actions.filter((a) => a.kind === "wait" && a.task === T2 && a.reason.startsWith("held re-run"))).toEqual([]);
+    expect(dispatchesOf(actions, T2, "developer")).toHaveLength(1);
+  });
+});
+
+describe("schedule: a minimal-fix note before the cap reached note", () => {
+  // The cap stop is entered by its `cap reached` note: a minimal-fix note written before it decides nothing yet.
+  it("names no fix developer and keeps the cap stop", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady("TASK-001"),
+      ...committedAndUnderReview("TASK-001", "aaa0000"),
+      verifyDone("TASK-001", 0),
+      done("TASK-001", "code-reviewer", "clean"),
+      complete("TASK-001", "commits aaa0000, review clean"),
+      reopened("TASK-001"),
+      ...fiveRoundsWithFindings("TASK-001", "aaa000"),
+      decided("TASK-001", "minimal fix past the cap: bound the retry loop to three attempts"),
+    ]);
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, inputsOf([task("TASK-001")]), { resume });
+
+      expect(dispatchesOf(actions, "TASK-001", "developer")).toEqual([]);
+      expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+    }
+  });
+});
+
+describe("schedule: an assertion inside the arbiter", () => {
+  // The plan marks two tasks overlapping although no Files entry pair overlaps: the arbiter cannot name the pair.
+  // kf next must answer with the liveness guard's stop for the task, never crash.
+  it("prints the liveness guard's stop instead of throwing", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([scan, capStart(2), ...testsReady("TASK-001"), ...testsReady("TASK-002"), dispatched("TASK-001", "developer")]);
+    const inputs = inputsOf([
+      task("TASK-001", { files: ["src/a.ts"], overlaps: ["TASK-002"] }),
+      task("TASK-002", { files: ["src/b.ts"], overlaps: ["TASK-001"] }),
+    ]);
+
+    let result: NextResult | undefined;
+    expect(() => {
+      result = schedule(state, inputs, { resume: false });
+    }).not.toThrow();
+
+    const guard = result!.actions.filter(
+      (a) => a.kind === "stop" && a.task !== undefined && a.reason.startsWith(`kf next has no rule for ${a.task} in `) && a.reason.endsWith(" — report this with the ledger"),
+    );
+    expect(guard.map((a) => (a.kind === "stop" ? a.task : undefined))).toContain("TASK-002");
   });
 });
 

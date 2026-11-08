@@ -7,13 +7,13 @@ import { fileURLToPath } from "node:url";
 import { readLedgerState } from "../workflow/next/ledger-state.js";
 import { readLoopInputs } from "../workflow/next/inputs.js";
 import { schedule } from "../workflow/next/schedule.js";
+import { checkLiveness } from "../workflow/next/liveness.js";
 import type { Action, InFlight, LedgerState, LoopInputs, NextResult } from "../workflow/next/types.js";
 import type { Feature } from "../workflow/features.js";
 import { completionOracle } from "./support/next-oracle.js";
 
 // The liveness audit's ledgers, one fixture each, run through `schedule()`. Each fixture's expected.json holds what
-// `kf next` must print once the defect is gone; today's scheduler still has every defect, so each case is an
-// expected failure until the state machine replaces it.
+// `kf next` must print with the defect gone; `symptomToday` records what the scheduler before the state machine printed.
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "kf-next");
 const AUDIT = join(FIXTURES, "audit");
@@ -231,18 +231,18 @@ describe("the liveness audit set", () => {
 });
 
 describe("schedule on the liveness audit ledgers", () => {
-  // Expected failures: today's schedule() reproduces each audited defect. The state-machine switch turns them into
-  // passing tests.
-  it.fails.each(AUDIT_IDS.map((id) => [id, expectedOf(id).behaviour]))("%s: %s", (id) => {
+  it.each(AUDIT_IDS.map((id) => [id, expectedOf(id).behaviour]))("%s: %s", (id) => {
     expect(auditViolations(loadFixture(join(AUDIT, id)), expectedOf(id))).toEqual([]);
   });
 
-  // An expected failure passes on any failure, a broken fixture included; this pins each one to the symptom the audit
-  // found, so it fails for that defect and no other. The state-machine switch removes this block with the defects.
-  it.each(AUDIT_IDS)("today's scheduler shows the audited symptom on %s", (id) => {
-    const expected = expectedOf(id);
-    const violations = auditViolations(loadFixture(join(AUDIT, id)), expected);
-    expect(violations.map((v) => v.kind), violations.map((v) => v.detail).join("\n")).toEqual(expected.symptomToday);
+  // Every task that is not complete has a witness in what kf next prints, and the liveness guard's own stop, which
+  // only a state with no rule produces, is never among them.
+  it.each(AUDIT_IDS)("leaves no task of the %s ledger without a witness and never needs the liveness guard", (id) => {
+    const loaded = loadFixture(join(AUDIT, id));
+    const { resume = false } = expectedOf(id);
+    const result = schedule(loaded.state, loaded.inputs, { resume });
+    expect(checkLiveness(result, loaded.state, loaded.inputs), show(result)).toEqual({ silent: [], emptyCloses: [] });
+    expect(result.actions.filter((a) => a.kind === "stop" && /kf next has no rule for/.test(a.reason))).toEqual([]);
   });
 });
 
