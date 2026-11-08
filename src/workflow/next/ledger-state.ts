@@ -172,3 +172,28 @@ export function openVerifies(state: LedgerState): { task: string; line: number }
   }
   return [...open.values()].sort((a, b) => a.line - b.line);
 }
+
+/** Tasks whose latest `complete` or `implemented` event no later `reopened` event of the same task cancels. */
+export function completedTaskIds(state: LedgerState): Set<string> {
+  const done = new Set<string>();
+  for (const e of state.events) {
+    if (e.type === "complete" || e.type === "implemented") done.add(e.task);
+    else if (e.type === "reopened") done.delete(e.task);
+  }
+  return done;
+}
+
+/** FR-005: the task's commits from the first non-empty source (notes, review packages, report), deduplicated and in history order. */
+export function taskCommits(state: LedgerState, task: string, reportCommits: string[] | undefined, gitLog: { sha: string; ts: number }[]): string[] {
+  const own = state.events.filter((e) => "task" in e && e.task === task);
+  const notes = own.flatMap((e) => (e.type === "commits" ? e.shas : []));
+  const packages = own.flatMap((e) => (e.type === "reviewPackage" ? e.shas : []));
+  const source = notes.length > 0 ? notes : packages.length > 0 ? packages : (reportCommits ?? []);
+  const shas: string[] = [];
+  for (const sha of source) if (!shas.some((kept) => kept.startsWith(sha) || sha.startsWith(kept))) shas.push(sha);
+  const rank = (sha: string): number => {
+    const i = gitLog.findIndex((g) => g.sha.startsWith(sha) || sha.startsWith(g.sha));
+    return i === -1 ? Infinity : i;
+  };
+  return shas.map((sha, i) => ({ sha, i, r: rank(sha) })).sort((a, b) => (a.r === b.r ? a.i - b.i : a.r < b.r ? -1 : 1)).map((x) => x.sha);
+}

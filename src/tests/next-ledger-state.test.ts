@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { openSeats, openVerifies, readLedgerState } from "../workflow/next/ledger-state.js";
+import { completedTaskIds, openSeats, openVerifies, readLedgerState, taskCommits } from "../workflow/next/ledger-state.js";
 import type { LedgerEvent, LedgerState } from "../workflow/next/types.js";
 
 const HEADER = "# Task loop ledger — test";
@@ -236,5 +236,87 @@ describe("open seats and verifies", () => {
       ),
     );
     expect(openVerifies(state)).toEqual([{ task: "TASK-002", line: 6 }]);
+  });
+});
+
+const ev = (line: number, e: object): LedgerEvent => ({ line, ts: line, ...e }) as LedgerEvent;
+const stateFrom = (...events: LedgerEvent[]): LedgerState => ({ events });
+
+describe("completedTaskIds", () => {
+  it("counts a complete line and an implemented line as completed", () => {
+    const state = stateFrom(
+      ev(3, { type: "complete", task: "TASK-001", text: "commits abc1234" }),
+      ev(4, { type: "implemented", task: "TASK-002" }),
+      ev(5, { type: "verifyStarted", task: "TASK-003" }),
+    );
+    expect([...completedTaskIds(state)].sort()).toEqual(["TASK-001", "TASK-002"]);
+  });
+
+  it("drops a task whose completion is followed by a reopened note", () => {
+    const state = stateFrom(
+      ev(3, { type: "complete", task: "TASK-001", text: "x" }),
+      ev(4, { type: "implemented", task: "TASK-002" }),
+      ev(5, { type: "reopened", task: "TASK-001", source: "ci", execution: "1a2b3c4d" }),
+    );
+    expect([...completedTaskIds(state)]).toEqual(["TASK-002"]);
+  });
+
+  it("keeps a task completed again after it was reopened", () => {
+    const state = stateFrom(
+      ev(3, { type: "complete", task: "TASK-001", text: "x" }),
+      ev(4, { type: "reopened", task: "TASK-001", source: "review", execution: "1a2b3c4d" }),
+      ev(5, { type: "complete", task: "TASK-001", text: "y" }),
+    );
+    expect([...completedTaskIds(state)]).toEqual(["TASK-001"]);
+  });
+
+  it("does not let a reopened note of another task cancel a completion", () => {
+    const state = stateFrom(
+      ev(3, { type: "complete", task: "TASK-001", text: "x" }),
+      ev(4, { type: "reopened", task: "TASK-002", source: "ci", execution: "1a2b3c4d" }),
+    );
+    expect([...completedTaskIds(state)]).toEqual(["TASK-001"]);
+  });
+});
+
+describe("taskCommits", () => {
+  const log = [
+    { sha: "a".repeat(40), ts: 1 },
+    { sha: "b".repeat(40), ts: 2 },
+    { sha: "c".repeat(40), ts: 3 },
+  ];
+  const commits = (line: number, task: string, shas: string[]) => ev(line, { type: "commits", task, shas });
+  const pkg = (line: number, task: string, shas: string[]) => ev(line, { type: "reviewPackage", task, shas });
+
+  it("prefers commits notes over a review package and report commits", () => {
+    const state = stateFrom(pkg(3, "TASK-001", ["bbbbbbb"]), commits(4, "TASK-001", ["aaaaaaa"]));
+    expect(taskCommits(state, "TASK-001", ["ccccccc"], log)).toEqual(["aaaaaaa"]);
+  });
+
+  it("concatenates every commits note of the task in file order and ignores other tasks", () => {
+    const state = stateFrom(commits(3, "TASK-001", ["ccccccc"]), commits(4, "TASK-002", ["bbbbbbb"]), commits(5, "TASK-001", ["ddddddd"]));
+    expect(taskCommits(state, "TASK-001", undefined, [])).toEqual(["ccccccc", "ddddddd"]);
+  });
+
+  it("falls back to review packages when there is no commits note", () => {
+    const state = stateFrom(pkg(3, "TASK-001", ["bbbbbbb"]), pkg(4, "TASK-001", ["ddddddd"]));
+    expect(taskCommits(state, "TASK-001", ["ccccccc"], [])).toEqual(["bbbbbbb", "ddddddd"]);
+  });
+
+  it("falls back to report commits, then to an empty list", () => {
+    const state = stateFrom(commits(3, "TASK-002", ["bbbbbbb"]));
+    expect(taskCommits(state, "TASK-001", ["ccccccc"], [])).toEqual(["ccccccc"]);
+    expect(taskCommits(state, "TASK-001", undefined, [])).toEqual([]);
+  });
+
+  it("drops a sha equal to or prefixed either way with an earlier one, keeping the first spelling", () => {
+    const full = "a".repeat(40);
+    const state = stateFrom(commits(3, "TASK-001", ["aaaaaaa", full, "bbbbbbb", "bbbbbbb"]), commits(4, "TASK-001", ["bbbbbbbbb"]));
+    expect(taskCommits(state, "TASK-001", undefined, [])).toEqual(["aaaaaaa", "bbbbbbb"]);
+  });
+
+  it("sorts into gitLog history order with unknown shas after, in their given order", () => {
+    const state = stateFrom(commits(3, "TASK-001", ["ccccccc", "1234567", "aaaaaaa", "7654321", "bbbbbbb"]));
+    expect(taskCommits(state, "TASK-001", undefined, log)).toEqual(["aaaaaaa", "bbbbbbb", "ccccccc", "1234567", "7654321"]);
   });
 });
