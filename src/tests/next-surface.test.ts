@@ -91,6 +91,15 @@ describe("the task-loop reference", () => {
   });
 });
 
+describe("the minimal-fix-past-the-cap rule", () => {
+  it("keeps the paragraph with its decided-note form and its one-fix limit", () => {
+    expect(skill).toContain("**A minimal fix past the cap.**");
+    expect(skill).toContain("Note TASK-NNN: decided — minimal fix past the cap:");
+    expect(skill).toContain("one fresh developer for that change alone");
+    expect(skill).toContain("One minimal fix per task");
+  });
+});
+
 describe("the travel skill", () => {
   it("points its resume at kf next --resume", () => {
     expect(travel).toContain("kf next --resume");
