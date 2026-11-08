@@ -93,7 +93,7 @@ Note TASK-NNN: decided — <what> @ <ts>
 Note TASK-NNN: verify routed — TASK-MMM @ <ts>
 ```
 
-A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads the three last notes: the commits a developer made when its report or a review package does not name them, the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
+A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads the three last notes: the commits a developer made (`kf next` prints the note to write for any reported commit no ledger line names yet, before the review; a commit lands at the first ledger line that names it, a commits note or a review package, and cascades and verify waits are read from that position), the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
 
 A `reopened` note cancels the task's earlier `complete` line: wherever the loop asks whether a task is complete, only a `complete` line after its latest `reopened` note counts (`kf:implement` § 3.4). The `implemented` line of a session with no subagent tool counts as the task's `complete` line, on resume too.
 
