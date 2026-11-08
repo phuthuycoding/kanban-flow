@@ -119,21 +119,32 @@ function seatStatus(events: LedgerEvent[], task: string, gates: Gate[]): Action[
   return actions;
 }
 
-const datedAfter = (inputs: LoopInputs, sha: string, ts: number): boolean =>
-  inputs.gitLog.some((g) => sameSha(g.sha, sha) && g.ts >= ts);
+interface Naming {
+  sha: string;
+  /** Ledger index of the first commits note or review package of the task that names the commit. */
+  index: number;
+}
 
 /**
- * The task a `verify waits` note at `w` names has committed since the note: a later commits note, or a later
- * developer `done` whose review package or report names a commit dated after the note.
+ * Each commit of `task` at the first ledger line that names it. Ledger position, not git dates or stamps, orders
+ * the landings: stamps share a second, and amends or rebases rewrite commit dates.
  */
-function namedTaskCommitted(state: LedgerState, inputs: LoopInputs, w: number): boolean {
-  const { events } = state;
+function firstNamings(events: LedgerEvent[], task: string): Naming[] {
+  const found: Naming[] = [];
+  events.forEach((e, index) => {
+    if ((e.type !== "commits" && e.type !== "reviewPackage") || e.task !== task) return;
+    for (const sha of e.shas) if (!found.some((n) => sameSha(n.sha, sha))) found.push({ sha, index });
+  });
+  return found;
+}
+
+/**
+ * The task a `verify waits` note at `w` names has committed since the note: a line after the note first names one of
+ * its commits. A commit named before the note was in the tree the failure was seen with.
+ */
+function namedTaskCommitted(events: LedgerEvent[], w: number): boolean {
   const waits = events[w] as Extract<LedgerEvent, { type: "verifyWaits" }>;
-  const other = waits.otherTask;
-  if (anyAfter(events, w, (e) => e.type === "commits" && e.task === other)) return true;
-  if (!anyAfter(events, w, (e) => e.type === "done" && e.task === other && e.seat === "developer")) return false;
-  const packaged = events.flatMap((e) => (e.type === "reviewPackage" && e.task === other ? e.shas : []));
-  return [...packaged, ...(inputs.reportCommits[other] ?? [])].some((sha) => datedAfter(inputs, sha, waits.ts));
+  return firstNamings(events, waits.otherTask).some((n) => n.index > w);
 }
 
 function verifyRouting(
@@ -181,7 +192,7 @@ function verifyRouting(
   const w = lastIndex(events, (e) => e.type === "verifyWaits" && e.task === task);
   if (w > v) {
     const waits = events[w] as Extract<LedgerEvent, { type: "verifyWaits" }>;
-    if (namedTaskCommitted(state, inputs, w)) {
+    if (namedTaskCommitted(events, w)) {
       actions.push({ kind: "verify", task, command: verifyCommand(state, inputs, task, true) });
     } else {
       actions.push({ kind: "wait", task, reason: `verify waits for ${waits.otherTask}` });
@@ -317,46 +328,25 @@ function dependents(tasks: LoopTask[], task: string): Set<string> {
 interface FixCommit {
   sha: string;
   round: number;
-  /** Ledger index the commit lands at: positions, not stamps, order lines written in the same second. */
+  /** Ledger index of the first line naming the commit: positions, not stamps, order lines written in the same second. */
   landing: number;
 }
 
 /**
- * The commits H's round developers made (`developer dispatched … round=R`). Per round dispatch, the first source that
- * names any: its commits notes; else the review package of its re-review, else H's report, keeping only commits
- * H did not have before the round (dated after the dispatch, and not after H's next round dispatch).
- * A commit lands at the round developer's `done` or its commits note, whichever is earlier.
+ * H's fix commits: those whose first naming line comes after H's first own `code-reviewer dispatched`. A fix commit's
+ * round is the `round=` of H's latest `developer dispatched … round=` before its naming line; with none, the commit is
+ * a late first-pass naming, not a fix.
  */
-function fixCommits(state: LedgerState, inputs: LoopInputs, h: string): FixCommit[] {
-  const { events } = state;
-  const isRoundDev = (e: LedgerEvent): e is Dispatched =>
-    e.type === "dispatched" && e.task === h && e.seat === "developer" && e.round !== undefined && e.round >= 1;
+function fixCommits(events: LedgerEvent[], h: string): FixCommit[] {
+  const firstReview = events.findIndex((e) => e.type === "dispatched" && e.task === h && e.seat === "code-reviewer" && e.cascade === undefined);
+  if (firstReview === -1) return [];
   const found: FixCommit[] = [];
-  events.forEach((d, i) => {
-    if (!isRoundDev(d) || events.some((e, j) => j < i && isRoundDev(e) && e.round === d.round)) return;
-    const next = events.findIndex((e, j) => j > i && isRoundDev(e) && e.round! > d.round!);
-    const inRound = (j: number): boolean => j > i && (next === -1 || j < next);
-    const doneAt = events.findIndex((e, j) => inRound(j) && e.type === "done" && e.task === h && e.seat === "developer");
-    const notes = events.flatMap((e, j) => (e.type === "commits" && e.task === h && inRound(j) ? [j] : []));
-    if (notes.length > 0) {
-      for (const j of notes) {
-        const landing = doneAt !== -1 && doneAt < j ? doneAt : j;
-        for (const sha of (events[j] as Extract<LedgerEvent, { type: "commits" }>).shas) found.push({ sha, round: d.round!, landing });
-      }
-      return;
-    }
-    const madeInRound = (sha: string): boolean =>
-      inputs.gitLog.some((g) => sameSha(g.sha, sha) && g.ts > d.ts && (next === -1 || g.ts <= events[next].ts));
-    const packaged = events.flatMap((e, j) => (e.type === "reviewPackage" && e.task === h && inRound(j) ? [{ e, j }] : []));
-    const fromPackage = packaged.flatMap(({ e }) => (e as Extract<LedgerEvent, { type: "reviewPackage" }>).shas).filter(madeInRound);
-    if (fromPackage.length > 0) {
-      const landing = doneAt !== -1 && doneAt < packaged[0].j ? doneAt : packaged[0].j;
-      for (const sha of fromPackage) found.push({ sha, round: d.round!, landing });
-      return;
-    }
-    if (doneAt === -1) return;
-    for (const sha of (inputs.reportCommits[h] ?? []).filter(madeInRound)) found.push({ sha, round: d.round!, landing: doneAt });
-  });
+  for (const { sha, index } of firstNamings(events, h)) {
+    if (index < firstReview) continue;
+    const dev = lastIndex(events.slice(0, index), (e) => e.type === "dispatched" && e.task === h && e.seat === "developer" && e.round !== undefined && e.round >= 1);
+    if (dev === -1) continue;
+    found.push({ sha, round: (events[dev] as Dispatched).round!, landing: index });
+  }
   return found;
 }
 
@@ -375,7 +365,7 @@ function cascades(state: LedgerState, inputs: LoopInputs): Action[] {
   for (const h of inputs.tasks) {
     const owers = dependents(inputs.tasks, h.id);
     const seen = new Set<string>();
-    for (const { sha, round, landing } of fixCommits(state, inputs, h.id)) {
+    for (const { sha, round, landing } of fixCommits(events, h.id)) {
       const sha7 = sha.slice(0, 7);
       if (seen.has(sha7)) continue;
       seen.add(sha7);

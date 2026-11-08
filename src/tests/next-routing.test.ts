@@ -186,8 +186,8 @@ describe("routing a failure another task explains", () => {
     expect(of(actions, T1).filter((a) => a.kind === "wait")).toEqual([]);
   });
 
-  // The named task usually commits through its developer's report, with no commits note in the ledger.
-  it("names an at-head verify once the named task's developer reports a commit dated after the note", () => {
+  // A commit counts once a ledger line names it; the developer's report alone, however it is dated, does not.
+  it("keeps waiting while the named task's reported commit is named by no ledger line", () => {
     const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"));
     const plan = inputs([task(T1), task(T2)], {
       ...failLog(T1, 7),
@@ -195,6 +195,13 @@ describe("routing a failure another task explains", () => {
       gitLog: [{ sha: SHA, ts: at(2) }, { sha: "e4f5a6b", ts: at(10.5) }],
     });
     const actions = routingActions(state, plan, cap());
+    expect(of(actions, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
+    expect(verifies(actions, T1)).toEqual([]);
+  });
+
+  it("names an at-head verify once a review package after the note first names the named task's commit", () => {
+    const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"), [12, { type: "reviewPackage", task: T2, shas: ["e4f5a6b"] }]);
+    const actions = routingActions(state, inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
     expect(verifies(actions, T1)).toEqual([
       expect.objectContaining({ kind: "verify", task: T1, command: `kf verify ${FEATURE} --task ${T1} --commits ${SHA} --at-head` }),
     ]);
@@ -202,31 +209,35 @@ describe("routing a failure another task explains", () => {
     expect(developerDispatches(actions, T1)).toEqual([]);
   });
 
-  it("keeps waiting when the named task's reported commit is dated before the note", () => {
-    const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"));
-    const plan = inputs([task(T1), task(T2)], {
-      ...failLog(T1, 7),
-      reportCommits: { [T2]: ["e4f5a6b"] },
-      gitLog: [{ sha: SHA, ts: at(2) }, { sha: "e4f5a6b", ts: at(9) }],
-    });
-    const actions = routingActions(state, plan, cap());
-    expect(of(actions, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
-    expect(verifies(actions, T1)).toEqual([]);
-  });
-
-  // Ledger and git stamps have one-second resolution; the developer done after the note already orders the commit.
-  it("names an at-head verify for a reported commit dated in the same second as the note", () => {
-    const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"));
-    const plan = inputs([task(T1), task(T2)], {
-      ...failLog(T1, 7),
-      reportCommits: { [T2]: ["e4f5a6b"] },
-      gitLog: [{ sha: SHA, ts: at(2) }, { sha: "e4f5a6b", ts: at(10) }],
-    });
-    const actions = routingActions(state, plan, cap());
+  // Stamps have one-second resolution: the line's place after the note orders it, whatever its stamp.
+  it("names an at-head verify for a naming line with the same stamp as the note, written after it", () => {
+    const state = ledger(...failed(), waits, commits(10, T2, "e4f5a6b"));
+    const actions = routingActions(state, inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
     expect(verifies(actions, T1)).toEqual([
       expect.objectContaining({ kind: "verify", task: T1, command: `kf verify ${FEATURE} --task ${T1} --commits ${SHA} --at-head` }),
     ]);
     expect(of(actions, T1).filter((a) => a.kind === "wait")).toEqual([]);
+  });
+
+  // The failure was seen with that commit already in the tree, so naming it again changes nothing.
+  it("keeps waiting when a line after the note only names again a commit named before it", () => {
+    const head: Stamped[] = [...failed().slice(0, 5), commits(5, T2, "e4f5a6b"), ...failed().slice(5)];
+    const again = routingActions(ledger(...head, waits, commits(11, T2, "e4f5a6b")), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
+    expect(of(again, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
+    expect(verifies(again, T1)).toEqual([]);
+
+    const repackaged = routingActions(
+      ledger(...head, waits, done(11, T2, "developer", "DONE"), [12, { type: "reviewPackage", task: T2, shas: ["e4f5a6b"] }]),
+      inputs([task(T1), task(T2)], failLog(T1, 7)),
+      cap(),
+    );
+    expect(of(repackaged, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
+    expect(verifies(repackaged, T1)).toEqual([]);
+
+    const fresh = routingActions(ledger(...head, waits, commits(11, T2, "e4f5a6b", "f5a6b7c")), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
+    expect(verifies(fresh, T1)).toEqual([
+      expect.objectContaining({ kind: "verify", task: T1, command: `kf verify ${FEATURE} --task ${T1} --commits ${SHA} --at-head` }),
+    ]);
   });
 
   it("moves a routed failure's fix round to the named task", () => {
@@ -528,48 +539,46 @@ describe("cascade re-reviews", () => {
     dispatched(7, H, "developer", { round: 1 }),
     done(8, H, "developer", "DONE"),
   ];
-  // SHA is H's first-pass commit (before the round), FIX the round developer's.
-  const datedLog = [{ sha: SHA, ts: at(2) }, { sha: FIX, ts: at(7.5) }];
   const owedLine = (sha7: string) => `${X}: cascade re-review owed — after ${sha7} of ${H}`;
+  const pkg = (m: number, ...shas: string[]): Stamped => [m, { type: "reviewPackage", task: H, shas }];
+  const LATER = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
+  const LATER7 = LATER.slice(0, 7);
 
-  it("owes the re-review for a fix whose only sha source is the round's review package", () => {
-    const events: Stamped[] = [
-      ...roundWithoutNote(),
-      [9, { type: "reviewPackage", task: H, shas: [SHA, FIX7] }],
-      dispatched(10, H, "code-reviewer", { round: 1 }),
-    ];
-    const actions = routingActions(ledger(...events), inputs(plan(), { gitLog: datedLog }), cap());
+  // SHA is first named by H's first-pass commits note, before H's first review: not a fix commit, even re-listed.
+  it("owes the re-review for a fix named only by the round's review package, with no git dates", () => {
+    const events: Stamped[] = [...roundWithoutNote(), pkg(9, SHA, FIX7), dispatched(10, H, "code-reviewer", { round: 1 })];
+    const actions = routingActions(ledger(...events), inputs(plan()), cap());
     expect(writes(actions)).toContainEqual(
       expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7), record: `kf record ${FEATURE} cascade-owed ${X} ${FIX7} ${H}` }),
     );
-    // The first-pass commit in the same package is not a fix commit.
     expect(writes(actions).filter((w) => w.line === owedLine(SHA))).toEqual([]);
 
     const owed: Stamped = [11, { type: "cascadeOwed", task: X, sha: FIX7, otherTask: H }];
-    const dispatchedNext = routingActions(ledger(...events, owed), inputs(plan(), { gitLog: datedLog }), cap());
+    const dispatchedNext = routingActions(ledger(...events, owed), inputs(plan()), cap());
     expect(cascadeActions(dispatchedNext, X)).toEqual([
       expect.objectContaining({ kind: "dispatch", task: X, seat: "code-reviewer", mode: "new", round: 1, cascade: FIX7 }),
     ]);
   });
 
-  it("owes the re-review for a fix whose only sha source is the round developer's report", () => {
-    const actions = routingActions(ledger(...roundWithoutNote()), inputs(plan(), { reportCommits: { [H]: [SHA, FIX] }, gitLog: datedLog }), cap());
-    expect(writes(actions)).toContainEqual(
+  it("owes the re-review for a fix named by a commits note", () => {
+    const events: Stamped[] = [...roundWithoutNote(), commits(9, H, FIX)];
+    expect(writes(routingActions(ledger(...events), inputs(plan()), cap()))).toContainEqual(
       expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7), record: `kf record ${FEATURE} cascade-owed ${X} ${FIX7} ${H}` }),
     );
-    expect(writes(actions).filter((w) => w.line === owedLine(SHA))).toEqual([]);
   });
 
-  it("owes nothing when the round developer's report names only commits dated before the round", () => {
-    const actions = routingActions(ledger(...roundWithoutNote()), inputs(plan(), { reportCommits: { [H]: [SHA] }, gitLog: datedLog }), cap());
-    expect(cascadeActions(actions, X)).toEqual([]);
+  // The session writes the commits note for a reported commit; until then routing has no landing to order.
+  it("owes nothing for a commit only the developer's report names, until a ledger line names it", () => {
+    const plain = inputs(plan(), { reportCommits: { [H]: [SHA, FIX] }, gitLog: [{ sha: SHA, ts: at(2) }, { sha: FIX, ts: at(7.5) }] });
+    expect(cascadeActions(routingActions(ledger(...roundWithoutNote()), plain, cap()), X)).toEqual([]);
+
+    const named = routingActions(ledger(...roundWithoutNote(), commits(9, H, FIX)), plain, cap());
+    expect(writes(named)).toContainEqual(expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }));
+    expect(writes(named).filter((w) => w.line === owedLine(SHA))).toEqual([]);
   });
 
-  // A round test-writer between them makes the same round dispatch its developer twice; the round's commits
-  // span both dispatches, and the review package after the second is often their only source.
-  it("owes the re-review for a commit made before the round developer is dispatched again in the same round", () => {
-    const LATER = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
-    const LATER7 = LATER.slice(0, 7);
+  // A round test-writer between them makes the same round dispatch its developer twice.
+  it("owes the re-review for the commits of both developer dispatches of one round, from the package", () => {
     const events: Stamped[] = [
       ...roundWithoutNote(),
       dispatched(8, H, "test-writer", { round: 1 }),
@@ -577,16 +586,91 @@ describe("cascade re-reviews", () => {
       [9, { type: "testHashes", task: H, files: { "src/tests/x.test.ts": "0123456789abcdef0123456789abcdef01234567" } }],
       dispatched(9, H, "developer", { round: 1 }),
       done(10, H, "developer", "DONE"),
-      [10, { type: "reviewPackage", task: H, shas: [SHA, FIX7, LATER7] }],
+      pkg(10, SHA, FIX7, LATER7),
       dispatched(10, H, "code-reviewer", { round: 1 }),
     ];
-    const log = [...datedLog, { sha: LATER, ts: at(9.5) }];
-    const actions = routingActions(ledger(...events), inputs(plan(), { gitLog: log }), cap());
+    const actions = routingActions(ledger(...events), inputs(plan()), cap());
     expect(writes(actions)).toContainEqual(
       expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7), record: `kf record ${FEATURE} cascade-owed ${X} ${FIX7} ${H}` }),
     );
     expect(writes(actions)).toContainEqual(expect.objectContaining({ kind: "write", task: X, line: owedLine(LATER7) }));
     expect(writes(actions).filter((w) => w.line === owedLine(SHA))).toEqual([]);
+  });
+
+  // The first dispatch's commit has a commits note; the second dispatch's commit is named only by the package.
+  it("owes the re-review for a second dispatch's commit the package names after a commits note of the first", () => {
+    const events: Stamped[] = [
+      ...roundWithoutNote(),
+      commits(8, H, FIX),
+      dispatched(8, H, "test-writer", { round: 1 }),
+      done(9, H, "test-writer", "DONE"),
+      [9, { type: "testHashes", task: H, files: { "src/tests/x.test.ts": "0123456789abcdef0123456789abcdef01234567" } }],
+      dispatched(9, H, "developer", { round: 1 }),
+      done(10, H, "developer", "DONE"),
+      pkg(10, SHA, FIX7, LATER7),
+      dispatched(10, H, "code-reviewer", { round: 1 }),
+    ];
+    const actions = routingActions(ledger(...events), inputs(plan()), cap());
+    expect(writes(actions)).toContainEqual(expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }));
+    expect(writes(actions)).toContainEqual(expect.objectContaining({ kind: "write", task: X, line: owedLine(LATER7) }));
+  });
+
+  // A commit lands at the first line naming it; a later line re-listing it is not a second landing.
+  it("owes a dependent dispatched between two namings only the commit first named after it", () => {
+    const events: Stamped[] = [
+      ...built(H),
+      done(5, H, "code-reviewer", "findings"),
+      dispatched(6, H, "developer", { round: 1 }),
+      commits(7, H, FIX),
+      dispatched(8, X, "developer"),
+      done(9, H, "developer", "DONE"),
+      pkg(10, SHA, FIX7, LATER7),
+      dispatched(10, H, "code-reviewer", { round: 1 }),
+    ];
+    const actions = routingActions(ledger(...events), inputs(plan()), cap());
+    expect(writes(actions)).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(LATER7), record: `kf record ${FEATURE} cascade-owed ${X} ${LATER7} ${H}` }),
+    );
+    expect(writes(actions).filter((w) => w.line === owedLine(FIX7))).toEqual([]);
+  });
+
+  // The landing's round is the round of H's latest round developer dispatched before the naming line.
+  it("gives the cascade the round of the latest round developer before the naming line", () => {
+    const events: Stamped[] = [
+      ...built(H),
+      done(5, H, "code-reviewer", "findings"),
+      dispatched(6, X, "developer"),
+      dispatched(7, H, "developer", { round: 1 }),
+      commits(8, H, FIX),
+      done(9, H, "developer", "DONE"),
+      dispatched(10, H, "code-reviewer", { round: 1 }),
+      done(11, H, "code-reviewer", "findings"),
+      fixRound(12, H, 1),
+      dispatched(13, H, "developer", { round: 2 }),
+      done(14, H, "developer", "DONE"),
+      pkg(15, SHA, FIX7, LATER7),
+      [16, { type: "cascadeOwed", task: X, sha: FIX7, otherTask: H }],
+      [16, { type: "cascadeOwed", task: X, sha: LATER7, otherTask: H }],
+    ];
+    const actions = routingActions(ledger(...events), inputs(plan()), cap());
+    expect(cascadeActions(actions, X)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "dispatch", task: X, seat: "code-reviewer", round: 1, cascade: FIX7 }),
+        expect.objectContaining({ kind: "dispatch", task: X, seat: "code-reviewer", round: 2, cascade: LATER7 }),
+      ]),
+    );
+  });
+
+  // A late first-pass commits note after H's first review has no round developer before it: not a fix commit.
+  it("owes nothing for a commit named after the first review when no round developer was dispatched before it", () => {
+    const events: Stamped[] = [
+      dispatched(1, H, "developer"),
+      done(2, H, "developer", "DONE"),
+      dispatched(3, X, "developer"),
+      dispatched(4, H, "code-reviewer"),
+      commits(5, H, FIX),
+    ];
+    expect(cascadeActions(routingActions(ledger(...events), inputs(plan()), cap()), X)).toEqual([]);
   });
 
   // Ledger stamps have one-second resolution: file order, not the stamp, says which came first.
@@ -599,6 +683,34 @@ describe("cascade re-reviews", () => {
 
     const landingFirst = [...head, commits(7, H, FIX), dispatched(7, X, "developer"), done(8, H, "developer", "DONE")];
     expect(cascadeActions(routingActions(ledger(...landingFirst), inputs(plan()), cap()), X)).toEqual([]);
+  });
+
+  it("orders a dispatch and a review package with the same stamp by their place, ignoring git dates", () => {
+    const head: Stamped[] = [...built(H), done(5, H, "code-reviewer", "findings"), dispatched(6, H, "developer", { round: 1 }), done(7, H, "developer", "DONE")];
+    // Dated before X's dispatch, yet named after it: the naming line decides.
+    const datedEarly = inputs(plan(), { gitLog: [{ sha: SHA, ts: at(2) }, { sha: FIX, ts: at(6.5) }] });
+    const dispatchFirst = [...head, dispatched(8, X, "developer"), pkg(8, SHA, FIX7)];
+    expect(writes(routingActions(ledger(...dispatchFirst), datedEarly, cap()))).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }),
+    );
+
+    const packageFirst = [...head, pkg(8, SHA, FIX7), dispatched(8, X, "developer")];
+    expect(cascadeActions(routingActions(ledger(...packageFirst), datedEarly, cap()), X)).toEqual([]);
+  });
+
+  // A late commits note after the developer's done is still the landing: no earlier line names the commit.
+  it("lands a commit at its commits note even when the note is written after the developer's done", () => {
+    const events: Stamped[] = [
+      ...built(H),
+      done(5, H, "code-reviewer", "findings"),
+      dispatched(6, H, "developer", { round: 1 }),
+      done(7, H, "developer", "DONE"),
+      dispatched(8, X, "developer"),
+      commits(9, H, FIX),
+    ];
+    expect(writes(routingActions(ledger(...events), inputs(plan()), cap()))).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }),
+    );
   });
 
   /** H and X complete; H reopened and its round 1 fix starts at `m`. */
@@ -620,6 +732,24 @@ describe("cascade re-reviews", () => {
 
   it("owes the re-review for a fix that lands after the dependent reopened", () => {
     const events = [...bothComplete(), reopened(14, X), ...hFix(15)];
+    expect(writes(routingActions(ledger(...events), inputs(plan()), cap()))).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }),
+    );
+  });
+
+  const hPackagedFix = (m: number): Stamped[] => [
+    dispatched(m, H, "developer", { round: 1 }),
+    done(m + 1, H, "developer", "DONE"),
+    pkg(m + 2, SHA, FIX7),
+  ];
+
+  it("owes nothing for a packaged fix named while the dependent was complete, even after the dependent reopens", () => {
+    const events = [...bothComplete(), ...hPackagedFix(14), reopened(17, X)];
+    expect(cascadeActions(routingActions(ledger(...events), inputs(plan()), cap()), X)).toEqual([]);
+  });
+
+  it("owes the re-review for a packaged fix named after the dependent reopened", () => {
+    const events = [...bothComplete(), reopened(14, X), ...hPackagedFix(15)];
     expect(writes(routingActions(ledger(...events), inputs(plan()), cap()))).toContainEqual(
       expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }),
     );
