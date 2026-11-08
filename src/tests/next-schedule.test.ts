@@ -329,6 +329,16 @@ describe("schedule: a reopened task at its round cap", () => {
   ];
   const plan = (): LoopInputs => inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })]);
 
+  it("marks the minimal fix dispatch of an inline task as inline", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(atCap(minimalFix("TASK-001")));
+    const inputs = inputsOf([task("TASK-001", { inline: true }), task("TASK-002", { files: ["src/other.ts"] })]);
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    expect(actions).toContainEqual({ kind: "dispatch", task: "TASK-001", seat: "developer", mode: "fresh", inline: true });
+  });
+
   it("prints no stop and still dispatches another task once the minimal fix is decided", async () => {
     const schedule = await loadSchedule();
     const state = stateOf(atCap(minimalFix("TASK-001")));
@@ -337,6 +347,38 @@ describe("schedule: a reopened task at its round cap", () => {
 
     expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
     expect(dispatchesOf(actions, "TASK-002").length).toBeGreaterThan(0);
+  });
+
+  // A session that lost its context after the decided note must still see that it owes the fix's developer.
+  it("names the minimal fix's developer, fresh and with no round, while it is decided but not yet dispatched, with and without resume", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(atCap(minimalFix("TASK-001")));
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, plan(), { resume });
+
+      expect(actions).toContainEqual({ kind: "dispatch", task: "TASK-001", seat: "developer", mode: "fresh" });
+      expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+      expect(dispatchesOf(actions, "TASK-002").length).toBeGreaterThan(0);
+    }
+  });
+
+  // The round-5 verify was still running when the fix was decided: its exit 1 is the failure the fix answers, not the fix failing.
+  it("keeps the cap stop lifted when the round-5 verify exits 1 after the decided note and before the fix is dispatched", async () => {
+    const schedule = await loadSchedule();
+    const events = atCap();
+    const round5Verify = events.map((e) => e.type === "verifyDone" && e.task === "TASK-001").lastIndexOf(true);
+    events.splice(round5Verify, 1);
+    const state = stateOf([...events, minimalFix("TASK-001"), verifyDone("TASK-001", 1)]);
+    const round5Start = state.events.filter((e) => e.type === "verifyStarted" && e.task === "TASK-001").at(-1)!;
+    // A logged failure with no contention signature: kept as the task's own, never held for a re-run.
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })], {
+      verifyRuns: { "TASK-001": [{ ts: round5Start.ts + 30_000, exit: 1, text: "FAIL src/tests/task-001.test.ts\nAssertionError: expected 2 to be 3" }] },
+    });
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop" && a.reason.includes("five-round cap"))).toEqual([]);
   });
 
   it("keeps the stop and holds every dispatch while no minimal fix is decided", async () => {
@@ -582,6 +624,85 @@ describe("schedule: a dependent task owed a cascade re-review", () => {
     const { actions } = schedule(state, plan(), { resume: false });
 
     expect(completedIn(actions)).toContain(X);
+  });
+
+  // Parked findings count as a clean review at the cap; a cascade re-review's findings on that task are parked the same way.
+  it("completes a task parked at the round cap whose cascade re-review ended with findings", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady(H),
+      ...committedAndUnderReview(H, "aaa0001"),
+      verifyDone(H, 0),
+      done(H, "code-reviewer", "clean"),
+      complete(H, "commits aaa0001, review clean"),
+      noStepUp(1, "inline"),
+      ...testsReady(X),
+      ...committedAndUnderReview(X, "ccc0000"),
+      verifyDone(X, 0),
+      done(X, "code-reviewer", "findings"),
+      ...fiveRoundsWithFindings(X, "ccc000"),
+      parked(X, "naming of the helper"),
+      decided(X, "breaker: findings parked at the cap"),
+      reopened(H),
+      dispatched(H, "developer", { round: 1 }),
+      done(H, "developer"),
+      commits(H, FIX),
+      reviewPackage(H, FIX),
+      verifyStarted(H),
+      dispatched(H, "code-reviewer", { round: 1 }),
+      verifyDone(H, 0),
+      done(H, "code-reviewer", "clean"),
+      fixRound(H, 1),
+      complete(H, `commits aaa0001,${FIX}, review clean`),
+      ...cascadeReview("findings"),
+      parked(X, "cascade re-review: the helper still shadows the fixed export"),
+      decided(X, "breaker: cascade findings parked at the cap"),
+    ]);
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(completedIn(actions)).toContain(X);
+  });
+
+  // Recorded together, X's complete line lands after H's fix commit is named, so the cascade X owes for it is never owed.
+  it("does not complete a task in the same call that names a fix commit of a task it depends on", async () => {
+    const schedule = await loadSchedule();
+    const M = "TASK-003";
+    const fixSha = `${FIX}${"0".repeat(33)}`;
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady(H),
+      ...committedAndUnderReview(H, "aaa0001"),
+      verifyDone(H, 0),
+      done(H, "code-reviewer", "clean"),
+      complete(H, "commits aaa0001, review clean"),
+      noStepUp(1, "inline"),
+      ...testsReady(M),
+      ...committedAndUnderReview(M, "ddd0003"),
+      verifyDone(M, 0),
+      done(M, "code-reviewer", "clean"),
+      complete(M, "commits ddd0003, review clean"),
+      noStepUp(2, "inline"),
+      ...testsReady(X),
+      ...committedAndUnderReview(X, "ccc0002"),
+      verifyDone(X, 0),
+      done(X, "code-reviewer", "clean"),
+      reopened(H),
+      dispatched(H, "developer", { round: 1 }),
+      done(H, "developer"),
+    ]);
+    // X depends on H through M; M's complete line still stands after H's reopen.
+    const inputs = inputsOf([task(H), task(M, { dependencies: [H], wave: 2 }), task(X, { dependencies: [M], wave: 3 })], {
+      reportCommits: { [H]: [fixSha] },
+    });
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    expect(actions).toContainEqual(expect.objectContaining({ kind: "write", task: H, line: `Note ${H}: commits ${FIX}` }));
+    expect(completedIn(actions)).not.toContain(X);
   });
 
   // Recorded together, a complete line would close the task before the owed re-review is ever named.

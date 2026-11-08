@@ -70,20 +70,31 @@ function minimalFixDecidedAt(events: LedgerEvent[], task: string): number {
   return at > capAt ? at : -1;
 }
 
+/** The index of the minimal fix's developer dispatch: the first round-less developer dispatched of the task after `decidedAt`, or -1. */
+function minimalFixDispatchedAt(events: LedgerEvent[], task: string, decidedAt: number): number {
+  return events.findIndex((e, i) => i > decidedAt && e.type === "dispatched" && e.task === task && e.seat === "developer" && e.round === undefined);
+}
+
 /**
- * The minimal fix decided at `decidedAt` failed: a code-reviewer `findings` or a kept verify exit 1 of the task follows it.
+ * The minimal fix dispatched at `fixAt` failed: a code-reviewer `findings` or a kept verify exit 1 of the task follows it,
+ * from a review or verify started after that dispatch (a round-5 review or verify still running then is not the fix's).
  * An exit 1 is not kept when a rerun, waits or routed note answers it before the task's next verify start, when that
  * start follows it with no line of the task between (the plain re-run), or, as the latest, while the cap holds its re-run.
  */
-function minimalFixFailed(events: LedgerEvent[], cap: Cap, task: string, decidedAt: number): boolean {
-  const after = events.slice(decidedAt + 1).filter((e) => taskOf(e) === task);
-  if (after.some((e) => e.type === "done" && e.seat === "code-reviewer" && e.status === "findings")) return true;
+function minimalFixFailed(events: LedgerEvent[], cap: Cap, task: string, fixAt: number): boolean {
+  const after = events.slice(fixAt + 1).filter((e) => taskOf(e) === task);
+  const startedAfterFix = (i: number, started: (e: LedgerEvent) => boolean): boolean => after.slice(0, i).some(started);
+  const reviewerStarted = (e: LedgerEvent): boolean => e.type === "dispatched" && e.seat === "code-reviewer";
+  const verifyStarted = (e: LedgerEvent): boolean => e.type === "verifyStarted";
+  if (after.some((e, i) => e.type === "done" && e.seat === "code-reviewer" && e.status === "findings" && startedAfterFix(i, reviewerStarted))) {
+    return true;
+  }
   const heldNow =
     cap.contention.held.some((h) => h.task === task) ||
     cap.contention.running === task ||
     cap.owed.some((a) => a.kind === "write" && (a.line.includes(`${task} verify`) || a.line.includes(`Note ${task}: verify rerun`)));
   return after.some((e, i) => {
-    if (e.type !== "verifyDone" || e.exit !== 1) return false;
+    if (e.type !== "verifyDone" || e.exit !== 1 || !startedAfterFix(i, verifyStarted)) return false;
     const rest = after.slice(i + 1);
     const nextStart = rest.findIndex((x) => x.type === "verifyStarted");
     if (nextStart === 0) return false;
@@ -144,7 +155,8 @@ function completionDue(state: LedgerState, inputs: LoopInputs, t: LoopTask, comp
     const answerDone = reviewerDones.find((e) => answeredBy(e) === answer);
     if (answerDone === undefined) return false;
     // A cascade re-review with findings is a fix round: only a later own re-review that ends clean closes it.
-    if (answerDone.status !== "clean" && !reviews.some((e) => e.line > answerDone.line && e.status === "clean")) return false;
+    // At the cap its findings are parked like the own review's.
+    if (answerDone.status !== "clean" && !parkedAtCap && !reviews.some((e) => e.line > answerDone.line && e.status === "clean")) return false;
   }
   return true;
 }
@@ -237,8 +249,28 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
 
   // Routing, then the developer seats it asks for under the cap (FR-003, FR-007).
   const routing = routingActions(state, inputs, cap);
-  const routingOther = routing.filter((a) => !(a.kind === "dispatch" && a.seat === "developer"));
-  const routingDevelopers = routing.filter((a): a is Dispatch => a.kind === "dispatch" && a.seat === "developer");
+  // A cap stop is lifted once the session's minimal fix past the cap is decided after the task's latest `cap reached`,
+  // and comes back once that fix fails: one minimal fix per task, a second failure is the human's. Until the fix's
+  // developer is dispatched, kf next names that developer in the stop's place, under the developer cap.
+  const fixDevelopers: Dispatch[] = [];
+  const liftedStops = routing.filter((a) => {
+    if (a.kind !== "stop" || a.task === undefined || !a.reason.includes("five-round cap after a reopen")) return false;
+    const decidedAt = minimalFixDecidedAt(events, a.task);
+    if (decidedAt === -1) return false;
+    const fixAt = minimalFixDispatchedAt(events, a.task, decidedAt);
+    if (fixAt === -1) {
+      const t = inputs.tasks.find((x) => x.id === a.task);
+      // An inline task's fix is filled inline, as routing marks its inline round seats.
+      const inline = t?.inline === true || events.some((e) => e.type === "inline" && e.task === a.task);
+      if (!fixDevelopers.some((d) => d.task === a.task)) {
+        fixDevelopers.push({ kind: "dispatch", task: a.task, seat: "developer", mode: "fresh", ...(inline ? { inline: true } : {}) });
+      }
+      return true;
+    }
+    return !minimalFixFailed(events, cap, a.task, fixAt);
+  });
+  const routingOther = routing.filter((a) => !liftedStops.includes(a) && !(a.kind === "dispatch" && a.seat === "developer"));
+  const routingDevelopers = [...routing.filter((a): a is Dispatch => a.kind === "dispatch" && a.seat === "developer"), ...fixDevelopers];
   routingDevelopers.sort((a, b) => planIndex.get(a.task)! - planIndex.get(b.task)!);
 
   const capped: Action[] = [];
@@ -290,24 +322,35 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
   ];
 
   // A task owed a cascade re-review line or dispatch in this call is not complete: recorded together, the owed review is never named.
+  // Nor is a task whose dependency, direct or transitive, has a commit named (or its commit ruled) or a cascade owed in this call:
+  // recorded together, the complete lands before that commit, and the cascade it owes the task is never owed.
   const cascadeDue = new Set<string>();
+  const landing = new Set<string>();
   for (const a of actions) {
     if (a.kind === "dispatch" && a.cascade !== undefined) cascadeDue.add(a.task);
     if (a.kind === "write" && a.task !== undefined && a.line.startsWith(`${a.task}: cascade re-review owed`)) cascadeDue.add(a.task);
+    if (a.kind === "write" && a.task !== undefined && a.line.startsWith(`Note ${a.task}: commits `)) landing.add(a.task);
+    if (a.kind === "decide" && a.task !== undefined && a.closes === `Note ${a.task}: commits <sha7>`) landing.add(a.task);
   }
-  actions = actions.filter((a) => !(a.kind === "complete" && cascadeDue.has(a.task)));
+  for (const t of cascadeDue) landing.add(t);
+  const dependencies = new Map(inputs.tasks.map((t) => [t.id, t.dependencies]));
+  const dependsOnLanding = (task: string): boolean => {
+    const seen = new Set<string>();
+    const stack = [...(dependencies.get(task) ?? [])];
+    while (stack.length > 0) {
+      const d = stack.pop()!;
+      if (seen.has(d)) continue;
+      seen.add(d);
+      if (landing.has(d)) return true;
+      stack.push(...(dependencies.get(d) ?? []));
+    }
+    return false;
+  };
+  actions = actions.filter((a) => !(a.kind === "complete" && (cascadeDue.has(a.task) || dependsOnLanding(a.task))));
 
   // A resumed seat is not dispatched a second time by a rule module.
   const resumedKey = new Set(resumed.map((d) => `${d.task} ${d.seat}`));
   actions = actions.filter((a) => !(a.kind === "dispatch" && !resumed.includes(a) && resumedKey.has(`${a.task} ${a.seat}`)));
-
-  // A cap stop is lifted once the session's minimal fix past the cap is decided after the task's latest `cap reached`,
-  // and comes back once that fix fails: one minimal fix per task, a second failure is the human's.
-  actions = actions.filter((a) => {
-    if (a.kind !== "stop" || a.task === undefined || !a.reason.includes("five-round cap after a reopen")) return true;
-    const decidedAt = minimalFixDecidedAt(events, a.task);
-    return decidedAt === -1 || minimalFixFailed(events, cap, a.task, decidedAt);
-  });
 
   // Holds: a stop holds every dispatch; a task-less decide every dispatch; a task decide its own task's later actions.
   const stops = actions.some((a) => a.kind === "stop");
