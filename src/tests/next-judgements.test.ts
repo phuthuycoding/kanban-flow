@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 
 import { buildLine, type RecordEvent } from "../workflow/next/record.js";
 import { JUDGEMENTS, closesText, isSuperseded as supersededText } from "../workflow/next/judgements.js";
-import { initialTask } from "../workflow/next/fold.js";
-import type { CycleKind, DecisionTarget, Judgement, MachineEvent, Seat, TaskPhase, TaskState, WaitBlocker } from "../workflow/next/types.js";
+import { foldWorld, initialTask, step } from "../workflow/next/fold.js";
+import { liveCap } from "../workflow/next/cap.js";
+import { emptyClosesGuard } from "../workflow/next/liveness.js";
+import type { Action, CycleKind, Judgement, LedgerEvent, LoopInputs, MachineEvent, Seat, TaskPhase, TaskState, WaitBlocker, World } from "../workflow/next/types.js";
 
 // `closes` lists alternatives; each alternative is a conjunction of ledger-line templates, all of which the session
 // writes to close the judgement. A template: `<task>` is the judged task, other `<name>` tokens and `…` are
@@ -449,15 +451,101 @@ describe("the superseded predicate", () => {
 });
 
 describe("the decision tag and the writer owed again", () => {
-  it("tags a decided note or a Ruling with the region and the opening line of the judgement it closes", () => {
-    const tag: DecisionTarget = { region: "verify", judgement: 12 };
-    const decided: MachineEvent = { type: "decided", task: TASK, what: "plan re-approved", line: 20, ts: 0, closes: tag };
-    const ruling: MachineEvent = { type: "ruling", task: TASK, text: `Ruling: ${TASK} — accept`, line: 21, ts: 0, closes: { region: "review", judgement: null } };
-    expect([decided.type, ruling.type]).toEqual(["decided", "ruling"]);
+  type Fields = LedgerEvent extends infer E ? (E extends unknown ? Omit<E, "line" | "ts"> : never) : never;
+  const inputs: LoopInputs = {
+    feature: "demo",
+    kind: "feature",
+    level: "standard",
+    tasks: [{ ...LOOP_TASK, files: ["src/a.ts"], testTypes: ["Unit"] }],
+    ceiling: { max: 4, source: "config" },
+    reportCommits: {},
+    verifyRuns: {},
+    gitLog: [],
+  };
+  const worldOf = (events: Fields[]): World => {
+    const state = { events: events.map((e, i) => ({ ...e, line: i + 2, ts: i }) as LedgerEvent) };
+    return foldWorld(state, inputs, liveCap(state, inputs));
+  };
+  /** Developer committed; the verify and the review run side by side. */
+  const underCheck: Fields[] = [
+    { type: "dispatched", task: TASK, seat: "test-writer", model: "opus" },
+    { type: "done", task: TASK, seat: "test-writer", status: "DONE" },
+    { type: "testHashes", task: TASK, files: { "src/a.test.ts": "a".repeat(40) } },
+    { type: "dispatched", task: TASK, seat: "developer", model: "opus" },
+    { type: "done", task: TASK, seat: "developer", status: "DONE" },
+    { type: "commits", task: TASK, shas: [SHA7] },
+    { type: "reviewPackage", task: TASK, shas: [SHA7] },
+    { type: "verifyStarted", task: TASK },
+    { type: "dispatched", task: TASK, seat: "code-reviewer", model: "opus" },
+  ];
+  const verifyExit3: Fields = { type: "verifyDone", task: TASK, exit: 3 };
+  const reviewerBlocked: Fields = { type: "done", task: TASK, seat: "code-reviewer", status: "BLOCKED" };
+  const decision: MachineEvent = { type: "decided", task: TASK, what: "go on", line: 99, ts: 99 };
+
+  it("closes only the verify judgement, the earliest open, when a decided note follows two judgements", () => {
+    const world = worldOf([...underCheck, verifyExit3, reviewerBlocked]);
+    const t = world.tasks.get(TASK)!;
+    expect(t.judgements.map((j) => j.kind)).toEqual(["verifyExit3", "seatStatus"]);
+
+    const after = step(world, t, decision);
+
+    // Tagged for the verify region: the verify moves on, the review region's gate stays open.
+    expect(after.judgements.map((j) => j.kind)).toEqual(["seatStatus"]);
+    expect(after.verify).toEqual({ kind: "owed", atHead: false, why: "decided" });
+    expect(after.seats["code-reviewer"]).toEqual(t.seats["code-reviewer"]);
   });
 
-  it("carries a round writer owed again on the task", () => {
-    const t: TaskState = { ...initialTask(LOOP_TASK), writerOwed: { seat: "test-writer", round: 2 }, waitsWritten: "1 developers in flight" };
-    expect(t.writerOwed).toEqual({ seat: "test-writer", round: 2 });
+  it("closes only the reviewer's gate, the earliest open, when it opened before the verify judgement", () => {
+    const world = worldOf([...underCheck, reviewerBlocked, verifyExit3]);
+    const t = world.tasks.get(TASK)!;
+    expect(t.judgements.map((j) => j.kind)).toEqual(["seatStatus", "verifyExit3"]);
+
+    const after = step(world, t, decision);
+
+    // Tagged for the review region: the review is owed again, the verify region's judgement stays open.
+    expect(after.judgements.map((j) => j.kind)).toEqual(["verifyExit3"]);
+    expect(after.seats["code-reviewer"]).toEqual({ kind: "redispatchOwed", mode: "new" });
+    expect(after.verify).toEqual(t.verify);
+  });
+
+  it("owes a round test-writer closed by a decision without its work again, until it is re-dispatched", () => {
+    const gated = worldOf([
+      ...underCheck,
+      { type: "verifyDone", task: TASK, exit: 0 },
+      { type: "done", task: TASK, seat: "code-reviewer", status: "findings" },
+      { type: "dispatched", task: TASK, seat: "test-writer", model: "opus", round: 1 },
+      { type: "done", task: TASK, seat: "test-writer", status: "NEEDS_CONTEXT" },
+    ]);
+    const t = gated.tasks.get(TASK)!;
+    expect(t.writerOwed).toBeUndefined();
+
+    const owed = step(gated, t, decision);
+    expect(owed.writerOwed).toEqual({ seat: "test-writer", round: 1 });
+    expect(owed.seats["test-writer"]).toEqual({ kind: "idle" });
+
+    const again = step(gated, owed, { type: "dispatched", task: TASK, seat: "test-writer", model: "opus", round: 1, line: 100, ts: 100 });
+    expect(again.writerOwed).toBeUndefined();
+    expect(again.seats["test-writer"]).toMatchObject({ kind: "running", round: 1 });
+  });
+});
+
+describe("the liveness guard for a decide with no closing line", () => {
+  const decide = (task?: string, closes = ""): Action => ({ kind: "decide", ...(task !== undefined ? { task } : {}), rule: "Seat status", reason: "r", closes });
+
+  it("stops the item as a whole for a task-less decide", () => {
+    expect(emptyClosesGuard([decide()])).toEqual({ tasks: [], item: true });
+  });
+
+  it("stops each task once for its own decides and leaves the item running", () => {
+    expect(emptyClosesGuard([decide(TASK), decide(TASK), decide("TASK-002")])).toEqual({ tasks: [TASK, "TASK-002"], item: false });
+  });
+
+  it("stops both a task and the item when both kinds are present", () => {
+    expect(emptyClosesGuard([decide(TASK), decide()])).toEqual({ tasks: [TASK], item: true });
+  });
+
+  it("stops nothing for an empty list or for a stop", () => {
+    expect(emptyClosesGuard([])).toEqual({ tasks: [], item: false });
+    expect(emptyClosesGuard([{ kind: "stop", reason: "r" }])).toEqual({ tasks: [], item: false });
   });
 });

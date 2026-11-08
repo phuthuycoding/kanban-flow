@@ -11,6 +11,16 @@ export interface LivenessReport {
   emptyCloses: Action[];
 }
 
+/**
+ * What the liveness guard stops for the decides that name no closing line: each one's task, or the item as a whole
+ * when a decide has no task (design § 5.3).
+ */
+export function emptyClosesGuard(emptyCloses: Action[]): { tasks: string[]; item: boolean } {
+  const decides = emptyCloses.filter((a) => a.kind === "decide");
+  const tasks = decides.flatMap((a) => (a.task !== undefined ? [a.task] : []));
+  return { tasks: [...new Set(tasks)], item: decides.some((a) => a.task === undefined) };
+}
+
 const TASK_ID = /\bTASK-\d+\b/g;
 const CAP_WAIT = /\bdevelopers in flight$/;
 
@@ -33,9 +43,9 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
   for (const a of result.actions) if (a.kind !== "wait" && a.kind !== "finished" && a.task !== undefined) witnessed.add(a.task);
   for (const f of result.inFlight) witnessed.add(f.task);
 
-  // A cap wait waits on FR-024's pool: a spawned developer seat in flight or dispatched, never an inline one.
+  // A cap wait waits on FR-024's pool: a spawned developer seat in flight or dispatched, never an inline one. A plan-inline
+  // task's developer dispatched as a model (a chain) is spawned.
   const inlineSeat = (task: string): boolean => {
-    if (inputs.tasks.find((t) => t.id === task)?.inline === true) return true;
     const dispatch = state.events.filter((e) => e.type === "dispatched" && e.task === task && e.seat === "developer").at(-1);
     if (dispatch === undefined) return false;
     return (dispatch.type === "dispatched" && dispatch.model === "inline") || state.events.some((e) => e.type === "inline" && e.task === task && e.line > dispatch.line);

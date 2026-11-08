@@ -2,8 +2,10 @@ import { arbitrate } from "./arbiter.js";
 import { liveCap } from "./cap.js";
 import { foldWorld } from "./fold.js";
 import { intentsFor, itemIntents } from "./intents.js";
-import { checkLiveness } from "./liveness.js";
+import { checkLiveness, emptyClosesGuard } from "./liveness.js";
 import type { Action, LedgerState, LoopInputs, NextResult, TaskState, World } from "./types.js";
+
+type Stop = Extract<Action, { kind: "stop" }>;
 
 // FR-001, FR-021–FR-026: `schedule()` folds the ledger into the World, asks each task and the item what they owe, and
 // arbitrates those intents into the actions due now (design § 4). A task the result leaves with no witness, or that
@@ -37,33 +39,42 @@ function phasePath(t: TaskState): string {
   return parts.join(" / ");
 }
 
-const noRule = (world: World, task: string): Action => {
+const noRule = (world: World, task: string): Stop => {
   const t = world.tasks.get(task);
   const path = t === undefined ? "an unknown phase" : phasePath(t);
   return { kind: "stop", task, reason: `kf next has no rule for ${task} in ${path} — report this with the ledger` };
 };
+
+const ITEM_NO_RULE: Stop = { kind: "stop", reason: "kf next has no rule for the item: a decide names no line that closes it — report this with the ledger" };
 
 export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume: boolean }): NextResult {
   const cap = liveCap(state, inputs);
   const world = foldWorld(state, inputs, cap);
   if (opts.resume) markLost(world);
   const intents = [...itemIntents(world, opts), ...[...world.tasks.values()].flatMap((t) => intentsFor(t, world))];
-  const arbitration = arbitrate(world, intents, opts);
-  const { inFlight } = arbitration;
-  const quiet = new Set(arbitration.waits.filter((w) => w.quiet).map((w) => w.wait));
-  let actions = arbitration.actions.filter((a) => !(a.kind === "wait" && quiet.has(a)));
 
-  const allComplete = [...world.tasks.values()].every((t) => t.phase.kind === "complete");
-  if (allComplete && actions.length === 0 && inFlight.length === 0) {
-    return { feature: inputs.feature, n: cap.n, inFlight, actions: [{ kind: "finished" }] };
+  // The guard's stops hold like any stop, so arbitration runs again with them until no further task is unplaced.
+  const unplaced = new Set<string>();
+  let itemGuard = false;
+  for (;;) {
+    const guard = [...(itemGuard ? [ITEM_NO_RULE] : []), ...[...unplaced].map((task) => noRule(world, task))];
+    const arbitration = arbitrate(world, intents, opts, guard);
+    const { inFlight } = arbitration;
+    const quiet = new Set(arbitration.waits.filter((w) => w.quiet).map((w) => w.wait));
+    const actions = arbitration.actions.filter((a) => !(a.kind === "wait" && quiet.has(a)));
+
+    const allComplete = [...world.tasks.values()].every((t) => t.phase.kind === "complete");
+    if (guard.length === 0 && allComplete && actions.length === 0 && inFlight.length === 0) {
+      return { feature: inputs.feature, n: cap.n, inFlight, actions: [{ kind: "finished" }] };
+    }
+
+    // A quiet wait is not printed but still witnesses its task: the check reads the full wait set.
+    const live = checkLiveness({ feature: inputs.feature, n: cap.n, inFlight, actions: arbitration.actions }, state, inputs);
+    const empty = emptyClosesGuard(live.emptyCloses);
+    const before = unplaced.size;
+    const itemBefore: boolean = itemGuard;
+    for (const task of [...arbitration.unplaced, ...live.silent, ...empty.tasks]) unplaced.add(task);
+    itemGuard = itemGuard || empty.item;
+    if (unplaced.size === before && itemGuard === itemBefore) return { feature: inputs.feature, n: cap.n, inFlight, actions };
   }
-
-  const result: NextResult = { feature: inputs.feature, n: cap.n, inFlight, actions };
-  const live = checkLiveness(result, state, inputs);
-  const emptyCloses = live.emptyCloses.flatMap((a) => (a.kind === "decide" && a.task !== undefined ? [a.task] : []));
-  const unplaced = [...new Set([...arbitration.unplaced, ...live.silent, ...emptyCloses])];
-  if (unplaced.length === 0) return result;
-  const stops = actions.filter((a) => a.kind === "stop");
-  actions = [...stops, ...unplaced.map((task) => noRule(world, task)), ...actions.filter((a) => a.kind !== "stop")];
-  return { ...result, actions };
 }

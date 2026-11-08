@@ -1,4 +1,6 @@
+import { developerGated } from "./arbiter.js";
 import { JUDGEMENTS, closesText } from "./judgements.js";
+import { sameSha } from "./ledger-state.js";
 import { shellQuote } from "./record.js";
 import type {
   Action,
@@ -80,9 +82,6 @@ function fixRoundWrite(t: TaskState, world: World, round: number): Intent {
   };
   return act(t.id, write, ["fixRound"]);
 }
-
-/** The Breaker kinds: at the cap the fix round 5/5 line is written with the line that closes the decide. */
-const BREAKERS: readonly JudgementKind[] = ["breaker", "breakerFixSpent", "cascadeAtCapBreaker"];
 
 function planOf(world: World, task: string): LoopTask {
   const plan = world.inputs.tasks.find((p) => p.id === task);
@@ -174,12 +173,15 @@ function judge(j: Judgement, t: TaskState | null): Intent {
   const entry = entryOf(j);
   const reason = (REASONS[j.kind] as (j: Judgement) => string)(j);
   const closes = (CLOSES[j.kind] as (j: Judgement) => MachineEventType[])(j);
-  // A repeated decide carries no once-only write: the round's last fix round line goes with the close (ruled).
-  const lastRound = t !== null && BREAKERS.includes(j.kind) && t.roundsUsed >= MAX_ROUNDS && (t.fixRoundWritten ?? 0) < MAX_ROUNDS;
-  const text = closesText(entry, j, t) + (lastRound ? `, each with ${j.task}: fix round ${MAX_ROUNDS}/${MAX_ROUNDS} (${FIX_ROUND_BODY})` : "");
+  // A repeated decide or stop carries no once-only write: at the cap the round's last fix round line is named in the
+  // decide's closes or the stop's reason, and written with the line that closes it (ruled).
+  const lastRound = t !== null && CAP_JUDGEMENTS.includes(j.kind) && t.roundsUsed >= MAX_ROUNDS && (t.fixRoundWritten ?? 0) < MAX_ROUNDS;
+  const fiveFive = `${j.task}: fix round ${MAX_ROUNDS}/${MAX_ROUNDS} (${FIX_ROUND_BODY})`;
+  const text = closesText(entry, j, t) + (lastRound ? `, each with ${fiveFive}` : "");
+  const stopReason = reason + (lastRound ? `; write ${fiveFive} with the line that closes this stop` : "");
   const action: Extract<Intent, { kind: "judge" }>["action"] =
     entry.form === "stop"
-      ? { kind: "stop", ...(j.task !== undefined ? { task: j.task } : {}), reason }
+      ? { kind: "stop", ...(j.task !== undefined ? { task: j.task } : {}), reason: stopReason }
       : { kind: "decide", ...(j.task !== undefined ? { task: j.task } : {}), rule: entry.rule, reason, closes: text };
   return { kind: "judge", ...(j.task !== undefined ? { task: j.task } : {}), origin: "progress", closes, judgement: j.kind, action };
 }
@@ -385,7 +387,7 @@ function nextRoundIntents(t: TaskState, world: World, c: Cycle): Intent[] {
 function dependencyWithoutCommit(t: TaskState, world: World): string | undefined {
   return planOf(world, t.id).dependencies.find((id) => {
     const s = world.tasks.get(id);
-    return s === undefined || (s.commits.length === 0 && s.phase.kind !== "complete");
+    return s === undefined || (s.phase.kind !== "complete" && (s.commits.length === 0 || developerGated(s)));
   });
 }
 
@@ -415,13 +417,36 @@ function checkPassOpen(t: TaskState, since: number): boolean {
   return !(verifyStarted && reviewerDispatched);
 }
 
-/** `T: review package <shas>`: owed once the developer is done and committed, until the package line of that done. */
+/**
+ * `T: review package <shas>`: owed once the developer is done and committed, until the package line of that done. A
+ * fix round's package is the round's own commits (543cd17 SKILL.md:143); the verify still runs on every commit.
+ */
 function packageWrite(t: TaskState, world: World): Intent[] {
   const since = t.devDoneAt;
   if (since === undefined || (t.packagedAt !== undefined && t.packagedAt > since) || t.commits.length === 0) return [];
   if (!checkPassOpen(t, since)) return [];
-  return [act(t.id, lineWrite(world.inputs.feature, `${t.id}: review package ${t.commits.join(",")}`, t.id), ["reviewPackage"])];
+  const p = t.phase;
+  const fresh = p.kind === "cycle" && p.cycle === "round" ? t.commits.filter((sha) => p.commits.some((c) => sameSha(c, sha))) : [];
+  const shas = fresh.length > 0 ? fresh : t.commits;
+  return [act(t.id, lineWrite(world.inputs.feature, `${t.id}: review package ${shas.join(",")}`, t.id), ["reviewPackage"])];
 }
+
+/**
+ * The check pass waits for a developer resumed to commit the automation-writer's or a round seat's files: until that
+ * developer is done, no verify or own review is named for the tree it is about to change.
+ */
+function resumeCommitPending(t: TaskState): boolean {
+  const p = t.phase;
+  if (p.kind !== "cycle") return false;
+  const step = p.implementer;
+  if (step.kind === "specsOwed" || step.kind === "specsRunning" || step.kind === "resumeCommitOwed") return true;
+  return step.kind === "running" && step.dispatchLine > p.openedAt;
+}
+
+const checkPassIntent = (i: Intent): boolean =>
+  i.kind === "act" &&
+  i.origin === "progress" &&
+  (i.action.kind === "verify" || (i.action.kind === "dispatch" && i.action.seat === "code-reviewer" && i.action.cascade === undefined));
 
 const IMPLEMENTER = {
   owed: (t, world, s) => {
@@ -524,7 +549,9 @@ export function intentsFor(t: TaskState, world: World): Intent[] {
   }
   const queued = t.judgements.filter((j) => !CAP_JUDGEMENTS.includes(j.kind)).map((j) => judge(j, t));
   const phase = (PHASES[t.phase.kind] as (t: TaskState, w: World, p: TaskPhase) => Intent[])(t, world, t.phase);
-  return [...phase, ...seatIntents(t, world), ...verifyIntents(t, world), ...reviewIntents(t, world), ...queued];
+  const checks = [...verifyIntents(t, world), ...reviewIntents(t, world)];
+  const held = resumeCommitPending(t) ? checks.filter((i) => !checkPassIntent(i)) : checks;
+  return [...phase, ...seatIntents(t, world), ...held, ...queued];
 }
 
 /** A cap write is closed by the line it writes: a cap ruling, a no-step-up note, a rerun note. */

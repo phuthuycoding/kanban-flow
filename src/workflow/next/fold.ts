@@ -115,10 +115,21 @@ function unnamedReportShas(t: TaskState, world: World): string[] {
   return unnamed;
 }
 
-function owesSpecs(t: TaskState, world: World): boolean {
+/** A UI task under Level full: its automation-writer's specs are committed by a resumed developer. */
+function uiSpecs(t: TaskState, world: World): boolean {
   const plan = planTask(world, t.id);
   const ui = plan !== undefined && (plan.testTypes.includes("UI") || plan.testTypes.includes("E2E"));
-  return ui && world.inputs.level === "full" && t.seats["automation-writer"].kind === "idle";
+  return ui && world.inputs.level === "full";
+}
+
+function owesSpecs(t: TaskState, world: World): boolean {
+  return uiSpecs(t, world) && t.seats["automation-writer"].kind === "idle";
+}
+
+/** The automation-writer ran ahead of the cycle's first developer: its specs still owe the resume-commit developer. */
+function specsAhead(t: TaskState, c: Cycle, dispatchLine: number, world: World): boolean {
+  const slot = t.seats["automation-writer"];
+  return uiSpecs(t, world) && c.cycle === "first" && dispatchLine === c.openedAt && slot.kind === "reported" && slot.answers < dispatchLine;
 }
 
 /** The implementer after a developer DONE (or a gate that goes on as DONE), with what the ledger records now. */
@@ -138,6 +149,7 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
     return to({ kind: "commitMissing", dispatchLine }, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
   }
   if (owesSpecs(t, world)) return to({ kind: "specsOwed" });
+  if (specsAhead(t, c, dispatchLine, world)) return to({ kind: "resumeCommitOwed" });
   const roundSeat = (["test-writer", "automation-writer"] as const).find((seat) => {
     const slot = t.seats[seat];
     return c.round > 0 && slot.kind === "running" && slot.round === c.round;
@@ -208,7 +220,7 @@ function openCycle(t: TaskState, cycle: Cycle["cycle"], round: number, openedAt:
   return {
     ...t,
     roundsUsed: Math.max(t.roundsUsed, round),
-    phase: { kind: "cycle", cycle, round, openedAt, implementer, sinceCommit, commits: t.commits },
+    phase: { kind: "cycle", cycle, round, openedAt, implementer, sinceCommit, commits: [] },
   };
 }
 
@@ -243,7 +255,8 @@ const onDispatched: RegionHandler<"dispatched"> = (task, e) => {
     ts: e.ts,
     ...(e.round !== undefined ? { round: e.round } : {}),
     ...(e.cascade !== undefined ? { cascade: e.cascade } : {}),
-    inline: inlineDev || (e.seat === "developer" && t.inline),
+    // Only a `model=inline` dispatch or a later inline note is the controller's own seat; a model dispatch is spawned.
+    inline: inlineDev,
     origin: "progress",
   };
   const next = withSeat({ ...t, inline: t.inline || inlineDev }, e.seat, slot);
@@ -304,7 +317,10 @@ const onCommits: RegionHandler<"commits"> = (task, e, world) => {
   const recorded = matchGitLog(e.shas, world.inputs.gitLog).kept.length > 0;
   const noteOwed = task.phase.implementer.kind === "commitNoteOwed";
   const dispatchLine = devDispatchLine(task);
-  let t = withPhase(task, { ...task.phase, commits: task.commits, ...(recorded ? { sinceCommit: e.line } : {}) });
+  // The cycle's own commits: a fix round's package names these, not the task's whole list.
+  const own = task.phase.commits;
+  const commits = [...own, ...e.shas.filter((sha, i) => !own.some((c) => sameSha(c, sha)) && !e.shas.slice(0, i).some((s) => sameSha(s, sha)))];
+  let t = withPhase(task, { ...task.phase, commits, ...(recorded ? { sinceCommit: e.line } : {}) });
   const closing = closeOnEvent(t, e);
   t = closing.t;
   if (!closing.closed.some((c) => c.successor === "afterDevDone") && !noteOwed) return t;
@@ -343,6 +359,8 @@ const onReopened: RegionHandler<"reopened"> = (t, e, world) => {
     reopened: true,
     inline: t.inline,
     roundsUsed: t.roundsUsed,
+    // The round count goes on across the reopen, so a written fix round line stays written.
+    ...(t.fixRoundWritten !== undefined ? { fixRoundWritten: t.fixRoundWritten } : {}),
     commits: t.commits,
     droppedShas: t.droppedShas,
   };
@@ -470,6 +488,12 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
     }
   };
 
+  // A failure under a waits note is not routed on: the waits note wins until it is released.
+  const waiting = (id: string): boolean => {
+    const v = world.tasks.get(id)?.verify;
+    return v?.kind === "failed" && v.disposition.kind === "waits";
+  };
+
   for (const e of state.events) {
     if (e.type === "scan") world.scan = "done";
     const wave = e.type === "other" ? /^wave (\d+):/.exec(e.text) : null;
@@ -498,7 +522,7 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
       firstDeveloper.add(h);
       if (e.round !== undefined && e.round >= 1) fixRoundOf.set(h, e.round);
     }
-    if (e.type === "verifyRouted") {
+    if (e.type === "verifyRouted" && !waiting(h)) {
       if (known(e.otherTask)) deliver(e.otherTask, { type: "routedIn", task: e.otherTask, from: h, line: e.line, ts: e.ts });
       routes.set(e.otherTask, (routes.get(e.otherTask) ?? new Set()).add(h));
     }

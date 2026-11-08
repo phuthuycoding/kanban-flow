@@ -192,6 +192,8 @@ const onReleased: RegionHandler<"watchReleased"> = (t, e) =>
 const onRouted: RegionHandler<"verifyRouted"> = (t, e, world) => {
   const v = t.verify;
   if (v.kind !== "failed") return t;
+  // A waits note on the same failure holds until the named task's commit releases it; a later route does not lift it.
+  if (v.disposition.kind === "waits") return t;
   const other = e.otherTask;
   const x = world.tasks.get(other);
   if (x && !world.unknown.has(other) && x.phase.kind !== "complete") {

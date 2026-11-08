@@ -9,6 +9,9 @@ import type { Action, Arbitration, InFlight, Intent, LoopTask, NextOptions, Seat
 type Dispatch = Extract<Action, { kind: "dispatch" }>;
 type Wait = Extract<Action, { kind: "wait" }>;
 type Judge = Extract<Intent, { kind: "judge" }>;
+type Stop = Extract<Action, { kind: "stop" }>;
+/** The liveness guard's stop for a task or the item the arbiter or the liveness check could not place. */
+type GuardHold = { kind: "guard"; action: Stop };
 
 // Developers first, as `kf:implement` lists the ready seats: developers under the cap, test-writers, then reviewers.
 const SEAT_ORDER: Seat[] = ["developer", "test-writer", "automation-writer", "code-reviewer"];
@@ -29,6 +32,9 @@ function entryPair(a: LoopTask, b: LoopTask): [string, string] | null {
   if (a.files === null || b.files === null) return [a.files?.[0] ?? UNKNOWN, b.files?.[0] ?? UNKNOWN];
   return firstOverlap(a.files, b.files);
 }
+
+/** A developer whose done opened a Seat status gate not yet decided: its commit is not counted yet. */
+export const developerGated = (t: TaskState): boolean => t.judgements.some((j) => j.kind === "seatStatus" && j.seat === "developer");
 
 /** An open task: its test-writer or developer has been dispatched and it is not complete. */
 function isOpen(t: TaskState | undefined): boolean {
@@ -64,9 +70,9 @@ function waveLine(tasks: LoopTask[], w: number): string | null | undefined {
 }
 
 /** The wait a held progress dispatch prints: it names the stop or decide that holds it. */
-function holdWait(hold: Judge): { reason: string; blockedBy: WaitBlocker } {
+function holdWait(hold: Judge | GuardHold): { reason: string; blockedBy: WaitBlocker } {
   const task = hold.action.task;
-  if (hold.action.kind === "stop") {
+  if (hold.kind === "guard" || hold.action.kind === "stop") {
     return {
       reason: task !== undefined ? `stop ${task} holds every dispatch` : "an item stop holds every dispatch",
       blockedBy: { kind: "hold", judgement: "stop", ...(task !== undefined ? { task } : {}) },
@@ -75,7 +81,11 @@ function holdWait(hold: Judge): { reason: string; blockedBy: WaitBlocker } {
   return { reason: `${hold.action.rule} decide holds every dispatch`, blockedBy: { kind: "hold", judgement: hold.judgement } };
 }
 
-export function arbitrate(world: World, intents: Intent[], opts: NextOptions): Arbitration {
+/**
+ * `guard`: the liveness guard's stops `schedule()` found on an earlier pass. Each holds like any stop, and its task's
+ * own intents are dropped but for its In-flight entries (design § 5.3).
+ */
+export function arbitrate(world: World, intents: Intent[], opts: NextOptions, guard: Stop[] = []): Arbitration {
   void opts;
   const f = world.inputs.feature;
   const n = world.cap.n;
@@ -131,9 +141,13 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
 
   // Holds by origin: a stop, or a decide of no task, holds every progress dispatch item-wide; a task's judgement
   // holds that task's own progress intents, its judgement being the task's witness.
-  const judged = intents.filter((i): i is Judge => i.kind === "judge");
+  const guarded = new Set(guard.flatMap((g) => (g.task !== undefined ? [g.task] : [])));
+  const judged = intents.filter((i): i is Judge => i.kind === "judge" && (i.task === undefined || !guarded.has(i.task)));
+  const guardHold: GuardHold | undefined = guard.length > 0 ? { kind: "guard", action: guard[0] } : undefined;
   const itemHold =
-    judged.find((i) => i.action.kind === "stop") ?? judged.find((i) => i.action.kind === "decide" && i.action.task === undefined);
+    judged.find((i) => i.action.kind === "stop") ??
+    guardHold ??
+    judged.find((i) => i.action.kind === "decide" && i.action.task === undefined);
   const heldTasks = new Set(judged.flatMap((i) => (i.action.task !== undefined ? [i.action.task] : [])));
 
   const resumedSeats = intents.flatMap((i) =>
@@ -174,14 +188,26 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
       const line = `Note ${task}: verify rerun — contention ${signature}`;
       emit({ kind: "write", task, line, record: `kf record ${f} line -- ${shellQuote(line)}` });
     } else wait({ kind: "wait", task, reason: `${n} developers in flight` }, { kind: "pool" });
-  } else if (contention.running === null && nextHeld !== undefined && !heldTasks.has(nextHeld.task)) {
+  } else if (contention.running === null && nextHeld !== undefined && !heldTasks.has(nextHeld.task) && !guarded.has(nextHeld.task)) {
     // A re-run the full cap holds waits on the pool: it is its task's witness until developers drop below N.
     if (world.pool.length < n) emit({ kind: "verify", task: nextHeld.task, command: verifyCommand(nextHeld.task, nextHeld.atHead), rerun: true }, true, -1);
     else wait({ kind: "wait", task: nextHeld.task, reason: `${n} developers in flight` }, { kind: "pool" });
   }
+  // Every other held re-run waits on the running one, else on the first held: one re-run at a time, each witnessed.
+  const rerunFirst = contention.running ?? nextHeld?.task;
+  if (rerunFirst !== undefined) {
+    const label = contention.running !== null ? "running re-run" : "held re-run";
+    for (const h of contention.held) {
+      const v = world.tasks.get(h.task)?.verify;
+      if (h.task === rerunFirst || heldTasks.has(h.task) || guarded.has(h.task)) continue;
+      if (v?.kind !== "failed" || v.disposition.kind !== "contentionHeld") continue;
+      wait({ kind: "wait", task: h.task, reason: `${label} ${rerunFirst}` }, { kind: "verify", task: rerunFirst });
+    }
+  }
 
   for (const i of intents) {
     if (i === lost) continue;
+    if (i.kind !== "inFlight" && i.task !== undefined && guarded.has(i.task)) continue;
     if (i.kind === "inFlight") {
       const key = JSON.stringify(i.entry);
       if (!seenInFlight.has(key)) {
@@ -214,7 +240,8 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
       }
       continue;
     }
-    if (a.task !== undefined && heldTasks.has(a.task)) continue;
+    // A task's own judgement holds its progress, but not the cap reached note its cap stop owes beside it.
+    if (a.task !== undefined && heldTasks.has(a.task) && !i.closes.includes("capReached")) continue;
     if (a.kind !== "dispatch") {
       emit(a);
       continue;
@@ -231,6 +258,7 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     else if (a.seat === "code-reviewer") reviewers.push(a);
     else emit(a);
   }
+  for (const g of guard) emit(g);
 
   /**
    * The overlap that holds opening `t`: an open task ranked before it first, else an earlier incomplete one. A later
@@ -286,7 +314,7 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     if (release && t !== undefined) {
       const dep = t.dependencies.find((id) => {
         const s = world.tasks.get(id);
-        return s === undefined || (s.commits.length === 0 && s.phase.kind !== "complete");
+        return s === undefined || (s.phase.kind !== "complete" && (s.commits.length === 0 || developerGated(s)));
       });
       if (dep !== undefined) {
         wait({ kind: "wait", task: d.task, reason: `dependency ${dep} has no commit` }, { kind: "task", task: dep });

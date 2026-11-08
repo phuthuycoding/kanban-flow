@@ -329,6 +329,7 @@ export type TaskPhase =
       implementer: ImplementerStep;
       /** Ledger line of the latest commit the check pass runs against; null before the first. */
       sinceCommit: number | null;
+      /** The shas the cycle's commits notes and review packages named, in ledger order: a fix round's own commits. */
       commits: string[];
     }
   | { kind: "atCap"; cap: AtCap }

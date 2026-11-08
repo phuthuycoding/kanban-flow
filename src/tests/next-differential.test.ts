@@ -68,10 +68,73 @@ const isDispatch = (a: Action): a is Dispatch => a.kind === "dispatch";
 interface Allowed {
   why: string;
   explains: (d: Difference) => boolean;
+  /**
+   * For a difference made of several explained parts: the same difference with this entry's part removed, or null when
+   * the entry explains none of it. What is left must be explained by another entry, or be empty.
+   */
+  peel?: (d: Difference) => Difference | null;
 }
 
 /** The audited defects: on its own ledger the machine prints what the audit's expected.json asks, so any change there is that defect's. */
 const AUDITED = (id: string, why: string): [string, Allowed] => [id, { why, explains: (d) => d.audit && d.source === id }];
+
+type Decide = Extract<Action, { kind: "decide" }>;
+const isDecide = (a: Action): a is Decide => a.kind === "decide";
+
+/** `d` without these actions of either side: they leave the only-one-side lists and both action lists. */
+function without(d: Difference, legacy: Action[], next: Action[]): Difference | null {
+  if (legacy.length + next.length === 0) return null;
+  const drop = (all: Action[], gone: Action[]): Action[] => minus(all, gone);
+  return {
+    ...d,
+    legacy: { ...d.legacy, actions: drop(d.legacy.actions, legacy) },
+    next: { ...d.next, actions: drop(d.next.actions, next) },
+    onlyLegacy: minus(d.onlyLegacy, legacy),
+    onlyNext: minus(d.onlyNext, next),
+  };
+}
+
+/** Nothing left to explain: no one-sided action, no in-flight or n change, and the same actions in the same order. */
+const settled = (d: Difference): boolean =>
+  d.onlyLegacy.length === 0 && d.onlyNext.length === 0 && !d.inFlightChanged && !d.nChanged && key(d.legacy.actions) === key(d.next.actions);
+
+/** An entry that explains a difference by the parts `peel` removes alone. */
+function peeling(why: string, peel: (d: Difference) => Difference | null): Allowed {
+  return { why, peel, explains: (d) => {
+    const rest = peel(d);
+    return rest !== null && settled(rest);
+  } };
+}
+
+/** Each legacy-only action of `isOld` paired with a machine-only one that `same` accepts: the pairs are the difference. */
+function pairs(d: Difference, isOld: (a: Action) => boolean, same: (l: Action, n: Action) => boolean): Difference | null {
+  const left = d.onlyLegacy.filter(isOld);
+  const taken: Action[] = [];
+  const matched: Action[] = [];
+  for (const l of left) {
+    const n = d.onlyNext.find((x) => same(l, x) && !taken.includes(x));
+    if (n === undefined) continue;
+    taken.push(n);
+    matched.push(l);
+  }
+  return without(d, matched, taken);
+}
+
+/** The machine may add closing alternatives, never drop one the legacy decide named (legacy joins them with " | ", the table with " or "). */
+function keepsEveryClose(legacy: Decide, next: Decide): boolean {
+  const have = next.closes.split(" or ");
+  return legacy.closes.split(" | ").every((alt) => have.includes(alt));
+}
+
+/** Only the judgement table's wording differs: a legacy decide and a machine decide of the same task and rule. */
+function decideWording(id: string, rule: string, why: string): [string, Allowed] {
+  return [
+    `decide-wording:${id}`,
+    peeling(why, (d) => pairs(d, (a) => isDecide(a) && a.rule === rule, (l, n) => isDecide(l) && isDecide(n) && n.task === l.task && n.rule === rule && keepsEveryClose(l, n))),
+  ];
+}
+
+const isFixRoundWrite = (a: Action): boolean => a.kind === "write" && a.task !== undefined && a.line.startsWith(`${a.task}: fix round `);
 
 const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
   AUDITED("routed-target-completes-same-call", "a task a failure is routed into does not complete in the same call"),
@@ -112,6 +175,47 @@ const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
   AUDITED("implemented-dependency-never-finished", "an implemented dependency releases its dependents"),
   AUDITED("commit-missing-redispatch-keeps-decide", "a running re-dispatch closes Commit missing"),
   AUDITED("fix-done-without-new-commit", "a fix round DONE with no new commit gets Commit missing"),
+  decideWording("fix-without-new-commit + commit-missing-redispatch-keeps-decide", "Commit missing", "the Commit missing decide names the dispatch line it counts from and the re-dispatch that also closes it"),
+  decideWording("seat-status-closed-by-ruling-silent", "Seat status", "the Seat status decide names the seat's end and closes with the Ruling alternative"),
+  [
+    "chain-subagent-seat-resumed-as-new-spawn",
+    peeling("a resumed developer of a plan-inline task is resumed inline, not spawned new", (d) =>
+      pairs(
+        d,
+        (a) => isDispatch(a) && a.mode === "new",
+        (l, n) => isDispatch(l) && isDispatch(n) && n.task === l.task && n.seat === l.seat && n.round === l.round && n.mode === "resume" && n.inline === true,
+      ),
+    ),
+  ],
+  [
+    "ruling:fix-round-placement",
+    peeling("the fix round line is printed only beside the action that ends the round, not after its reviewer done", (d) =>
+      without(d, d.onlyLegacy.filter(isFixRoundWrite), []),
+    ),
+  ],
+  [
+    "resume-seats-filtered-by-holds-vanish + resume-actions-dropped-by-holds-become-phantoms",
+    peeling("under --resume a seat or verify the task's own decide used to hold is listed, because resumed work is exempt from holds", (d) => {
+      if (!d.resume) return null;
+      const held = new Set(d.legacy.actions.filter(isDecide).map((a) => a.task));
+      return without(d, [], d.onlyNext.filter((a) => (isDispatch(a) || a.kind === "verify") && held.has(a.task)));
+    }),
+  ],
+  [
+    "ruling:legacy-redispatches-in-flight-developer",
+    peeling("a developer open in the ledger stays in flight; the old scheduler named it again and held its re-run", (d) => {
+      const open = (task: string): boolean => d.next.inFlight.some((f) => f.task === task && f.seat === "developer");
+      // The task's developer seat is open in the ledger, or the machine holds the task on a decide of its own.
+      const decided = (task: string): boolean => d.next.actions.some((a) => isDecide(a) && a.task === task);
+      return without(
+        d,
+        d.onlyLegacy.filter(
+          (a) => (isDispatch(a) && a.seat === "developer" && open(a.task)) || (a.kind === "wait" && a.task !== undefined && (open(a.task) || decided(a.task)) && a.reason.startsWith("held re-run")),
+        ),
+        [],
+      );
+    }),
+  ],
   [
     "seat-order-developers-first",
     {
@@ -122,6 +226,9 @@ const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
         if (d.onlyLegacy.length > 0 || d.onlyNext.length > 0 || d.inFlightChanged || d.nChanged) return false;
         const strip = (r: NextResult): string[] => r.actions.filter((a) => !isDispatch(a)).map(key);
         if (key(strip(d.legacy)) !== key(strip(d.next))) return false;
+        // Resumed seats rank first in both schedulers (the legacy dispatch group 0) and a resumed spawn prints mode
+        // "new", so under --resume the seat order carries no signal: only the same actions in another order are allowed.
+        if (d.resume) return true;
         const seats = d.next.actions.filter(isDispatch).map((a) => a.seat);
         const firstTestWriter = seats.indexOf("test-writer");
         return firstTestWriter === -1 || !seats.slice(firstTestWriter).includes("developer");
@@ -195,10 +302,20 @@ function compare(source: string, audit: boolean, prefix: number, resume: boolean
   };
 }
 
+/** A difference is explained by one entry, or by an entry's part whose remainder is explained in turn. */
+function explained(d: Difference): boolean {
+  const entries = Object.values(DIFF_ALLOWED);
+  if (entries.some((a) => a.explains(d))) return true;
+  return entries.some((a) => {
+    const rest = a.peel?.(d) ?? null;
+    return rest !== null && explained(rest);
+  });
+}
+
 /** Every difference no DIFF_ALLOWED entry explains, as a readable line. */
 function untagged(diffs: Difference[]): string[] {
   return diffs
-    .filter((d) => !Object.values(DIFF_ALLOWED).some((a) => a.explains(d)))
+    .filter((d) => !explained(d))
     .map(
       (d) =>
         `${d.source} prefix ${d.prefix} resume=${d.resume}: only legacy ${key(d.onlyLegacy)}; only next ${key(d.onlyNext)}` +
