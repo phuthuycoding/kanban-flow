@@ -1,0 +1,20 @@
+{
+  "behaviour": "a Breaker closed by a decided note with nothing parked keeps the Breaker printed",
+  "expect": [
+    {
+      "action": {
+        "kind": "decide",
+        "task": "TASK-001",
+        "rule": "Breaker"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "behaviour": "an open developer seat of a completed task holds no cap slot",
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-002",
+        "seat": "developer"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "wait",
+        "task": "TASK-002",
+        "reason": "1 developers in flight"
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "behaviour": "a minimal fix whose verify passed is still reviewed before the task completes",
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "code-reviewer"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

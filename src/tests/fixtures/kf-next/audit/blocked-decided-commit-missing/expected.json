@@ -1,0 +1,22 @@
+{
+  "behaviour": "a BLOCKED developer closed by a decision with no commit is resumed, not asked for a commit",
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "resume"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "decide",
+        "task": "TASK-001",
+        "rule": "Commit missing"
+      }
+    }
+  ]
+}

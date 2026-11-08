@@ -1,0 +1,20 @@
+{
+  "behaviour": "a developer re-dispatched after a DONE with no commit is in flight, not a Commit missing decide",
+  "expect": [
+    {
+      "inFlight": {
+        "task": "TASK-001",
+        "seat": "developer"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "decide",
+        "task": "TASK-001",
+        "rule": "Commit missing"
+      }
+    }
+  ]
+}

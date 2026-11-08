@@ -1,0 +1,22 @@
+{
+  "behaviour": "a minimal-fix note written before the parked line still names the fix developer",
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "fresh",
+        "round": null
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

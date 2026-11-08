@@ -1,0 +1,5 @@
+## kf verify 2026-11-07T10:10:30+07:00 exit=1
+Running in a detached worktree
+verify command failed (exit 1): npm test
+AssertionError: expected 1 to be 2
+ at src/a.ts:12

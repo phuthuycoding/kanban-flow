@@ -1,0 +1,13 @@
+{
+  "behaviour": "a developer NEEDS_CONTEXT closed by a Ruling is re-dispatched",
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "resume"
+      }
+    }
+  ]
+}

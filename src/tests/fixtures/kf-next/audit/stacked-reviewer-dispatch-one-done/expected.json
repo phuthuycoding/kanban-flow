@@ -1,0 +1,30 @@
+{
+  "behaviour": "two stacked cascade dispatches answered by one done leave the task a witness",
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-003",
+            "seat": "code-reviewer"
+          }
+        },
+        {
+          "inFlight": {
+            "task": "TASK-003",
+            "seat": "code-reviewer"
+          }
+        }
+      ]
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-003"
+      }
+    }
+  ]
+}

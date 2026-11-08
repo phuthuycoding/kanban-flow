@@ -1,0 +1,21 @@
+{
+  "behaviour": "a dependency marked implemented releases its dependent's developer",
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-002",
+        "seat": "developer"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "wait",
+        "task": "TASK-002",
+        "reason": "dependency TASK-001 has no commit"
+      }
+    }
+  ]
+}

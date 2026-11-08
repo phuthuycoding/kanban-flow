@@ -1,0 +1,19 @@
+{
+  "behaviour": "an at-head re-run of the pre-fix tree is not the minimal fix's verify, so the cap stop stays lifted",
+  "expect": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "stop",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

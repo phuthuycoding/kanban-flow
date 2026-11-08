@@ -1,0 +1,12 @@
+{
+  "behaviour": "an orphaned contention re-run is released once the developers drop below the cap",
+  "expect": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001",
+        "rerun": true
+      }
+    }
+  ]
+}

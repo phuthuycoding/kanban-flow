@@ -1,0 +1,14 @@
+{
+  "behaviour": "one output never dispatches two code-reviewers of the same task",
+  "expect": [],
+  "maxCount": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-002",
+        "seat": "code-reviewer"
+      },
+      "n": 1
+    }
+  ]
+}

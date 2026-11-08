@@ -1,0 +1,15 @@
+{
+  "behaviour": "a lost developer of an inline wave is resumed inline, never spawned anew",
+  "resume": true,
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "resume",
+        "inline": true
+      }
+    }
+  ]
+}

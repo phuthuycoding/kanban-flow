@@ -1,0 +1,19 @@
+{
+  "behaviour": "a reviewer status the scheduler has no rule for gets a decide, not silence",
+  "expect": [
+    {
+      "action": {
+        "kind": "decide",
+        "task": "TASK-001"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

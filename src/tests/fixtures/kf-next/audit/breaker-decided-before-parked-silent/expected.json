@@ -1,0 +1,11 @@
+{
+  "behaviour": "parked lines after the decided note close the Breaker",
+  "expect": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

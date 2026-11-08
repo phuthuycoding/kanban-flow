@@ -1,0 +1,23 @@
+{
+  "behaviour": "a lost developer seat is still named on resume while a global decide holds new dispatches",
+  "resume": true,
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-001",
+            "seat": "developer"
+          }
+        },
+        {
+          "inFlight": {
+            "task": "TASK-001",
+            "seat": "developer"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "behaviour": "a lost verify is still named on resume while a decide holds the task",
+  "resume": true,
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "verify",
+            "task": "TASK-001"
+          }
+        },
+        {
+          "inFlight": {
+            "task": "TASK-001",
+            "seat": "verify"
+          }
+        }
+      ]
+    }
+  ]
+}

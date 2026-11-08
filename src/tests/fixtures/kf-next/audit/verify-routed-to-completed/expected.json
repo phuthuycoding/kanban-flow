@@ -1,0 +1,23 @@
+{
+  "behaviour": "a verify routed to a completed task gives a decide or the task's own fix round",
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "decide",
+            "task": "TASK-002"
+          }
+        },
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-002",
+            "seat": "developer",
+            "round": 1
+          }
+        }
+      ]
+    }
+  ]
+}

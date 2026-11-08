@@ -1,0 +1,19 @@
+{
+  "behaviour": "a failed verify of the minimal fix is re-run and never sits beside complete",
+  "expect": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

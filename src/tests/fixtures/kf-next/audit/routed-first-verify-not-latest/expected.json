@@ -1,0 +1,11 @@
+{
+  "behaviour": "a routed failure is answered by any later passing verify of the target, not only its first",
+  "expect": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-002"
+      }
+    }
+  ]
+}

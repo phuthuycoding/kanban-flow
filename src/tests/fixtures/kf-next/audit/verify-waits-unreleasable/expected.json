@@ -1,0 +1,30 @@
+{
+  "behaviour": "a verify wait on a task that cannot land before it is a stop or a decide, not a wait",
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "stop",
+            "task": "TASK-001"
+          }
+        },
+        {
+          "action": {
+            "kind": "decide",
+            "task": "TASK-001"
+          }
+        }
+      ]
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "wait",
+        "task": "TASK-001",
+        "reason": "verify waits for TASK-002"
+      }
+    }
+  ]
+}

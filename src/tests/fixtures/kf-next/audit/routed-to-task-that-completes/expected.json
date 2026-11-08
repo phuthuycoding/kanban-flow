@@ -1,0 +1,29 @@
+{
+  "behaviour": "a failure routed to a task that then completed still gets an action",
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "decide",
+            "task": "TASK-001"
+          }
+        },
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-001",
+            "seat": "developer"
+          }
+        },
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-002",
+            "seat": "developer"
+          }
+        }
+      ]
+    }
+  ]
+}
