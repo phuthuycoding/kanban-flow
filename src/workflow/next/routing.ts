@@ -249,11 +249,10 @@ function roundSeatsDone(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[]):
       }
       continue;
     }
-    const resumed = anyAfter(
-      events,
-      doneAt,
-      (e) => e.type === "dispatched" && e.task === task && e.seat === "developer",
-    );
+    // A round-R developer dispatched beside the round seat, before its done, answers the resume-commit too.
+    const resumed =
+      anyAfter(events, doneAt, (e) => e.type === "dispatched" && e.task === task && e.seat === "developer") ||
+      events.some((e) => e.type === "dispatched" && e.task === task && e.seat === "developer" && e.round === dispatch.round);
     if (!resumed && !actions.some((a) => a.kind === "dispatch")) actions.push(developer(t, events, "resume", dispatch.round));
   }
   return actions;

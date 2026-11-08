@@ -603,3 +603,42 @@ describe("lines written while a round or a seat status is pending", () => {
     expect(stops(routingActions(ledger(...events), inputs([task(T1)]), cap()), T1)).toEqual([{ kind: "stop", task: T1, reason: EXIT_2_STOP }]);
   });
 });
+
+describe("a round developer dispatched beside its round test-writer", () => {
+  const hashes = (m: number): Stamped => [m, { type: "testHashes", task: T1, files: { "src/tests/x.test.ts": "0123456789abcdef0123456789abcdef01234567" } }];
+
+  // The developer of a round can be dispatched with its test-writer and commit the tests unchanged itself;
+  // the test-writer's done then lands after that dispatch, and no second developer is owed.
+  it("names no round developer once the developer dispatched before the test-writer's done reported", () => {
+    const events: Stamped[] = [
+      ...built(),
+      verifyStarted(5, T1),
+      verifyDone(6, T1, 0),
+      done(7, T1, "code-reviewer", "findings"),
+      dispatched(8, T1, "developer", { round: 1 }),
+      dispatched(8, T1, "test-writer", { round: 1 }),
+      done(9, T1, "test-writer", "DONE"),
+      hashes(9),
+      commits(10, T1, "b2c3d4e"),
+      done(10, T1, "developer", "DONE_WITH_CONCERNS"),
+      [10, { type: "other", text: `Ruling: ${T1}'s wording choices stand — cost if wrong: a prose edit` }],
+      verifyStarted(10, T1),
+      dispatched(11, T1, "code-reviewer", { round: 1 }),
+      verifyDone(12, T1, 1),
+      [12, { type: "verifyRerun", task: T1, signature: "Test timed out" }],
+      done(12, T1, "code-reviewer", "findings"),
+      dispatched(13, T1, "test-writer", { round: 2 }),
+      dispatched(13, T1, "developer", { round: 2 }),
+      verifyStarted(13, T1),
+      done(14, T1, "test-writer", "DONE"),
+      hashes(14),
+      verifyDone(15, T1, 0),
+      commits(15, T1, "c3d4e5f"),
+      done(15, T1, "developer", "DONE"),
+      verifyStarted(15, T1),
+      dispatched(15, T1, "code-reviewer", { round: 2 }),
+    ];
+    const actions = routingActions(ledger(...events), inputs([task(T1)]), cap());
+    expect(developerDispatches(actions, T1)).toEqual([]);
+  });
+});
