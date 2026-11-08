@@ -241,7 +241,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   verify: {
-    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
+    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage. On a bug, --task also takes a TASK-### from tasks.md, checked with no Files allowlist. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
     allowPositionals: true,
     options: {
       task: { type: "string" },

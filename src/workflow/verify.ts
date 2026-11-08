@@ -11,6 +11,7 @@ import { pathAllowed } from "./allowlist.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { addDetachedWorktree, removeWorktree, runGit } from "../shared/git.js";
 import { readProjectConfig } from "../project/config.js";
+import { readLoopInputs } from "./next/inputs.js";
 
 const OUTPUT_TAIL = 2000;
 const VERIFY_MAX_BUFFER = 64 * 1024 * 1024;
@@ -69,8 +70,22 @@ function runCommands(commands: string[][] | undefined, dir: string, what: "task"
 
 const bad = (reason: string): VerifyResult => ({ code: 3, lines: [reason] });
 
+/** A bug has no plan: its tasks are the TASK-### checkbox lines of tasks.md, with Files unknown. */
+function bugTaskAndDir(root: string, feature: Feature, taskId: string): { task: PlannedTask; dir: string; line: string } | VerifyResult {
+  const read = readLoopInputs(root, feature);
+  if (!read.ok) return bad(read.reason);
+  const id = taskId.trim().toUpperCase();
+  const found = read.inputs.tasks.find((t) => t.id === id);
+  if (!found) return bad(`Unknown task '${taskId}': it is not in tasks.md of '${feature.name}'.`);
+
+  const { dir, line } = itemDir(root, feature);
+  if (!existsSync(dir)) return bad(`The item worktree ${dir} does not exist.`);
+  return { task: { id: found.id, description: "", dependencies: [], files: null }, dir, line };
+}
+
 /** The task from the plan and the item's directory, or the exit-3 result saying why not. */
 function taskAndDir(root: string, feature: Feature, taskId: string): { task: PlannedTask; dir: string; line: string } | VerifyResult {
+  if (feature.meta?.kind === "bug") return bugTaskAndDir(root, feature, taskId);
   const planPath = join(feature.dir, ARTIFACTS["implementation-plan"].file);
   if (!existsSync(planPath)) return bad(`'${feature.name}' has no implementation plan (${ARTIFACTS["implementation-plan"].file}).`);
   const id = taskId.trim().toUpperCase();
