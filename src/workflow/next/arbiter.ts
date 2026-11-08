@@ -180,6 +180,13 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     return earlier ? { kind: "earlier", other: earlier } : null;
   }
 
+  /**
+   * A later overlapping task whose developer is in the pool holds an earlier task's seat: the wait is on an in-flight
+   * seat that ends on its own, so it never closes a cycle with the open-task hold, which only points at earlier tasks.
+   */
+  const runningLater = (t: LoopTask): LoopTask | undefined =>
+    plan.find((o) => overlapping(t, o) && rankPos(o.id) > rankPos(t.id) && world.pool.some((p) => p.task === o.id));
+
   // The developer pool against the live cap: fix-round, resume-commit and minimal-fix developers first, then new
   // developers, each in plan order. Inline developers bypass N.
   const priority = (d: Dispatch): boolean => d.mode !== "new" || d.round !== undefined;
@@ -195,6 +202,23 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     const t = byId.get(d.task);
     const phase = world.tasks.get(d.task)?.phase.kind;
     const release = !priority(d) && phase !== "cycle" && phase !== "atCap";
+    // One file-writing seat per overlapping Files: every developer waits on a running later one or an earlier open one.
+    if (t !== undefined) {
+      const later = runningLater(t);
+      if (later !== undefined) {
+        const [mine, theirs] = entryPair(t, later);
+        developerWaits(d.task, `Files overlap ${mine} / ${theirs} (${later.id} developer in flight)`, { kind: "task", task: later.id });
+        continue;
+      }
+    }
+    if (!release && t !== undefined) {
+      const overlap = overlapHold(t);
+      if (overlap?.kind === "open") {
+        const [mine, theirs] = entryPair(t, overlap.other);
+        developerWaits(d.task, `Files overlap ${mine} / ${theirs} (${overlap.other.id})`, { kind: "task", task: overlap.other.id });
+        continue;
+      }
+    }
     if (release && t !== undefined) {
       const dep = t.dependencies.find((id) => {
         const s = world.tasks.get(id);
@@ -241,6 +265,12 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     .map((t) => t.id);
   for (const d of testWriters) {
     const t = byId.get(d.task);
+    const later = t !== undefined ? runningLater(t) : undefined;
+    if (later !== undefined && t !== undefined) {
+      const reason = `Files overlap ${entryPair(t, later).join(" / ")} (${later.id} developer in flight)`;
+      wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.id });
+      continue;
+    }
     const overlap = t !== undefined ? overlapHold(t) : null;
     if (overlap !== null && t !== undefined) {
       const reason =

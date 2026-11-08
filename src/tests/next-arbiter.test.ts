@@ -605,6 +605,152 @@ describe("arbiter: overlaps and the test-writer window", () => {
     }
   });
 
+  describe("one file-writing seat per overlapping Files", () => {
+    const pair = (): LoopTask[] => [
+      loopTask("TASK-001", { ...shared, overlaps: ["TASK-002"] }),
+      loopTask("TASK-002", { ...shared, overlaps: ["TASK-001"] }),
+    ];
+    const atCap = (): TaskPhase => ({ kind: "atCap", cap: { kind: "minimalFixOwed", via: "breaker" } });
+    const running = (line = 10): TaskState["seats"]["developer"] => ({ kind: "running", line, inline: false, origin: "progress" });
+    const round = (task: string): Intent => dev(task, { mode: "resume", round: 1 });
+    const waitOn = (r: Arbitration, task: string) => r.waits.find((w) => w.wait.task === task);
+
+    // Follows task-to-task waits from every waiting task; a revisit is a cycle that would stall the item forever.
+    const expectNoWaitCycle = (r: Arbitration): void => {
+      const edges = new Map<string, string>();
+      for (const w of r.waits) if (w.blockedBy.kind === "task" && w.wait.task !== undefined) edges.set(w.wait.task, w.blockedBy.task);
+      for (const start of edges.keys()) {
+        const seen = new Set<string>([start]);
+        for (let at = edges.get(start); at !== undefined; at = edges.get(at)) {
+          expect(seen.has(at), `wait cycle through ${at}`).toBe(false);
+          seen.add(at);
+        }
+      }
+    };
+
+    const reopenedWhileLaterInCycle = (): { r: Arbitration } => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        states: { "TASK-001": { phase: cycle(), commits: ["abc1234"] }, "TASK-002": { phase: cycle(), commits: ["def5678"] } },
+      });
+      return { r: run(world, [round("TASK-001"), round("TASK-002")]) };
+    };
+    const reopenedWhileLaterAtCap = (): { r: Arbitration } => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        states: { "TASK-001": { phase: cycle(), commits: ["abc1234"] }, "TASK-002": { phase: atCap(), commits: ["def5678"] } },
+      });
+      return { r: run(world, [round("TASK-001"), dev("TASK-002", { mode: "fresh" })]) };
+    };
+    const reopenedWhileLaterRunning = (): { r: Arbitration } => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        pool: [poolSeat("TASK-002")],
+        states: {
+          "TASK-001": { phase: cycle(), commits: ["abc1234"] },
+          "TASK-002": { phase: cycle(), commits: ["def5678"], developerSeat: running() },
+        },
+      });
+      return { r: run(world, [round("TASK-001"), inFlight("TASK-002", "developer")]) };
+    };
+
+    it("dispatches a reopened earlier task's round developer and makes a later task in a cycle wait on it", () => {
+      const { r } = reopenedWhileLaterInCycle();
+      expect(dispatchedTasks(r, "developer")).toEqual(["TASK-001"]);
+      expect(waitsOf(r, "TASK-002")).toHaveLength(1);
+      expect(waitsOf(r, "TASK-002")[0].reason).toContain("TASK-001");
+      expect(waitOn(r, "TASK-002")?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
+    });
+
+    it("makes a later task's minimal-fix developer at the cap wait on the earlier overlapping task", () => {
+      const { r } = reopenedWhileLaterAtCap();
+      expect(dispatchedTasks(r, "developer")).toEqual(["TASK-001"]);
+      expect(waitsOf(r, "TASK-002")[0].reason).toContain("TASK-001");
+      expect(waitOn(r, "TASK-002")?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
+    });
+
+    it("makes a later task's resume-commit developer wait on an earlier open overlapping task", () => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        states: { "TASK-001": { phase: cycle(), commits: ["abc1234"] }, "TASK-002": { phase: cycle(), commits: ["def5678"] } },
+      });
+      const r = run(world, [dev("TASK-002", { mode: "resume" })]);
+      expect(dispatchedTasks(r)).toEqual([]);
+      expect(waitOn(r, "TASK-002")?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
+    });
+
+    it("holds a reopened earlier task's round developer while a later overlapping developer is running, naming it", () => {
+      const { r } = reopenedWhileLaterRunning();
+      expect(dispatchedTasks(r, "developer")).toEqual([]);
+      expect(waitsOf(r, "TASK-001")).toHaveLength(1);
+      expect(waitsOf(r, "TASK-001")[0].reason).toContain("TASK-002");
+      expect(waitOn(r, "TASK-001")?.blockedBy).toEqual({ kind: "task", task: "TASK-002" });
+      expect(r.inFlight).toEqual([{ task: "TASK-002", seat: "developer" }]);
+    });
+
+    it("lets the reopened earlier task's round developer go once the later developer is done", () => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        states: { "TASK-001": { phase: cycle(), commits: ["abc1234"] }, "TASK-002": { phase: cycle(), commits: ["def5678"] } },
+      });
+      const r = run(world, [round("TASK-001")]);
+      expect(dispatchedTasks(r, "developer")).toEqual(["TASK-001"]);
+      expect(waitsOf(r, "TASK-001")).toEqual([]);
+    });
+
+    it("keeps a resumed developer of the later task, already running, out of the hold", () => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        pool: [poolSeat("TASK-002")],
+        states: {
+          "TASK-001": { phase: cycle(), commits: ["abc1234"] },
+          "TASK-002": { phase: cycle(), commits: ["def5678"], developerSeat: running() },
+        },
+      });
+      const r = run(world, [dev("TASK-002", {}, "resume")], true);
+      expect(dispatchedTasks(r, "developer")).toEqual(["TASK-002"]);
+      expect(waitsOf(r, "TASK-002")).toEqual([]);
+    });
+
+    it("holds an earlier task's test-writer while a later overlapping developer is running", () => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        pool: [poolSeat("TASK-002")],
+        states: { "TASK-002": { phase: cycle(), commits: ["def5678"], developerSeat: running() } },
+      });
+      const r = run(world, [seatDispatch("TASK-001", "test-writer"), inFlight("TASK-002", "developer")]);
+      expect(dispatchedTasks(r, "test-writer")).toEqual([]);
+      expect(waitsOf(r, "TASK-001")[0].reason).toContain("TASK-002");
+      expect(waitOn(r, "TASK-001")?.blockedBy).toEqual({ kind: "task", task: "TASK-002" });
+    });
+
+    it("releases an earlier task's test-writer when the later overlapping developer is not running", () => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        states: { "TASK-002": { phase: cycle(), commits: ["def5678"] } },
+      });
+      const r = run(world, [seatDispatch("TASK-001", "test-writer")]);
+      expect(dispatchedTasks(r, "test-writer")).toEqual(["TASK-001"]);
+      expect(waitsOf(r, "TASK-001")).toEqual([]);
+    });
+
+    it("builds no wait cycle across the reopened, at-cap and running arrangements", () => {
+      for (const build of [reopenedWhileLaterInCycle, reopenedWhileLaterAtCap, reopenedWhileLaterRunning]) {
+        const { r } = build();
+        expect(r.waits.length).toBeGreaterThan(0);
+        expectNoWaitCycle(r);
+      }
+    });
+  });
+
   it("holds a later task's test-writer behind an open overlapping task that ranks earlier", () => {
     const world = worldOf({
       tasks: [
