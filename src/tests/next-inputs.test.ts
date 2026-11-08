@@ -305,6 +305,36 @@ describe("readLoopInputs: report commits", () => {
     await putItemFile("loop/task-001-fix-2-report.md", "## Commits created\n\n- b2c3d4e round two\n- a1b2c3d repeated\n");
     expect(ok(readLoopInputs(root, featureOf())).reportCommits["TASK-001"]).toEqual(["a1b2c3d", "b2c3d4e", "d4e5f60"]);
   });
+
+  it("reads a sha given as a bare line under the heading, with or without a bullet", async () => {
+    await putItemFile("loop/task-001-report.md", [
+      "# Report", "", "## Commits created", "", "f30c4e9 fix(next): bare line", "1f78b1a second bare line", "- b2c3d4e bulleted", "",
+      "Prose after the list is not a commit.", "",
+    ].join("\n"));
+    expect(ok(readLoopInputs(root, featureOf())).reportCommits["TASK-001"]).toEqual(["f30c4e9", "1f78b1a", "b2c3d4e"]);
+  });
+
+  it("does not open a scan on a prose line that merely mentions Commits created", async () => {
+    await putItemFile("loop/task-001-report.md", "# Report\n\nThe Commits created by this round are listed elsewhere.\n- a1b2c3d mentioned in passing\n");
+    expect(Object.keys(ok(readLoopInputs(root, featureOf())).reportCommits)).not.toContain("TASK-001");
+  });
+
+  it("ignores shas under a prose mention that follows a real section", async () => {
+    await putItemFile("loop/task-001-report.md", [
+      "## Commits created", "", "- a1b2c3d real", "",
+      "## Concerns", "", "See the Commits created above.", "- deadbee not a commit", "",
+    ].join("\n"));
+    expect(ok(readLoopInputs(root, featureOf())).reportCommits["TASK-001"]).toEqual(["a1b2c3d"]);
+  });
+
+  it("reads non-numeric fix reports after the numeric rounds, by name", async () => {
+    await putItemFile("loop/task-001-report.md", "## Commits created\n\n- a1b2c3d first\n");
+    await putItemFile("loop/task-001-fix-past-cap-report.md", "## Commits created\n\n- e5f6071 past cap\n");
+    await putItemFile("loop/task-001-fix-10-report.md", "## Commits created\n\n- d4e5f60 round ten\n");
+    await putItemFile("loop/task-001-fix-2-report.md", "## Commits created\n\n- b2c3d4e round two\n");
+    await putItemFile("loop/task-001-fix-optimal-report.md", "## Commits created\n\n- f607182 optimal\n");
+    expect(ok(readLoopInputs(root, featureOf())).reportCommits["TASK-001"]).toEqual(["a1b2c3d", "b2c3d4e", "d4e5f60", "f607182", "e5f6071"]);
+  });
 });
 
 describe("readLoopInputs: verify runs", () => {

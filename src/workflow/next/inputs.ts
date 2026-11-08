@@ -87,42 +87,52 @@ function loopFiles(dir: string, suffix: string): { id: string; path: string }[] 
   });
 }
 
+// A section opens only on a heading or a line that starts with the label, so prose mentions do not.
+const COMMITS_LABEL = /^(?:#+\s*|\**)Commits created/;
+// A commit line: an optional bullet, then a (possibly backticked) sha as the first token.
+const COMMIT_LINE = /^\s*(?:[-*]\s+)?`?([0-9a-f]{7,40})\b/;
+
 function commitsOfReport(text: string): string[] | null {
-  const lines = text.split("\n");
   const shas: string[] = [];
+  const add = (sha: string): void => {
+    if (!shas.includes(sha)) shas.push(sha);
+  };
   let found = false;
-  for (let at = 0; at < lines.length; at++) {
-    if (!lines[at].includes("Commits created")) continue;
-    found = true;
-    const rest = lines[at].slice(lines[at].indexOf("Commits created") + "Commits created".length);
-    const onLabel = SHA.exec(rest.replace(/^[*_]*\s*:?/, ""));
-    if (onLabel && !shas.includes(onLabel[0])) shas.push(onLabel[0]);
-    let blank = false;
-    for (const line of lines.slice(at + 1)) {
-      if (/^#/.test(line)) break;
-      if (line.trim() === "") {
-        blank = true;
-        continue;
-      }
-      if (/^\s*[-*]\s/.test(line)) {
-        const sha = SHA.exec(line.replace(/^\s*[-*]\s/, ""));
-        if (sha && !shas.includes(sha[0])) shas.push(sha[0]);
-      } else if (blank) break;
+  let open = false;
+  for (const line of text.split("\n")) {
+    const label = COMMITS_LABEL.exec(line);
+    if (label) {
+      found = true;
+      open = true;
+      const onLabel = SHA.exec(line.slice(label[0].length).replace(/^[*_]*\s*:?/, ""));
+      if (onLabel) add(onLabel[0]);
+      continue;
     }
+    if (line.startsWith("#")) {
+      open = false;
+      continue;
+    }
+    if (!open) continue;
+    const sha = COMMIT_LINE.exec(line);
+    if (sha) add(sha[1]);
   }
   return found ? shas : null;
 }
 
-// task-NNN-report.md first, then task-NNN-fix-R-report.md by ascending numeric R.
+// task-NNN-report.md first, then task-NNN-fix-R-report.md by ascending numeric R, then the other
+// task-NNN-fix-<name>-report.md (fix-past-cap, …) by name. The test-writer's and automation-writer's
+// fix-round reports (…-tests-report.md, …-e2e-report.md) are not developer reports.
 function reportFiles(dir: string): { id: string; path: string }[] {
   const loop = join(dir, "loop");
   if (!existsSync(loop)) return [];
   const fixes = readdirSync(loop).flatMap((name) => {
-    const m = /^task-(\d+)-fix-(\d+)-report\.md$/.exec(name);
-    return m ? [{ id: `TASK-${m[1]}`, round: Number(m[2]), path: join(loop, name) }] : [];
+    const m = /^task-(\d+)-fix-(.+)-report\.md$/.exec(name);
+    if (!m || /-(?:tests|e2e)$/.test(m[2])) return [];
+    return [{ id: `TASK-${m[1]}`, round: /^\d+$/.test(m[2]) ? Number(m[2]) : null, name: m[2], path: join(loop, name) }];
   });
-  fixes.sort((a, b) => a.round - b.round);
-  return [...loopFiles(dir, "report\\.md"), ...fixes];
+  const numeric = fixes.filter((f) => f.round !== null).sort((a, b) => (a.round ?? 0) - (b.round ?? 0));
+  const named = fixes.filter((f) => f.round === null).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return [...loopFiles(dir, "report\\.md"), ...numeric, ...named];
 }
 
 function parseVerifyLog(text: string): VerifyRun[] {
