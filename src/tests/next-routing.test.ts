@@ -105,6 +105,21 @@ describe("routing a verify result by exit code", () => {
     expect(developerDispatches(actions, T1)).toEqual([]);
   });
 
+  it("names no fix round for a failure whose contention re-run is running", () => {
+    const state = ledger(...built(), verifyStarted(5, T1), verifyDone(7, T1, 1), done(8, T1, "code-reviewer", "clean"));
+    const running = cap({ contention: { held: [], running: T1, blocksDevelopers: true } });
+    const actions = routingActions(state, inputs([task(T1)], failLog(T1, 6)), running);
+    expect(developerDispatches(actions, T1)).toEqual([]);
+  });
+
+  it("names no fix round for a failure that owes a contention re-run note", () => {
+    const state = ledger(...built(), verifyStarted(5, T1), verifyDone(7, T1, 1), done(8, T1, "code-reviewer", "clean"));
+    const note = `Note ${T1}: verify rerun — contention EADDRINUSE`;
+    const owing = cap({ owed: [{ kind: "write", task: T1, line: note, record: `kf record ${FEATURE} line -- ${note}` }] });
+    const actions = routingActions(state, inputs([task(T1)], failLog(T1, 6)), owing);
+    expect(developerDispatches(actions, T1)).toEqual([]);
+  });
+
   it("stops the item on exit 2 until a decided note, then names the verify again", () => {
     const before = ledger(...built(), verifyStarted(5, T1), verifyDone(6, T1, 2), done(7, T1, "code-reviewer", "clean"));
     const stopped = routingActions(before, inputs([task(T1)]), cap());
@@ -187,6 +202,26 @@ describe("routing a failure another task explains", () => {
     const later = routingActions(answered, inputs([task(T1), task(T2)], failLog(T1, 11)), cap());
     expect(developerDispatches(later, T2)).toEqual([]);
     expect(developerDispatches(later, T1)).toEqual([]);
+  });
+
+  it("lets a waits note win over a routed note on the same failure", () => {
+    const state = ledger(
+      ...built(T2, "e4f5a6b", 0),
+      done(5, T2, "code-reviewer", "clean"),
+      dispatched(6, T1, "developer"),
+      commits(7, T1, SHA),
+      done(8, T1, "developer", "DONE"),
+      dispatched(9, T1, "code-reviewer"),
+      verifyStarted(10, T1),
+      verifyDone(12, T1, 1),
+      done(13, T1, "code-reviewer", "clean"),
+      [14, { type: "verifyWaits", task: T1, file: "src/TASK-002.ts", otherTask: T2 }],
+      [15, { type: "verifyRouted", task: T1, otherTask: T2 }],
+    );
+    const actions = routingActions(state, inputs([task(T1), task(T2)], failLog(T1, 11)), cap());
+    expect(of(actions, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
+    expect(developerDispatches(actions, T1)).toEqual([]);
+    expect(developerDispatches(actions, T2)).toEqual([]);
   });
 });
 
@@ -307,6 +342,26 @@ describe("the breaker and round seats", () => {
     const closed = routingActions(ledger(...events), inputs([task(T1)]), cap());
     expect(decides(closed, T1)).toEqual([]);
     expect(developerDispatches(closed, T1)).toEqual([]);
+  });
+
+  it("asks for the breaker for a kept failure after a clean round 5 re-review", () => {
+    const events: Stamped[] = [
+      ...roundsDone(4),
+      dispatched(50, T1, "developer", { round: 5 }),
+      commits(51, T1, `5${SHA.slice(1)}`),
+      done(52, T1, "developer", "DONE"),
+      dispatched(53, T1, "code-reviewer", { round: 5 }),
+      done(54, T1, "code-reviewer", "clean"),
+      fixRound(55, T1, 5),
+      verifyStarted(56, T1),
+      verifyDone(58, T1, 1),
+    ];
+    const actions = routingActions(ledger(...events), inputs([task(T1)], failLog(T1, 57)), cap());
+    expect(decides(actions, T1)).toEqual([
+      expect.objectContaining({ kind: "decide", task: T1, rule: "Breaker", closes: `Note ${T1}: decided — <what>` }),
+    ]);
+    expect(developerDispatches(actions, T1)).toEqual([]);
+    expect(stops(actions, T1)).toEqual([]);
   });
 
   it("owes test hashes after a round test-writer, then resumes the developer to commit", () => {
@@ -457,5 +512,39 @@ describe("seats that end without DONE", () => {
 
     const closed = routingActions(ledger(...events, commits(3, T1, SHA)), inputs([task(T1)]), cap());
     expect(decides(closed, T1).filter((d) => d.rule === "Seat status")).toEqual([]);
+  });
+});
+
+describe("one decided note closes one gate", () => {
+  const seatDecides = (actions: Action[]) => decides(actions, T1).filter((d) => d.rule === "Seat status");
+
+  it("closes an earlier exit 2 stop first and a later seat status decision with the next note", () => {
+    const events: Stamped[] = [...built(), verifyStarted(5, T1), verifyDone(6, T1, 2), done(7, T1, "code-reviewer", "BLOCKED")];
+    const open = routingActions(ledger(...events), inputs([task(T1)]), cap());
+    expect(stops(open, T1)).toEqual([{ kind: "stop", task: T1, reason: EXIT_2_STOP }]);
+    expect(seatDecides(open)).toHaveLength(1);
+
+    const one = routingActions(ledger(...events, decided(8, T1, "plan re-approved")), inputs([task(T1)]), cap());
+    expect(stops(one, T1)).toEqual([]);
+    expect(seatDecides(one)).toEqual([expect.objectContaining({ reason: "code-reviewer ended BLOCKED" })]);
+
+    const two = routingActions(ledger(...events, decided(8, T1, "plan re-approved"), decided(9, T1, "review goes on")), inputs([task(T1)]), cap());
+    expect(stops(two, T1)).toEqual([]);
+    expect(seatDecides(two)).toEqual([]);
+  });
+
+  it("closes an earlier seat status decision first and a later exit 2 stop with the next note", () => {
+    const events: Stamped[] = [...built(), done(5, T1, "code-reviewer", "BLOCKED"), verifyStarted(6, T1), verifyDone(7, T1, 2)];
+    const open = routingActions(ledger(...events), inputs([task(T1)]), cap());
+    expect(seatDecides(open)).toHaveLength(1);
+    expect(stops(open, T1)).toEqual([{ kind: "stop", task: T1, reason: EXIT_2_STOP }]);
+
+    const one = routingActions(ledger(...events, decided(8, T1, "review goes on")), inputs([task(T1)]), cap());
+    expect(seatDecides(one)).toEqual([]);
+    expect(stops(one, T1)).toEqual([{ kind: "stop", task: T1, reason: EXIT_2_STOP }]);
+
+    const two = routingActions(ledger(...events, decided(8, T1, "review goes on"), decided(9, T1, "plan re-approved")), inputs([task(T1)]), cap());
+    expect(seatDecides(two)).toEqual([]);
+    expect(stops(two, T1)).toEqual([]);
   });
 });

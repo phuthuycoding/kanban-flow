@@ -6,7 +6,6 @@ import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask, Seat 
 // Dispatches ignore the developer cap and the holds: `schedule()` arbitrates them.
 
 const NON_DONE = new Set(["NEEDS_CONTEXT", "BLOCKED", "DONE_WITH_CONCERNS"]);
-const SEATS: Seat[] = ["test-writer", "developer", "code-reviewer", "automation-writer"];
 const ROUND_SEATS: Seat[] = ["test-writer", "developer", "automation-writer"];
 const MAX_ROUNDS = 5;
 const FRESH_FROM = 4;
@@ -47,22 +46,59 @@ interface VerifyView {
   keptFailure: number | null;
 }
 
-function seatStatus(events: LedgerEvent[], task: string): Action[] {
+/** A judgement the human or the session owes on a task; each `decided` note closes exactly one. */
+interface Gate {
+  kind: "seat" | "exit2" | "exit3" | "breaker";
+  /** Index of the event that opened it. */
+  index: number;
+  seat?: Seat;
+}
+
+/** A failed verify at `i` that the breaker takes: not a contention re-run, a wait for a neighbour or a routed failure. */
+function breakerFailure(events: LedgerEvent[], cap: Cap, task: string, i: number): boolean {
+  const next = events.findIndex((e, j) => j > i && e.type === "verifyStarted" && e.task === task);
+  const between = next === -1 ? events.slice(i + 1) : events.slice(i + 1, next);
+  if (between.some((e) => (e.type === "verifyRerun" || e.type === "verifyWaits" || e.type === "verifyRouted") && e.task === task)) return false;
+  return next !== -1 || !heldByCap(cap, task);
+}
+
+/**
+ * The task's gates still open at the end of the ledger. Gates open in ledger order; each `decided` note of the task
+ * closes the earliest-opened gate still open at that point, so a note written for one gate never lifts another.
+ */
+function openGates(events: LedgerEvent[], cap: Cap, task: string, reopened: boolean): Gate[] {
+  let open: Gate[] = [];
+  let round = 0;
+  events.forEach((e, i) => {
+    if (e.type === "verifyRouted" && e.otherTask === task && !reopened && round >= MAX_ROUNDS && !open.some((g) => g.kind === "breaker")) {
+      open.push({ kind: "breaker", index: i });
+    }
+    if (!("task" in e) || e.task !== task) return;
+    if (isRoundSeat(e, task)) round = Math.max(round, e.round!);
+    if (e.type === "dispatched") open = open.filter((g) => !(g.kind === "seat" && g.seat === e.seat));
+    else if (e.type === "commits") open = open.filter((g) => !(g.kind === "seat" && g.seat === "developer"));
+    else if (e.type === "verifyStarted") open = open.filter((g) => g.kind !== "exit2" && g.kind !== "exit3");
+    else if (e.type === "decided") open = open.slice(1);
+    else if (e.type === "done" && NON_DONE.has(e.status)) open.push({ kind: "seat", index: i, seat: e.seat });
+    else if (e.type === "verifyDone" && e.exit === 2) open.push({ kind: "exit2", index: i });
+    else if (e.type === "verifyDone" && e.exit === 3) open.push({ kind: "exit3", index: i });
+
+    const breakerTrigger =
+      (e.type === "done" && e.seat === "code-reviewer" && e.status === "findings") ||
+      (e.type === "verifyDone" && e.exit === 1 && breakerFailure(events, cap, task, i));
+    if (breakerTrigger && !reopened && round >= MAX_ROUNDS && !open.some((g) => g.kind === "breaker")) {
+      open.push({ kind: "breaker", index: i });
+    }
+  });
+  return open;
+}
+
+function seatStatus(events: LedgerEvent[], task: string, gates: Gate[]): Action[] {
   const actions: Action[] = [];
-  for (const seat of SEATS) {
-    const i = lastIndex(events, (e) => e.type === "done" && e.task === task && e.seat === seat);
-    if (i === -1) continue;
-    const done = events[i] as Extract<LedgerEvent, { type: "done" }>;
-    if (!NON_DONE.has(done.status)) continue;
-    const closed = anyAfter(
-      events,
-      i,
-      (e) =>
-        (e.type === "dispatched" && e.task === task && e.seat === seat) ||
-        (e.type === "decided" && e.task === task) ||
-        (seat === "developer" && e.type === "commits" && e.task === task),
-    );
-    if (closed) continue;
+  for (const gate of gates) {
+    if (gate.kind !== "seat") continue;
+    const seat = gate.seat!;
+    const done = events[gate.index] as Extract<LedgerEvent, { type: "done" }>;
     const commitNote = seat === "developer" && done.status === "BLOCKED" ? ` | Note ${task}: commits <sha7>` : "";
     actions.push({
       kind: "decide",
@@ -82,12 +118,14 @@ function verifyRouting(
   task: string,
   actions: Action[],
   routed: Map<string, number[]>,
+  gates: Gate[],
 ): VerifyView {
   const { events } = state;
   const v = lastIndex(events, (e) => e.type === "verifyDone" && e.task === task);
   if (v === -1 || anyAfter(events, v, (e) => e.type === "verifyStarted" && e.task === task)) return { keptFailure: null };
   const { exit } = events[v] as Extract<LedgerEvent, { type: "verifyDone" }>;
-  const decidedAfter = anyAfter(events, v, (e) => e.type === "decided" && e.task === task);
+  // No `verify started` follows `v`, so its gate is closed only by the `decided` note that the one-note-one-gate rule gives it.
+  const decidedAfter = !gates.some((g) => (g.kind === "exit2" || g.kind === "exit3") && g.index === v);
 
   if (exit === 2) {
     if (decidedAfter) actions.push({ kind: "verify", task, command: verifyCommand(state, inputs, task, false) });
@@ -145,7 +183,7 @@ function developer(t: LoopTask, events: LedgerEvent[], mode: Dispatch["mode"], r
   return { kind: "dispatch", task: t.id, seat: "developer", mode, round, ...(isInline(events, t) ? { inline: true } : {}) };
 }
 
-function fixRounds(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[], view: VerifyView, routedHere: number[]): Action[] {
+function fixRounds(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[], view: VerifyView, routedHere: number[], gates: Gate[]): Action[] {
   const task = t.id;
   const triggers: number[] = [];
   const latestReview = lastIndex(events, (e) => e.type === "done" && e.task === task && e.seat === "code-reviewer");
@@ -170,8 +208,7 @@ function fixRounds(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[], view:
   if (round <= MAX_ROUNDS) {
     actions.push(developer(t, events, round < FRESH_FROM ? "resume" : "fresh", round));
   } else if (reopenedAt === -1) {
-    const trigger = Math.max(...due);
-    if (!anyAfter(events, trigger, (e) => e.type === "decided" && e.task === task)) {
+    if (gates.some((g) => g.kind === "breaker")) {
       actions.push({
         kind: "decide",
         task,
@@ -295,13 +332,16 @@ export function routingActions(state: LedgerState, inputs: LoopInputs, cap: Cap)
   const actions: Action[] = [];
   const routed = new Map<string, number[]>();
   const views = new Map<string, VerifyView>();
+  const gates = new Map<string, Gate[]>();
 
   for (const t of open) {
-    actions.push(...seatStatus(events, t.id));
-    views.set(t.id, verifyRouting(state, inputs, cap, t.id, actions, routed));
+    const reopened = events.some((e) => e.type === "reopened" && e.task === t.id);
+    gates.set(t.id, openGates(events, cap, t.id, reopened));
+    actions.push(...seatStatus(events, t.id, gates.get(t.id)!));
+    views.set(t.id, verifyRouting(state, inputs, cap, t.id, actions, routed, gates.get(t.id)!));
   }
   for (const t of open) {
-    actions.push(...fixRounds(inputs, t, events, views.get(t.id)!, routed.get(t.id) ?? []));
+    actions.push(...fixRounds(inputs, t, events, views.get(t.id)!, routed.get(t.id) ?? [], gates.get(t.id)!));
     actions.push(...roundSeatsDone(inputs, t, events));
     actions.push(...fixRoundLines(inputs, t.id, events));
   }
