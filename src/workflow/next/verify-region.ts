@@ -134,9 +134,15 @@ const onDone: RegionHandler<"verifyDone"> = (t, e, world) => {
   }
 };
 
-/** The orphan rule (fold only): a rerun note after a started verify with no done closes it and holds the re-run again. */
-const onRerunNote: RegionHandler<"verifyRerun"> = (t, e) =>
-  t.verify.kind === "running" ? failed(t, t.verify.line, { kind: "contentionHeld", signature: e.signature }) : t;
+/**
+ * The orphan rule (fold only): a rerun note after a started verify with no done closes it and holds the re-run again.
+ * A run that went stale tested an older tree, so the verify is owed again instead.
+ */
+const onRerunNote: RegionHandler<"verifyRerun"> = (t, e) => {
+  if (t.verify.kind !== "running") return t;
+  if (t.verify.stale) return { ...t, verify: { kind: "owed", atHead: false, why: "commit" } };
+  return failed(t, t.verify.line, { kind: "contentionHeld", signature: e.signature });
+};
 
 function rank(world: World, task: string): [number, number] {
   const i = world.inputs.tasks.findIndex((p) => p.id === task);

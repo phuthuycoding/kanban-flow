@@ -150,6 +150,8 @@ export function liveCap(state: LedgerState, inputs: LoopInputs): Cap {
       }
     }
     if (startIndex !== -1 && isRerun(events, startIndex)) continue;
+    // A commit of the task during the run makes it stale: the fold owes the verify again, so it is no contention.
+    if (startIndex !== -1 && events.slice(startIndex + 1, doneIndex).some((e) => e.type === "commits" && e.task === task)) continue;
     const later = events.slice(doneIndex + 1);
     if (later.some((e) => e.type === "verifyRerun" && e.task === task)) continue;
     const startTs = startIndex === -1 ? -Infinity : events[startIndex].ts;

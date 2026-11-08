@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 
-import { initialTask } from "../workflow/next/fold.js";
+import { foldWorld, initialTask } from "../workflow/next/fold.js";
 import { verifyStep } from "../workflow/next/verify-region.js";
-import type { LoopTask, MachineEvent, TaskState, VerifyRun, VerifyState, World } from "../workflow/next/types.js";
+import type { Cap, Judgement, LedgerEvent, LoopInputs, LoopTask, MachineEvent, TaskState, VerifyRun, VerifyState, World } from "../workflow/next/types.js";
 
 const BASE = Date.parse("2026-11-01T10:00:00Z");
 const at = (minute: number): number => BASE + minute * 60_000;
@@ -292,5 +292,151 @@ describe("verify region routed failures", () => {
     const world = worldOf();
     const t = verifyStep(world.tasks.get("TASK-002") as TaskState, ev(5, { type: "routedIn", task: "TASK-002", from: "TASK-001" }), world);
     expect(t.routedIn).toEqual([{ from: "TASK-001", line: 5, answered: false }]);
+  });
+});
+
+/** Applies the events in order to the task `id` and returns the whole task after the last one. */
+function playTask(id: string, events: MachineEvent[], seed: Seed = {}, start: Partial<TaskState> = {}): TaskState {
+  const world = worldOf(seed);
+  let t = { ...(world.tasks.get(id) as TaskState), ...start };
+  for (const e of events) t = verifyStep(t, e, world);
+  return t;
+}
+
+describe("verify region waits on a task that is already done", () => {
+  const failedRun = { "TASK-001": [block(4, 1, "AssertionError: expected 1 to be 2")] };
+
+  it("releases a wait at once, owing the verify at the head, when the awaited task is already complete", () => {
+    const states = play(
+      [commit(2), started(3), done(4, 1), ev(5, { type: "verifyWaits", task: "TASK-001", file: "src/shared.ts", otherTask: "TASK-002" })],
+      { runs: failedRun, others: { "TASK-002": { phase: { kind: "complete", how: "complete" } } } },
+    );
+    expect(last(states)).toEqual({ kind: "owed", atHead: true, why: "released" });
+  });
+});
+
+describe("verify region judgement queue", () => {
+  const routed: Judgement = { kind: "verifyRouted", task: "TASK-001", openedAt: 2, otherTask: "TASK-099" };
+  const exit2: Judgement = { kind: "verifyExit2", task: "TASK-001", openedAt: 3 };
+  const exit3: Judgement = { kind: "verifyExit3", task: "TASK-001", openedAt: 4, droppedShas: [] };
+  const unknown: Judgement = { kind: "verifyExit", task: "TASK-001", openedAt: 5, exit: 4 };
+  const decided = ev(9, { type: "decided", task: "TASK-001", what: "ok" });
+
+  it.each([
+    ["exit 2", exit2],
+    ["exit 3", exit3],
+    ["unknown exit", unknown],
+  ])("closes an open %s judgement when a new verify starts, wherever it sits in the queue", (_name, judgement) => {
+    const t = playTask("TASK-001", [started(8)], {}, { verify: { kind: "owed", atHead: false, why: "commit" }, judgements: [routed, judgement] });
+    expect(t.judgements).toEqual([routed]);
+    expect(t.verify).toMatchObject({ kind: "running", line: 8 });
+  });
+
+  it("closes the exit 2, exit 3 and unknown exit judgements together when a new verify starts", () => {
+    const t = playTask("TASK-001", [started(8)], {}, { verify: { kind: "owed", atHead: false, why: "commit" }, judgements: [exit2, routed, exit3, unknown] });
+    expect(t.judgements).toEqual([routed]);
+  });
+
+  it("leaves a judgement of another task alone when a new verify starts", () => {
+    const other: Judgement = { kind: "verifyExit2", task: "TASK-002", openedAt: 3 };
+    const t = playTask("TASK-001", [started(8)], {}, { verify: { kind: "owed", atHead: false, why: "commit" }, judgements: [other] });
+    expect(t.judgements).toEqual([other]);
+  });
+
+  it("closes only the head of the queue with one decided note", () => {
+    const t = playTask("TASK-001", [decided], {}, { verify: { kind: "exit2Stop" }, judgements: [exit2, exit3] });
+    expect(t.judgements).toEqual([exit3]);
+    expect(t.verify).toEqual({ kind: "owed", atHead: false, why: "decided" });
+  });
+
+  it("keeps a verify judgement that is not at the head when a decided note arrives", () => {
+    const t = playTask("TASK-001", [decided], {}, { verify: { kind: "exit2Stop" }, judgements: [routed, exit2] });
+    expect(t.judgements).toEqual([exit2]);
+    expect(t.verify).toEqual({ kind: "exit2Stop" });
+  });
+
+  it("opens an unknown exit judgement on exit 4 and closes it with a decided note, owing the verify", () => {
+    const states = playTask("TASK-001", [commit(2), started(3), done(4, 4)]);
+    expect(states.judgements).toEqual([{ kind: "verifyExit", task: "TASK-001", openedAt: 4, exit: 4 }]);
+    const closed = playTask("TASK-001", [commit(2), started(3), done(4, 4), ev(5, { type: "decided", task: "TASK-001", what: "ok" })]);
+    expect(closed.judgements).toEqual([]);
+    expect(closed.verify).toEqual({ kind: "owed", atHead: false, why: "decided" });
+  });
+});
+
+describe("verify region routed-in answers", () => {
+  const into = ev(2, { type: "routedIn", task: "TASK-002", from: "TASK-001" });
+  const unanswered = [{ from: "TASK-001", line: 2, answered: false }];
+  const answered = [{ from: "TASK-001", line: 2, answered: true }];
+  const own = (minute: number, body: Body): MachineEvent => ev(minute, body);
+
+  it("keeps a routed-in failure unanswered while nothing of the task answers it", () => {
+    expect(playTask("TASK-002", [into, own(3, { type: "commits", task: "TASK-002", shas: ["def5678"] })]).routedIn).toEqual(unanswered);
+  });
+
+  it("answers it on a later exit 0 of the receiving task's verify", () => {
+    const t = playTask("TASK-002", [
+      into,
+      own(3, { type: "commits", task: "TASK-002", shas: ["def5678"] }),
+      own(4, { type: "verifyStarted", task: "TASK-002" }),
+      own(5, { type: "verifyDone", task: "TASK-002", exit: 0 }),
+    ]);
+    expect(t.routedIn).toEqual(answered);
+  });
+
+  it("answers it when the receiving task parks", () => {
+    expect(playTask("TASK-002", [into, own(3, { type: "parked", task: "TASK-002", finding: "flaky" })]).routedIn).toEqual(answered);
+  });
+
+  it("answers it when the receiving task completes", () => {
+    expect(playTask("TASK-002", [into, own(3, { type: "complete", task: "TASK-002", text: "TASK-002: complete" })]).routedIn).toEqual(answered);
+  });
+});
+
+describe("verify region guards and stale failures", () => {
+  it("throws when a verify done arrives for a running verify the fold never saw start", () => {
+    expect(() => play([done(4, 0)], {}, { verify: { kind: "running", line: 3, rerun: false, stale: false } })).toThrow(/no verify started/);
+  });
+
+  it.each([
+    ["with no log block", {}],
+    ["with a plain assertion log block", { "TASK-001": [block(5, 1, "AssertionError: expected 1 to be 2")] }],
+    ["with a contention log block", { "TASK-001": [block(5, 1, EADDR)] }],
+  ])("owes the verify again when a commit lands during a run that then exits 1 %s", (_name, runs) => {
+    const states = play([commit(2), started(3), commit(4), done(5, 1)], { runs });
+    expect(last(states)).toMatchObject({ kind: "owed", atHead: false });
+  });
+
+  it("owes the verify again, not a held re-run, when a rerun note follows a run that went stale", () => {
+    const rerun = ev(6, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" });
+    const states = play([commit(2), started(3), commit(4), rerun]);
+    expect(last(states)).toMatchObject({ kind: "owed", atHead: false });
+  });
+});
+
+describe("verify region folds sharing one inputs object", () => {
+  const cap: Cap = { n: 2, ceiling: 6, owed: [], contention: { held: [], running: null, blocksDevelopers: false } };
+  const plan = [planTask("TASK-001")];
+  const inputs: LoopInputs = {
+    feature: "kf-next",
+    kind: "feature",
+    level: null,
+    tasks: plan,
+    ceiling: { max: 6, source: "default" },
+    reportCommits: {},
+    verifyRuns: { "TASK-001": [block(4, 1, EADDR)] },
+    gitLog: [],
+  };
+  const stamp = (events: MachineEvent[]): LedgerEvent[] => events as unknown as LedgerEvent[];
+  const verifyOf = (events: MachineEvent[]): VerifyState =>
+    (foldWorld({ events: stamp(events) }, inputs, cap).tasks.get("TASK-001") as TaskState).verify;
+
+  it("gives each ledger its own result", () => {
+    const held = [commit(2), started(3), done(4, 1)];
+    // The same verify lines, but the run is the re-run the note held, so its failure is kept.
+    const kept = [commit(2), started(3), done(4, 1), ev(5, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }), started(6), done(7, 1)];
+    expect(verifyOf(held)).toMatchObject({ kind: "failed", line: 3, disposition: { kind: "contentionHeld" } });
+    expect(verifyOf(kept)).toMatchObject({ kind: "failed", line: 6, disposition: { kind: "kept" } });
+    expect(verifyOf(held)).toMatchObject({ kind: "failed", line: 3, disposition: { kind: "contentionHeld" } });
   });
 });

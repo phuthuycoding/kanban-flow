@@ -610,3 +610,47 @@ describe("liveCap held re-runs keyed on the latest rerun note", () => {
     expect(cap.contention.running).toBeNull();
   });
 });
+
+describe("liveCap runs that went stale", () => {
+  const tasks = [task("TASK-001", 1), task("TASK-002", 1)];
+  const capAt4: [number, EventBody] = e(1, { type: "capRuling", from: null, to: 4, cause: { kind: "start" } });
+  const commits = (minute: number): [number, EventBody] => e(minute, { type: "commits", task: "TASK-001", shas: ["def5678"] });
+  const runs = { "TASK-001": [block(4, 1, EADDR)] };
+
+  it("does not count a contention-shaped failure as contention when a commit of the task landed during the run", () => {
+    const state = ledger(
+      capAt4,
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      commits(3),
+      e(4, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+    );
+    const cap = liveCap(state, inputs(tasks, { verifyRuns: runs }));
+    expect(cap.n).toBe(4);
+    expect(cap.owed).toEqual([]);
+    expect(cap.contention).toEqual({ held: [], running: null, blocksDevelopers: false });
+  });
+
+  it("still counts the failure as contention when the commit landed before the run started", () => {
+    const state = ledger(
+      capAt4,
+      commits(1),
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(4, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+    );
+    const cap = liveCap(state, inputs(tasks, { verifyRuns: runs }));
+    expect(cap.n).toBe(2);
+    expect(cap.contention.held).toEqual([{ task: "TASK-001", atHead: false, kind: "rerun" }]);
+  });
+
+  it("still counts the failure as contention when the commit that landed during the run belongs to another task", () => {
+    const state = ledger(
+      capAt4,
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(3, { type: "commits", task: "TASK-002", shas: ["fed4321"] }),
+      e(4, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+    );
+    const cap = liveCap(state, inputs(tasks, { verifyRuns: runs }));
+    expect(cap.n).toBe(2);
+    expect(cap.contention.held).toEqual([{ task: "TASK-001", atHead: false, kind: "rerun" }]);
+  });
+});
