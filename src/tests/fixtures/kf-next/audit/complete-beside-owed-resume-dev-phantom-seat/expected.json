@@ -1,5 +1,6 @@
 {
   "behaviour": "a task owing the resume-commit developer for its fixed tests is not complete",
+  "symptomToday": ["forbidden#0", "oracle", "beside"],
   "expect": [
     {
       "action": {

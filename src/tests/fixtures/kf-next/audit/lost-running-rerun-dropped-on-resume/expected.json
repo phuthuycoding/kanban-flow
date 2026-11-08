@@ -1,5 +1,6 @@
 {
   "behaviour": "a contention re-run lost at compaction is listed again on resume",
+  "symptomToday": ["missing#0"],
   "resume": true,
   "expect": [
     {

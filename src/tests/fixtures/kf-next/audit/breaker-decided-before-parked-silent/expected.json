@@ -1,5 +1,6 @@
 {
   "behaviour": "parked lines after the decided note close the Breaker",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "action": {

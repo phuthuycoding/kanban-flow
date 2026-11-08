@@ -1,5 +1,6 @@
 {
   "behaviour": "a minimal-fix note written before the parked line still names the fix developer",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "action": {

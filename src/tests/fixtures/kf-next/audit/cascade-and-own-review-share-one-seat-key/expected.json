@@ -1,5 +1,6 @@
 {
   "behaviour": "an own review and a cascade re-review answered by one done leave the task with a witness, not silence",
+  "symptomToday": ["missing#0"],
   "expect": [
     {
       "anyOf": [

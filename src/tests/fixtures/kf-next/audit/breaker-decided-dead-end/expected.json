@@ -1,5 +1,6 @@
 {
   "behaviour": "a Breaker closed by a decided note with nothing parked keeps the Breaker printed",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "action": {

@@ -1,5 +1,6 @@
 {
   "behaviour": "a dependency marked implemented releases its dependent's developer",
+  "symptomToday": ["missing#0", "forbidden#0"],
   "expect": [
     {
       "action": {

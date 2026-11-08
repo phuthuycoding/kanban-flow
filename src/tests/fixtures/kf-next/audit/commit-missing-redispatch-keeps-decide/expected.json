@@ -1,5 +1,6 @@
 {
   "behaviour": "a developer re-dispatched after a DONE with no commit is in flight, not a Commit missing decide",
+  "symptomToday": ["forbidden#0"],
   "expect": [
     {
       "inFlight": {

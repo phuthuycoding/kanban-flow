@@ -1,5 +1,6 @@
 {
   "behaviour": "a lost developer of an inline wave is resumed inline, never spawned anew",
+  "symptomToday": ["missing#0"],
   "resume": true,
   "expect": [
     {

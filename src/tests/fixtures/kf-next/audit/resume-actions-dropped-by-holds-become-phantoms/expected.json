@@ -1,5 +1,6 @@
 {
   "behaviour": "a lost verify is still named on resume while a decide holds the task",
+  "symptomToday": ["missing#0"],
   "resume": true,
   "expect": [
     {

@@ -1,5 +1,6 @@
 {
   "behaviour": "a reviewer status the scheduler has no rule for gets a decide, not silence",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "action": {

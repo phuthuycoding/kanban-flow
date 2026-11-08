@@ -1,5 +1,6 @@
 {
   "behaviour": "a cascade re-review waits while the task's own reviewer is in flight",
+  "symptomToday": ["missing#0", "tooMany#0"],
   "expect": [
     {
       "action": {

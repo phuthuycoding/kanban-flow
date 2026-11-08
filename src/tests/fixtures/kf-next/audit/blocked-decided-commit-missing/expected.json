@@ -1,12 +1,12 @@
 {
-  "behaviour": "a BLOCKED developer closed by a decision with no commit is resumed, not asked for a commit",
+  "behaviour": "a BLOCKED developer closed by a decided note goes on as DONE, so with no commit it gets a Commit missing that a re-dispatch also closes",
+  "symptomToday": ["forbidden#0"],
   "expect": [
     {
       "action": {
-        "kind": "dispatch",
+        "kind": "decide",
         "task": "TASK-001",
-        "seat": "developer",
-        "mode": "resume"
+        "rule": "Commit missing"
       }
     }
   ],
@@ -15,7 +15,22 @@
       "action": {
         "kind": "decide",
         "task": "TASK-001",
-        "rule": "Commit missing"
+        "rule": "Commit missing",
+        "closes": "Note TASK-001: commits <sha7>"
+      }
+    },
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "resume"
+      }
+    },
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
       }
     }
   ]

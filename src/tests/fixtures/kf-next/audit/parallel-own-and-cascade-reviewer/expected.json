@@ -1,5 +1,6 @@
 {
   "behaviour": "one output never dispatches two code-reviewers of the same task",
+  "symptomToday": ["tooMany#0"],
   "expect": [],
   "maxCount": [
     {

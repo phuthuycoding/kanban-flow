@@ -1,5 +1,6 @@
 {
   "behaviour": "an at-head re-run of the pre-fix tree is not the minimal fix's verify, so the cap stop stays lifted",
+  "symptomToday": ["forbidden#0"],
   "expect": [
     {
       "action": {

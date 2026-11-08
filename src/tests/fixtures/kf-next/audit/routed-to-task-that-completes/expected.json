@@ -1,5 +1,6 @@
 {
   "behaviour": "a failure routed to a task that then completed still gets an action",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "anyOf": [

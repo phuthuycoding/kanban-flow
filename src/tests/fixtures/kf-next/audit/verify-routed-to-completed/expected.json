@@ -1,5 +1,6 @@
 {
   "behaviour": "a verify routed to a completed task gives a decide or the task's own fix round",
+  "symptomToday": ["missing#0"],
   "expect": [
     {
       "anyOf": [

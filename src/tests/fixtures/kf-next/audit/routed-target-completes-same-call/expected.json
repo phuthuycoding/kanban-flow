@@ -1,5 +1,6 @@
 {
   "behaviour": "a task with a failure routed into it gets the fix round and is not complete",
+  "symptomToday": ["forbidden#0", "oracle", "beside"],
   "expect": [
     {
       "action": {

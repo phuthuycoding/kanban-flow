@@ -1,5 +1,6 @@
 {
   "behaviour": "a verify wait on a task that cannot land before it is a stop or a decide, not a wait",
+  "symptomToday": ["missing#0", "forbidden#0"],
   "expect": [
     {
       "anyOf": [

@@ -56,6 +56,7 @@ const AUDIT_IDS = [
   "seat-status-decided-no-redispatch",
   "implemented-dependency-never-finished",
   "commit-missing-redispatch-keeps-decide",
+  "fix-done-without-new-commit",
 ];
 
 // ---------------------------------------------------------------------------
@@ -137,6 +138,13 @@ interface Expected {
   forbid?: Item[];
   /** At most `n` actions match. */
   maxCount?: { action: Pattern; n: number }[];
+  /**
+   * The violations today's scheduler shows on this ledger, in the order `auditViolations` finds them: `missing#i`
+   * (expect item i absent), `forbidden#i` (forbid item i printed), `tooMany#i`, `silent` (no action at all),
+   * `oracle` (a complete the oracle refuses), `beside` (a complete beside another action of its task), `repeated`
+   * (a write printed again after recording it). Pinning them ties each expected failure to its audited defect.
+   */
+  symptomToday: string[];
 }
 
 function matches(actual: object, partial: Pattern): boolean {
@@ -159,28 +167,38 @@ function filled(line: string): string {
 
 const WRITE_STAMP = "2026-11-08T23:59:00+07:00";
 
-function assertAudit(loaded: Loaded, expected: Expected): void {
+interface Violation {
+  kind: string;
+  detail: string;
+}
+
+/** Every way the output breaks what the audit expects, in a fixed order; empty once the defect is gone. */
+function auditViolations(loaded: Loaded, expected: Expected): Violation[] {
   const resume = expected.resume ?? false;
   const result = schedule(loaded.state, loaded.inputs, { resume });
+  const found: Violation[] = [];
+  const add = (kind: string, detail: string): void => void found.push({ kind, detail: `${detail} in ${show(result)}` });
 
   // What the audit says kf next must print once the defect is gone.
-  for (const item of expected.expect) expect(present(result, item), `missing ${JSON.stringify(item)} in ${show(result)}`).toBe(true);
-  for (const item of expected.forbid ?? []) expect(present(result, item), `forbidden ${JSON.stringify(item)} in ${show(result)}`).toBe(false);
-  for (const { action, n } of expected.maxCount ?? []) {
-    const count = result.actions.filter((a) => matches(a, action)).length;
-    expect(count, `more than ${n} of ${JSON.stringify(action)} in ${show(result)}`).toBeLessThanOrEqual(n);
-  }
+  expected.expect.forEach((item, i) => {
+    if (!present(result, item)) add(`missing#${i}`, `missing ${JSON.stringify(item)}`);
+  });
+  (expected.forbid ?? []).forEach((item, i) => {
+    if (present(result, item)) add(`forbidden#${i}`, `forbidden ${JSON.stringify(item)}`);
+  });
+  (expected.maxCount ?? []).forEach(({ action, n }, i) => {
+    if (result.actions.filter((a) => matches(a, action)).length > n) add(`tooMany#${i}`, `more than ${n} of ${JSON.stringify(action)}`);
+  });
 
   // Never silent: `finished` or at least one action.
-  expect(result.actions.length, `silent output: ${show(result)}`).toBeGreaterThan(0);
+  if (result.actions.length === 0) add("silent", "no action");
 
   // Every printed complete agrees with the independent oracle, and is never beside another action of its task.
   for (const a of result.actions) {
     if (a.kind !== "complete") continue;
     const verdict = completionOracle(loaded.state, loaded.inputs, a.task);
-    expect(verdict.blockers, `complete ${a.task} printed while the oracle says not ready`).toEqual([]);
-    const beside = result.actions.filter((b: Action) => b !== a && "task" in b && b.task === a.task);
-    expect(beside, `complete ${a.task} printed beside another action of the task`).toEqual([]);
+    if (verdict.blockers.length > 0) add("oracle", `complete ${a.task} printed while the oracle says ${verdict.blockers.join("; ")}`);
+    if (result.actions.some((b: Action) => b !== a && "task" in b && b.task === a.task)) add("beside", `complete ${a.task} printed beside another action of the task`);
   }
 
   // Recording each printed write and re-running prints that write no more.
@@ -188,8 +206,9 @@ function assertAudit(loaded: Loaded, expected: Expected): void {
     if (a.kind !== "write") continue;
     const after = ledgerState(`${loaded.ledger.trimEnd()}\n${filled(a.line)} @ ${WRITE_STAMP}\n`);
     const again = schedule(after, loaded.inputs, { resume: false });
-    expect(again.actions.filter((b) => b.kind === "write" && b.line === a.line), `write repeated after recording it: ${a.line}`).toEqual([]);
+    if (again.actions.some((b) => b.kind === "write" && b.line === a.line)) add("repeated", `write repeated after recording it: ${a.line}`);
   }
+  return found;
 }
 
 const expectedOf = (id: string): Expected => JSON.parse(readFileSync(join(AUDIT, id, "expected.json"), "utf8")) as Expected;
@@ -207,6 +226,7 @@ describe("the liveness audit set", () => {
     const expected = expectedOf(id);
     expect(expected.behaviour).toMatch(/\S/);
     expect(expected.expect.length + (expected.forbid?.length ?? 0) + (expected.maxCount?.length ?? 0)).toBeGreaterThan(0);
+    expect(expected.symptomToday.length).toBeGreaterThan(0);
   });
 });
 
@@ -214,7 +234,15 @@ describe("schedule on the liveness audit ledgers", () => {
   // Expected failures: today's schedule() reproduces each audited defect. The state-machine switch turns them into
   // passing tests.
   it.fails.each(AUDIT_IDS.map((id) => [id, expectedOf(id).behaviour]))("%s: %s", (id) => {
-    assertAudit(loadFixture(join(AUDIT, id)), expectedOf(id));
+    expect(auditViolations(loadFixture(join(AUDIT, id)), expectedOf(id))).toEqual([]);
+  });
+
+  // An expected failure passes on any failure, a broken fixture included; this pins each one to the symptom the audit
+  // found, so it fails for that defect and no other. The state-machine switch removes this block with the defects.
+  it.each(AUDIT_IDS)("today's scheduler shows the audited symptom on %s", (id) => {
+    const expected = expectedOf(id);
+    const violations = auditViolations(loadFixture(join(AUDIT, id)), expected);
+    expect(violations.map((v) => v.kind), violations.map((v) => v.detail).join("\n")).toEqual(expected.symptomToday);
   });
 });
 
@@ -263,6 +291,67 @@ describe("the completion oracle", () => {
     const loaded = loadFixture(join(AUDIT, "breaker-park-plus-minimal-fix-completes"));
     const verdict = completionOracle(loaded.state, loaded.inputs, "TASK-001");
     expect(verdict.blockers).toContain("the minimal fix past the cap has no developer");
+  });
+
+  // A one-task ledger the oracle accepts; each case below adds or drops one line to show what blocks completion.
+  const READY = [
+    "# Task loop ledger — demo — plan: /repo/.works/implementation/demo_20261107_1200/phase-2-implementation-plan.md",
+    "Scan: clean @ 2026-11-07T10:00:00+07:00",
+    "Ruling: developer cap 2 — start — cost if wrong: x @ 2026-11-07T10:01:00+07:00",
+    "TASK-001: test-writer dispatched model=sonnet @ 2026-11-07T10:02:00+07:00",
+    "TASK-001: test-writer done status=DONE @ 2026-11-07T10:03:00+07:00",
+    `TASK-001: test hashes src/tests/task-001.test.ts=${"e".repeat(40)} @ 2026-11-07T10:04:00+07:00`,
+    "TASK-001: developer dispatched model=sonnet @ 2026-11-07T10:05:00+07:00",
+    "TASK-001: developer done status=DONE @ 2026-11-07T10:06:00+07:00",
+    "Note TASK-001: commits aaaaaaa @ 2026-11-07T10:07:00+07:00",
+    "TASK-001: review package aaaaaaa @ 2026-11-07T10:08:00+07:00",
+    "TASK-001: verify started @ 2026-11-07T10:09:00+07:00",
+    "TASK-001: code-reviewer dispatched model=sonnet @ 2026-11-07T10:10:00+07:00",
+    "TASK-001: verify done exit=0 @ 2026-11-07T10:11:00+07:00",
+    "TASK-001: code-reviewer done status=clean @ 2026-11-07T10:12:00+07:00",
+  ];
+  const oracleOn = (lines: string[]) => {
+    const { inputs } = loadFixture(join(AUDIT, "seat-status-decided-no-redispatch"));
+    return completionOracle(ledgerState(`${lines.join("\n")}\n`), inputs, "TASK-001");
+  };
+  const without = (prefix: string): string[] => READY.filter((l) => !l.startsWith(prefix));
+
+  it("accepts a task whose seats, verify and own review all finished clean", () => {
+    expect(oracleOn(READY)).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("refuses a task whose DONE test-writer has no test hashes after it", () => {
+    expect(oracleOn(without("TASK-001: test hashes")).blockers).toContain("the test-writer done at line 5 has no test hashes after it");
+  });
+
+  it("refuses a task whose DONE automation-writer has no test hashes after it", () => {
+    const lines = [
+      ...READY.slice(0, 6),
+      "TASK-001: automation-writer dispatched model=sonnet @ 2026-11-07T10:04:10+07:00",
+      "TASK-001: automation-writer done status=DONE @ 2026-11-07T10:04:20+07:00",
+      ...READY.slice(6),
+    ];
+    expect(oracleOn(lines).blockers).toContain("the automation-writer done at line 8 has no test hashes after it");
+  });
+
+  it("refuses a task whose verify still waits on another task's commit", () => {
+    const lines = [...READY, "Note TASK-001: verify waits — src/task-002.ts (TASK-002) @ 2026-11-07T10:13:00+07:00"];
+    expect(oracleOn(lines).blockers).toContain("the verify wait on TASK-002 is unanswered");
+  });
+
+  it("refuses a task whose queued fix has no developer yet", () => {
+    const lines = [...READY, "TASK-001: fix queued — developer TASK-002 in flight @ 2026-11-07T10:13:00+07:00"];
+    expect(oracleOn(lines).blockers).toContain("the queued fix has no developer");
+  });
+
+  it("accepts a developer NEEDS_CONTEXT closed by a decided note once its commit is recorded", () => {
+    const lines = [
+      ...READY.slice(0, 7),
+      "TASK-001: developer done status=NEEDS_CONTEXT @ 2026-11-07T10:06:00+07:00",
+      "Note TASK-001: decided — the schema was supplied; go on @ 2026-11-07T10:06:30+07:00",
+      ...READY.slice(8),
+    ];
+    expect(oracleOn(lines)).toEqual({ ready: true, blockers: [] });
   });
 
   it("refuses a task that a failure is routed into until it passes again", () => {

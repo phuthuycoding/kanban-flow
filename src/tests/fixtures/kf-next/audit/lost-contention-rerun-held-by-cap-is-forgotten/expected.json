@@ -1,5 +1,6 @@
 {
   "behaviour": "an orphaned contention re-run is released once the developers drop below the cap",
+  "symptomToday": ["missing#0"],
   "expect": [
     {
       "action": {

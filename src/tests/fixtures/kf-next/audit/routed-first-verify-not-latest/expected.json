@@ -1,5 +1,6 @@
 {
   "behaviour": "a routed failure is answered by any later passing verify of the target, not only its first",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "action": {

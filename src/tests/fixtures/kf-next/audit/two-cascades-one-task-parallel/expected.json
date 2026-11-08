@@ -1,5 +1,6 @@
 {
   "behaviour": "two owed cascade re-reviews of one task are dispatched one at a time",
+  "symptomToday": ["tooMany#0"],
   "expect": [],
   "maxCount": [
     {

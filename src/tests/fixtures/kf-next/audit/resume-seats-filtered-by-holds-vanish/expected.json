@@ -1,5 +1,6 @@
 {
   "behaviour": "a lost developer seat is still named on resume while a global decide holds new dispatches",
+  "symptomToday": ["missing#0"],
   "resume": true,
   "expect": [
     {

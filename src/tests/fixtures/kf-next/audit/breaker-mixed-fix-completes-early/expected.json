@@ -1,5 +1,6 @@
 {
   "behaviour": "a failed verify of the minimal fix is re-run and never sits beside complete",
+  "symptomToday": ["forbidden#0", "oracle", "beside"],
   "expect": [
     {
       "action": {

@@ -1,5 +1,6 @@
 {
   "behaviour": "two stacked cascade dispatches answered by one done leave the task a witness",
+  "symptomToday": ["missing#0"],
   "expect": [
     {
       "anyOf": [

@@ -1,5 +1,6 @@
 {
   "behaviour": "a park plus a minimal-fix note names the fix developer instead of completing",
+  "symptomToday": ["missing#0", "forbidden#0", "oracle"],
   "expect": [
     {
       "action": {

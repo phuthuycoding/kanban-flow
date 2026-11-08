@@ -1,5 +1,6 @@
 {
   "behaviour": "a reviewer DONE_WITH_CONCERNS closed by a decided note is dispatched again",
+  "symptomToday": ["missing#0", "silent"],
   "expect": [
     {
       "action": {

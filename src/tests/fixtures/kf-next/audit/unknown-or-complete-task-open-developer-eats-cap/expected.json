@@ -1,5 +1,6 @@
 {
   "behaviour": "an open developer seat of a task the plan dropped holds no cap slot",
+  "symptomToday": ["missing#0", "forbidden#0"],
   "expect": [
     {
       "action": {

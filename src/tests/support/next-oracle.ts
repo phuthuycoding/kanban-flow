@@ -126,14 +126,36 @@ export function completionOracle(state: LedgerState, inputs: LoopInputs, task: s
   const rerunAt = events.findIndex((e, i) => i >= from && e.type === "verifyRerun" && e.task === task && i > lastStart);
   if (rerunAt !== -1) block("a contention re-run of the task is owed");
 
-  // The implementer seats: each latest answer must be DONE, or a concern or block a decision has closed.
+  // The implementer seats: each latest answer must be DONE, or a status a decided note or a Ruling has closed; such
+  // a seat goes on as DONE (FR-014), whatever status it ended with.
   for (const seat of ["test-writer", "automation-writer", "developer"] as Seat[]) {
     const answered = dispatches.filter((d) => d.seat === seat && d.status !== null);
     const latest = answered[answered.length - 1];
     if (!latest) continue;
     if (latest.status === "DONE") continue;
-    if ((latest.status === "DONE_WITH_CONCERNS" || latest.status === "BLOCKED") && decisionAfter(events, task, latest.doneAt)) continue;
+    if (decisionAfter(events, task, latest.doneAt)) continue;
     block(`${seat} ended ${latest.status} with no closing decision`);
+  }
+
+  // A test-writer or automation-writer that ended DONE wrote tests: their hashes must be recorded after its done, or
+  // the developer's commit cannot be checked against them.
+  for (const d of dispatches) {
+    if ((d.seat !== "test-writer" && d.seat !== "automation-writer") || d.status !== "DONE") continue;
+    if (!events.some((e, i) => i > d.doneAt && e.type === "testHashes" && e.task === task)) block(`the ${d.seat} done at line ${events[d.doneAt].line} has no test hashes after it`);
+  }
+
+  // A verify waiting on another task's commit owes the task a verify started after the note, or a parked line.
+  for (let i = from; i < events.length; i++) {
+    const e = events[i];
+    if (e.type !== "verifyWaits" || e.task !== task) continue;
+    if (!events.some((x, j) => j > i && own(j) && (x.type === "verifyStarted" || x.type === "parked"))) block(`the verify wait on ${e.otherTask} is unanswered`);
+  }
+
+  // A legacy queued fix owes the task a fix-round developer dispatched after it.
+  for (let i = from; i < events.length; i++) {
+    const e = events[i];
+    if (e.type !== "fixQueued" || e.task !== task) continue;
+    if (!dispatches.some((d) => d.index > i && d.seat === "developer" && d.round !== undefined)) block("the queued fix has no developer");
   }
 
   // The developer committed: the latest developer dispatch of this life is followed by a commit of the task.
