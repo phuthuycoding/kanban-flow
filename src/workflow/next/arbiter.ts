@@ -21,12 +21,13 @@ const sameSha = (a: string, b: string): boolean => a.startsWith(b) || b.startsWi
 const overlapping = (a: LoopTask, b: LoopTask): boolean =>
   a.id !== b.id && (a.files === null || b.files === null || a.overlaps.includes(b.id) || b.overlaps.includes(a.id));
 
-/** The first overlapping entry pair of two tasks; a side with unknown Files reads `Files unknown`. */
-function entryPair(a: LoopTask, b: LoopTask): [string, string] {
+/**
+ * The first overlapping entry pair of two tasks; a side with unknown Files reads `Files unknown`. Null when the plan
+ * marks them overlapping but no entry pair overlaps: the arbiter has no rule for that seat.
+ */
+function entryPair(a: LoopTask, b: LoopTask): [string, string] | null {
   if (a.files === null || b.files === null) return [a.files?.[0] ?? UNKNOWN, b.files?.[0] ?? UNKNOWN];
-  const pair = firstOverlap(a.files, b.files);
-  if (pair === null) throw new Error(`${a.id} and ${b.id} are marked overlapping but no Files entry pair overlaps`);
-  return pair;
+  return firstOverlap(a.files, b.files);
 }
 
 /** An open task: its test-writer or developer has been dispatched and it is not complete. */
@@ -42,6 +43,24 @@ function isOpen(t: TaskState | undefined): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * `wave <w>: parallel test-writers …` or `wave <w>: sequential A, B — <why>` for a wave of two or more tasks; null for a
+ * one-task wave; undefined when two tasks are marked overlapping but no Files entry pair overlaps.
+ */
+function waveLine(tasks: LoopTask[], w: number): string | null | undefined {
+  if (tasks.length < 2) return null;
+  for (let i = 0; i < tasks.length; i++) {
+    for (let j = i + 1; j < tasks.length; j++) {
+      const [a, b] = [tasks[i], tasks[j]];
+      if (!overlapping(a, b)) continue;
+      if (a.files === null || b.files === null) return `wave ${w}: sequential ${a.id}, ${b.id} — ${UNKNOWN}`;
+      const pair = entryPair(a, b);
+      return pair === null ? undefined : `wave ${w}: sequential ${a.id}, ${b.id} — Files overlap ${pair.join(" / ")}`;
+    }
+  }
+  return `wave ${w}: parallel test-writers ${tasks.map((t) => t.id).join(", ")} — disjoint Files`;
 }
 
 /** The wait a held progress dispatch prints: it names the stop or decide that holds it. */
@@ -70,29 +89,42 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
   const rankPos = (task: string): number => rank.get(task) ?? Infinity;
   const isComplete = (id: string): boolean => world.tasks.get(id)?.phase.kind === "complete";
 
-  const out: { a: Action; resumed: boolean }[] = [];
+  /** `at`: a resumed item's ledger line, so resumed items keep the ledger order of their seats and verifies. */
+  const out: { a: Action; resumed: boolean; at: number }[] = [];
   const inFlight: InFlight[] = [];
   const waits: Arbitration["waits"] = [];
   const seen = new Set<string>();
   const seenInFlight = new Set<string>();
+  const unplaced = new Set<string>();
 
   // A resumed item is exempt from dedupe; every other action is printed once per identical shape.
-  const emit = (a: Action, resumed = false): void => {
+  const emit = (a: Action, resumed = false, at = 0): void => {
     const key = JSON.stringify(a);
     if (!resumed && seen.has(key)) return;
     seen.add(key);
-    out.push({ a, resumed });
+    out.push({ a, resumed, at });
   };
-  const wait = (w: Wait, blockedBy: WaitBlocker): void => {
+  const wait = (w: Wait, blockedBy: WaitBlocker, quiet = false): void => {
     const key = JSON.stringify(w);
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ a: w, resumed: false });
-    waits.push({ wait: w, blockedBy });
+    out.push({ a: w, resumed: false, at: 0 });
+    waits.push({ wait: w, blockedBy, ...(quiet ? { quiet: true as const } : {}) });
   };
+  // The `developer waits` line is owed once: not again while the task's latest waits line has the same reason.
   const developerWaits = (task: string, reason: string, blockedBy: WaitBlocker): void => {
     wait({ kind: "wait", task, reason }, blockedBy);
+    if (world.tasks.get(task)?.waitsWritten === reason) return;
     emit({ kind: "write", task, line: `${task}: developer waits — ${reason}`, record: `kf record ${f} waits ${task} -- ${shellQuote(reason)}` });
+  };
+  /** `Files overlap <mine> / <theirs> (<about>)`; null, with the task unplaced, when no entry pair overlaps. */
+  const overlapReason = (t: LoopTask, other: LoopTask, about: string): string | null => {
+    const pair = entryPair(t, other);
+    if (pair === null) {
+      unplaced.add(t.id);
+      return null;
+    }
+    return `Files overlap ${pair[0]} / ${pair[1]} (${about})`;
   };
   const verifyCommand = (task: string, atHead: boolean): string =>
     `kf verify ${f} --task ${task} --commits ${(world.tasks.get(task)?.commits ?? []).join(",")}${atHead ? " --at-head" : ""}`;
@@ -113,7 +145,43 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
   const testWriters: Dispatch[] = [];
   const reviewers: Dispatch[] = [];
 
+  /** The ledger line of the lost seat or verify a resumed action re-issues. */
+  const lostAt = (a: Action): number => {
+    if (a.kind === "verify") {
+      const v = world.tasks.get(a.task)?.verify;
+      return v?.kind === "running" ? v.line : 0;
+    }
+    if (a.kind !== "dispatch") return 0;
+    const t = world.tasks.get(a.task);
+    if (t === undefined) return 0;
+    const slot = a.seat === "test-writer" && t.phase.kind === "tests" ? t.phase.writer : t.seats[a.seat];
+    return slot.kind === "running" ? slot.line : 0;
+  };
+
+  // Contention: one re-run at a time, while developers are below N. A re-run lost under `--resume` goes first; with the
+  // cap full its rerun note is written again, and a later call below the cap releases it. Otherwise the earliest held
+  // re-run is released while nothing re-runs.
+  const lost = intents.find(
+    (i): i is Extract<Intent, { kind: "act" }> =>
+      i.origin === "resume" && i.kind === "act" && i.action.kind === "verify" && i.action.task === contention.running,
+  );
+  const nextHeld = contention.held[0];
+  if (lost !== undefined && lost.action.kind === "verify") {
+    const task = lost.action.task;
+    const signature = world.rerunSignature?.get(task);
+    if (world.pool.length < n) emit({ ...lost.action, rerun: true }, true, -1);
+    else if (signature !== undefined) {
+      const line = `Note ${task}: verify rerun — contention ${signature}`;
+      emit({ kind: "write", task, line, record: `kf record ${f} line -- ${shellQuote(line)}` });
+    } else wait({ kind: "wait", task, reason: `${n} developers in flight` }, { kind: "pool" });
+  } else if (contention.running === null && nextHeld !== undefined && !heldTasks.has(nextHeld.task)) {
+    // A re-run the full cap holds waits on the pool: it is its task's witness until developers drop below N.
+    if (world.pool.length < n) emit({ kind: "verify", task: nextHeld.task, command: verifyCommand(nextHeld.task, nextHeld.atHead), rerun: true }, true, -1);
+    else wait({ kind: "wait", task: nextHeld.task, reason: `${n} developers in flight` }, { kind: "pool" });
+  }
+
   for (const i of intents) {
+    if (i === lost) continue;
     if (i.kind === "inFlight") {
       const key = JSON.stringify(i.entry);
       if (!seenInFlight.has(key)) {
@@ -132,16 +200,17 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     }
     const a = i.action;
     if (i.origin === "resume") {
-      if (a.kind === "dispatch" && a.seat === "developer") {
+      if (a.kind === "dispatch") {
+        // A lost spawned seat is spawned again; a lost inline developer seat is the controller's, resumed inline.
         const slot = world.tasks.get(a.task)?.seats.developer;
-        const inline = a.inline === true || byId.get(a.task)?.inline === true || (slot?.kind === "running" && slot.inline);
-        emit(inline ? { ...a, inline: true } : a, true);
-      } else if (a.kind === "verify" && a.task === contention.running) {
-        // A lost re-run is the one re-run: it runs again only while developers are below the cap.
-        if (world.pool.length < n) emit({ ...a, rerun: true }, true);
-        else wait({ kind: "wait", task: a.task, reason: `${n} developers in flight` }, { kind: "pool" });
+        const inline =
+          a.seat === "developer" && (a.inline === true || byId.get(a.task)?.inline === true || (slot?.kind === "running" && slot.inline));
+        const resumed: Dispatch = { ...a, mode: inline ? "resume" : "new" };
+        if (inline) resumed.inline = true;
+        else delete resumed.inline;
+        emit(resumed, true, lostAt(a));
       } else {
-        emit(a, true);
+        emit(a, true, lostAt(a));
       }
       continue;
     }
@@ -152,20 +221,15 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     }
     if (a.seat !== "code-reviewer" && resumedKey.has(`${a.task} ${a.seat}`)) continue;
     if (itemHold !== undefined) {
+      // An item judgement witnesses every task by itself, so its hold is not printed; a task's stop names its hold.
       const { reason, blockedBy } = holdWait(itemHold);
-      wait({ kind: "wait", task: a.task, reason }, blockedBy);
+      wait({ kind: "wait", task: a.task, reason }, blockedBy, itemHold.action.task === undefined);
       continue;
     }
     if (a.seat === "developer") developers.push(a);
     else if (a.seat === "test-writer") testWriters.push(a);
     else if (a.seat === "code-reviewer") reviewers.push(a);
     else emit(a);
-  }
-
-  // Contention: one held re-run at a time, the earliest first, while nothing re-runs and developers are below N.
-  const nextHeld = contention.held[0];
-  if (contention.running === null && nextHeld !== undefined && world.pool.length < n && !heldTasks.has(nextHeld.task)) {
-    emit({ kind: "verify", task: nextHeld.task, command: verifyCommand(nextHeld.task, nextHeld.atHead), rerun: true });
   }
 
   /**
@@ -206,16 +270,16 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     if (t !== undefined) {
       const later = runningLater(t);
       if (later !== undefined) {
-        const [mine, theirs] = entryPair(t, later);
-        developerWaits(d.task, `Files overlap ${mine} / ${theirs} (${later.id} developer in flight)`, { kind: "task", task: later.id });
+        const reason = overlapReason(t, later, `${later.id} developer in flight`);
+        if (reason !== null) developerWaits(d.task, reason, { kind: "task", task: later.id });
         continue;
       }
     }
     if (!release && t !== undefined) {
       const overlap = overlapHold(t);
       if (overlap?.kind === "open") {
-        const [mine, theirs] = entryPair(t, overlap.other);
-        developerWaits(d.task, `Files overlap ${mine} / ${theirs} (${overlap.other.id})`, { kind: "task", task: overlap.other.id });
+        const reason = overlapReason(t, overlap.other, overlap.other.id);
+        if (reason !== null) developerWaits(d.task, reason, { kind: "task", task: overlap.other.id });
         continue;
       }
     }
@@ -230,8 +294,8 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
       }
       const overlap = overlapHold(t);
       if (overlap?.kind === "open") {
-        const [mine, theirs] = entryPair(t, overlap.other);
-        developerWaits(d.task, `Files overlap ${mine} / ${theirs} (${overlap.other.id})`, { kind: "task", task: overlap.other.id });
+        const reason = overlapReason(t, overlap.other, overlap.other.id);
+        if (reason !== null) developerWaits(d.task, reason, { kind: "task", task: overlap.other.id });
         continue;
       }
       if (overlap?.kind === "earlier") {
@@ -256,6 +320,7 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
   }
 
   // Test-writers ahead: at most four open at once, earliest first, none inside an open or earlier overlapping task.
+  const opened: string[] = [];
   testWriters.sort((a, b) => rankPos(a.task) - rankPos(b.task) || planPos(a.task) - planPos(b.task));
   const writing = ordered
     .filter((t) => {
@@ -267,25 +332,38 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     const t = byId.get(d.task);
     const later = t !== undefined ? runningLater(t) : undefined;
     if (later !== undefined && t !== undefined) {
-      const reason = `Files overlap ${entryPair(t, later).join(" / ")} (${later.id} developer in flight)`;
-      wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.id });
+      const reason = overlapReason(t, later, `${later.id} developer in flight`);
+      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.id }, true);
       continue;
     }
     const overlap = t !== undefined ? overlapHold(t) : null;
     if (overlap !== null && t !== undefined) {
-      const reason =
-        overlap.kind === "open"
-          ? `Files overlap ${entryPair(t, overlap.other).join(" / ")} (${overlap.other.id})`
-          : `earlier overlapping ${overlap.other.id} incomplete`;
-      wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: overlap.other.id });
+      const reason = overlap.kind === "open" ? overlapReason(t, overlap.other, overlap.other.id) : `earlier overlapping ${overlap.other.id} incomplete`;
+      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: overlap.other.id }, true);
       continue;
     }
     if (writing.length >= TEST_WRITER_WINDOW) {
-      wait({ kind: "wait", task: d.task, reason: `${TEST_WRITER_WINDOW} test-writers ahead: ${writing.join(", ")}` }, { kind: "task", task: writing[0] });
+      wait({ kind: "wait", task: d.task, reason: `${TEST_WRITER_WINDOW} test-writers ahead: ${writing.join(", ")}` }, { kind: "task", task: writing[0] }, true);
       continue;
     }
     emit(d);
     writing.push(d.task);
+    opened.push(d.task);
+  }
+
+  // The wave line of each wave a test-writer opens now, once per wave of two or more tasks (FR-004).
+  const waveNamed = new Set(world.wavesNamed ?? []);
+  for (const task of opened) {
+    const w = byId.get(task)?.wave;
+    if (w === undefined || waveNamed.has(w)) continue;
+    waveNamed.add(w);
+    const line = waveLine(plan.filter((t) => t.wave === w), w);
+    if (line === null) continue;
+    if (line === undefined) {
+      unplaced.add(task);
+      continue;
+    }
+    emit({ kind: "write", line, record: `kf record ${f} line -- ${shellQuote(line)}` });
   }
 
   // The reviewer lane (FR-025): one code-reviewer per task in flight, the oldest demand first.
@@ -311,27 +389,34 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     });
   }
 
-  assertCompletesSettled(world, out.map((o) => o.a));
+  // A complete the defensive checks reject is the arbiter's anomaly: dropped, its task unplaced.
+  const unsettled = unsettledCompletes(world, out.map((o) => o.a));
+  for (const task of unsettled) unplaced.add(task);
+  const settled = out.filter((o) => !(o.a.kind === "complete" && unsettled.has(o.a.task)));
 
-  const rankOf = (a: Action, resumed: boolean, i: number): number[] => {
+  const rankOf = (a: Action, resumed: boolean, at: number, i: number): number[] => {
     const kind = KIND_ORDER.indexOf(a.kind);
-    if (a.kind !== "dispatch" || resumed) return [kind, 0, 0, 0, i];
+    if (resumed) return [kind, 0, at, 0, i];
+    // Waits in plan order, as the developer release lists them.
+    if (a.kind === "wait") return [kind, 1, planPos(a.task), 0, i];
+    if (a.kind !== "dispatch") return [kind, 1, 0, 0, i];
     const group = a.seat === "developer" && priority(a) ? 1 : 2;
     return [kind, group, SEAT_ORDER.indexOf(a.seat), planPos(a.task), i];
   };
-  const ranked = out.map((o, i) => ({ a: o.a, r: rankOf(o.a, o.resumed, i) }));
+  const ranked = settled.map((o, i) => ({ a: o.a, r: rankOf(o.a, o.resumed, o.at, i) }));
   ranked.sort((x, y) => {
     for (let k = 0; k < x.r.length; k++) if (x.r[k] !== y.r[k]) return x.r[k] - y.r[k];
     return 0;
   });
-  return { actions: ranked.map((x) => x.a), inFlight, waits };
+  return { actions: ranked.map((x) => x.a), inFlight, waits, unplaced: [...unplaced] };
 }
 
 /**
  * Defensive checks kept from the old scheduler until the machine shows they never fire: a task is never completed
  * beside its own cascade re-review, nor while a dependency, direct or transitive, has a commit landing in this output.
+ * Returns the tasks whose complete breaks one.
  */
-function assertCompletesSettled(world: World, actions: Action[]): void {
+function unsettledCompletes(world: World, actions: Action[]): Set<string> {
   const cascadeDue = new Set<string>();
   const landing = new Set<string>();
   for (const a of actions) {
@@ -354,9 +439,9 @@ function assertCompletesSettled(world: World, actions: Action[]): void {
     }
     return false;
   };
+  const unsettled = new Set<string>();
   for (const a of actions) {
-    if (a.kind !== "complete") continue;
-    if (cascadeDue.has(a.task)) throw new Error(`arbiter: ${a.task} is completed beside its own cascade re-review`);
-    if (dependsOnLanding(a.task)) throw new Error(`arbiter: ${a.task} is completed while a dependency's commit lands`);
+    if (a.kind === "complete" && (cascadeDue.has(a.task) || dependsOnLanding(a.task))) unsettled.add(a.task);
   }
+  return unsettled;
 }

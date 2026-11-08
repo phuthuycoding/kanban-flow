@@ -1,10 +1,11 @@
 import { atCapStep } from "./atcap.js";
-import { JUDGEMENTS } from "./judgements.js";
+import { JUDGEMENTS, isSuperseded } from "./judgements.js";
 import { matchGitLog, sameSha, taskCommits } from "./ledger-state.js";
 import { reviewStep } from "./review-region.js";
 import { verifyStep } from "./verify-region.js";
 import type {
   Cap,
+  DecisionRegion,
   DeliveredEvent,
   DispatchMode,
   GateStatus,
@@ -154,32 +155,21 @@ function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: st
   if (phase.kind !== "cycle") return next;
   if (seat === "developer") return afterDevDone(next, answers, at, world);
   const step = phase.implementer;
-  if (step.kind === "roundSeatRunning" && step.seat === seat) {
+  // A round seat sent instead of the round's developer: its tests are hashed, then the developer resumed to commit them.
+  const roundSeat = (s: SeatSlot): boolean => s.kind === "running" && s.round !== undefined && s.round === phase.round;
+  if ((step.kind === "roundSeatRunning" && step.seat === seat) || (step.kind === "owed" && roundSeat(t.seats[seat]))) {
     return withImplementer(next, seat === "test-writer" ? { kind: "roundHashOwed" } : { kind: "resumeCommitOwed", round: phase.round });
   }
   if (step.kind === "specsRunning" && seat === "automation-writer") return withImplementer(next, { kind: "resumeCommitOwed" });
+  const slot = t.seats[seat];
+  if (slot.kind === "running" && slot.round !== undefined && slot.round === phase.round) return { ...next, roundHashOwed: true };
   return next;
 }
 
-// The dispatch line each gated done answers, keyed by the done line. The gated slot keeps only its done line and
-// types.ts is frozen, so the line is kept here, per World (one per fold run), as atcap.ts keeps its fix runs.
-const GATED_DISPATCH = new WeakMap<World, Map<string, number>>();
-
-const gateKey = (task: string, seat: Seat, doneLine: number): string => `${task}:${seat}@${doneLine}`;
-
-function recordGatedDispatch(world: World, task: string, seat: Seat, doneLine: number, dispatchLine: number): void {
-  let lines = GATED_DISPATCH.get(world);
-  if (!lines) {
-    lines = new Map();
-    GATED_DISPATCH.set(world, lines);
-  }
-  lines.set(gateKey(task, seat, doneLine), dispatchLine);
-}
-
-function gatedDispatch(world: World, j: Extract<Judgement, { kind: "seatStatus" }>): number {
-  const line = GATED_DISPATCH.get(world)?.get(gateKey(j.task, j.seat, j.doneLine));
-  if (line === undefined) throw new Error(`${j.task}: no dispatch recorded for the ${j.seat} done at line ${j.doneLine}`);
-  return line;
+/** The dispatch a gated done answers, as its Seat status judgement recorded it. */
+function gatedDispatch(j: Extract<Judgement, { kind: "seatStatus" }>): number {
+  if (j.dispatchLine === undefined) throw new Error(`${j.task}: no dispatch recorded for the ${j.seat} done at line ${j.doneLine}`);
+  return j.dispatchLine;
 }
 
 /** A writer whose gate a decision closed without its work: the seat is owed again, never its hashes or commit. */
@@ -190,6 +180,10 @@ function writerOwed(t: TaskState, seat: "test-writer" | "automation-writer"): Ta
   if (phase.kind === "tests" && seat === "test-writer") return withPhase(next, { kind: "tests", writer: idle, hashOwed: false });
   if (phase.kind === "cycle" && phase.implementer.kind === "specsRunning" && seat === "automation-writer") {
     return withImplementer(next, { kind: "specsOwed" });
+  }
+  if (phase.kind === "cycle" && phase.round > 0) {
+    const owed = { ...next, writerOwed: { seat, round: phase.round } };
+    return phase.implementer.kind === "roundSeatRunning" && phase.implementer.seat === seat ? withImplementer(owed, { kind: "owed", mode: roundMode(phase.round), round: phase.round }) : owed;
   }
   return next;
 }
@@ -203,7 +197,7 @@ function goOnAsDone(t: TaskState, j: Extract<Judgement, { kind: "seatStatus" }>,
   const status = rawStatus(j.status);
   if (j.seat !== "developer") {
     if (status !== "DONE_WITH_CONCERNS") return writerOwed(t, j.seat);
-    return seatDone(t, j.seat, status, gatedDispatch(world, j), at, world);
+    return seatDone(t, j.seat, status, gatedDispatch(j), at, world);
   }
   const dispatchLine = devDispatchLine(t);
   return dispatchLine === null ? t : seatDone(t, "developer", status, dispatchLine, at, world);
@@ -230,16 +224,23 @@ function dispatchInCycle(t: TaskState, c: Cycle, e: Dispatched, slot: Running): 
     return withImplementer(t, { kind: "specsRunning" });
   }
   if (round !== undefined && c.implementer.kind === "committed") return withImplementer(t, { kind: "roundSeatRunning", seat: e.seat });
+  // A round seat dispatched after a round developer's done with no commit takes the round on: the round's commit is
+  // the resume-commit developer's, after the seat.
+  if (round !== undefined && c.round === round && c.implementer.kind === "commitMissing") {
+    return { ...withImplementer(t, { kind: "roundSeatRunning", seat: e.seat }), judgements: t.judgements.filter((j) => j.kind !== "commitMissing") };
+  }
   return t;
 }
 
 const onDispatched: RegionHandler<"dispatched"> = (task, e) => {
   if (e.seat === "code-reviewer") return task;
-  const t = closeOnEvent(task, e).t;
+  const closed = closeOnEvent(task, e).t;
+  const t = closed.writerOwed?.seat === e.seat ? { ...closed, writerOwed: undefined } : closed;
   const inlineDev = e.seat === "developer" && e.model === "inline";
   const slot: Running = {
     kind: "running",
     line: e.line,
+    ts: e.ts,
     ...(e.round !== undefined ? { round: e.round } : {}),
     ...(e.cascade !== undefined ? { cascade: e.cascade } : {}),
     inline: inlineDev || (e.seat === "developer" && t.inline),
@@ -268,15 +269,23 @@ const onDone: RegionHandler<"done"> = (t, e, world) => {
   const slot = t.seats[e.seat];
   if (slot.kind !== "running") return t;
   if (e.status === "DONE") return seatDone(t, e.seat, e.status, slot.line, e.line, world);
-  recordGatedDispatch(world, t.id, e.seat, e.line, slot.line);
   const gated: SeatSlot = { kind: "gated", status: gateStatus(e.status), doneLine: e.line };
-  const judgement: Judgement = { kind: "seatStatus", task: t.id, openedAt: e.line, seat: e.seat, status: gated.status, doneLine: e.line };
+  const judgement: Judgement = {
+    kind: "seatStatus",
+    task: t.id,
+    openedAt: e.line,
+    seat: e.seat,
+    status: gated.status,
+    doneLine: e.line,
+    dispatchLine: slot.line,
+  };
   const next = { ...withSeat(t, e.seat, gated), judgements: [...t.judgements, judgement] };
   if (next.phase.kind === "tests" && e.seat === "test-writer") return withPhase(next, { kind: "tests", writer: gated, hashOwed: false });
   return next;
 };
 
-const onTestHashes: RegionHandler<"testHashes"> = (t) => {
+const onTestHashes: RegionHandler<"testHashes"> = (task) => {
+  const t = task.roundHashOwed ? { ...task, roundHashOwed: undefined } : task;
   if (t.phase.kind === "tests") return t.phase.hashOwed ? withPhase(t, { kind: "ready" }) : t;
   if (t.phase.kind === "cycle" && t.phase.implementer.kind === "roundHashOwed") {
     return withImplementer(t, { kind: "resumeCommitOwed", round: t.phase.round });
@@ -286,8 +295,7 @@ const onTestHashes: RegionHandler<"testHashes"> = (t) => {
 
 const toReady: RegionHandler<"noTestWriter"> = (t) => withPhase(t, { kind: "ready" });
 
-const onComplete: RegionHandler<"complete"> = (t, e) =>
-  withPhase(t, { kind: "complete", how: /(?<!not )superseded\b/.test(e.text) ? "superseded" : "complete" });
+const onComplete: RegionHandler<"complete"> = (t, e) => withPhase(t, { kind: "complete", how: isSuperseded(e.text) ? "superseded" : "complete" });
 
 const onImplemented: RegionHandler<"implemented"> = (t) => withPhase(t, { kind: "complete", how: "implemented" });
 
@@ -308,9 +316,11 @@ const onCommits: RegionHandler<"commits"> = (task, e, world) => {
   return afterDevDone(t, dispatchLine, e.line, world);
 };
 
-/** A decided note or a Ruling closes the earliest open judgement it closes, of any region; the lifecycle's go on as DONE. */
-function onDecision(t: TaskState, e: MachineEvent, world: World): TaskState {
-  const j = t.judgements.find((open) => entryOf(open).close(open, e, t));
+/** A decided note or a Ruling tagged for the lifecycle closes that judgement; a seat gate goes on as DONE. */
+function onDecision(t: TaskState, e: MachineEventOf<"decided"> | MachineEventOf<"ruling">, world: World): TaskState {
+  if (e.closes !== undefined && e.closes.region !== "lifecycle") return t;
+  const tag = e.closes;
+  const j = t.judgements.find((open) => (tag === undefined || open.openedAt === tag.judgement) && entryOf(open).close(open, e, t));
   if (j === undefined || !lifecycleOwns(j) || j.kind !== "seatStatus") return t;
   const successor = entryOf(j).successor(j, e, t);
   if (successor !== "seatAsDone") return t;
@@ -425,6 +435,10 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
     tasks: new Map(inputs.tasks.map((t) => [t.id, initialTask(t)])),
   };
   const known = (id: string): boolean => world.tasks.has(id);
+  const wavesNamed = new Set<number>();
+  const rerunSignature = new Map<string, string>();
+  world.wavesNamed = wavesNamed;
+  world.rerunSignature = rerunSignature;
   const apply = (id: string, e: MachineEvent): void => {
     const t = world.tasks.get(id);
     if (t !== undefined) world.tasks.set(id, step(world, t, e));
@@ -450,11 +464,17 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
     watches.delete(x);
   };
   const answer = (x: string, e: LedgerEvent): void => {
-    for (const h of routes.get(x) ?? []) deliver(h, { type: "routeAnswered", task: h, from: x, line: e.line, ts: e.ts });
+    const unfixed = e.type === "complete" || e.type === "implemented";
+    for (const h of routes.get(x) ?? []) {
+      deliver(h, { type: "routeAnswered", task: h, from: x, line: e.line, ts: e.ts, ...(unfixed ? { unfixed: true as const } : {}) });
+    }
   };
 
   for (const e of state.events) {
     if (e.type === "scan") world.scan = "done";
+    const wave = e.type === "other" ? /^wave (\d+):/.exec(e.text) : null;
+    if (wave !== null) wavesNamed.add(Number(wave[1]));
+    if (e.type === "verifyRerun") rerunSignature.set(e.task, e.signature);
     if (e.type === "other" && e.text.startsWith("Ruling:") && inputs.ceiling.error !== undefined && e.text.includes(inputs.ceiling.error)) {
       world.ceiling = "ruled";
     }
@@ -514,6 +534,15 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
     const { kept, dropped } = matchGitLog(all, inputs.gitLog);
     world.tasks.set(id, { ...t, commits: kept, droppedShas: dropped });
   }
+  // A re-run the cap holds is the fold's only while the task's verify still waits for it: a run a commit made stale is
+  // owed again as a plain verify, and holds no developer.
+  const held = cap.contention.held.filter((h) => {
+    const v = world.tasks.get(h.task)?.verify;
+    return v === undefined || (v.kind === "failed" && (v.disposition.kind === "contentionHeld" || v.disposition.kind === "plainRerunOwed"));
+  });
+  if (held.length !== cap.contention.held.length) {
+    world.contention = { held, running: cap.contention.running, blocksDevelopers: held.length > 0 || cap.contention.running !== null };
+  }
   world.pool = [...world.tasks.values()]
     .flatMap((t) => {
       const slot = t.seats.developer;
@@ -524,12 +553,18 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
   return world;
 }
 
-/** The phase-independent scalars an event changes: the task's commits against git log, and the inline flag. */
+/**
+ * The phase-independent scalars an event changes: the task's commits against git log, the inline flag, the written
+ * developer wait, and the lines of the latest developer done and review package.
+ */
 function scalars(t: TaskState, e: MachineEvent, world: World): TaskState {
   if (e.type === "commits" || e.type === "reviewPackage") {
     const { kept, dropped } = matchGitLog([...t.commits, ...t.droppedShas, ...e.shas], world.inputs.gitLog);
     return { ...t, commits: kept, droppedShas: dropped };
   }
+  if (e.type === "developerWaits") return { ...t, waitsWritten: e.reason };
+  if (e.type === "fixRound") return { ...t, fixRoundWritten: Math.max(t.fixRoundWritten ?? 0, e.round) };
+  if (e.type === "done" && e.seat === "developer") return { ...t, waitsWritten: undefined, devDoneAt: e.line };
   if (e.type !== "inline") return t;
   const slot = t.seats.developer;
   let next: TaskState = { ...t, inline: true };
@@ -540,9 +575,49 @@ function scalars(t: TaskState, e: MachineEvent, world: World): TaskState {
   return next;
 }
 
+/** The region that owns judgement `j` when decision `e` closes it. */
+function regionOf(j: Judgement, e: MachineEvent, t: TaskState): DecisionRegion | null {
+  switch (j.kind) {
+    case "seatStatus":
+      if (j.seat === "code-reviewer") return "review";
+      return entryOf(j).successor(j, e, t) === "minimalFixAbandoned" ? "atcap" : "lifecycle";
+    case "commitMissing":
+      return "lifecycle";
+    case "verifyExit2":
+    case "verifyExit3":
+    case "verifyExit":
+    case "verifyRouted":
+    case "verifyWaitsUnreleasable":
+      return "verify";
+    case "breaker":
+    case "breakerFixSpent":
+    case "capStop":
+    case "capStopFixSpent":
+    case "cascadeAtCapBreaker":
+    case "cascadeAtCapStop":
+      return "atcap";
+    default:
+      return null;
+  }
+}
+
+/** Tags a decided note or a Ruling with the one judgement it closes: the earliest open one that accepts it. */
+function tagDecision(t: TaskState, e: MachineEvent): MachineEvent {
+  if (e.type !== "decided" && e.type !== "ruling") return e;
+  const j = t.judgements.find((open) => entryOf(open).close(open, e, t));
+  const region = j === undefined ? null : regionOf(j, e, t);
+  if (j === undefined || region === null) return e;
+  return { ...e, closes: { region, judgement: j.openedAt } };
+}
+
 /** Applies one event to one task: the lifecycle cell of its phase, then the region cells. */
-export function step(world: World, task: TaskState, e: MachineEvent): TaskState {
-  const t = scalars(task, e, world);
+export function step(world: World, task: TaskState, event: MachineEvent): TaskState {
+  // A review package naming a sha no line named before records that commit, as a commits note would.
+  const e: MachineEvent =
+    event.type === "reviewPackage" && event.shas.some((sha) => ![...task.commits, ...task.droppedShas].some((n) => sameSha(n, sha)))
+      ? { ...event, type: "commits", fromPackage: true }
+      : tagDecision(task, event);
+  const t = { ...scalars(task, e, world), ...(event.type === "reviewPackage" ? { packagedAt: event.line } : {}) };
   const cell = LIFECYCLE_TABLE[t.phase.kind][e.type] as RegionHandler<MachineEventType> | "noop";
   const lifecycle = cell === "noop" ? t : cell(t, e, world);
   return atCapStep(reviewStep(verifyStep(lifecycle, e, world), e, world), e, world);

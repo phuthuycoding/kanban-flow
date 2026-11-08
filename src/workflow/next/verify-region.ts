@@ -87,7 +87,8 @@ const onStarted: RegionHandler<"verifyStarted"> = (t, e, world) => {
   const rerun = v.kind === "failed" && v.disposition.kind === "contentionHeld";
   const plain = v.kind === "failed" && v.disposition.kind === "plainRerunOwed";
   recordStart(world, t.id, e.line, { ts: e.ts, rerun, plain });
-  return { ...t, judgements, verify: { kind: "running", line: e.line, rerun, stale: false } };
+  const atHead = (v.kind === "owed" && v.atHead) || (v.kind === "failed" && v.disposition.kind === "waits");
+  return { ...t, judgements, verify: { kind: "running", line: e.line, rerun, stale: false, ...(atHead ? { atHead } : {}) } };
 };
 
 /** Exit 1 of the run started at `line`, classified as cap.ts classifies it for the contention view. */
@@ -204,16 +205,30 @@ const onRouted: RegionHandler<"verifyRouted"> = (t, e, world) => {
   });
 };
 
-const onRouteAnswered: RegionHandler<"routeAnswered"> = (t, e) =>
-  t.verify.kind === "failed" && t.verify.disposition.kind === "routedOut" && t.verify.disposition.otherTask === e.from
-    ? { ...t, verify: { kind: "passedByRoute" } }
-    : t;
+/**
+ * A pass or park of the task the failure was routed to answers it. Its complete with neither since the route leaves
+ * the failure unfixed: as a route to a completed task, a Verify routed judgement.
+ */
+const onRouteAnswered: RegionHandler<"routeAnswered"> = (t, e) => {
+  const v = t.verify;
+  if (v.kind !== "failed" || v.disposition.kind !== "routedOut" || v.disposition.otherTask !== e.from) return t;
+  if (e.unfixed !== true) return { ...t, verify: { kind: "passedByRoute" } };
+  return opened(failed(t, v.line, { kind: "routeRejected", otherTask: e.from }), { kind: "verifyRouted", task: t.id, openedAt: e.line, otherTask: e.from });
+};
 
-/** One decided note closes the head of the queue only; a verify judgement there moves the verify on. */
+/**
+ * A decided note the fold tagged for this region closes that verify judgement and moves the verify on; an untagged
+ * note closes the head of the queue only when it is a verify judgement.
+ */
 const onDecided: RegionHandler<"decided"> = (t, e) => {
-  const head = t.judgements[0];
-  if (head === undefined || !isVerifyJudgement(head) || !entryOf(head).close(head, e, t)) return t;
-  const closed = { ...t, judgements: t.judgements.slice(1) };
+  if (e.closes !== undefined && e.closes.region !== "verify") return t;
+  const tag = e.closes;
+  const head =
+    tag === undefined
+      ? t.judgements.slice(0, 1).find((j) => isVerifyJudgement(j) && entryOf(j).close(j, e, t))
+      : t.judgements.find((j) => j.openedAt === tag.judgement && isVerifyJudgement(j) && entryOf(j).close(j, e, t));
+  if (head === undefined || !isVerifyJudgement(head)) return t;
+  const closed = { ...t, judgements: t.judgements.filter((j) => j !== head) };
   // A commit or a new run since the judgement opened already moved the verify on.
   if (!HOLDS[head.kind](t.verify)) return closed;
   const successor = entryOf(head).successor(head, e, t);

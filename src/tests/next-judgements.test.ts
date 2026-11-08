@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 
 import { buildLine, type RecordEvent } from "../workflow/next/record.js";
-import { JUDGEMENTS, closesText } from "../workflow/next/judgements.js";
+import { JUDGEMENTS, closesText, isSuperseded as supersededText } from "../workflow/next/judgements.js";
 import { initialTask } from "../workflow/next/fold.js";
-import type { CycleKind, Judgement, MachineEvent, Seat, TaskPhase, TaskState, WaitBlocker } from "../workflow/next/types.js";
+import type { CycleKind, DecisionTarget, Judgement, MachineEvent, Seat, TaskPhase, TaskState, WaitBlocker } from "../workflow/next/types.js";
 
 // `closes` lists alternatives; each alternative is a conjunction of ledger-line templates, all of which the session
 // writes to close the judgement. A template: `<task>` is the judged task, other `<name>` tokens and `…` are
@@ -422,5 +422,42 @@ describe("judgement and wait types", () => {
     const noTask: Judgement<"breaker"> = { kind: "breaker", openedAt: 1 };
     const item: Judgement<"conflictScan"> = { kind: "conflictScan", openedAt: 1 };
     expect([noTask.kind, item.kind]).toEqual(["breaker", "conflictScan"]);
+  });
+});
+
+describe("the superseded predicate", () => {
+  it.each(["superseded by TASK-004", "superseded — the plan moved it to TASK-009", "Superseded by TASK-004", "commits abc1234, superseded by TASK-004"])(
+    "reads %s as superseded",
+    (text) => {
+      expect(supersededText(text)).toBe(true);
+    },
+  );
+
+  it.each(["not superseded", "not yet superseded", "Not superseded — commits abc1234", "unsuperseded", "commits abc1234, review clean"])(
+    "does not read %s as superseded",
+    (text) => {
+      expect(supersededText(text)).toBe(false);
+    },
+  );
+
+  it("closes the cap stop on a superseded completion and not on a negated one", () => {
+    const j: Judgement<"capStop"> = { kind: "capStop", task: TASK, openedAt: 10 };
+    const complete = (text: string): MachineEvent => ({ type: "complete", task: TASK, text, line: 20, ts: 0 });
+    expect(JUDGEMENTS.capStop.close(j, complete("superseded — moved to TASK-009"), null)).toBe(true);
+    expect(JUDGEMENTS.capStop.close(j, complete("not superseded, commits abc1234"), null)).toBe(false);
+  });
+});
+
+describe("the decision tag and the writer owed again", () => {
+  it("tags a decided note or a Ruling with the region and the opening line of the judgement it closes", () => {
+    const tag: DecisionTarget = { region: "verify", judgement: 12 };
+    const decided: MachineEvent = { type: "decided", task: TASK, what: "plan re-approved", line: 20, ts: 0, closes: tag };
+    const ruling: MachineEvent = { type: "ruling", task: TASK, text: `Ruling: ${TASK} — accept`, line: 21, ts: 0, closes: { region: "review", judgement: null } };
+    expect([decided.type, ruling.type]).toEqual(["decided", "ruling"]);
+  });
+
+  it("carries a round writer owed again on the task", () => {
+    const t: TaskState = { ...initialTask(LOOP_TASK), writerOwed: { seat: "test-writer", round: 2 }, waitsWritten: "1 developers in flight" };
+    expect(t.writerOwed).toEqual({ seat: "test-writer", round: 2 });
   });
 });

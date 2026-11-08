@@ -105,10 +105,13 @@ export type LedgerEvent = EventBase &
     | { type: "noTestWriter"; task: string; reason: string }
     | { type: "testHashes"; task: string; files: Record<string, string> }
     | { type: "reviewPackage"; task: string; shas: string[] }
-    /** `Note TASK-NNN: commits <a7>,<b7>` */
-    | { type: "commits"; task: string; shas: string[] }
-    /** `Note TASK-NNN: decided — <what>` */
-    | { type: "decided"; task: string; what: string }
+    /**
+     * `Note TASK-NNN: commits <a7>,<b7>`. `fromPackage`: the fold's reading of a review package that names a sha no line
+     * named before; it records the commit but is no commits note, so it closes no seat gate.
+     */
+    | { type: "commits"; task: string; shas: string[]; fromPackage?: true }
+    /** `Note TASK-NNN: decided — <what>`; `closes` is the fold's delivery tag (see `DecisionTarget`). */
+    | { type: "decided"; task: string; what: string; closes?: DecisionTarget }
     /** `Note TASK-NNN: verify routed — TASK-MMM` */
     | { type: "verifyRouted"; task: string; otherTask: string }
     /** `Note TASK-NNN: verify waits — <file> (TASK-MMM)` */
@@ -250,6 +253,8 @@ export type SeatSlot =
       kind: "running";
       /** Ledger line of the dispatch. */
       line: number;
+      /** Epoch ms of the dispatch line: a report commit dated after it is Drift (FR-013). */
+      ts?: number;
       round?: number;
       cascade?: string;
       inline: boolean;
@@ -351,8 +356,11 @@ export type VerifyOwedCause = "commit" | "stale" | "released" | "decided";
 export type VerifyState =
   | { kind: "notDue" }
   | { kind: "owed"; atHead: boolean; why: VerifyOwedCause }
-  /** `line`: the `verify started` line. `stale`: a commit landed during the run. */
-  | { kind: "running"; line: number; rerun: boolean; stale: boolean }
+  /**
+   * `line`: the `verify started` line. `stale`: a commit landed during the run. `atHead`: the run was owed at head.
+   * `origin`: `resume` once `--resume` says the run is lost.
+   */
+  | { kind: "running"; line: number; rerun: boolean; stale: boolean; atHead?: boolean; origin?: IntentOrigin }
   /** `line`: the `verify started` line of the passing run. */
   | { kind: "passed"; line: number }
   /** `line`: the `verify started` line of the failing run. */
@@ -415,6 +423,20 @@ export interface TaskState {
   commits: string[];
   /** The task's recorded shas the git log does not have. */
   droppedShas: string[];
+  /**
+   * A round test-writer or automation-writer whose gate a decision closed without its work (any status but
+   * DONE_WITH_CONCERNS): the same seat is owed again in its round, ahead of the round's developer.
+   */
+  writerOwed?: { seat: "test-writer" | "automation-writer"; round: number };
+  /** The reason of the latest `developer waits` line since the task's last developer done: that wait is written. */
+  waitsWritten?: string;
+  /** A round seat reported DONE while the round's developer was elsewhere: its tests are hashed by the next hashes line. */
+  roundHashOwed?: true;
+  /** The highest round a `fix round R/5` line names. */
+  fixRoundWritten?: number;
+  /** Ledger line of the latest developer done, and of the latest review package. */
+  devDoneAt?: number;
+  packagedAt?: number;
 }
 
 /** An open, non-inline developer seat of a known task that is neither complete nor a decided unknown. */
@@ -438,12 +460,17 @@ export interface World {
   pool: PoolSeat[];
   /** Plan tasks, in plan order. */
   tasks: Map<string, TaskState>;
+  /** The waves a `wave <w>: …` line already names. */
+  wavesNamed?: Set<number>;
+  /** The signature of each task's latest `verify rerun` note. */
+  rerunSignature?: Map<string, string>;
 }
 
 /**
  * An event the fold delivers to a task other than the line's owner, at the line's ledger position:
  * - `cascadeLanded`: a fix commit `sha7` of task `from` landed after its first own review, for a dependent open then;
- * - `routeAnswered`: the task `from`, a failure was routed to, passed, parked or completed;
+ * - `routeAnswered`: the task `from`, a failure was routed to, passed, parked or completed; `unfixed` when it completed
+ *   with no pass or park since the route, so the failure was never fixed there;
  * - `routedIn`: task `from` routed its failure to this task;
  * - `watchReleased`: the task `from` a verify waits for got a named commit or completed;
  * - `ruling`: a `Ruling:` line naming this task.
@@ -451,11 +478,24 @@ export interface World {
 export type DeliveredEvent = EventBase &
   (
     | { type: "cascadeLanded"; task: string; sha7: string; from: string; round: number }
-    | { type: "routeAnswered"; task: string; from: string }
+    | { type: "routeAnswered"; task: string; from: string; unfixed?: true }
     | { type: "routedIn"; task: string; from: string }
     | { type: "watchReleased"; task: string; from: string }
-    | { type: "ruling"; task: string; text: string }
+    | { type: "ruling"; task: string; text: string; closes?: DecisionTarget }
   );
+
+/** The region whose judgement a decided note or a Ruling closes. */
+export type DecisionRegion = "lifecycle" | "verify" | "review" | "atcap";
+
+/**
+ * One decided note closes one gate across the task's regions: the fold tags the decision with the region and the
+ * opening line of the earliest open judgement it closes, before any region sees it; only that region acts on it.
+ * An untagged decision closes no queued judgement (a region may still read it, e.g. the Breaker's decided half).
+ */
+export interface DecisionTarget {
+  region: DecisionRegion;
+  judgement: number | null;
+}
 
 export type MachineEvent = LedgerEvent | DeliveredEvent;
 
@@ -476,7 +516,8 @@ export type RegionTable<K extends string> = { [P in K]: RegionRow };
 /** Fields each judgement kind carries beyond its kind, task and opening line. */
 export interface JudgementFields {
   conflictScan: Record<never, never>;
-  seatStatus: { seat: Seat; status: GateStatus; doneLine: number };
+  /** `dispatchLine`: the dispatch the gated done answers, which a writer going on as DONE answers in turn. */
+  seatStatus: { seat: Seat; status: GateStatus; doneLine: number; dispatchLine?: number };
   commitMissing: { dispatchLine: number };
   /** A stop: a changed file outside the task's Files. */
   verifyExit2: Record<never, never>;
@@ -584,6 +625,11 @@ export interface Arbitration {
   /** Ranked as `NextResult.actions`. */
   actions: Action[];
   inFlight: InFlight[];
-  /** The blocker of every wait in `actions`, by the same object. */
-  waits: { wait: Extract<Action, { kind: "wait" }>; blockedBy: WaitBlocker }[];
+  /**
+   * The blocker of every wait in `actions`, by the same object. `quiet`: a hold `kf next` does not print (no
+   * conventions.md prefix): a test-writer held by the window or an overlap, or a dispatch an item judgement holds.
+   */
+  waits: { wait: Extract<Action, { kind: "wait" }>; blockedBy: WaitBlocker; quiet?: true }[];
+  /** Tasks the arbiter found no rule for (a check that would have thrown): each gets the liveness guard's stop. */
+  unplaced: string[];
 }

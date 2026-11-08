@@ -16,8 +16,18 @@ const plainDecided = (e: MachineEvent, task: string | undefined): boolean => dec
 
 const parked = (e: MachineEvent, task: string | undefined): boolean => e.type === "parked" && e.task === task;
 
-const superseded = (e: MachineEvent, task: string | undefined): boolean =>
-  e.type === "complete" && e.task === task && e.text.includes("superseded");
+/**
+ * A complete line's text says the task is superseded: `superseded by …` or `superseded — …`, any case; a negated
+ * `not superseded` or `not yet superseded`, and a longer word such as `unsuperseded`, do not count.
+ */
+export function isSuperseded(text: string): boolean {
+  for (const m of text.matchAll(/\bsuperseded\b/gi)) {
+    if (!/\bnot\s+(?:yet\s+)?$/i.test(text.slice(0, m.index))) return true;
+  }
+  return false;
+}
+
+const superseded = (e: MachineEvent, task: string | undefined): boolean => e.type === "complete" && e.task === task && isSuperseded(e.text);
 
 const dispatched = (e: MachineEvent, task: string | undefined, seat: Seat): boolean =>
   e.type === "dispatched" && e.task === task && e.seat === seat;
@@ -59,7 +69,7 @@ export const JUDGEMENTS: JudgementTable = {
       dispatched(e, j.task, j.seat) ||
       decided(e, j.task) ||
       (e.type === "ruling" && e.task === j.task) ||
-      (j.seat === "developer" && e.type === "commits" && e.task === j.task),
+      (j.seat === "developer" && e.type === "commits" && e.fromPackage !== true && e.task === j.task),
     successor: (j, e, t) => {
       if (e.type === "dispatched") return j.seat === "developer" && inMinimalFix(t) ? "minimalFixAbandoned" : "seatRunning";
       if (e.type === "commits") return "afterDevDone";

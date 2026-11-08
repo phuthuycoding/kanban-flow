@@ -66,16 +66,23 @@ const lineWrite = (feature: string, line: string, task: string): Write => ({
  * The `fix round R/5` line of the round that ended. Printed only beside the action that ends round R, so it is
  * written once by construction: the fold keeps no flag for it.
  */
+const FIX_ROUND_BODY = "<X> addressed, <Y> open — <one-liners>; commits <a7>,…";
+
+/** The `fix round R/5` write of the round that ended, unless its line is already written. */
+const fixRoundOwed = (t: TaskState, world: World, round: number): Intent[] => ((t.fixRoundWritten ?? 0) >= round ? [] : [fixRoundWrite(t, world, round)]);
+
 function fixRoundWrite(t: TaskState, world: World, round: number): Intent {
-  const body = "<X> addressed, <Y> open — <one-liners>; commits <a7>,…";
   const write: Write = {
     kind: "write",
     task: t.id,
-    line: `${t.id}: fix round ${round}/${MAX_ROUNDS} (${body})`,
-    record: `kf record ${world.inputs.feature} fix-round ${t.id} ${round} -- ${shellQuote(body)}`,
+    line: `${t.id}: fix round ${round}/${MAX_ROUNDS} (${FIX_ROUND_BODY})`,
+    record: `kf record ${world.inputs.feature} fix-round ${t.id} ${round} -- ${shellQuote(FIX_ROUND_BODY)}`,
   };
   return act(t.id, write, ["fixRound"]);
 }
+
+/** The Breaker kinds: at the cap the fix round 5/5 line is written with the line that closes the decide. */
+const BREAKERS: readonly JudgementKind[] = ["breaker", "breakerFixSpent", "cascadeAtCapBreaker"];
 
 function planOf(world: World, task: string): LoopTask {
   const plan = world.inputs.tasks.find((p) => p.id === task);
@@ -167,10 +174,13 @@ function judge(j: Judgement, t: TaskState | null): Intent {
   const entry = entryOf(j);
   const reason = (REASONS[j.kind] as (j: Judgement) => string)(j);
   const closes = (CLOSES[j.kind] as (j: Judgement) => MachineEventType[])(j);
+  // A repeated decide carries no once-only write: the round's last fix round line goes with the close (ruled).
+  const lastRound = t !== null && BREAKERS.includes(j.kind) && t.roundsUsed >= MAX_ROUNDS && (t.fixRoundWritten ?? 0) < MAX_ROUNDS;
+  const text = closesText(entry, j, t) + (lastRound ? `, each with ${j.task}: fix round ${MAX_ROUNDS}/${MAX_ROUNDS} (${FIX_ROUND_BODY})` : "");
   const action: Extract<Intent, { kind: "judge" }>["action"] =
     entry.form === "stop"
       ? { kind: "stop", ...(j.task !== undefined ? { task: j.task } : {}), reason }
-      : { kind: "decide", ...(j.task !== undefined ? { task: j.task } : {}), rule: entry.rule, reason, closes: closesText(entry, j, t) };
+      : { kind: "decide", ...(j.task !== undefined ? { task: j.task } : {}), rule: entry.rule, reason, closes: text };
   return { kind: "judge", ...(j.task !== undefined ? { task: j.task } : {}), origin: "progress", closes, judgement: j.kind, action };
 }
 
@@ -189,6 +199,17 @@ function slotsOf(t: TaskState): Record<Seat, SeatSlot> {
   return t.phase.kind === "tests" ? { ...t.seats, "test-writer": t.phase.writer } : t.seats;
 }
 
+/** FR-013: the first sha the task's report names whose commit is dated after the open developer dispatch. */
+function driftSha(t: TaskState, world: World): string | null {
+  const slot = t.seats.developer;
+  if (slot.kind !== "running" || slot.ts === undefined) return null;
+  for (const sha of world.inputs.reportCommits[t.id] ?? []) {
+    const commit = world.inputs.gitLog.find((g) => g.sha.startsWith(sha) || sha.startsWith(g.sha));
+    if (commit !== undefined && commit.ts > slot.ts) return commit.sha.slice(0, 7);
+  }
+  return null;
+}
+
 function seatIntents(t: TaskState, world: World): Intent[] {
   const slots = slotsOf(t);
   const implementerOwed = t.phase.kind === "cycle" && t.phase.implementer.kind === "owed";
@@ -196,14 +217,22 @@ function seatIntents(t: TaskState, world: World): Intent[] {
   for (const seat of SEATS) {
     const slot = slots[seat];
     switch (slot.kind) {
-      case "running":
-        // Under `--resume` the fold marks a lost seat `resume`: it is re-issued, never listed as in flight.
-        if (slot.origin === "resume") {
+      case "running": {
+        const drift = seat === "developer" ? driftSha(t, world) : null;
+        // Under `--resume` a developer whose report names a newer commit is not re-issued: Drift asks for its done.
+        if (drift !== null && slot.origin === "resume") {
+          intents.push(judge({ kind: "drift", task: t.id, openedAt: null, sha: drift }, t));
+        } else if (drift !== null) {
+          const entry = { task: t.id, seat, hint: `report names commit ${drift} after the dispatch` };
+          intents.push({ kind: "inFlight", task: t.id, origin: "progress", closes: ["done"], entry });
+        } else if (slot.origin === "resume") {
+          // Under `--resume` the fold marks a lost seat `resume`: it is re-issued, never listed as in flight.
           intents.push(act(t.id, dispatch(t, world, seat, "resume", slot.round, slot.cascade), ["dispatched", "done"], "resume"));
         } else {
           intents.push({ kind: "inFlight", task: t.id, origin: "progress", closes: ["done"], entry: { task: t.id, seat } });
         }
         break;
+      }
       case "gated": {
         const fallback: Judgement<"seatStatus"> = { kind: "seatStatus", task: t.id, openedAt: slot.doneLine, seat, status: slot.status, doneLine: slot.doneLine };
         if (!t.judgements.some((j) => j.kind === "seatStatus" && j.seat === seat)) intents.push(judge(fallback, t));
@@ -263,7 +292,10 @@ const DISPOSITIONS = {
 const VERIFY = {
   notDue: () => [],
   owed: (t, world, v) => [act(t.id, { kind: "verify", task: t.id, command: verifyCommand(t, world, v.atHead) }, ["verifyStarted"])],
-  running: (t) => [{ kind: "inFlight", task: t.id, origin: "progress", closes: ["verifyDone"], entry: { task: t.id, seat: "verify" } }],
+  running: (t, world, v) =>
+    v.origin === "resume"
+      ? [act(t.id, { kind: "verify", task: t.id, command: verifyCommand(t, world, v.atHead === true) }, ["verifyStarted"], "resume")]
+      : [{ kind: "inFlight", task: t.id, origin: "progress", closes: ["verifyDone"], entry: { task: t.id, seat: "verify" } }],
   passed: () => [],
   failed: (t, world, v) => (DISPOSITIONS[v.disposition.kind] as (t: TaskState, w: World, d: VerifyDisposition) => Intent[])(t, world, v.disposition),
   exit2Stop: (t) => [judge(openOr(t, "verifyExit2", () => true, { kind: "verifyExit2", task: t.id, openedAt: null }), t)],
@@ -333,26 +365,74 @@ function nextRoundIntents(t: TaskState, world: World, c: Cycle): Intent[] {
   if (SEATS.some((s) => seatBusy(t.seats[s]))) return [];
   const v = t.verify;
   const kept = v.kind === "failed" && v.disposition.kind === "kept";
-  if (!(kept || v.kind === "passed" || v.kind === "passedByRoute")) return [];
-  const trigger =
-    ownVerdict === "findings" ||
-    kept ||
-    t.routedIn.some((r) => !r.answered) ||
-    demands.some((d) => d.kind === "cascade" && d.phase === "findings");
+  const settled = kept || v.kind === "passed" || v.kind === "passedByRoute";
+  // Own findings or a routed-in failure owe the round at once; a running verify of the old tree goes stale on its commit.
+  const now = ownVerdict === "findings" || t.routedIn.some((r) => !r.answered);
+  const trigger = now || (settled && (kept || demands.some((d) => d.kind === "cascade" && d.phase === "findings")));
   if (!trigger) return [];
   const round = c.round + 1;
   const next = act(t.id, dispatch(t, world, "developer", roundMode(round), round), ["dispatched"]);
   // While the pool is full the cap holds the next developer, and the line waits with it.
   if (c.round === 0 || world.pool.length >= world.cap.n) return [next];
-  return [fixRoundWrite(t, world, c.round), next];
+  return [...fixRoundOwed(t, world, c.round), next];
 }
 
 // ---------------------------------------------------------------------------
 // Phases
 // ---------------------------------------------------------------------------
 
+/** The dependency whose missing commit holds the task's developer, as the arbiter's release reads it. */
+function dependencyWithoutCommit(t: TaskState, world: World): string | undefined {
+  return planOf(world, t.id).dependencies.find((id) => {
+    const s = world.tasks.get(id);
+    return s === undefined || (s.commits.length === 0 && s.phase.kind !== "complete");
+  });
+}
+
+/** A task whose test-writer reported: its developer waits on a dependency's commit, else on its test hashes. */
+function releaseWait(t: TaskState, world: World): Intent {
+  const dep = dependencyWithoutCommit(t, world);
+  const reason = dep !== undefined ? `dependency ${dep} has no commit` : "no test hashes yet";
+  return {
+    kind: "wait",
+    task: t.id,
+    origin: "progress",
+    closes: dep !== undefined ? ["commits"] : ["testHashes"],
+    action: { kind: "wait", task: t.id, reason },
+    blockedBy: { kind: "task", task: dep ?? t.id },
+  };
+}
+
+/** The verify and own review of the latest developer done have not both started since it. */
+function checkPassOpen(t: TaskState, since: number): boolean {
+  const v = t.verify;
+  const verifyStarted = (v.kind === "running" || v.kind === "passed" || v.kind === "failed") && v.line > since;
+  const lane = t.review.lane;
+  const slot = t.seats["code-reviewer"];
+  const reviewerDispatched =
+    (lane.kind === "busy" && lane.obligation.kind === "own" && lane.line > since) ||
+    (slot.kind === "reported" && slot.answers > since && t.review.demands.every((d) => d.kind !== "own"));
+  return !(verifyStarted && reviewerDispatched);
+}
+
+/** `T: review package <shas>`: owed once the developer is done and committed, until the package line of that done. */
+function packageWrite(t: TaskState, world: World): Intent[] {
+  const since = t.devDoneAt;
+  if (since === undefined || (t.packagedAt !== undefined && t.packagedAt > since) || t.commits.length === 0) return [];
+  if (!checkPassOpen(t, since)) return [];
+  return [act(t.id, lineWrite(world.inputs.feature, `${t.id}: review package ${t.commits.join(",")}`, t.id), ["reviewPackage"])];
+}
+
 const IMPLEMENTER = {
-  owed: (t, world, s) => [act(t.id, dispatch(t, world, "developer", s.mode, s.round), ["dispatched"])],
+  owed: (t, world, s) => {
+    // A round seat sent instead of the developer goes first: owed again after a decision, or running now.
+    if (t.writerOwed !== undefined) return [act(t.id, dispatch(t, world, t.writerOwed.seat, "new", t.writerOwed.round), ["dispatched"])];
+    const roundSeat = (["test-writer", "automation-writer"] as const).some((seat) => {
+      const slot = t.seats[seat];
+      return slot.kind === "running" && slot.round !== undefined && slot.round === s.round;
+    });
+    return roundSeat ? [] : [act(t.id, dispatch(t, world, "developer", s.mode, s.round), ["dispatched"])];
+  },
   running: (t) =>
     t.seats.developer.kind === "idle"
       ? [{ kind: "inFlight", task: t.id, origin: "progress", closes: ["done"], entry: { task: t.id, seat: "developer" } }]
@@ -377,9 +457,11 @@ const IMPLEMENTER = {
     t.judgements.some((j) => j.kind === "commitMissing")
       ? []
       : [judge({ kind: "commitMissing", task: t.id, openedAt: null, dispatchLine: s.dispatchLine }, t)],
-  committed: (t, world) =>
+  committed: (t, world) => [
+    ...packageWrite(t, world),
     // A committed tree the verify region never saw is a tree no verify has run on.
-    t.verify.kind === "notDue" ? [act(t.id, { kind: "verify", task: t.id, command: verifyCommand(t, world, false) }, ["verifyStarted"])] : [],
+    ...(t.verify.kind === "notDue" ? [act(t.id, { kind: "verify", task: t.id, command: verifyCommand(t, world, false) }, ["verifyStarted"])] : []),
+  ],
 } satisfies { [K in ImplementerStep["kind"]]: (t: TaskState, world: World, s: Extract<ImplementerStep, { kind: K }>) => Intent[] };
 
 const PHASES = {
@@ -391,7 +473,8 @@ const PHASES = {
     return [act(t.id, lineWrite(world.inputs.feature, `${t.id}: no test-writer — <why>`, t.id), ["noTestWriter"])];
   },
   tests: (t, world, p) => {
-    if (p.writer.kind === "reported" || p.hashOwed) return [hashesWrite(t, world)];
+    if (p.writer.kind === "reported" || p.hashOwed) return [hashesWrite(t, world), releaseWait(t, world)];
+    if (p.writer.kind === "gated") return [releaseWait(t, world)];
     if (p.writer.kind === "idle") return [act(t.id, dispatch(t, world, "test-writer", "new"), ["dispatched"])];
     return [];
   },
@@ -399,7 +482,8 @@ const PHASES = {
   cycle: (t, world, c) => {
     const step = c.implementer;
     const own = (IMPLEMENTER[step.kind] as (t: TaskState, w: World, s: ImplementerStep) => Intent[])(t, world, step);
-    return [...own, ...nextRoundIntents(t, world, c)];
+    const hashes = t.roundHashOwed && step.kind !== "roundHashOwed" ? [hashesWrite(t, world)] : [];
+    return [...hashes, ...own, ...nextRoundIntents(t, world, c)];
   },
   atCap: (t, world, p) => {
     const cap = p.cap;
@@ -436,7 +520,7 @@ export function intentsFor(t: TaskState, world: World): Intent[] {
   if (completable(t, world)) {
     const complete = act(t.id, { kind: "complete", task: t.id }, ["complete"]);
     const p = t.phase;
-    return p.kind === "cycle" && p.cycle === "round" && p.round >= 1 ? [fixRoundWrite(t, world, p.round), complete] : [complete];
+    return p.kind === "cycle" && p.cycle === "round" && p.round >= 1 ? [...fixRoundOwed(t, world, p.round), complete] : [complete];
   }
   const queued = t.judgements.filter((j) => !CAP_JUDGEMENTS.includes(j.kind)).map((j) => judge(j, t));
   const phase = (PHASES[t.phase.kind] as (t: TaskState, w: World, p: TaskPhase) => Intent[])(t, world, t.phase);
@@ -453,7 +537,7 @@ function capWriteCloses(line: string): MachineEventType[] {
 
 /** The item intents: Conflict scan, the cap's owed writes and decides, Invalid ceiling, Unknown task, Drift (resume only). */
 export function itemIntents(world: World, opts: NextOptions): Intent[] {
-  // Drift needs the report commits dated after an open dispatch, which the World does not carry yet: no Drift here.
+  // Drift is a task's: its open developer seat's intents print it (seatIntents).
   void opts;
   const intents: Intent[] = [];
   if (world.scan === "none") intents.push(judge({ kind: "conflictScan", openedAt: null }, null));

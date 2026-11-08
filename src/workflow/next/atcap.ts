@@ -1,4 +1,4 @@
-import { JUDGEMENTS } from "./judgements.js";
+import { JUDGEMENTS, isSuperseded } from "./judgements.js";
 import type {
   AtCap,
   AtCapKind,
@@ -85,7 +85,7 @@ const isFixRun = (world: World, task: string, line: number): boolean => FIX_RUNS
 const ending: RegionHandler<"complete"> = (t, e) => ({
   ...t,
   judgements: t.judgements.filter((j) => !CAP_JUDGEMENTS.includes(j.kind)),
-  phase: { kind: "complete", how: e.text.includes("superseded") ? "superseded" : "complete" },
+  phase: { kind: "complete", how: isSuperseded(e.text) ? "superseded" : "complete" },
 });
 
 const implemented: RegionHandler<"implemented"> = (t) => ({
@@ -105,21 +105,32 @@ const onBreakerParked: RegionHandler<"parked"> = (t, e) => {
   return { ...t, phase: { kind: "atCap", cap: { kind: "breaker", parked: [...b.parked, e.line], decidedAt: b.decidedAt, fixSpent: b.fixSpent } } };
 };
 
+/** A decision another region's judgement takes is not the at-cap region's (one decided note closes one gate). */
+const elsewhere = (e: Decision): boolean => e.closes !== undefined && e.closes.region !== "atcap";
+
 const onBreakerDecided: RegionHandler<"decided"> = (t, e) => {
   const b = breakerOf(t);
-  if (b.fixSpent) return t;
+  if (b.fixSpent || elsewhere(e)) return t;
   if (isMinimalFix(e)) return toCap(t, { kind: "minimalFixOwed", via: "breaker" });
   if (b.parked.length > 0) return toCap(t, { kind: "parkedClosed" });
   return { ...t, phase: { kind: "atCap", cap: { ...b, decidedAt: e.line } } };
 };
 
+/** The cap stop is the human's once its `cap reached` note is written: a minimal-fix note before it decides nothing. */
 const onCapStopDecided: RegionHandler<"decided"> = (t, e) => {
-  if (t.phase.kind !== "atCap" || t.phase.cap.kind !== "capStop" || t.phase.cap.fixSpent || !isMinimalFix(e)) return t;
+  if (t.phase.kind !== "atCap" || t.phase.cap.kind !== "capStop" || t.phase.cap.fixSpent || !t.phase.cap.noted) return t;
+  if (!isMinimalFix(e) || elsewhere(e)) return t;
   return toCap(t, { kind: "minimalFixOwed", via: "capStop" });
 };
 
 const onCapReached: RegionHandler<"capReached"> = (t) =>
   t.phase.kind === "atCap" && t.phase.cap.kind === "capStop" ? { ...t, phase: { kind: "atCap", cap: { ...t.phase.cap, noted: true } } } : t;
+
+/** A `cap reached` note after the minimal fix was decided, before its developer: the cap stop is back, the fix unspent. */
+const onFixOwedCapReached: RegionHandler<"capReached"> = (t, e) =>
+  t.phase.kind === "atCap" && t.phase.cap.kind === "minimalFixOwed" && t.phase.cap.via === "capStop"
+    ? toCap(t, { kind: "capStop", noted: true, fixSpent: false }, { kind: "capStop", task: t.id, openedAt: e.line })
+    : t;
 
 /** The one fresh developer of the fix: a developer dispatch with no round opens the minimal-fix cycle. */
 const onFixDispatched: RegionHandler<"dispatched"> = (t, e) => {
@@ -128,7 +139,7 @@ const onFixDispatched: RegionHandler<"dispatched"> = (t, e) => {
   return {
     ...t,
     inline,
-    seats: { ...t.seats, developer: { kind: "running", line: e.line, inline, origin: "progress" } },
+    seats: { ...t.seats, developer: { kind: "running", line: e.line, ts: e.ts, inline, origin: "progress" } },
     phase: {
       kind: "cycle",
       cycle: "minimalFix",
@@ -160,7 +171,7 @@ const BASE_ROW = { ...NOOP_ROW, complete: ending, implemented } satisfies Region
 export const AT_CAP_TABLE = {
   breaker: { ...BASE_ROW, parked: onBreakerParked, decided: onBreakerDecided },
   capStop: { ...BASE_ROW, decided: onCapStopDecided, capReached: onCapReached },
-  minimalFixOwed: { ...BASE_ROW, dispatched: onFixDispatched },
+  minimalFixOwed: { ...BASE_ROW, dispatched: onFixDispatched, capReached: onFixOwedCapReached },
   cascadeAtCap: { ...BASE_ROW, parked: onCascadeParked },
   parkedClosed: BASE_ROW,
 } satisfies RegionTable<AtCapKind>;
@@ -176,6 +187,7 @@ function abandoned(t: TaskState, e: MachineEvent): Judgement | "gate" | null {
     return t.judgements.find((j) => isDevGate(j) && entryOf(j).close(j, e, t) && entryOf(j).successor(j, e, t) === "minimalFixAbandoned") ?? null;
   }
   const decision = e as Decision;
+  if (elsewhere(decision)) return null;
   const first = t.judgements.find((j) => entryOf(j).close(j, decision, t));
   if (first !== undefined) return isDevGate(first) && entryOf(first).successor(first, decision, t) === "minimalFixAbandoned" ? first : null;
   return t.seats.developer.kind === "gated" ? "gate" : null;

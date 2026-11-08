@@ -2,7 +2,7 @@ import { completedTaskIds } from "./ledger-state.js";
 import type { Action, LedgerState, LoopInputs, NextResult } from "./types.js";
 
 // LIVE (design § 5.1 b, d) read from the ledger and the plan alone: every open plan task has a witness in the
-// result, and every decide names the line that closes it. Pure; schedule() does not call it yet.
+// result, and every decide names the line that closes it. Pure; schedule() runs it as its fail-safe (design § 5.3).
 
 export interface LivenessReport {
   /** Plan tasks, in plan order, that are not complete and have no witness. */
@@ -33,8 +33,16 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
   for (const a of result.actions) if (a.kind !== "wait" && a.kind !== "finished" && a.task !== undefined) witnessed.add(a.task);
   for (const f of result.inFlight) witnessed.add(f.task);
 
+  // A cap wait waits on FR-024's pool: a spawned developer seat in flight or dispatched, never an inline one.
+  const inlineSeat = (task: string): boolean => {
+    if (inputs.tasks.find((t) => t.id === task)?.inline === true) return true;
+    const dispatch = state.events.filter((e) => e.type === "dispatched" && e.task === task && e.seat === "developer").at(-1);
+    if (dispatch === undefined) return false;
+    return (dispatch.type === "dispatched" && dispatch.model === "inline") || state.events.some((e) => e.type === "inline" && e.task === task && e.line > dispatch.line);
+  };
   const developerRunning =
-    result.inFlight.some((f) => f.seat === "developer") || result.actions.some((a) => a.kind === "dispatch" && a.seat === "developer");
+    result.inFlight.some((f) => f.seat === "developer" && !inlineSeat(f.task)) ||
+    result.actions.some((a) => a.kind === "dispatch" && a.seat === "developer" && a.inline !== true);
   const testWriterRunning =
     result.inFlight.some((f) => f.seat === "test-writer") || result.actions.some((a) => a.kind === "dispatch" && a.seat === "test-writer");
   const ledgered = new Set(state.events.flatMap((e) => ("task" in e && e.task !== undefined ? [e.task] : [])));

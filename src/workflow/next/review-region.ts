@@ -95,7 +95,9 @@ const onDispatched: RegionHandler<"dispatched"> = (t, e) => {
 /** A verdict of the own review the lane holds; a review dispatched before the latest commit is of an older tree. */
 function ownVerdict(t: TaskState, lane: Busy, verdict: "clean" | "findings", at: number): TaskState {
   const i = t.review.demands.findIndex((d) => d.kind === "own");
-  const demands = i === -1 ? t.review.demands : t.review.demands.filter((_, k) => k !== i);
+  const rest = i === -1 ? t.review.demands : t.review.demands.filter((_, k) => k !== i);
+  // The lane runs one review at a time, so a clean own review was dispatched after any cascade findings: it answers them.
+  const demands = verdict === "clean" ? rest.map((d) => (d.kind === "cascade" && d.phase === "findings" ? { ...d, phase: "clean" as const } : d)) : rest;
   const phase = t.phase;
   const current = phase.kind !== "cycle" || phase.sinceCommit === null || lane.line > phase.sinceCommit;
   const next = withReview(t, { lane: { kind: "free" }, demands, ...(current ? { ownVerdict: verdict } : {}) });
@@ -136,7 +138,7 @@ const onDone: RegionHandler<"done"> = (t, e) => {
  */
 function onDecision(t: TaskState, e: Decision): TaskState {
   const slot = t.seats["code-reviewer"];
-  if (slot.kind !== "gated") return t;
+  if (slot.kind !== "gated" || (e.closes !== undefined && e.closes.region !== "review")) return t;
   const first = t.judgements.find((j) => entryOf(j).close(j, e, t));
   if (first !== undefined && !(isReviewerGate(first) && entryOf(first).successor(first, e, t) === "seatRedispatch")) return t;
   const lane = t.review.lane;
@@ -200,9 +202,9 @@ function capVerdict(t: TaskState, at: number): TaskState {
   if (t.review.lane.kind !== "free" || t.review.ownVerdict === "none") return t;
   const v = t.verify;
   const kept = v.kind === "failed" && v.disposition.kind === "kept";
-  if (!(kept || v.kind === "passed" || v.kind === "passedByRoute")) return t;
-  const trigger = t.review.ownVerdict === "findings" || kept || t.routedIn.some((r) => !r.answered);
-  return trigger ? enterCap(t, at) : t;
+  // Own findings or a routed-in failure put the task at the cap at once, as they owe the next round below it.
+  const now = t.review.ownVerdict === "findings" || t.routedIn.some((r) => !r.answered);
+  return now || kept ? enterCap(t, at) : t;
 }
 
 const NOOP_ROW = {
