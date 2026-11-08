@@ -266,7 +266,7 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
   actions = actions.filter((a) => !(a.kind === "dispatch" && !resumed.includes(a) && resumedKey.has(`${a.task} ${a.seat}`)));
 
   // A cap stop is lifted once the human's minimal fix past the cap is decided after the task's latest `cap reached`.
-  actions = actions.filter((a) => !(a.kind === "stop" && a.task !== undefined && minimalFixDecided(events, a.task)));
+  actions = actions.filter((a) => !(a.kind === "stop" && a.task !== undefined && a.reason.includes("five-round cap after a reopen") && minimalFixDecided(events, a.task)));
 
   // Holds: a stop holds every dispatch; a task-less decide every dispatch; a task decide its own task's later actions.
   const stops = actions.some((a) => a.kind === "stop");

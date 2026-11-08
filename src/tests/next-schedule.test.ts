@@ -349,6 +349,30 @@ describe("schedule: a reopened task at its round cap", () => {
     expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
   });
 
+  it("still prints the out-of-Files verify stop after the minimal fix is decided and holds every dispatch", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(minimalFix("TASK-001"), ...committedAndUnderReview("TASK-001", "bbb0001"), verifyDone("TASK-001", 2)),
+    );
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    const stops = actions.filter((a) => a.kind === "stop");
+    expect(stops.map((a) => a.task)).toEqual(["TASK-001"]);
+    expect(stops[0].reason).toContain("verify exit 2");
+    expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
+  });
+
+  it("brings the cap stop back when the cap is reached again after the minimal fix was decided", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(atCap(minimalFix("TASK-001"), capReached("TASK-001")));
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+    expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
+  });
+
   it("completes the task after the decided minimal fix is committed, verified and reviewed clean", async () => {
     const schedule = await loadSchedule();
     const state = stateOf(
