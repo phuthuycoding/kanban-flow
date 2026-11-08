@@ -6,7 +6,7 @@
       "kind": "write",
       "task": "TASK-001",
       "line": "TASK-001: review package abc1234",
-      "record": "kf record demo line -- TASK-001: review package abc1234"
+      "record": "kf record demo line -- 'TASK-001: review package abc1234'"
     },
     { "kind": "verify", "task": "TASK-001", "command": "kf verify demo --task TASK-001 --commits abc1234" },
     { "kind": "dispatch", "task": "TASK-003", "seat": "test-writer", "mode": "new" },

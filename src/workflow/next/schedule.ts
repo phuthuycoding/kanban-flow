@@ -1,5 +1,6 @@
 import { liveCap } from "./cap.js";
 import { completedTaskIds, openSeats, openVerifies, taskCommits } from "./ledger-state.js";
+import { shellQuote } from "./record.js";
 import { routingActions } from "./routing.js";
 import { seatActions } from "./seats.js";
 import type { Action, HeldRerun, InFlight, LedgerEvent, LedgerState, LoopInputs, LoopTask, NextResult, Seat } from "./types.js";
@@ -230,7 +231,7 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
     const lastDone = own.filter((e) => e.type === "done" && e.seat === "developer").at(-1)?.line ?? -1;
     const latest = own.filter((e): e is Extract<LedgerEvent, { type: "developerWaits" }> => e.type === "developerWaits" && e.line > lastDone).at(-1);
     if (latest?.reason !== reason) {
-      capped.push({ kind: "write", task: d.task, line: `${d.task}: developer waits — ${reason}`, record: `kf record ${f} waits ${d.task} -- ${reason}` });
+      capped.push({ kind: "write", task: d.task, line: `${d.task}: developer waits — ${reason}`, record: `kf record ${f} waits ${d.task} -- ${shellQuote(reason)}` });
     }
   }
   const seatOut = seatActions(state, inputs, cap, granted);

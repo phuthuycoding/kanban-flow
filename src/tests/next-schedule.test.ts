@@ -498,6 +498,34 @@ describe("schedule: a ledger task the plan no longer has", () => {
   });
 });
 
+describe("schedule: the developer-waits record", () => {
+  it("prints the waits reason as one single-quoted word after --", async () => {
+    const schedule = await loadSchedule();
+    // TASK-001 holds the only developer seat; TASK-002's review found something, so routing asks for a fix developer.
+    const state = stateOf([
+      scan,
+      capStart(1),
+      ...testsReady("TASK-001"),
+      dispatched("TASK-001", "developer"),
+      ...testsReady("TASK-002"),
+      ...committedAndUnderReview("TASK-002", "bbb0002"),
+      verifyDone("TASK-002", 0),
+      done("TASK-002", "code-reviewer", "findings"),
+    ]);
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002")]);
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    const writes = actions.filter((a): a is Extract<Action, { kind: "write" }> => a.kind === "write" && a.record.includes(" waits "));
+    expect(writes).toHaveLength(1);
+    const reason = "1 developers in flight";
+    // Single quotes, each ' written as '\'' - computed here so the test does not lean on the module's helper.
+    const quoted = `'${reason.replace(/'/g, `'\\''`)}'`;
+    expect(writes[0].record).toBe(`kf record feat waits ${writes[0].task} -- ${quoted}`);
+    expect(writes[0].line).toBe(`${writes[0].task}: developer waits — ${reason}`);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Fixture set and the replay (through the real readers)
 // ---------------------------------------------------------------------------
