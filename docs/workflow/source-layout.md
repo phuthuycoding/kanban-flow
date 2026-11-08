@@ -43,8 +43,6 @@ src/
 │   │   ├── ledger-state.ts # the ledger as scheduler events; open seats and verifies, completed tasks, commits
 │   │   ├── inputs.ts     # plan or bug tasks.md, reports, verify logs, the item branch's git log
 │   │   ├── cap.ts        # the live developer cap and contention re-runs
-│   │   ├── seats.ts      # conflict scan, test-writers ahead, developer release, seats after a commit
-│   │   ├── routing.ts    # verify exits, fix rounds, the breaker, cascades, non-DONE seats
 │   │   ├── schedule.ts   # schedule(): arbitrates the rules, resume, drift and completion
 │   │   └── record.ts     # recordEvent(): validates and appends one ledger line
 │   ├── migrate.ts        # one-time move of legacy dones/shipping items to done/review
