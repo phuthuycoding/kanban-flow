@@ -1,0 +1,310 @@
+import { completedTaskIds, taskCommits } from "./ledger-state.js";
+import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask, Seat } from "./types.js";
+
+// FR-008, FR-009, FR-010, FR-014: verify exit codes, fix rounds, reopens, the breaker, cascades and non-DONE seat statuses,
+// as `kf:implement` § 3.2, § 3.4 and Resume from the ledger steps 9–11 lay them out. Pure: no filesystem, git or clock.
+// Dispatches ignore the developer cap and the holds: `schedule()` arbitrates them.
+
+const NON_DONE = new Set(["NEEDS_CONTEXT", "BLOCKED", "DONE_WITH_CONCERNS"]);
+const SEATS: Seat[] = ["test-writer", "developer", "code-reviewer", "automation-writer"];
+const ROUND_SEATS: Seat[] = ["test-writer", "developer", "automation-writer"];
+const MAX_ROUNDS = 5;
+const FRESH_FROM = 4;
+
+type Dispatched = Extract<LedgerEvent, { type: "dispatched" }>;
+type Dispatch = Extract<Action, { kind: "dispatch" }>;
+
+const sameSha = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
+
+/** Index of the last event matching `pred`, or -1. */
+function lastIndex(events: LedgerEvent[], pred: (e: LedgerEvent) => boolean): number {
+  for (let i = events.length - 1; i >= 0; i--) if (pred(events[i])) return i;
+  return -1;
+}
+
+const anyAfter = (events: LedgerEvent[], index: number, pred: (e: LedgerEvent) => boolean): boolean =>
+  events.slice(index + 1).some(pred);
+
+function verifyCommand(state: LedgerState, inputs: LoopInputs, task: string, atHead: boolean): string {
+  const shas = taskCommits(state, task, inputs.reportCommits[task], inputs.gitLog).join(",");
+  return `kf verify ${inputs.feature} --task ${task} --commits ${shas}${atHead ? " --at-head" : ""}`;
+}
+
+/** The cap holds a failed verify of `task` as contention, or owes its step-down: not routing's to act on. */
+function heldByCap(cap: Cap, task: string): boolean {
+  if (cap.contention.held.some((h) => h.task === task) || cap.contention.running === task) return true;
+  return cap.owed.some((a) => a.kind === "write" && (a.line.includes(`${task} verify`) || a.line.includes(`Note ${task}: verify rerun`)));
+}
+
+/** The task's latest `code-reviewer dispatched` has its `done`. */
+function reviewReported(events: LedgerEvent[], task: string): boolean {
+  const i = lastIndex(events, (e) => e.type === "dispatched" && e.task === task && e.seat === "code-reviewer");
+  return i !== -1 && anyAfter(events, i, (e) => e.type === "done" && e.task === task && e.seat === "code-reviewer");
+}
+
+interface VerifyView {
+  /** Index of a kept `exit=1` that is this task's own failure (no waits or routed note after it). */
+  keptFailure: number | null;
+}
+
+function seatStatus(events: LedgerEvent[], task: string): Action[] {
+  const actions: Action[] = [];
+  for (const seat of SEATS) {
+    const i = lastIndex(events, (e) => e.type === "done" && e.task === task && e.seat === seat);
+    if (i === -1) continue;
+    const done = events[i] as Extract<LedgerEvent, { type: "done" }>;
+    if (!NON_DONE.has(done.status)) continue;
+    const closed = anyAfter(
+      events,
+      i,
+      (e) =>
+        (e.type === "dispatched" && e.task === task && e.seat === seat) ||
+        (e.type === "decided" && e.task === task) ||
+        (seat === "developer" && e.type === "commits" && e.task === task),
+    );
+    if (closed) continue;
+    const commitNote = seat === "developer" && done.status === "BLOCKED" ? ` | Note ${task}: commits <sha7>` : "";
+    actions.push({
+      kind: "decide",
+      task,
+      rule: "Seat status",
+      reason: `${seat} ended ${done.status}`,
+      closes: `${task}: ${seat} dispatched … | Note ${task}: decided — <what>${commitNote}`,
+    });
+  }
+  return actions;
+}
+
+function verifyRouting(
+  state: LedgerState,
+  inputs: LoopInputs,
+  cap: Cap,
+  task: string,
+  actions: Action[],
+  routed: Map<string, number[]>,
+): VerifyView {
+  const { events } = state;
+  const v = lastIndex(events, (e) => e.type === "verifyDone" && e.task === task);
+  if (v === -1 || anyAfter(events, v, (e) => e.type === "verifyStarted" && e.task === task)) return { keptFailure: null };
+  const { exit } = events[v] as Extract<LedgerEvent, { type: "verifyDone" }>;
+  const decidedAfter = anyAfter(events, v, (e) => e.type === "decided" && e.task === task);
+
+  if (exit === 2) {
+    if (decidedAfter) actions.push({ kind: "verify", task, command: verifyCommand(state, inputs, task, false) });
+    else {
+      actions.push({
+        kind: "stop",
+        task,
+        reason: `${task} verify exit 2: a changed file is outside the task's Files — replan, have the human re-approve, then record Note ${task}: decided — <what>`,
+      });
+    }
+    return { keptFailure: null };
+  }
+  if (exit === 3) {
+    if (decidedAfter) actions.push({ kind: "verify", task, command: verifyCommand(state, inputs, task, false) });
+    else {
+      actions.push({
+        kind: "decide",
+        task,
+        rule: "Verify exit 3",
+        reason: `${task} verify exit 3: bad input, nothing ran — fix the call and re-run it, or report a kf error to the human; never a fix round`,
+        closes: `Note ${task}: decided — <what> | ${task}: verify started`,
+      });
+    }
+    return { keptFailure: null };
+  }
+  if (exit !== 1 || heldByCap(cap, task)) return { keptFailure: null };
+
+  const w = lastIndex(events, (e) => e.type === "verifyWaits" && e.task === task);
+  if (w > v) {
+    const waits = events[w] as Extract<LedgerEvent, { type: "verifyWaits" }>;
+    if (anyAfter(events, w, (e) => e.type === "commits" && e.task === waits.otherTask)) {
+      actions.push({ kind: "verify", task, command: verifyCommand(state, inputs, task, true) });
+    } else {
+      actions.push({ kind: "wait", task, reason: `verify waits for ${waits.otherTask}` });
+    }
+    return { keptFailure: null };
+  }
+  const r = lastIndex(events, (e) => e.type === "verifyRouted" && e.task === task);
+  if (r > v) {
+    const { otherTask } = events[r] as Extract<LedgerEvent, { type: "verifyRouted" }>;
+    routed.set(otherTask, [...(routed.get(otherTask) ?? []), r]);
+    return { keptFailure: null };
+  }
+  return { keptFailure: v };
+}
+
+const isRoundSeat = (e: LedgerEvent, task: string): e is Dispatched =>
+  e.type === "dispatched" && e.task === task && e.round !== undefined && ROUND_SEATS.includes(e.seat);
+
+function isInline(events: LedgerEvent[], t: LoopTask): boolean {
+  return t.inline || events.some((e) => e.type === "inline" && e.task === t.id);
+}
+
+function developer(t: LoopTask, events: LedgerEvent[], mode: Dispatch["mode"], round: number): Dispatch {
+  return { kind: "dispatch", task: t.id, seat: "developer", mode, round, ...(isInline(events, t) ? { inline: true } : {}) };
+}
+
+function fixRounds(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[], view: VerifyView, routedHere: number[]): Action[] {
+  const task = t.id;
+  const triggers: number[] = [];
+  const latestReview = lastIndex(events, (e) => e.type === "done" && e.task === task && e.seat === "code-reviewer");
+  if (latestReview !== -1 && (events[latestReview] as Extract<LedgerEvent, { type: "done" }>).status === "findings") triggers.push(latestReview);
+  const reported = reviewReported(events, task);
+  if (view.keptFailure !== null && reported) triggers.push(view.keptFailure);
+  if (routedHere.length > 0 && reported) triggers.push(Math.max(...routedHere));
+  const reopenedAt = lastIndex(events, (e) => e.type === "reopened" && e.task === task);
+  if (reopenedAt !== -1) triggers.push(reopenedAt);
+
+  const answered = (i: number): boolean =>
+    anyAfter(events, i, (e) => isRoundSeat(e, task) || (e.type === "developerWaits" && e.task === task) || (e.type === "fixQueued" && e.task === task));
+  const due = triggers.filter((i) => !answered(i));
+
+  const actions: Action[] = [];
+  const capReached = reopenedAt !== -1 && anyAfter(events, reopenedAt, (e) => e.type === "capReached" && e.task === task);
+  const stop: Action = { kind: "stop", task, reason: `${task} reached the five-round cap after a reopen — the human decides` };
+  if (capReached) actions.push(stop);
+  if (due.length === 0) return actions;
+
+  const round = 1 + Math.max(0, ...events.filter((e) => isRoundSeat(e, task)).map((e) => (e as Dispatched).round!));
+  if (round <= MAX_ROUNDS) {
+    actions.push(developer(t, events, round < FRESH_FROM ? "resume" : "fresh", round));
+  } else if (reopenedAt === -1) {
+    const trigger = Math.max(...due);
+    if (!anyAfter(events, trigger, (e) => e.type === "decided" && e.task === task)) {
+      actions.push({
+        kind: "decide",
+        task,
+        rule: "Breaker",
+        reason: `${task} round ${MAX_ROUNDS} left findings or a kept verify failure open — park each with a ruling or rule on the smallest unblocking change`,
+        closes: `Note ${task}: decided — <what>`,
+      });
+    }
+  } else if (!capReached) {
+    const line = `Note ${task}: cap reached — <failure>`;
+    actions.push(stop, { kind: "write", task, line, record: `kf record ${inputs.feature} line -- ${line}` });
+  }
+  return actions;
+}
+
+function roundSeatsDone(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[]): Action[] {
+  const task = t.id;
+  const actions: Action[] = [];
+  for (const seat of ["test-writer", "automation-writer"] as Seat[]) {
+    const d = lastIndex(events, (e) => e.type === "dispatched" && e.task === task && e.seat === seat);
+    if (d === -1) continue;
+    const dispatch = events[d] as Dispatched;
+    if (dispatch.round === undefined) continue;
+    const doneAt = events.findIndex((e, i) => i > d && e.type === "done" && e.task === task && e.seat === seat);
+    if (doneAt === -1) continue;
+    const hashed = anyAfter(events, doneAt, (e) => e.type === "testHashes" && e.task === task);
+    if (!hashed) {
+      const line = `${task}: test hashes <file>=<sha> …`;
+      if (!actions.some((a) => a.kind === "write" && a.line === line)) {
+        actions.push({ kind: "write", task, line, record: `kf record ${inputs.feature} line -- ${line}` });
+      }
+      continue;
+    }
+    const resumed = anyAfter(
+      events,
+      doneAt,
+      (e) => (e.type === "dispatched" && e.task === task && e.seat === "developer") || (e.type === "developerWaits" && e.task === task),
+    );
+    if (!resumed && !actions.some((a) => a.kind === "dispatch")) actions.push(developer(t, events, "resume", dispatch.round));
+  }
+  return actions;
+}
+
+function fixRoundLines(inputs: LoopInputs, task: string, events: LedgerEvent[]): Action[] {
+  const actions: Action[] = [];
+  const rounds = new Set<number>();
+  events.forEach((e, i) => {
+    if (e.type !== "dispatched" || e.task !== task || e.seat !== "code-reviewer" || e.round === undefined || e.cascade !== undefined) return;
+    if (!anyAfter(events, i, (x) => x.type === "done" && x.task === task && x.seat === "code-reviewer")) return;
+    rounds.add(e.round);
+  });
+  for (const round of rounds) {
+    if (events.some((e) => e.type === "fixRound" && e.task === task && e.round === round)) continue;
+    const body = "<X> addressed, <Y> open — <one-liners>; commits <a7>,…";
+    actions.push({
+      kind: "write",
+      task,
+      line: `${task}: fix round ${round}/${MAX_ROUNDS} (${body})`,
+      record: `kf record ${inputs.feature} fix-round ${task} ${round} -- ${body}`,
+    });
+  }
+  return actions;
+}
+
+/** Every task that depends on `task` directly or transitively. */
+function dependents(tasks: LoopTask[], task: string): Set<string> {
+  const found = new Set<string>();
+  const queue = [task];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const t of tasks) {
+      if (t.dependencies.includes(current) && !found.has(t.id)) {
+        found.add(t.id);
+        queue.push(t.id);
+      }
+    }
+  }
+  return found;
+}
+
+function cascades(state: LedgerState, inputs: LoopInputs): Action[] {
+  const { events } = state;
+  const completed = completedTaskIds(state);
+  const actions: Action[] = [];
+  for (const h of inputs.tasks) {
+    const firstReview = events.findIndex((e) => e.type === "dispatched" && e.task === h.id && e.seat === "code-reviewer");
+    if (firstReview === -1) continue;
+    const owers = dependents(inputs.tasks, h.id);
+    events.forEach((e, i) => {
+      if (i <= firstReview || e.type !== "commits" || e.task !== h.id) return;
+      const roundAt = lastIndex(events.slice(0, i), (x) => x.type === "dispatched" && x.task === h.id && x.seat === "developer" && x.round !== undefined);
+      if (roundAt === -1) return;
+      const round = (events[roundAt] as Dispatched).round!;
+      for (const sha of e.shas) {
+        const sha7 = sha.slice(0, 7);
+        for (const x of inputs.tasks) {
+          if (!owers.has(x.id) || completed.has(x.id)) continue;
+          const firstDev = events.find((d) => d.type === "dispatched" && d.task === x.id && d.seat === "developer");
+          if (!firstDev || firstDev.ts >= e.ts) continue;
+          const owed = events.some((o) => o.type === "cascadeOwed" && o.task === x.id && sameSha(o.sha, sha7));
+          if (!owed) {
+            const line = `${x.id}: cascade re-review owed — after ${sha7} of ${h.id}`;
+            actions.push({ kind: "write", task: x.id, line, record: `kf record ${inputs.feature} cascade-owed ${x.id} ${sha7} ${h.id}` });
+            continue;
+          }
+          const dispatched = events.some(
+            (d) => d.type === "dispatched" && d.task === x.id && d.seat === "code-reviewer" && d.cascade !== undefined && sameSha(d.cascade, sha7),
+          );
+          if (!dispatched) actions.push({ kind: "dispatch", task: x.id, seat: "code-reviewer", mode: "new", round, cascade: sha7 });
+        }
+      }
+    });
+  }
+  return actions;
+}
+
+export function routingActions(state: LedgerState, inputs: LoopInputs, cap: Cap): Action[] {
+  const { events } = state;
+  const completed = completedTaskIds(state);
+  const open = inputs.tasks.filter((t) => !completed.has(t.id));
+  const actions: Action[] = [];
+  const routed = new Map<string, number[]>();
+  const views = new Map<string, VerifyView>();
+
+  for (const t of open) {
+    actions.push(...seatStatus(events, t.id));
+    views.set(t.id, verifyRouting(state, inputs, cap, t.id, actions, routed));
+  }
+  for (const t of open) {
+    actions.push(...fixRounds(inputs, t, events, views.get(t.id)!, routed.get(t.id) ?? []));
+    actions.push(...roundSeatsDone(inputs, t, events));
+    actions.push(...fixRoundLines(inputs, t.id, events));
+  }
+  actions.push(...cascades(state, inputs));
+  return actions;
+}
