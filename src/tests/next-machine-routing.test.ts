@@ -99,10 +99,15 @@ const CAP_STOP = `${T1} reached the five-round cap after a reopen — the human 
 const quoted = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
 
 describe("routing a verify result by exit code", () => {
-  // The routing rules alone name nothing here; the machine's answer to the same ledger is the task's own complete.
-  it("asks for nothing after a pass with a clean review, beyond completing the task", () => {
+  // The routing rules alone name nothing here; schedule() answers complete for the task (ruling: ported routing cases run through schedule()).
+  it("asks for no verify, decision, stop or dispatch after a pass with a clean review, and completes the task (ruling: ported routing cases run through schedule())", () => {
     const state = ledger(...built(), verifyStarted(5, T1), verifyDone(6, T1, 0), done(7, T1, "code-reviewer", "clean"));
-    expect(of(routingActions(state, inputs([task(T1)])), T1)).toEqual([{ kind: "complete", task: T1 }]);
+    const actions = routingActions(state, inputs([task(T1)]));
+    expect(verifies(actions, T1)).toEqual([]);
+    expect(decides(actions, T1)).toEqual([]);
+    expect(stops(actions, T1)).toEqual([]);
+    expect(of(actions, T1).filter((a) => a.kind === "dispatch")).toEqual([]);
+    expect(of(actions, T1)).toContainEqual({ kind: "complete", task: T1 });
   });
 
   it("names no fix round for a failure while the review is still open", () => {
@@ -666,7 +671,7 @@ describe("cascade re-reviews", () => {
   });
 
   // The landing's round is the round of H's latest round developer dispatched before the naming line.
-  it("gives the cascade the round of the latest round developer before the naming line (one reviewer lane per task, FR-025)", () => {
+  it("gives the cascade the round of the latest round developer before the naming line (one reviewer lane per task, ruling:fr-025-reviewer-lane)", () => {
     const events: Stamped[] = [
       ...built(H),
       done(5, H, "code-reviewer", "findings"),
