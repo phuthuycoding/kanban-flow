@@ -1,0 +1,23 @@
+{
+  "n": 1,
+  "inFlight": [
+    { "task": "TASK-001", "seat": "code-reviewer" },
+    { "task": "TASK-002", "seat": "verify" },
+    { "task": "TASK-002", "seat": "code-reviewer" }
+  ],
+  "actions": [
+    {
+      "kind": "write",
+      "line": "Ruling: developer cap 2 → 1 — EADDRINUSE in TASK-001 verify — cost if wrong: <…>",
+      "record": "kf record demo line -- Ruling: developer cap 2 → 1 — EADDRINUSE in TASK-001 verify — cost if wrong: <…>"
+    },
+    {
+      "kind": "write",
+      "task": "TASK-001",
+      "line": "Note TASK-001: verify rerun — contention EADDRINUSE",
+      "record": "kf record demo line -- Note TASK-001: verify rerun — contention EADDRINUSE"
+    },
+    { "kind": "verify", "task": "TASK-001", "command": "kf verify demo --task TASK-001 --commits abc1234", "rerun": true },
+    { "kind": "wait", "task": "TASK-003", "reason": "held re-run TASK-001" }
+  ]
+}

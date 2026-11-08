@@ -1,0 +1,11 @@
+{
+  "n": 2,
+  "inFlight": [
+    { "task": "TASK-002", "seat": "verify" },
+    { "task": "TASK-002", "seat": "code-reviewer" }
+  ],
+  "actions": [
+    { "kind": "dispatch", "task": "TASK-001", "seat": "developer", "mode": "resume", "round": 1 },
+    { "kind": "dispatch", "task": "TASK-003", "seat": "test-writer", "mode": "new" }
+  ]
+}

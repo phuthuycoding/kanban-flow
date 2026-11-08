@@ -1,0 +1,50 @@
+== verify started commits=a17e404,529f014 2026-11-02T17:48:48+0700
+Every changed file is inside TASK-002's Files.
+Running in a detached worktree at 529f014 (/private/var/folders/xz/v2rxttv91sl6fyyf4f68635m0000gn/T/kf-verify-j4dDU6)
+verify command failed (exit 1): npm test
+main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+⚠ ran legacy hook /var/folders/xz/v2rxttv91sl6fyyf4f68635m0000gn/T/kfw-hook-Z4gFrN/.kf/hooks/dones.sh for done: rename it to done.sh (kf doctor --fix renames it and keeps its content)
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/tests/auto-close.test.ts > auto-close on merge > a remote that refuses the branch delete is reported, never forced, and the close goes on
+Error: Test timed out in 15000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/tests/auto-close.test.ts > auto-close on merge > a remote that refuses the branch delete is reported, never forced, and the close goes on
+Error: ENOTEMPTY: directory not empty, rmdir '/private/var/folders/xz/v2rxttv91sl6fyyf4f68635m0000gn/T/kf-autoclose-ZDhJzs/repo/.works'
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/tests/claude-plugin.test.ts > a plugin whose source folder claude does not report > kf doctor --fix does not run marketplace add for it
+Error: Hook timed out in 10000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+exit=1
+== verify started commits=a17e404,529f014 (rerun) 2026-11-02T17:51:42+0700
+Every changed file is inside TASK-002's Files.
+Running in a detached worktree at 529f014 (/private/var/folders/xz/v2rxttv91sl6fyyf4f68635m0000gn/T/kf-verify-dSBKE2)
+All 2 task verify command(s) passed.
+exit=0
+== verify started commits=a17e404,529f014,b822298 2026-11-02T17:53:06+0700
+Every changed file is inside TASK-002's Files.
+Running in a detached worktree at b822298 (/private/var/folders/xz/v2rxttv91sl6fyyf4f68635m0000gn/T/kf-verify-pNGfLt)
+All 2 task verify command(s) passed.
+exit=0

@@ -1,0 +1,4 @@
+## kf verify 2026-11-07T10:23:50+07:00 exit=1
+Running in a detached worktree at abc1234
+verify command failed (exit 1): npm test
+Error: listen EADDRINUSE: address already in use :::3000
