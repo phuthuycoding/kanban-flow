@@ -163,6 +163,19 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
   const developerSeats: Dispatch[] = [];
   const afterCommit: Action[] = [];
 
+  const waitsOwed = (id: string, reason: string): boolean => {
+    const lastDone = doneOf(ev(id), "developer").at(-1)?.line ?? -1;
+    const latest = ev(id).filter((e): e is Extract<LedgerEvent, { type: "developerWaits" }> => e.type === "developerWaits" && e.line > lastDone).at(-1);
+    return latest?.reason !== reason;
+  };
+  const holdWithLine = (id: string, reason: string): void => {
+    waitsOut.push({ kind: "wait", task: id, reason });
+    if (waitsOwed(id, reason)) {
+      const text = `${id}: developer waits — ${reason}`;
+      writes.push({ kind: "write", task: id, line: text, record: `kf record ${f} waits ${id} -- ${reason}` });
+    }
+  };
+
   // After-commit seats run first: a resume-commit developer takes a freed seat before new tasks (FR-003).
   for (const t of inputs.tasks) {
     const events = sinceReopen(state, t.id);
@@ -179,20 +192,28 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
         reason: `${t.id}'s developer is done but no commit is recorded in a note, a review package or its report`,
         closes: `Note ${t.id}: commits <sha7>`,
       });
-    const reviewStarted = (after: number): boolean =>
-      events.some((e) => e.line > after && (e.type === "verifyStarted" || (e.type === "dispatched" && e.seat === "code-reviewer")));
+    const verifyStarted = (after: number): boolean => events.some((e) => e.line > after && e.type === "verifyStarted");
+    const reviewerDispatched = (after: number): boolean =>
+      events.some((e) => e.line > after && e.type === "dispatched" && e.seat === "code-reviewer");
+    // Each half is named on its own: a session that lost context after recording one still owes the other.
     const trio = (after: number, pkg: string[], r?: number): void => {
-      if (reviewStarted(after)) return;
+      const verify = !verifyStarted(after);
+      const reviewer = !reviewerDispatched(after);
+      if (!verify && !reviewer) return;
       if (!events.some((e) => e.type === "reviewPackage" && e.line > after)) {
         afterCommit.push(line(f, `${t.id}: review package ${pkg.join(",")}`, t.id));
       }
-      afterCommit.push({ kind: "verify", task: t.id, command: `kf verify ${f} --task ${t.id} --commits ${commits.join(",")}` });
-      afterCommit.push({ kind: "dispatch", task: t.id, seat: "code-reviewer", mode: "new", ...(r !== undefined ? { round: r } : {}) });
+      if (verify) afterCommit.push({ kind: "verify", task: t.id, command: `kf verify ${f} --task ${t.id} --commits ${commits.join(",")}` });
+      if (reviewer) {
+        afterCommit.push({ kind: "dispatch", task: t.id, seat: "code-reviewer", mode: "new", ...(r !== undefined ? { round: r } : {}) });
+      }
     };
 
     if (round !== undefined) {
-      if (reviewStarted(latest.line)) continue;
-      const reviewed = events.filter((e) => e.type === "dispatched" && e.seat === "code-reviewer").at(-1)?.line ?? -1;
+      if (verifyStarted(latest.line) && reviewerDispatched(latest.line)) continue;
+      // The previous review is the latest one dispatched before this round's done, not a re-review already under way.
+      const reviewed =
+        events.filter((e) => e.type === "dispatched" && e.seat === "code-reviewer" && e.line < latest.line).at(-1)?.line ?? -1;
       const recorded = events.flatMap((e) => (e.type === "commits" && e.line > reviewed ? e.shas : []));
       const scoped = commits.filter((sha) => recorded.some((r) => r.startsWith(sha) || sha.startsWith(r)));
       if (scoped.length === 0) missing();
@@ -219,9 +240,13 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
     const after = Math.max(specsDone.line, firstDone.line);
     const resume = events.find((e): e is Dispatched => e.type === "dispatched" && e.seat === "developer" && e.line > after);
     if (resume === undefined) {
-      const hold = t.inline ? null : (contentionHold() ?? (free > 0 ? null : `${cap.n} developers in flight`));
-      if (hold !== null) {
-        waitsOut.push({ kind: "wait", task: t.id, reason: hold });
+      const contention = t.inline ? null : contentionHold();
+      if (contention !== null) {
+        waitsOut.push({ kind: "wait", task: t.id, reason: contention });
+        continue;
+      }
+      if (!t.inline && free <= 0) {
+        holdWithLine(t.id, `${cap.n} developers in flight`);
         continue;
       }
       if (!t.inline) free--;
@@ -236,18 +261,6 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
   const finished = (dep: string): boolean =>
     doneOf(ev(dep), "developer").some((d) => countsAsDone(ev(dep), d)) &&
     taskCommits(state, dep, inputs.reportCommits[dep], inputs.gitLog).length > 0;
-  const waitsOwed = (id: string, reason: string): boolean => {
-    const lastDone = doneOf(ev(id), "developer").at(-1)?.line ?? -1;
-    const latest = ev(id).filter((e): e is Extract<LedgerEvent, { type: "developerWaits" }> => e.type === "developerWaits" && e.line > lastDone).at(-1);
-    return latest?.reason !== reason;
-  };
-  const holdWithLine = (id: string, reason: string): void => {
-    waitsOut.push({ kind: "wait", task: id, reason });
-    if (waitsOwed(id, reason)) {
-      const text = `${id}: developer waits — ${reason}`;
-      writes.push({ kind: "write", task: id, line: text, record: `kf record ${f} waits ${id} -- ${reason}` });
-    }
-  };
 
   for (const t of inputs.tasks) {
     if (complete.has(t.id) || dispatchedSeat(t.id, "developer")) continue;

@@ -372,10 +372,43 @@ describe("seatActions after a developer's commit", () => {
     ]);
   });
 
-  it("does not name the trio again once the verify has started", () => {
+  // A session that lost context between the two steps must still be told the half it did not record.
+  it("still names the code-reviewer when only the verify has started", () => {
     const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
     const actions = seatActions(
       developed({ type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] }, { type: "verifyStarted", task: "TASK-001" }),
+      inputs,
+      capOf(2),
+    );
+    expect(verifies(actions, "TASK-001")).toHaveLength(0);
+    expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
+      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new" },
+    ]);
+    expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
+  });
+
+  it("still names the verify when only the code-reviewer was dispatched", () => {
+    const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+    const actions = seatActions(
+      developed({ type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] }, dispatched("TASK-001", "code-reviewer")),
+      inputs,
+      capOf(2),
+    );
+    expect(verifies(actions, "TASK-001")).toEqual([
+      expect.objectContaining({ kind: "verify", task: "TASK-001", command: "kf verify feat --task TASK-001 --commits abc1234" }),
+    ]);
+    expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
+    expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
+  });
+
+  it("names neither half again once the verify started and the code-reviewer was dispatched", () => {
+    const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+    const actions = seatActions(
+      developed(
+        { type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] },
+        { type: "verifyStarted", task: "TASK-001" },
+        dispatched("TASK-001", "code-reviewer"),
+      ),
       inputs,
       capOf(2),
     );
@@ -502,6 +535,32 @@ describe("seatActions after a developer's commit", () => {
     ]);
     expect(dispatches(committed, "developer")).toHaveLength(0);
     expect(dispatches(committed, "automation-writer")).toHaveLength(0);
+  });
+
+  it("holds a resume-commit developer at the cap and owes its developer waits line once", () => {
+    const tasks = [task("TASK-001", { testTypes: ["Unit", "UI"] }), task("TASK-002")];
+    const inputs = inputsOf(tasks, { level: "full", reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+    const reason = "1 developers in flight";
+    const base = developed(
+      dispatched("TASK-001", "automation-writer"),
+      done("TASK-001", "automation-writer"),
+      ...testsReady("TASK-002"),
+      dispatched("TASK-002", "developer"),
+    ).events.map(({ line: _line, ts: _ts, ...e }) => e as Fields);
+
+    const first = seatActions(stateOf(...base), inputs, capOf(1));
+    expect(dispatches(first, "developer", "TASK-001")).toHaveLength(0);
+    expect(waits(first, "TASK-001")).toEqual([{ kind: "wait", task: "TASK-001", reason }]);
+    expect(writes(first).filter((w) => w.line.startsWith("TASK-001: developer waits"))).toEqual([
+      expect.objectContaining({
+        line: `TASK-001: developer waits — ${reason}`,
+        record: `kf record feat waits TASK-001 -- ${reason}`,
+      }),
+    ]);
+
+    const again = seatActions(stateOf(...base, { type: "developerWaits", task: "TASK-001", reason }), inputs, capOf(1));
+    expect(waits(again, "TASK-001")).toEqual([{ kind: "wait", task: "TASK-001", reason }]);
+    expect(writes(again).filter((w) => w.line.startsWith("TASK-001: developer waits"))).toHaveLength(0);
   });
 
   it("still names the resume-commit developer when the automation-writer ran ahead of the developer", () => {
