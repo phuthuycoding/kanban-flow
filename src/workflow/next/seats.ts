@@ -190,6 +190,18 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
     if (latest === undefined || !countsAsDone(state, events, latest)) continue;
     const round = answeredDispatch(events, latest)?.round;
     const commits = taskCommits(state, t.id, inputs.reportCommits[t.id], inputs.gitLog);
+    // Rule 5: a reported commit is named in the ledger (its landing position) before its review is named.
+    const named = ev(t.id).flatMap((e) => (e.type === "commits" || e.type === "reviewPackage" ? e.shas : []));
+    const unnamed: string[] = [];
+    for (const sha of inputs.reportCommits[t.id] ?? []) {
+      const short = sha.slice(0, 7);
+      const same = (other: string): boolean => other.startsWith(short) || short.startsWith(other);
+      if (!named.some(same) && !unnamed.some(same)) unnamed.push(short);
+    }
+    if (unnamed.length > 0) {
+      const shas = unnamed.join(",");
+      afterCommit.push({ kind: "write", task: t.id, line: `Note ${t.id}: commits ${shas}`, record: `kf record ${f} commits ${t.id} ${shas}` });
+    }
     const missing = (): void =>
       void afterCommit.push({
         kind: "decide",
@@ -203,6 +215,7 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
       events.some((e) => e.line > after && e.type === "dispatched" && e.seat === "code-reviewer");
     // Each half is named on its own: a session that lost context after recording one still owes the other.
     const trio = (after: number, pkg: string[], r?: number): void => {
+      if (unnamed.length > 0) return;
       const verify = !verifyStarted(after);
       const reviewer = !reviewerDispatched(after);
       if (!verify && !reviewer) return;

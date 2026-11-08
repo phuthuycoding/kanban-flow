@@ -362,7 +362,7 @@ describe("seatActions after a developer's commit", () => {
       reportCommits: { "TASK-001": ["abc1234", "def5678"] },
       gitLog: logOf("abc1234", "def5678"),
     });
-    const actions = seatActions(developed(), inputs, capOf(2));
+    const actions = seatActions(developed(commitsNote("TASK-001", "abc1234", "def5678")), inputs, capOf(2));
     expect(writes(actions)).toContainEqual(
       expect.objectContaining({
         line: "TASK-001: review package abc1234,def5678",
@@ -440,14 +440,11 @@ describe("seatActions after a developer's commit", () => {
       { type: "decided", task: "TASK-001", what: "concerns accepted" },
     );
     const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+    // The decision closes the concerns; the report's commit is still unnamed, so the note comes before the trio.
     const actions = seatActions(state, inputs, capOf(2));
-    expect(writes(actions)).toContainEqual(expect.objectContaining({ line: "TASK-001: review package abc1234" }));
-    expect(verifies(actions, "TASK-001")).toEqual([
-      expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234" }),
-    ]);
-    expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
-      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new" },
-    ]);
+    expect(writes(actions)).toContainEqual(expect.objectContaining({ line: "Note TASK-001: commits abc1234" }));
+    expect(verifies(actions, "TASK-001")).toHaveLength(0);
+    expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
   });
 
   it("treats a BLOCKED developer followed by a commits note as done and names the trio", () => {
@@ -489,19 +486,19 @@ describe("seatActions after a developer's commit", () => {
       expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
     };
 
-    const afterDeveloper = seatActions(developed(), one, capOf(2));
+    const afterDeveloper = seatActions(developed(commitsNote("TASK-001", "abc1234")), one, capOf(2));
     expect(dispatches(afterDeveloper, "automation-writer", "TASK-001")).toEqual([
       { kind: "dispatch", task: "TASK-001", seat: "automation-writer", mode: "new" },
     ]);
     expect(dispatches(afterDeveloper, "developer")).toHaveLength(0);
     noTrio(afterDeveloper);
 
-    const writing = seatActions(developed(dispatched("TASK-001", "automation-writer")), one, capOf(2));
+    const writing = seatActions(developed(commitsNote("TASK-001", "abc1234"), dispatched("TASK-001", "automation-writer")), one, capOf(2));
     expect(dispatches(writing, "automation-writer")).toHaveLength(0);
     expect(dispatches(writing, "developer")).toHaveLength(0);
     noTrio(writing);
 
-    const specsDone = developed(dispatched("TASK-001", "automation-writer"), done("TASK-001", "automation-writer"));
+    const specsDone = developed(commitsNote("TASK-001", "abc1234"), dispatched("TASK-001", "automation-writer"), done("TASK-001", "automation-writer"));
     const afterSpecs = seatActions(specsDone, one, capOf(2));
     expect(dispatches(afterSpecs, "developer", "TASK-001")).toEqual([
       { kind: "dispatch", task: "TASK-001", seat: "developer", mode: "resume" },
@@ -509,7 +506,12 @@ describe("seatActions after a developer's commit", () => {
     noTrio(afterSpecs);
 
     const committing = seatActions(
-      developed(dispatched("TASK-001", "automation-writer"), done("TASK-001", "automation-writer"), dispatched("TASK-001", "developer")),
+      developed(
+        commitsNote("TASK-001", "abc1234"),
+        dispatched("TASK-001", "automation-writer"),
+        done("TASK-001", "automation-writer"),
+        dispatched("TASK-001", "developer"),
+      ),
       one,
       capOf(2),
     );
@@ -523,6 +525,7 @@ describe("seatActions after a developer's commit", () => {
     });
     const committed = seatActions(
       developed(
+        commitsNote("TASK-001", "abc1234", "def5678"),
         dispatched("TASK-001", "automation-writer"),
         done("TASK-001", "automation-writer"),
         dispatched("TASK-001", "developer"),
@@ -547,6 +550,7 @@ describe("seatActions after a developer's commit", () => {
     const inputs = inputsOf(tasks, { level: "full", reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
     const reason = "1 developers in flight";
     const base = developed(
+      commitsNote("TASK-001", "abc1234"),
       dispatched("TASK-001", "automation-writer"),
       done("TASK-001", "automation-writer"),
       ...testsReady("TASK-002"),
@@ -578,6 +582,7 @@ describe("seatActions after a developer's commit", () => {
       done("TASK-001", "automation-writer"),
       dispatched("TASK-001", "developer"),
       done("TASK-001", "developer"),
+      commitsNote("TASK-001", "abc1234"),
     );
     const actions = seatActions(state, inputs, capOf(2));
     expect(dispatches(actions, "developer", "TASK-001")).toEqual([
@@ -599,13 +604,10 @@ describe("seatActions after a developer's commit", () => {
       inputs,
       capOf(2),
     );
-    expect(writes(ruled)).toContainEqual(expect.objectContaining({ line: "TASK-001: review package abc1234" }));
-    expect(verifies(ruled, "TASK-001")).toEqual([
-      expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234" }),
-    ]);
-    expect(dispatches(ruled, "code-reviewer", "TASK-001")).toEqual([
-      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new" },
-    ]);
+    // The ruling closes the concerns; the report's commit is still unnamed, so the note comes before the trio.
+    expect(writes(ruled)).toContainEqual(expect.objectContaining({ line: "Note TASK-001: commits abc1234" }));
+    expect(verifies(ruled, "TASK-001")).toHaveLength(0);
+    expect(dispatches(ruled, "code-reviewer")).toHaveLength(0);
 
     // A ruling about another task does not close this task's concerns.
     const otherRuling = seatActions(
@@ -615,6 +617,7 @@ describe("seatActions after a developer's commit", () => {
     );
     expect(verifies(otherRuling, "TASK-001")).toHaveLength(0);
     expect(dispatches(otherRuling, "code-reviewer")).toHaveLength(0);
+    expect(writes(otherRuling).filter((w) => w.line.startsWith("Note TASK-001"))).toHaveLength(0);
   });
 
   it("names nothing for a fix round until the round test-writer's resume-commit developer is done", () => {
@@ -717,6 +720,87 @@ describe("seatActions after a developer's commit", () => {
     expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
       { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new", round: 1 },
     ]);
+  });
+
+  describe("when the report holds commits no ledger line names", () => {
+    const noTrio = (actions: Action[]) => {
+      expect(verifies(actions, "TASK-001")).toHaveLength(0);
+      expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
+      expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
+    };
+    const notes = (actions: Action[]) => writes(actions).filter((w) => w.line.startsWith("Note TASK-001: commits"));
+
+    it("writes the commits note with a quote-free record and names no trio yet", () => {
+      const inputs = inputsOf([task("TASK-001")], {
+        reportCommits: { "TASK-001": ["abc1234", "def5678"] },
+        gitLog: logOf("abc1234", "def5678"),
+      });
+      const actions = seatActions(developed(), inputs, capOf(2));
+      expect(notes(actions)).toEqual([
+        expect.objectContaining({
+          kind: "write",
+          line: "Note TASK-001: commits abc1234,def5678",
+          record: "kf record feat commits TASK-001 abc1234,def5678",
+        }),
+      ]);
+      expect(actions.filter((a: Action) => a.kind === "decide")).toHaveLength(0);
+      noTrio(actions);
+    });
+
+    it("shortens a full-length report sha to seven characters in the note and its record", () => {
+      const full = sha40("abc1234");
+      const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": [full] }, gitLog: logOf("abc1234") });
+      const actions = seatActions(developed(), inputs, capOf(2));
+      expect(notes(actions)).toEqual([
+        expect.objectContaining({ line: "Note TASK-001: commits abc1234", record: "kf record feat commits TASK-001 abc1234" }),
+      ]);
+    });
+
+    it("names the trio and writes no second note once the commits note is in the ledger", () => {
+      const inputs = inputsOf([task("TASK-001")], {
+        reportCommits: { "TASK-001": ["abc1234", "def5678"] },
+        gitLog: logOf("abc1234", "def5678"),
+      });
+      const actions = seatActions(developed(commitsNote("TASK-001", "abc1234", "def5678")), inputs, capOf(2));
+      expect(notes(actions)).toHaveLength(0);
+      expect(writes(actions)).toContainEqual(expect.objectContaining({ line: "TASK-001: review package abc1234,def5678" }));
+      expect(verifies(actions, "TASK-001")).toEqual([
+        expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234,def5678" }),
+      ]);
+      expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
+        { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new" },
+      ]);
+    });
+
+    it("writes no note when a review package already names the report's commits", () => {
+      const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+      const actions = seatActions(developed({ type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] }), inputs, capOf(2));
+      expect(notes(actions)).toHaveLength(0);
+      expect(verifies(actions, "TASK-001")).toEqual([
+        expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234" }),
+      ]);
+      expect(dispatches(actions, "code-reviewer", "TASK-001")).toHaveLength(1);
+    });
+
+    it("writes the note for only the report commits no ledger line names yet", () => {
+      const inputs = inputsOf([task("TASK-001")], {
+        reportCommits: { "TASK-001": ["abc1234", "def5678"] },
+        gitLog: logOf("abc1234", "def5678"),
+      });
+      const actions = seatActions(developed({ type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] }), inputs, capOf(2));
+      expect(notes(actions)).toEqual([
+        expect.objectContaining({ line: "Note TASK-001: commits def5678", record: "kf record feat commits TASK-001 def5678" }),
+      ]);
+    });
+
+    it("keeps the Commit missing decide and writes no note when the report and the ledger name no commit", () => {
+      const actions = seatActions(developed(), inputsOf([task("TASK-001")]), capOf(2));
+      expect(actions).toContainEqual(
+        expect.objectContaining({ kind: "decide", task: "TASK-001", rule: "Commit missing", closes: "Note TASK-001: commits <sha7>" }),
+      );
+      expect(notes(actions)).toHaveLength(0);
+      noTrio(actions);
+    });
   });
 });
 
