@@ -288,9 +288,14 @@ describe("taskCommits", () => {
   const commits = (line: number, task: string, shas: string[]) => ev(line, { type: "commits", task, shas });
   const pkg = (line: number, task: string, shas: string[]) => ev(line, { type: "reviewPackage", task, shas });
 
-  it("prefers commits notes over a review package and report commits", () => {
+  it("unions commits notes and review package shas in ledger order, ignoring report commits", () => {
     const state = stateFrom(pkg(3, "TASK-001", ["bbbbbbb"]), commits(4, "TASK-001", ["aaaaaaa"]));
-    expect(taskCommits(state, "TASK-001", ["ccccccc"], log)).toEqual(["aaaaaaa"]);
+    expect(taskCommits(state, "TASK-001", ["ccccccc"], [])).toEqual(["bbbbbbb", "aaaaaaa"]);
+  });
+
+  it("dedupes a package sha and a note sha by prefix, keeping the first spelling", () => {
+    const state = stateFrom(pkg(3, "TASK-001", ["bbbbbbb"]), commits(4, "TASK-001", ["bbbbbbbbb", "ddddddd"]));
+    expect(taskCommits(state, "TASK-001", undefined, [])).toEqual(["bbbbbbb", "ddddddd"]);
   });
 
   it("concatenates every commits note of the task in file order and ignores other tasks", () => {

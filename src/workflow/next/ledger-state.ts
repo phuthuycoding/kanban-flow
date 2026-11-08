@@ -183,12 +183,11 @@ export function completedTaskIds(state: LedgerState): Set<string> {
   return done;
 }
 
-/** FR-005: the task's commits from the first non-empty source (notes, review packages, report), deduplicated and in history order. */
+/** FR-005: the task's commits, the union of its commits notes and review packages (the report only as the fallback), deduplicated and in history order. */
 export function taskCommits(state: LedgerState, task: string, reportCommits: string[] | undefined, gitLog: { sha: string; ts: number }[]): string[] {
   const own = state.events.filter((e) => "task" in e && e.task === task);
-  const notes = own.flatMap((e) => (e.type === "commits" ? e.shas : []));
-  const packages = own.flatMap((e) => (e.type === "reviewPackage" ? e.shas : []));
-  const source = notes.length > 0 ? notes : packages.length > 0 ? packages : (reportCommits ?? []);
+  const ledgered = own.flatMap((e) => (e.type === "commits" || e.type === "reviewPackage" ? e.shas : []));
+  const source = ledgered.length > 0 ? ledgered : (reportCommits ?? []);
   const shas: string[] = [];
   for (const sha of source) if (!shas.some((kept) => kept.startsWith(sha) || sha.startsWith(kept))) shas.push(sha);
   const rank = (sha: string): number => {
