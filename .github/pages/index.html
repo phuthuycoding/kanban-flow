@@ -158,6 +158,12 @@
              <strong>code-reviewer</strong> per task, running developers, up to the live developer cap, at once in one
              worktree on tasks whose files overlap no open task, and the plan's task table names a
              <strong>file allowlist</strong> for every task. Approval seals it.</p>
+          <p class="quiet" style="margin-top:14px"><code>kf next</code> reads the ledger, the plan,
+             the reports and the verify logs and prints what is due now: which seat to dispatch,
+             which task to verify, which ledger line to write, which task is complete, and where a
+             judgement is the session's to make. It changes no file and starts nothing; the session
+             still dispatches every seat. <code>kf record</code> writes each ledger line, stamped,
+             under the item lock, and <code>kf next --resume</code> picks a loop up after compaction.</p>
           <p class="quiet" style="margin-top:14px">The live developer cap starts at min(2, ceiling),
              steps up by one after each clean parallel wave and halves (never below 1) on a
              contention-shaped verify failure; the ceiling is <code>harness.developers.max</code>
@@ -216,7 +222,9 @@ kf init                             <span class="c"># seeds .kf/, installs the s
 kf autoconfig                       <span class="c"># hand this briefing to your agent</span>
 kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstorm</span>
 kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
-kf verify user-login --stage        <span class="c"># after approval: the session runs the loop, kf verify checks it</span>
+kf next user-login                  <span class="c"># after approval: what the task loop does now</span>
+kf record user-login dispatched TASK-001 developer --model sonnet  <span class="c"># one stamped ledger line</span>
+kf verify user-login --stage        <span class="c"># the session runs the loop, kf verify checks it</span>
 kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
       <div class="cta" style="margin-top:26px">
         <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>

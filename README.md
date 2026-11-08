@@ -212,7 +212,8 @@ bound to the bytes it approved, evidence that expires.
 
 The session you work in is the controller. It runs the phase skills, dispatches
 the agents inside them and runs the mechanical checks through `kf verify`; kf
-spawns no worker process and keeps no run state.
+spawns no worker process and keeps no run state. In the task loop, `kf next`
+prints what is due and `kf record` writes the ledger.
 The commands `kf drive`, `kf run`, `kf runs` and `kf harness` were removed, together with the
 role, runner and stage configuration behind them. The only `harness` keys left are the two verify lists and the developer ceiling:
 
@@ -230,6 +231,8 @@ no `.test` DNS or proxy probes, `kf status` prints only `http://127.0.0.1:<port>
 
 ```bash
 kf tasks user-login                                   # the task graph: waves, states, files
+kf next user-login [--resume] [--json]                # the task loop's actions due now, read from the ledger; changes no file
+kf record user-login dispatched TASK-001 developer --model sonnet  # appends one stamped ledger line under the item lock
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
 kf verify user-login --task TASK-002 --commits <sha>[,<sha>…] [--at-head]  # exactly those commits, in a detached worktree at the newest, or at HEAD (pipelined loop)
 kf loop-stats user-login --record                     # where the loop's time went; writes (replacing any earlier) the item's row in .works/loop-metrics.md
@@ -289,8 +292,15 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
   `harness.developers.max` (integer 1..16, default 6). When the cap is full a developer waits:
   `TASK-NNN: developer waits — <N> developers in flight`. `kf tasks --json` reports
   `developers: {max, source}`, where source is `config`, `default` or `invalid-config`.
-- A new session resumes from the ledger at `<item>/loop/progress.md`; its lines end
-  in ` @ <ISO>`, and `kf loop-stats` turns them into the loop's measurements.
+- `kf next <feature>` reads the ledger, the plan, the reports, the verify logs and `git log`
+  and prints the actions due now: `dispatch`, `verify`, `write`, `complete`, `wait`, `decide`,
+  `stop` or `finished`. It changes no file and starts no process; the session still spawns
+  every seat with `Agent()`, and a `decide` points at the judgement the skill keeps under
+  `## Decisions`. `kf record <feature> <event> …` writes each ledger line, stamped, under the
+  item lock, and refuses an unknown or contradicting event.
+- A new session runs `kf next <feature> --resume`, which lists the seats and verifies the
+  ledger at `<item>/loop/progress.md` shows open; its lines end in ` @ <ISO>`, and
+  `kf loop-stats` turns them into the loop's measurements.
 
 ## Releasing
 
@@ -303,7 +313,7 @@ The full reference lives in [docs/workflow](docs/workflow/README.md): the [state
 machine](docs/workflow/state-machine.md), every [gate](docs/workflow/gates.md), the
 [artifacts](docs/workflow/artifacts.md), the [CLI reference](docs/workflow/cli-reference.md),
 [agent onboarding](docs/workflow/autoconfig.md) including phase hooks, the
-[in-session harness and `kf verify`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
+[in-session harness, `kf next`, `kf record` and `kf verify`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
 notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License — MIT
