@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { describe, it, expect } from "vitest";
 
+import { schedule } from "../workflow/next/schedule.js";
 import { seatActions } from "../workflow/next/seats.js";
 import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask, Seat, TestType } from "../workflow/next/types.js";
 
@@ -800,6 +801,52 @@ describe("seatActions after a developer's commit", () => {
       );
       expect(notes(actions)).toHaveLength(0);
       noTrio(actions);
+    });
+
+    describe("for a task that stands complete", () => {
+      const completeNote: Fields = { type: "complete", task: "TASK-001", text: "TASK-001: complete" };
+      const reopenedNote: Fields = { type: "reopened", task: "TASK-001", source: "testing", execution: "abcd1234" };
+      const reported = () =>
+        inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
+
+      it("writes no commits note and names no after-commit action", () => {
+        const actions = seatActions(developed(completeNote), reported(), capOf(2));
+        expect(notes(actions)).toHaveLength(0);
+        expect(actions.filter((a) => a.kind === "write" || a.kind === "verify" || a.kind === "decide")).toHaveLength(0);
+        expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
+      });
+
+      it("reaches finished when every other task is complete too", () => {
+        // The cap ruling and the wave note are already in the ledger so only the commits note could block finished.
+        const settled = stateOf(
+          scanClean,
+          { type: "capRuling", from: null, to: 2, cause: { kind: "start" } },
+          { type: "noStepUp", wave: 1, reason: "last wave" },
+          ...testsReady("TASK-001"),
+          dispatched("TASK-001", "developer"),
+          done("TASK-001", "developer"),
+          completeNote,
+        );
+        const result = schedule(settled, reported(), { resume: false });
+        expect(result.actions).toEqual([{ kind: "finished" }]);
+      });
+
+      it("writes the commits note again once a reopened note follows the completion and the developer reports anew", () => {
+        const state = stateOf(
+          scanClean,
+          ...testsReady("TASK-001"),
+          dispatched("TASK-001", "developer"),
+          done("TASK-001", "developer"),
+          completeNote,
+          reopenedNote,
+          dispatched("TASK-001", "developer"),
+          done("TASK-001", "developer"),
+        );
+        const actions = seatActions(state, reported(), capOf(2));
+        expect(notes(actions)).toEqual([
+          expect.objectContaining({ line: "Note TASK-001: commits abc1234", record: "kf record feat commits TASK-001 abc1234" }),
+        ]);
+      });
     });
   });
 });

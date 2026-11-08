@@ -184,6 +184,7 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
 
   // After-commit seats run first: a resume-commit developer takes a freed seat before new tasks (FR-003).
   for (const t of inputs.tasks) {
+    if (complete.has(t.id)) continue;
     const events = sinceReopen(state, t.id);
     const devDones = doneOf(events, "developer");
     const latest = devDones.at(-1);
@@ -198,10 +199,6 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
       const same = (other: string): boolean => other.startsWith(short) || short.startsWith(other);
       if (!named.some(same) && !unnamed.some(same)) unnamed.push(short);
     }
-    if (unnamed.length > 0) {
-      const shas = unnamed.join(",");
-      afterCommit.push({ kind: "write", task: t.id, line: `Note ${t.id}: commits ${shas}`, record: `kf record ${f} commits ${t.id} ${shas}` });
-    }
     const missing = (): void =>
       void afterCommit.push({
         kind: "decide",
@@ -213,6 +210,11 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
     const verifyStarted = (after: number): boolean => events.some((e) => e.line > after && e.type === "verifyStarted");
     const reviewerDispatched = (after: number): boolean =>
       events.some((e) => e.line > after && e.type === "dispatched" && e.seat === "code-reviewer");
+    // A note after the trio ran would move the task's last commit past its verify, which the trio never re-names.
+    if (unnamed.length > 0 && !(verifyStarted(latest.line) && reviewerDispatched(latest.line))) {
+      const shas = unnamed.join(",");
+      afterCommit.push({ kind: "write", task: t.id, line: `Note ${t.id}: commits ${shas}`, record: `kf record ${f} commits ${t.id} ${shas}` });
+    }
     // Each half is named on its own: a session that lost context after recording one still owes the other.
     const trio = (after: number, pkg: string[], r?: number): void => {
       if (unnamed.length > 0) return;
