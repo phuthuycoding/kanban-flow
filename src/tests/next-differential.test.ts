@@ -8,7 +8,7 @@ import { readLedgerState } from "../workflow/next/ledger-state.js";
 import { readLoopInputs } from "../workflow/next/inputs.js";
 import { schedule } from "../workflow/next/schedule.js";
 import { scheduleLegacy } from "../workflow/next/schedule-legacy.js";
-import type { Action, InFlight, LedgerState, LoopInputs, NextResult } from "../workflow/next/types.js";
+import type { Action, InFlight, LedgerEvent, LedgerState, LoopInputs, NextResult } from "../workflow/next/types.js";
 import type { Feature } from "../workflow/features.js";
 
 // The state machine beside the scheduler it replaces, on every ledger the old one was tested on. A difference is
@@ -40,6 +40,14 @@ interface Difference {
   nChanged: boolean;
   /** Under --resume: the `task seat` pairs open in the ledger prefix, as the old scheduler lists them without --resume. */
   openSeats: string[];
+  /** The ledger lines of the prefix, parsed. */
+  events: LedgerEvent[];
+  /**
+   * The machine's results at the later prefixes of the same ledger under the same --resume, as if the session had not
+   * written the task's `fix round` line itself (the session's own write would otherwise silence the machine's); empty
+   * outside a replay.
+   */
+  laterNext: (task: string, round: number) => NextResult[];
 }
 
 /** A canonical text of `x`: object keys sorted, so two actions built in another key order compare equal. */
@@ -138,18 +146,32 @@ function decideWording(id: string, rule: string, why: string): [string, Allowed]
 
 const isFixRoundWrite = (a: Action): boolean => a.kind === "write" && a.task !== undefined && a.line.startsWith(`${a.task}: fix round `);
 
-/** The legacy fix round write is moved, not lost, only when the machine prints an action that ends that round for the task. */
+/**
+ * The legacy fix round write is moved, not lost, when the machine prints an action that ends that round for the task,
+ * or when it is held to a later beside the action that ends the round: (A) the task's complete waits behind its running
+ * verify and a later prefix prints the same line beside that complete, or (B) the session already dispatched the
+ * task's round R+1 without the line, so the machine does not prompt it again.
+ */
 function endsFixRound(d: Difference, w: Action): boolean {
   if (w.kind !== "write" || w.task === undefined) return false;
   const round = Number(/: fix round (\d+)\//.exec(w.line)?.[1]);
   if (!Number.isInteger(round)) return false;
-  return d.next.actions.some(
+  const printsEnd = d.next.actions.some(
     (a) =>
       (isDispatch(a) && a.task === w.task && a.round === round + 1) ||
       (isDecide(a) && a.task === w.task && a.rule === "Breaker") ||
       (a.kind === "stop" && a.task === w.task) ||
       (a.kind === "complete" && a.task === w.task),
   );
+  if (printsEnd) return true;
+  const heldBehindVerify =
+    (d.next.inFlight.some((f) => f.task === w.task && f.seat === "verify") || d.next.actions.some((a) => a.kind === "verify" && a.task === w.task)) &&
+    !d.next.actions.some((a) => a.kind === "complete" && a.task === w.task);
+  const printedBesideComplete = d.laterNext(w.task, round).some(
+    (r) => r.actions.some((a) => a.kind === "write" && a.line === w.line) && r.actions.some((a) => a.kind === "complete" && a.task === w.task),
+  );
+  if (heldBehindVerify && printedBesideComplete) return true;
+  return d.events.some((e) => e.type === "dispatched" && e.task === w.task && e.round === round + 1);
 }
 
 const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
@@ -302,7 +324,7 @@ function parse(text: string): LedgerState {
   return read.state;
 }
 
-function compare(source: string, audit: boolean, prefix: number, resume: boolean, state: LedgerState, inputs: LoopInputs): Difference | null {
+function compare(source: string, audit: boolean, prefix: number, resume: boolean, state: LedgerState, inputs: LoopInputs, laterNext: (task: string, round: number) => NextResult[] = () => []): Difference | null {
   const legacy = scheduleLegacy(state, inputs, { resume });
   const next = schedule(state, inputs, { resume });
   if (key(legacy) === key(next)) return null;
@@ -320,6 +342,8 @@ function compare(source: string, audit: boolean, prefix: number, resume: boolean
     openSeats: resume
       ? scheduleLegacy(state, inputs, { resume: false }).inFlight.filter((f) => f.seat !== "verify").map((f) => `${f.task} ${f.seat}`)
       : [],
+    events: state.events,
+    laterNext,
   };
 }
 
@@ -349,11 +373,21 @@ function untagged(diffs: Difference[]): string[] {
 /** Both schedulers at every prefix of `ledger` (header and first line onward), with and without --resume. */
 function everyPrefix(source: string, ledger: string, inputs: LoopInputs): Difference[] {
   const lines = ledger.split("\n");
+  const states = new Map<number, LedgerState>();
+  for (let i = 2; i <= lines.length; i++) states.set(i, parse(lines.slice(0, i).join("\n")));
   const diffs: Difference[] = [];
   for (let i = 2; i <= lines.length; i++) {
-    const state = parse(lines.slice(0, i).join("\n"));
     for (const resume of [false, true]) {
-      const d = compare(source, false, i, resume, state, inputs);
+      const later = (task: string, round: number): NextResult[] => {
+        const results: NextResult[] = [];
+        for (let j = i + 1; j <= lines.length; j++) {
+          const state = states.get(j) as LedgerState;
+          const events = state.events.filter((e) => !(e.type === "fixRound" && e.task === task && e.round === round));
+          results.push(schedule({ events }, inputs, { resume }));
+        }
+        return results;
+      };
+      const d = compare(source, false, i, resume, states.get(i) as LedgerState, inputs, later);
       if (d !== null) diffs.push(d);
     }
   }
