@@ -295,8 +295,8 @@ export type ImplementerStep =
    * first cycle's specs reported after this done, so the next developer dispatched is the resume-commit developer.
    */
   | { kind: "commitNoteOwed"; shas: string[]; resume?: true; specsAfter?: true }
-  /** The developer is done with no commit recorded since the dispatch it answers (`dispatchLine`); `resume`, `specsAfter` as above. */
-  | { kind: "commitMissing"; dispatchLine: number; resume?: true; specsAfter?: true }
+  /** The developer is done with no commit recorded since the dispatch it answers (`dispatchLine`); `resume` as above. */
+  | { kind: "commitMissing"; dispatchLine: number; resume?: true }
   | { kind: "committed" };
 
 /** A first pass, a fix round (1–5), or the one minimal fix past the cap. */

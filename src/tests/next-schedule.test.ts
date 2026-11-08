@@ -1396,6 +1396,70 @@ describe("schedule: a UI task under Level full owes the specs commit to the resu
     ]);
   });
 
+  // The sent-back developer answers the Commit missing; its commit is the task's, so the specs commit is still owed after it.
+  it("owes one resume developer after the developer sent back for Commit missing commits only the task commit", async () => {
+    await expectSpecsOwed([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "developer"),
+    ]);
+  });
+
+  it("reviews with both commits once the one resume developer committed the specs after the sent-back developer", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "developer"),
+      dispatched(T1, "developer"),
+      commits(T1, "aaa0002"),
+      done(T1, "developer"),
+    ]);
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, inputs, { resume });
+      expect(dispatchesOf(actions, T1, "developer")).toEqual([]);
+      expect(actions).toContainEqual(expect.objectContaining({ kind: "write", line: `${T1}: review package aaa0001,aaa0002` }));
+      expect(verifiesOf(actions, T1)).toHaveLength(1);
+      expect(dispatchesOf(actions, T1, "code-reviewer")).toHaveLength(1);
+    }
+  });
+
+  it("owes one resume developer after the sent-back developer commits when its report named only the first commit", async () => {
+    const schedule = await loadSchedule();
+    const named = ["aaa0001"];
+    const namedInputs = inputsOf([ui], {
+      level: "full",
+      reportCommits: { [T1]: named },
+      gitLog: named.map((sha, i) => ({ sha: `${sha}${"0".repeat(33)}`, ts: 1_000 + i })),
+    });
+    const state = stateOf([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+    ]);
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, namedInputs, { resume });
+      expect(dispatchesOf(actions, T1, "developer").map((d) => d.mode)).toEqual(["resume"]);
+      expect(verifiesOf(actions, T1)).toEqual([]);
+      expect(dispatchesOf(actions, T1, "code-reviewer")).toEqual([]);
+    }
+  });
+
   it("reviews the task once the resume-commit developer is done with the specs commit", async () => {
     const schedule = await loadSchedule();
     const state = stateOf([

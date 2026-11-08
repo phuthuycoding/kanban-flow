@@ -149,7 +149,7 @@ const isFixRoundWrite = (a: Action): boolean => a.kind === "write" && a.task !==
 /**
  * The legacy fix round write is moved, not lost, when the machine prints an action that ends that round for the task,
  * or when it is held to a later beside the action that ends the round: (A) the task's complete waits behind its running
- * verify and a later prefix prints the same line beside that complete, or (B) the session already dispatched the
+ * verify, or under --resume a verify the machine lists again, and a later prefix prints the same line beside that complete, or (B) the session already dispatched the
  * task's round R+1 without the line, so the machine does not prompt it again.
  */
 function endsFixRound(d: Difference, w: Action): boolean {

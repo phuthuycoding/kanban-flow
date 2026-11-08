@@ -150,12 +150,13 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
   });
   if (resumePurpose(t, c, dispatchLine)) return to({ kind: "committed" });
   const prior = c.implementer;
-  const specsAfter = (prior.kind === "commitNoteOwed" || prior.kind === "commitMissing") && prior.specsAfter === true;
-  const flags = { ...(resumed(prior) ? { resume: true as const } : {}), ...(specsAfter ? { specsAfter: true as const } : {}) };
+  const specsAfter = prior.kind === "commitNoteOwed" && prior.specsAfter === true;
+  const resume = resumed(prior) ? { resume: true as const } : {};
+  const flags = { ...resume, ...(specsAfter ? { specsAfter: true as const } : {}) };
   const unnamed = unnamedReportShas(t, world);
   if (unnamed.length > 0) return to({ kind: "commitNoteOwed", shas: unnamed, ...flags });
   if (c.sinceCommit === null || c.sinceCommit < dispatchLine) {
-    const missing: ImplementerStep = { kind: "commitMissing", dispatchLine, ...flags };
+    const missing: ImplementerStep = { kind: "commitMissing", dispatchLine, ...resume };
     return to(missing, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
   }
   if (owesSpecs(t, world)) return to({ kind: "specsOwed" });
@@ -183,9 +184,9 @@ function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: st
     return withImplementer(next, seat === "test-writer" ? { kind: "roundHashOwed" } : { kind: "resumeCommitOwed", round: phase.round });
   }
   if (step.kind === "specsRunning" && seat === "automation-writer") return withImplementer(next, { kind: "resumeCommitOwed" });
-  // Specs reported while the first cycle's done still owes its commit or commits note: the next developer is the resume.
-  const owing = step.kind === "commitNoteOwed" || step.kind === "commitMissing";
-  if (owing && phase.cycle === "first" && seat === "automation-writer" && uiSpecs(t, world)) {
+  // Specs reported while the first cycle's done still owes its commits note: the next developer is the resume. After a
+  // Commit missing the sent-back developer makes the task commit; the specs resume comes after it (SKILL § 3.2).
+  if (step.kind === "commitNoteOwed" && phase.cycle === "first" && seat === "automation-writer" && uiSpecs(t, world)) {
     return withImplementer(next, { ...step, specsAfter: true });
   }
   const slot = t.seats[seat];
@@ -252,9 +253,9 @@ function dispatchInCycle(t: TaskState, c: Cycle, e: Dispatched, slot: Running): 
   }
   if (e.seat === "developer") {
     // Any developer dispatched after the owed resume-commit, re-dispatches included, is that resume (legacy seats.ts:276-277).
-    // So is one dispatched after specs reported while the first developer's done still owed its commit or commits note.
+    // So is one dispatched after specs reported while the first developer's done still owed its commits note.
     const step = c.implementer;
-    const afterSpecs = (step.kind === "commitNoteOwed" || step.kind === "commitMissing") && step.specsAfter === true;
+    const afterSpecs = step.kind === "commitNoteOwed" && step.specsAfter === true;
     const resume = step.kind === "resumeCommitOwed" || resumed(step) || afterSpecs;
     return withImplementer(t, resume ? { ...running, resume: true } : running);
   }
