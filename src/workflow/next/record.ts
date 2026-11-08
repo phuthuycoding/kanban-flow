@@ -25,6 +25,11 @@ const PROBE_STAMP = "2026-01-01T00:00:00+00:00";
 const bad = (reason: string): Built => ({ ok: false, code: 3, reason });
 const refuse = (reason: string): Built => ({ ok: false, code: 1, reason });
 
+/** Quote one shell word: wrap in single quotes, each ' written as '\'' — safe for bash/zsh, round-trips any text. */
+export function shellQuote(text: string): string {
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
 const pad = (n: number): string => String(n).padStart(2, "0");
 
 export function stamp(now: Date): string {
@@ -160,7 +165,7 @@ export function buildLine(ledgerText: string | null, e: RecordEvent): Built {
 
   const read = readLedgerState(ledgerText ?? "");
   if (!read.ok) {
-    const lines = read.repair.map((r) => `line ${r.line}: ${r.reason} — ${r.text}`).join("\n");
+    const lines = read.repair.map((r) => `line ${r.line}: ${r.text} — ${r.reason}`).join("\n");
     return refuse(`The ledger needs repair before anything is appended:\n${lines}`);
   }
   const state = read.state;

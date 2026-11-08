@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { ARTIFACTS, METADATA_FILE } from "../workflow/schema.js";
 import { parseLedger } from "../workflow/loop-stats.js";
-import { buildLine, recordEvent, stamp, type RecordEvent } from "../workflow/next/record.js";
+import { buildLine, recordEvent, shellQuote, stamp, type RecordEvent } from "../workflow/next/record.js";
 import type { Feature } from "../workflow/features.js";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -88,6 +88,33 @@ describe("stamp", () => {
     const s = stamp(now);
     expect(s).toMatch(STAMP_SHAPE);
     expect(new Date(s).getTime()).toBe(now.getTime());
+  });
+});
+
+describe("shellQuote", () => {
+  const samples = [
+    "plain text",
+    "it's",
+    "Files overlap a / b (TASK-001)",
+    "fix round body; commits a7b8c9d",
+    "cost is $HOME and $(id)",
+    "tick `id` tick",
+    "decided — use the lock",
+    "a'b (c); d",
+    "",
+  ];
+
+  it("wraps text in single quotes and writes each single quote as '\\''", () => {
+    expect(shellQuote("a'b (c); d")).toBe("'a'\\''b (c); d'");
+    expect(shellQuote("plain")).toBe("'plain'");
+    expect(shellQuote("")).toBe("''");
+  });
+
+  it("round-trips every sample through bash as exactly one argument with the original text", () => {
+    for (const sample of samples) {
+      const out = execFileSync("bash", ["-c", `printf '%s\\0' ${shellQuote(sample)} end`], { encoding: "utf8" });
+      expect(out, JSON.stringify(sample)).toBe(`${sample}\0end\0`);
+    }
   });
 });
 
@@ -214,6 +241,12 @@ describe("buildLine", () => {
     const r = refused(buildLine(broken, ev("verify-started", ["TASK-001"])));
     expect(r.code).toBe(1);
     expect(r.reason).toContain("2");
+  });
+
+  it("prints each repair line as the line number, the ledger text, then the reason", () => {
+    const broken = `${HEADER}\nTASK-001: developer dispatched model=opus\n`;
+    const r = refused(buildLine(broken, ev("verify-started", ["TASK-001"])));
+    expect(r.reason).toMatch(/^line 2: TASK-001: developer dispatched model=opus — \S.*$/m);
   });
 
   it("exits 3 on bad usage: missing args, bad ids, seats, numbers, shas and free text", () => {
