@@ -249,10 +249,11 @@ function roundSeatsDone(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[]):
       }
       continue;
     }
-    // A round-R developer dispatched beside the round seat, before its done, answers the resume-commit too.
+    // A round-R developer dispatched after the round seat, even before its done, answers the resume-commit too;
+    // one dispatched before the seat never saw its tests, so the resume-commit is still owed.
     const resumed =
       anyAfter(events, doneAt, (e) => e.type === "dispatched" && e.task === task && e.seat === "developer") ||
-      events.some((e) => e.type === "dispatched" && e.task === task && e.seat === "developer" && e.round === dispatch.round);
+      anyAfter(events, d, (e) => e.type === "dispatched" && e.task === task && e.seat === "developer" && e.round === dispatch.round);
     if (!resumed && !actions.some((a) => a.kind === "dispatch")) actions.push(developer(t, events, "resume", dispatch.round));
   }
   return actions;

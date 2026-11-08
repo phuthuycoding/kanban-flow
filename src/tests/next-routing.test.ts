@@ -641,4 +641,23 @@ describe("a round developer dispatched beside its round test-writer", () => {
     const actions = routingActions(ledger(...events), inputs([task(T1)]), cap());
     expect(developerDispatches(actions, T1)).toEqual([]);
   });
+
+  // A developer that fixed code before a test finding went to the round's test-writer never saw those tests,
+  // so it does not commit them: the resume-commit developer is still owed.
+  it("resumes the round developer to commit tests from a round test-writer dispatched after it", () => {
+    const events: Stamped[] = [
+      ...built(),
+      done(5, T1, "code-reviewer", "findings"),
+      dispatched(6, T1, "developer", { round: 1 }),
+      commits(7, T1, "b2c3d4e"),
+      done(8, T1, "developer", "DONE"),
+      dispatched(9, T1, "test-writer", { round: 1 }),
+      done(10, T1, "test-writer", "DONE"),
+      hashes(11),
+    ];
+    const actions = routingActions(ledger(...events), inputs([task(T1)]), cap());
+    expect(developerDispatches(actions, T1)).toEqual([
+      expect.objectContaining({ kind: "dispatch", task: T1, seat: "developer", mode: "resume", round: 1 }),
+    ]);
+  });
 });
