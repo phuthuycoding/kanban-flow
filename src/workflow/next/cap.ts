@@ -54,6 +54,36 @@ function atHead(events: LedgerEvent[], task: string): boolean {
   return events.some((e, i) => i > lastDone && e.type === "verifyWaits" && e.task === task);
 }
 
+/**
+ * The failed verify starting at `startIndex` was itself the one plain re-run: the task's previous verify also failed
+ * with no log block, and no line of the task (a commit, a note, a seat) comes between that failure and this start.
+ */
+function usedPlainRerun(events: LedgerEvent[], inputs: LoopInputs, task: string, startIndex: number): boolean {
+  if (startIndex === -1) return false;
+  let prevDone = -1;
+  for (let i = startIndex - 1; i >= 0; i--) {
+    const e = events[i];
+    if (!ofTask(e, task)) continue;
+    if (e.type === "verifyDone") prevDone = i;
+    break;
+  }
+  if (prevDone === -1) return false;
+  const prev = events[prevDone] as Extract<LedgerEvent, { type: "verifyDone" }>;
+  if (prev.exit !== 1) return false;
+  let prevStart = -1;
+  for (let i = prevDone - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === "verifyStarted" && e.task === task) {
+      prevStart = i;
+      break;
+    }
+  }
+  if (prevStart !== -1 && isRerun(events, prevStart)) return false;
+  const prevStartTs = prevStart === -1 ? -Infinity : events[prevStart].ts;
+  const thisStartTs = events[startIndex].ts;
+  return !(inputs.verifyRuns[task] ?? []).some((run) => run.ts > prevStartTs && run.ts <= thisStartTs);
+}
+
 interface Wave {
   wave: number;
   tasks: LoopTask[];
@@ -67,14 +97,12 @@ function wavesOf(tasks: LoopTask[]): Wave[] {
 
 /** The index of the event that last turned every task of `tasks` complete, or -1. */
 function dueIndex(events: LedgerEvent[], tasks: LoopTask[]): number {
-  const done = new Set<string>();
+  const allDone = (i: number): boolean => {
+    const done = completedTaskIds({ events: events.slice(0, i + 1) });
+    return tasks.every((t) => done.has(t.id));
+  };
   let due = -1;
-  events.forEach((e, i) => {
-    const before = tasks.every((t) => done.has(t.id));
-    if (e.type === "complete" || e.type === "implemented") done.add(e.task);
-    else if (e.type === "reopened") done.delete(e.task);
-    if (!before && tasks.every((t) => done.has(t.id))) due = i;
-  });
+  for (let i = 0; i < events.length; i++) if (allDone(i) && !allDone(i - 1)) due = i;
   return due;
 }
 
@@ -101,6 +129,7 @@ export function liveCap(state: LedgerState, inputs: LoopInputs): Cap {
 
   // Contention events this call owes, classified from each task's latest verify; plain re-runs of a failure with no log block.
   const owedHeld: HeldRerun[] = [];
+  const plainRunning: string[] = [];
   const contentions: { line: number; task: string; signature: string; startIndex: number }[] = [];
   const verified = new Set<string>();
   for (const e of events) if (e.type === "verifyDone") verified.add(e.task);
@@ -125,7 +154,8 @@ export function liveCap(state: LedgerState, inputs: LoopInputs): Cap {
     const startTs = startIndex === -1 ? -Infinity : events[startIndex].ts;
     const block = (inputs.verifyRuns[task] ?? []).find((run) => run.ts > startTs);
     if (!block) {
-      if (!later.some((e) => e.type === "verifyStarted" && e.task === task)) owedHeld.push({ task, atHead: atHead(events, task), kind: "plain" });
+      if (later.some((e) => e.type === "verifyStarted" && e.task === task)) plainRunning.push(task);
+      else if (!usedPlainRerun(events, inputs, task, startIndex)) owedHeld.push({ task, atHead: atHead(events, task), kind: "plain" });
       continue;
     }
     const signature = contentionSignature(block.text);
@@ -204,6 +234,7 @@ export function liveCap(state: LedgerState, inputs: LoopInputs): Cap {
       held.push({ task: e.task, atHead: atHead(events, e.task), kind: "rerun" });
     }
   });
+  if (running === null && plainRunning.length > 0) running = plainRunning[0];
   const rank = (task: string): [number, number] => {
     const i = inputs.tasks.findIndex((t) => t.id === task);
     return i === -1 ? [Infinity, Infinity] : [inputs.tasks[i].wave, i];

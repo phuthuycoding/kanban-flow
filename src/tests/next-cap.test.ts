@@ -478,6 +478,34 @@ describe("liveCap held re-runs", () => {
     expect(cap.contention.held).toEqual([{ task: "TASK-001", atHead: false, kind: "plain" }]);
   });
 
+  it("reads a started plain re-run as running, blocking developers", () => {
+    const state = ledger(
+      capAt(4),
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(3, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+      e(4, { type: "verifyStarted", task: "TASK-001" }),
+    );
+    const cap = liveCap(state, inputs(tasks));
+    expect(cap.n).toBe(4);
+    expect(cap.owed).toEqual([]);
+    expect(cap.contention).toEqual({ held: [], running: "TASK-001", blocksDevelopers: true });
+  });
+
+  it("owes only one plain re-run: when it also fails with no log block, nothing more is held", () => {
+    // The failure then goes to the fix loop; another plain re-run would repeat with no end.
+    const state = ledger(
+      capAt(4),
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(3, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+      e(4, { type: "verifyStarted", task: "TASK-001" }),
+      e(5, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+    );
+    const cap = liveCap(state, inputs(tasks));
+    expect(cap.n).toBe(4);
+    expect(cap.owed).toEqual([]);
+    expect(cap.contention).toEqual({ held: [], running: null, blocksDevelopers: false });
+  });
+
   it("reads an orphan re-run (started, never done) as running, blocking developers", () => {
     const state = ledger(
       capAt(2),
