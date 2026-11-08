@@ -77,6 +77,7 @@ TASK-001: unverified — <claim only a real run can answer> @ <ts>
 Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
 Note TASK-NNN: developer seat inline @ <ts>
 Note TASK-NNN: cap reached — <failure> @ <ts>
+Note TASK-NNN: decided — minimal fix past the cap: <the change> @ <ts>
 TASK-NNN: brief written @ <ts>
 TASK-NNN: review package <sha7>,… @ <ts>
 wave <w>: parallel test-writers TASK-A, TASK-B — disjoint Files @ <ts>

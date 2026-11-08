@@ -98,6 +98,34 @@ describe("the minimal-fix-past-the-cap rule", () => {
     expect(skill).toContain("one fresh developer for that change alone");
     expect(skill).toContain("One minimal fix per task");
   });
+
+  it("limits the fix to the smallest change inside the task's Files", () => {
+    expect(skill).toContain("no new behaviour, no file outside the task's Files");
+  });
+
+  it("keeps the fix from counting as a sixth round", () => {
+    expect(skill).toContain("carry no `round=`");
+  });
+
+  it("keeps the stop printing until the task completes", () => {
+    expect(skill).toContain("keeps printing the stop");
+  });
+
+  it("reconciles the human-only stop with the one minimal fix", () => {
+    expect(skill).toContain("Apart from the one minimal fix below");
+  });
+
+  it("lets a cap-reached task complete only through superseded or its minimal fix", () => {
+    expect(skill).toContain(
+      "gets it only after a `superseded` line or its one minimal fix past the cap",
+    );
+  });
+
+  it("shows the decided note in the task-loop ledger shapes", () => {
+    expect(taskLoop).toContain(
+      "Note TASK-NNN: decided — minimal fix past the cap: <the change> @ <ts>",
+    );
+  });
 });
 
 describe("the travel skill", () => {
