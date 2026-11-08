@@ -362,8 +362,10 @@ describe("readLoopInputs: git log", () => {
   it("refuses with the git error when the log cannot be read", () => {
     const reason = refusal(readLoopInputs(root, featureOf()));
     expect(reason).toContain("git log");
-    // More than the prefix: git's own message about the unborn HEAD is carried.
-    expect(reason).toMatch(/HEAD|commits|revision/i);
+    // Locale-independent: git's own stderr follows "in <dir>: ", so the text after that separator is not empty.
+    const marker = `in ${root}: `;
+    expect(reason).toContain(marker);
+    expect(reason.slice(reason.indexOf(marker) + marker.length).trim().length).toBeGreaterThan(0);
   });
 });
 
