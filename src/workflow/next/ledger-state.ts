@@ -28,7 +28,7 @@ const CAUSE_CEILING = /^ceiling lowered to (\d+)$/;
 
 /** A body that starts a claim the scheduler reads (behind an optional bullet): when it fails its grammar the ledger needs repair. */
 const CLAIM =
-  /^\s*(?:[-*+]\s+)?(?:Ruling: developer cap|Note wave [^:]*: no step-up|Note TASK-\d+: (?:verify rerun|verify waits|verify routed|commits|decided|reopened|cap reached|developer seat inline)|TASK-\d+: (?:no test-writer|test hashes|parked))/;
+  /^\s*(?:[-*+]\s+)?(?:Ruling: developer cap|Note wave [^:]*: no step-up|Note TASK-\d+: (?:verify rerun|verify waits|verify routed|commits|decided|reopened|cap reached|developer seat inline)|TASK-\d+: (?:implemented|review package|no test-writer|test hashes|parked))/;
 
 const TASK_OF = /^(?:Note )?(TASK-\d+):/;
 

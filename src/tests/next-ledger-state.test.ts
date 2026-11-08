@@ -320,3 +320,17 @@ describe("taskCommits", () => {
     expect(taskCommits(state, "TASK-001", undefined, log)).toEqual(["aaaaaaa", "bbbbbbb", "ccccccc", "1234567", "7654321"]);
   });
 });
+
+describe("readLedgerState refusal of implemented and review package lines", () => {
+  it.each([
+    ["a malformed implemented line", stamp("TASK-001: implemented, test-writer seat: none")],
+    ["an unstamped implemented line", "TASK-001: implemented, test-writer seat: none, review seat: none"],
+    ["a malformed review package line", stamp("TASK-001: review package xyz")],
+    ["an unstamped review package line", "TASK-001: review package abcdef1,1234567"],
+  ])("refuses %s, naming its line", (_name, text) => {
+    const repair = repairOf(ledger(stamp("TASK-002: verify started"), text));
+    expect(repair).toHaveLength(1);
+    expect(repair[0].line).toBe(4);
+    expect(repair[0].text).toBe(text);
+  });
+});
