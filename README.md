@@ -302,9 +302,8 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
   One code-reviewer of a task runs at a time (`wait TASK-NNN: code-reviewer of TASK-NNN in
   flight`), and at the five-round cap a task gets the `Breaker` decide, ended by parking or
   one minimal fix past the cap, or, once reopened, the cap stop, ended by the human or that
-  minimal fix. Its
-  liveness guard gives every open task an action, an In-flight entry or a wait, or else
-  `stop TASK-NNN: kf next has no rule for TASK-NNN in <phase> — report this with the ledger`.
+  minimal fix. Its liveness guard gives every open task an action, an In-flight entry or a
+  wait, or else `stop TASK-NNN: kf next has no rule for TASK-NNN in <phase> / … — report this with the ledger`.
 - A new session runs `kf next <feature> --resume`, which lists the seats and verifies the
   ledger at `<item>/loop/progress.md` shows open; its lines end in ` @ <ISO>`, and
   `kf loop-stats` turns them into the loop's measurements.

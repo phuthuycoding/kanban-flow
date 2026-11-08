@@ -115,7 +115,7 @@ The developer writes its full report to `<item>/loop/task-NNN-report.md` and ret
 
 Dispatch `Agent(kf:code-reviewer)` with `references/task-reviewer-brief.md` verbatim, beside the task's `kf verify` (3.2): the brief file, the developer's report file, the review package, the Global Constraints copied verbatim, and the model (`sonnet`; `opus` for a high-risk diff). It grades the review package only; the working tree may hold other tasks' uncommitted edits, which are context only. It returns a spec-compliance verdict (✅ / ❌ / ⚠️ cannot verify from diff) and a quality verdict with findings in the shared schema. Resolve every ⚠️ item yourself from the plan or the code before completing the task; a confirmed gap is a failed spec review. A ⚠️ that only a real run can answer is ledgered `TASK-NNN: unverified — <claim>`, and `kf:test` runs it. Never accept a report missing either verdict; self-review never replaces this gate. Never pre-judge a finding in the brief ("do not flag X" is the tell).
 
-**One reviewer lane per task.** At most one code-reviewer of a task is in flight: while one runs, any other review the task owes — its own or a cascade re-review — prints `wait TASK-NNN: code-reviewer of TASK-NNN in flight` and is dispatched after it, oldest first.
+**One reviewer lane per task.** At most one code-reviewer of a task is in flight: while one runs, any other review the task owes — its own or a cascade re-review — prints `wait TASK-NNN: code-reviewer of TASK-NNN in flight` and is dispatched after it, oldest first; the same wait is printed beside the dispatch of the first of several owed reviews.
 
 ### 3.4 The fix loop
 
