@@ -163,7 +163,10 @@
              which task to verify, which ledger line to write, which task is complete, and where a
              judgement is the session's to make. It changes no file and starts nothing; the session
              still dispatches every seat. <code>kf record</code> writes each ledger line, stamped,
-             under the item lock, and <code>kf next --resume</code> picks a loop up after compaction.</p>
+             under the item lock, and <code>kf next --resume</code> picks a loop up after compaction.
+             Behind it runs one state machine per task, folded from the ledger, with a
+             liveness guard: every open task gets an action, a seat in flight or a wait, or else a
+             <code>stop</code> saying <code>kf next has no rule for</code> it, never silence.</p>
           <p class="quiet" style="margin-top:14px">The live developer cap starts at min(2, ceiling),
              steps up by one after each clean parallel wave and halves (never below 1) on a
              contention-shaped verify failure; the ceiling is <code>harness.developers.max</code>

@@ -147,6 +147,73 @@ describe("the minimal-fix-past-the-cap rule", () => {
   });
 });
 
+const readDoc = (...parts: string[]) => read(...parts);
+const section = (text: string, heading: string): string => {
+  const start = text.indexOf(heading);
+  expect(start, heading).toBeGreaterThanOrEqual(0);
+  const rest = text.slice(start + heading.length);
+  const next = rest.search(/\n## /);
+  return next === -1 ? rest : rest.slice(0, next);
+};
+
+describe("the skill's decide table after the state machine", () => {
+  it.each(["Verify exit", "Verify routed"])("has a Decisions heading for the %s rule", (rule) => {
+    expect(section(skill, "## Decisions")).toMatch(new RegExp(`^### ${rule}\\s*$`, "m"));
+  });
+
+  it("describes the outcomes at the round cap in the Decisions section", () => {
+    const decisions = section(skill, "## Decisions");
+    expect(decisions).toContain("Breaker");
+    expect(decisions).toContain("Cap stop");
+    expect(decisions).toContain("minimal fix past the cap");
+    expect(decisions).toContain("fix round 5/5");
+  });
+
+  it("names the reviewer lane wait kf next prints", () => {
+    expect(skill).toContain("code-reviewer of TASK-NNN in flight");
+    expect(taskLoop).toContain("code-reviewer of TASK-NNN in flight");
+  });
+
+  it("names the overlap and in-flight waits kf next prints", () => {
+    expect(skill).toContain("Files overlap");
+    expect(skill).toContain("developers in flight");
+    expect(skill).toContain("developer in flight");
+    expect(skill).toContain("earlier overlapping");
+  });
+
+  it("states the liveness guard stop kf next prints", () => {
+    expect(skill).toContain("kf next has no rule for");
+    expect(skill).toContain("report this with the ledger");
+  });
+});
+
+describe("the user-facing docs after the state machine", () => {
+  const surfaces: Array<[string, string]> = [
+    ["README.md", readDoc("README.md")],
+    ["docs/workflow/harness.md", readDoc("docs", "workflow", "harness.md")],
+    [".github/pages/index.html", readDoc(".github", "pages", "index.html")],
+  ];
+
+  it.each(surfaces)("%s mentions the state machine", (_name, text) => {
+    expect(text).toMatch(/state machine/i);
+  });
+
+  it.each(surfaces)("%s mentions the liveness guard", (_name, text) => {
+    expect(text).toMatch(/liveness guard/i);
+  });
+
+  it("lists the liveness guard on the kf next row of the CLI reference", () => {
+    expect(readDoc("docs", "workflow", "cli-reference.md")).toMatch(/liveness guard/i);
+  });
+
+  it("has a changelog entry for the state machine in Unreleased", () => {
+    const changelog = readDoc("CHANGELOG.md");
+    const unreleased = changelog.slice(changelog.indexOf("## [Unreleased]"), changelog.indexOf("## [0.15.1]"));
+    expect(unreleased).toMatch(/state machine/i);
+    expect(unreleased).toMatch(/liveness guard/i);
+  });
+});
+
 describe("the travel skill", () => {
   it("points its resume at kf next --resume", () => {
     expect(travel).toContain("kf next --resume");

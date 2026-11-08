@@ -116,6 +116,8 @@ TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)
 TASK-NNN: developer waits — <N> developers in flight
 ```
 
+A review has one lane per task: while a code-reviewer of the task is in flight, every other review it owes — its own or a cascade re-review — prints `wait TASK-NNN: code-reviewer of TASK-NNN in flight` and runs next, oldest first. That wait writes no ledger line: a `done` line carries no cascade field, so two open reviewers of one task could not be told apart.
+
 ## The fix loop
 
 - **Rounds 1–3 resume the original developer.** Its context is intact: it knows the task, the code and its own choices. Send the open findings verbatim. If the runtime cannot message a live subagent, dispatch a fresh one carrying the brief path, the report path and the findings.
