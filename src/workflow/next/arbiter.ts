@@ -168,12 +168,15 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
     emit({ kind: "verify", task: nextHeld.task, command: verifyCommand(nextHeld.task, nextHeld.atHead), rerun: true });
   }
 
-  /** The overlap that holds opening `t`: an open task first, else an earlier incomplete one. */
+  /**
+   * The overlap that holds opening `t`: an open task ranked before it first, else an earlier incomplete one. A later
+   * open task never holds an earlier one, so a reopened earlier task cannot deadlock against it.
+   */
   function overlapHold(t: LoopTask): { kind: "open" | "earlier"; other: LoopTask } | null {
-    const others = plan.filter((o) => overlapping(t, o));
+    const others = plan.filter((o) => overlapping(t, o) && rankPos(o.id) < rankPos(t.id));
     const open = others.find((o) => isOpen(world.tasks.get(o.id)));
     if (open) return { kind: "open", other: open };
-    const earlier = others.find((o) => rankPos(o.id) < rankPos(t.id) && !isComplete(o.id));
+    const earlier = others.find((o) => !isComplete(o.id));
     return earlier ? { kind: "earlier", other: earlier } : null;
   }
 
@@ -182,7 +185,12 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
   const priority = (d: Dispatch): boolean => d.mode !== "new" || d.round !== undefined;
   developers.sort((a, b) => Number(priority(b)) - Number(priority(a)) || planPos(a.task) - planPos(b.task));
   let free = n - world.pool.length;
-  const heldRerun = contention.held[0]?.task ?? contention.running;
+  const rerunHold: { task: string; label: string } | null =
+    contention.running !== null
+      ? { task: contention.running, label: "running re-run" }
+      : contention.held[0] !== undefined
+        ? { task: contention.held[0].task, label: "held re-run" }
+        : null;
   for (const d of developers) {
     const t = byId.get(d.task);
     const phase = world.tasks.get(d.task)?.phase.kind;
@@ -211,8 +219,8 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions): A
       emit(d);
       continue;
     }
-    if (contention.blocksDevelopers && heldRerun !== null) {
-      wait({ kind: "wait", task: d.task, reason: `held re-run ${heldRerun}` }, { kind: "verify", task: heldRerun });
+    if (contention.blocksDevelopers && rerunHold !== null) {
+      wait({ kind: "wait", task: d.task, reason: `${rerunHold.label} ${rerunHold.task}` }, { kind: "verify", task: rerunHold.task });
       continue;
     }
     if (free > 0) {

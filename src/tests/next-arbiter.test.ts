@@ -316,7 +316,14 @@ describe("arbiter: contention", () => {
     });
     const r = run(world, [dev("TASK-002")]);
     expect(reruns(r)).toEqual([]);
-    expect(waitsOf(r, "TASK-002").map((w) => w.reason)).toEqual(["held re-run TASK-002"]);
+    expect(waitsOf(r, "TASK-002").map((w) => w.reason)).toEqual(["running re-run TASK-001"]);
+    expect(r.waits[0].blockedBy).toEqual({ kind: "verify", task: "TASK-001" });
+  });
+
+  it("names a running re-run, not a held one, when developers wait on a lone running re-run", () => {
+    const world = worldOf({ tasks: [loopTask("TASK-001"), loopTask("TASK-002")], n: 3, contention: blocked([], "TASK-001") });
+    const r = run(world, [dev("TASK-002")]);
+    expect(waitsOf(r, "TASK-002").map((w) => w.reason)).toEqual(["running re-run TASK-001"]);
   });
 
   it("re-emits a lost running re-run as a re-run when developers are below the cap", () => {
@@ -554,7 +561,51 @@ describe("arbiter: overlaps and the test-writer window", () => {
     expect(waitsOf(r, "TASK-002").map((w) => w.reason)).toEqual(["earlier overlapping TASK-001 incomplete"]);
   });
 
-  it("holds a test-writer behind an open overlapping task", () => {
+  it("dispatches an earlier task's test-writer while a later overlapping task is open", () => {
+    const world = worldOf({
+      tasks: [loopTask("TASK-001", { ...shared, overlaps: ["TASK-002"] }), loopTask("TASK-002", { ...shared, overlaps: ["TASK-001"] }), loopTask("TASK-003")],
+      n: 4,
+      states: { "TASK-002": { phase: tw() } },
+    });
+    const r = run(world, [seatDispatch("TASK-001", "test-writer"), seatDispatch("TASK-003", "test-writer")]);
+    expect(dispatchedTasks(r, "test-writer")).toEqual(["TASK-001", "TASK-003"]);
+    expect(waitsOf(r, "TASK-001")).toEqual([]);
+  });
+
+  it("makes a later open task's developer wait on the earlier overlapping task and name it", () => {
+    const world = worldOf({
+      tasks: [loopTask("TASK-001", { ...shared, overlaps: ["TASK-002"] }), loopTask("TASK-002", { ...shared, overlaps: ["TASK-001"] })],
+      n: 4,
+      states: { "TASK-002": { phase: tw() } },
+    });
+    const r = run(world, [seatDispatch("TASK-001", "test-writer"), dev("TASK-002")]);
+    expect(dispatchedTasks(r)).toEqual(["TASK-001"]);
+    expect(waitsOf(r, "TASK-002").map((w) => w.reason)).toEqual(["earlier overlapping TASK-001 incomplete"]);
+    expect(r.waits.find((w) => w.wait.task === "TASK-002")?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
+  });
+
+  it("dispatches a reopened earlier task's round developer and makes the later open task wait on it, with no wait cycle", () => {
+    const world = worldOf({
+      tasks: [loopTask("TASK-001", { ...shared, overlaps: ["TASK-002"] }), loopTask("TASK-002", { ...shared, overlaps: ["TASK-001"] })],
+      n: 4,
+      states: { "TASK-001": { phase: cycle(), commits: ["abc1234"] }, "TASK-002": { phase: tw() } },
+    });
+    const r = run(world, [dev("TASK-001", { mode: "resume", round: 1 }), dev("TASK-002")]);
+    expect(dispatchedTasks(r, "developer")).toEqual(["TASK-001"]);
+    const blocking = r.waits.find((w) => w.wait.task === "TASK-002");
+    expect(blocking?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
+    const edges = new Map<string, string>();
+    for (const w of r.waits) if (w.blockedBy.kind === "task") edges.set(w.wait.task!, w.blockedBy.task);
+    for (const start of edges.keys()) {
+      const seen = new Set<string>([start]);
+      for (let at = edges.get(start); at !== undefined; at = edges.get(at)) {
+        expect(seen.has(at), `wait cycle through ${at}`).toBe(false);
+        seen.add(at);
+      }
+    }
+  });
+
+  it("holds a later task's test-writer behind an open overlapping task that ranks earlier", () => {
     const world = worldOf({
       tasks: [
         loopTask("TASK-001", { ...shared, overlaps: ["TASK-002"] }),
@@ -562,11 +613,12 @@ describe("arbiter: overlaps and the test-writer window", () => {
         loopTask("TASK-003"),
       ],
       n: 4,
-      states: { "TASK-002": { phase: tw() } },
+      states: { "TASK-001": { phase: tw() } },
     });
-    const r = run(world, [seatDispatch("TASK-001", "test-writer"), seatDispatch("TASK-003", "test-writer")]);
+    const r = run(world, [seatDispatch("TASK-002", "test-writer"), seatDispatch("TASK-003", "test-writer")]);
     expect(dispatchedTasks(r, "test-writer")).toEqual(["TASK-003"]);
-    expect(waitsOf(r, "TASK-001")).toHaveLength(1);
+    expect(waitsOf(r, "TASK-002").map((w) => w.reason)).toEqual(["Files overlap src/shared.ts / src/shared.ts (TASK-001)"]);
+    expect(r.waits.find((w) => w.wait.task === "TASK-002")?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
   });
 
   it("dispatches test-writers for disjoint tasks side by side", () => {
