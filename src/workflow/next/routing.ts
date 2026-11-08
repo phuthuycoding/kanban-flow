@@ -65,13 +65,20 @@ function breakerFailure(events: LedgerEvent[], cap: Cap, task: string, i: number
 /**
  * The task's gates still open at the end of the ledger. Gates open in ledger order; each `decided` note of the task
  * closes the earliest-opened gate still open at that point, so a note written for one gate never lifts another.
+ * A `Ruling:` line naming the task closes its earliest open Seat status gate only.
  */
 function openGates(events: LedgerEvent[], cap: Cap, task: string, reopened: boolean): Gate[] {
   let open: Gate[] = [];
   let round = 0;
+  const namesTask = new RegExp(`\\b${task}(?!\\d)`);
   events.forEach((e, i) => {
     if (e.type === "verifyRouted" && e.otherTask === task && !reopened && round >= MAX_ROUNDS && !open.some((g) => g.kind === "breaker")) {
       open.push({ kind: "breaker", index: i });
+    }
+    if (e.type === "other" && e.text.startsWith("Ruling:") && namesTask.test(e.text)) {
+      const seatGate = open.findIndex((g) => g.kind === "seat");
+      if (seatGate !== -1) open.splice(seatGate, 1);
+      return;
     }
     if (!("task" in e) || e.task !== task) return;
     if (isRoundSeat(e, task)) round = Math.max(round, e.round!);
@@ -195,7 +202,7 @@ function fixRounds(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[], view:
   if (reopenedAt !== -1) triggers.push(reopenedAt);
 
   const answered = (i: number): boolean =>
-    anyAfter(events, i, (e) => isRoundSeat(e, task) || (e.type === "developerWaits" && e.task === task) || (e.type === "fixQueued" && e.task === task));
+    anyAfter(events, i, (e) => isRoundSeat(e, task));
   const due = triggers.filter((i) => !answered(i));
 
   const actions: Action[] = [];
@@ -245,7 +252,7 @@ function roundSeatsDone(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[]):
     const resumed = anyAfter(
       events,
       doneAt,
-      (e) => (e.type === "dispatched" && e.task === task && e.seat === "developer") || (e.type === "developerWaits" && e.task === task),
+      (e) => e.type === "dispatched" && e.task === task && e.seat === "developer",
     );
     if (!resumed && !actions.some((a) => a.kind === "dispatch")) actions.push(developer(t, events, "resume", dispatch.round));
   }

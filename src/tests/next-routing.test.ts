@@ -548,3 +548,58 @@ describe("one decided note closes one gate", () => {
     expect(stops(two, T1)).toEqual([]);
   });
 });
+
+describe("lines written while a round or a seat status is pending", () => {
+  const findings = (): Stamped[] => [...built(), done(5, T1, "code-reviewer", "findings")];
+  const ruling = (m: number, text: string): Stamped => [m, { type: "other", text }];
+  const seatDecides = (actions: Action[]) => decides(actions, T1).filter((d) => d.rule === "Seat status");
+
+  it("still names the round developer after a cap wait line", () => {
+    const events: Stamped[] = [...findings(), [6, { type: "developerWaits", task: T1, reason: "2 developers in flight" }]];
+    const actions = routingActions(ledger(...events), inputs([task(T1)]), cap());
+    expect(developerDispatches(actions, T1)).toEqual([
+      expect.objectContaining({ kind: "dispatch", task: T1, seat: "developer", mode: "resume", round: 1 }),
+    ]);
+  });
+
+  it("still names the round developer after a legacy fix queued line", () => {
+    const events: Stamped[] = [...findings(), [6, { type: "fixQueued", task: T1, otherTask: T2 }]];
+    const actions = routingActions(ledger(...events), inputs([task(T1), task(T2)]), cap());
+    expect(developerDispatches(actions, T1)).toEqual([
+      expect.objectContaining({ kind: "dispatch", task: T1, seat: "developer", mode: "resume", round: 1 }),
+    ]);
+  });
+
+  it("closes a seat status decision with a ruling that names the task", () => {
+    const events: Stamped[] = [
+      dispatched(1, T1, "developer"),
+      commits(2, T1, SHA),
+      done(3, T1, "developer", "DONE_WITH_CONCERNS"),
+      ruling(4, `Ruling: ${T1} concerns accepted, the fallback stays — cost if wrong: a slower path`),
+    ];
+    expect(seatDecides(routingActions(ledger(...events), inputs([task(T1)]), cap()))).toEqual([]);
+  });
+
+  it("keeps a seat status decision open after a ruling that names another task", () => {
+    const events: Stamped[] = [
+      dispatched(1, T1, "developer"),
+      commits(2, T1, SHA),
+      done(3, T1, "developer", "DONE_WITH_CONCERNS"),
+      ruling(4, `Ruling: ${T2} concerns accepted, the fallback stays — cost if wrong: a slower path`),
+    ];
+    expect(seatDecides(routingActions(ledger(...events), inputs([task(T1), task(T2)]), cap()))).toEqual([
+      expect.objectContaining({ kind: "decide", task: T1, rule: "Seat status", reason: "developer ended DONE_WITH_CONCERNS" }),
+    ]);
+  });
+
+  it("keeps an exit 2 stop after a ruling that names the task", () => {
+    const events: Stamped[] = [
+      ...built(),
+      verifyStarted(5, T1),
+      verifyDone(6, T1, 2),
+      done(7, T1, "code-reviewer", "clean"),
+      ruling(8, `Ruling: ${T1} keeps its Files — cost if wrong: a replan later`),
+    ];
+    expect(stops(routingActions(ledger(...events), inputs([task(T1)]), cap()), T1)).toEqual([{ kind: "stop", task: T1, reason: EXIT_2_STOP }]);
+  });
+});
