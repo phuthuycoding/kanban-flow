@@ -107,8 +107,27 @@ describe("the minimal-fix-past-the-cap rule", () => {
     expect(skill).toContain("carry no `round=`");
   });
 
-  it("keeps the stop printing until the task completes", () => {
-    expect(skill).toContain("keeps printing the stop");
+  it("stops printing the stop once the decided note is ledgered", () => {
+    expect(skill).toContain("`kf next` stops printing the task's stop once the decided note is ledgered");
+    expect(skill).not.toContain("keeps printing the stop");
+  });
+
+  it("lists the minimal fix as an exception to the round-cap stop", () => {
+    expect(skill).toContain(
+      "a reopened task at its round cap, apart from the one minimal fix past the cap (3.4)",
+    );
+  });
+
+  it("carries the minimal-fix exception into the flow skill", () => {
+    expect(read("skills", "flow", "SKILL.md")).toContain(
+      "apart from the one minimal fix past the cap `kf:implement` makes",
+    );
+  });
+
+  it("carries the minimal-fix exception into the task-loop reference", () => {
+    expect(taskLoop).toContain(
+      "stops for the human at the cap, apart from the one minimal fix past the cap",
+    );
   });
 
   it("reconciles the human-only stop with the one minimal fix", () => {
