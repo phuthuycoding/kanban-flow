@@ -1,8 +1,227 @@
-import type { VerifyKind, MachineEvent, RegionRow, RegionTable, TaskState, World } from "./types.js";
+import { contentionSignature } from "./cap.js";
+import { JUDGEMENTS } from "./judgements.js";
+import type {
+  Judgement,
+  JudgementEntry,
+  JudgementKind,
+  LoopInputs,
+  VerifyKind,
+  MachineEvent,
+  MachineEventOf,
+  RegionHandler,
+  RegionRow,
+  RegionTable,
+  TaskState,
+  VerifyDisposition,
+  VerifyState,
+  World,
+} from "./types.js";
 
 // Verify region: exits, failures, re-runs, stale runs, waits and routed failures.
 
-const STUB_ROW = {
+/** What a verify run needs at its `verify done` beyond the `verify started` line its state keeps. */
+interface Start {
+  ts: number;
+  /** Started under a `verify rerun` note: its exit 1 is kept, never held again. */
+  rerun: boolean;
+  /** The one plain re-run of a failure with no log block. */
+  plain: boolean;
+}
+
+// VerifyState keeps only the started line, but a log block belongs to a run by its time (after the start), and an
+// orphan's late done must still know whether it was a re-run. Keyed by the inputs object, which every fold step shares.
+const STARTS = new WeakMap<LoopInputs, Map<string, Start>>();
+
+const startKey = (task: string, line: number): string => `${task}@${line}`;
+
+function recordStart(world: World, task: string, line: number, start: Start): void {
+  let starts = STARTS.get(world.inputs);
+  if (!starts) {
+    starts = new Map();
+    STARTS.set(world.inputs, starts);
+  }
+  starts.set(startKey(task, line), start);
+}
+
+function startOf(world: World, task: string, line: number): Start {
+  const start = STARTS.get(world.inputs)?.get(startKey(task, line));
+  if (!start) throw new Error(`verify region: ${task} has no verify started at line ${line} in this fold`);
+  return start;
+}
+
+type VerifyJudgementKind = "verifyExit2" | "verifyExit3" | "verifyExit" | "verifyRouted" | "verifyWaitsUnreleasable";
+
+/** The verify state each verify judgement holds open; its successor applies only while the task is still there. */
+const HOLDS: Record<VerifyJudgementKind, (v: VerifyState) => boolean> = {
+  verifyExit2: (v) => v.kind === "exit2Stop",
+  verifyExit3: (v) => v.kind === "exit3Decide",
+  verifyExit: (v) => v.kind === "unknownExit",
+  verifyRouted: (v) => v.kind === "failed" && v.disposition.kind === "routeRejected",
+  verifyWaitsUnreleasable: (v) => v.kind === "failed" && v.disposition.kind === "waitsUnreleasable",
+};
+
+const isVerifyJudgement = (j: Judgement): j is Judgement<VerifyJudgementKind> => j.kind in HOLDS;
+
+const entryOf = (j: Judgement): JudgementEntry<JudgementKind> => JUDGEMENTS[j.kind] as JudgementEntry<JudgementKind>;
+
+const opened = (t: TaskState, j: Judgement): TaskState => ({ ...t, judgements: [...t.judgements, j] });
+
+const failed = (t: TaskState, line: number, disposition: VerifyDisposition): TaskState => ({
+  ...t,
+  verify: { kind: "failed", line, disposition },
+});
+
+/** A failure routed into this task is answered by its later pass, park or completion. */
+const answerRoutedIn = (t: TaskState): TaskState =>
+  t.routedIn.some((r) => !r.answered) ? { ...t, routedIn: t.routedIn.map((r) => ({ ...r, answered: true })) } : t;
+
+const onCommit: RegionHandler<"commits"> = (t) =>
+  t.verify.kind === "running"
+    ? { ...t, verify: { ...t.verify, stale: true } }
+    : { ...t, verify: { kind: "owed", atHead: false, why: "commit" } };
+
+const onStarted: RegionHandler<"verifyStarted"> = (t, e, world) => {
+  // A new run closes every open exit 2, exit 3 and unknown-exit judgement, wherever it sits in the queue.
+  const judgements = t.judgements.filter((j) => !(isVerifyJudgement(j) && entryOf(j).close(j, e, t)));
+  const v = t.verify;
+  const rerun = v.kind === "failed" && v.disposition.kind === "contentionHeld";
+  const plain = v.kind === "failed" && v.disposition.kind === "plainRerunOwed";
+  recordStart(world, t.id, e.line, { ts: e.ts, rerun, plain });
+  return { ...t, judgements, verify: { kind: "running", line: e.line, rerun, stale: false } };
+};
+
+/** Exit 1 of the run started at `line`, classified as cap.ts classifies it for the contention view. */
+function exitOne(t: TaskState, e: MachineEventOf<"verifyDone">, world: World, line: number, start: Start): TaskState {
+  if (start.rerun) return failed(t, line, { kind: "kept" });
+  const block = (world.inputs.verifyRuns[t.id] ?? []).find((run) => run.ts > start.ts && run.ts <= e.ts);
+  if (!block) return failed(t, line, { kind: start.plain ? "kept" : "plainRerunOwed" });
+  const signature = contentionSignature(block.text);
+  return failed(t, line, signature === null ? { kind: "kept" } : { kind: "contentionHeld", signature });
+}
+
+/**
+ * A done ends the running verify, or the orphan a rerun note held (its late done, which `kf record` accepts because
+ * the verify is still open in the ledger). A stale run's pass or failure is of an older tree: the verify is owed again.
+ */
+const onDone: RegionHandler<"verifyDone"> = (t, e, world) => {
+  const v = t.verify;
+  let line: number;
+  let stale = false;
+  if (v.kind === "running") {
+    line = v.line;
+    stale = v.stale;
+  } else if (v.kind === "failed" && v.disposition.kind === "contentionHeld") {
+    line = v.line;
+  } else {
+    return t;
+  }
+  const start = startOf(world, t.id, line);
+  if (stale && (e.exit === 0 || e.exit === 1)) return { ...t, verify: { kind: "owed", atHead: false, why: "stale" } };
+  switch (e.exit) {
+    case 0:
+      return answerRoutedIn({ ...t, verify: { kind: "passed", line } });
+    case 1:
+      return exitOne(t, e, world, line, start);
+    case 2:
+      return opened({ ...t, verify: { kind: "exit2Stop" } }, { kind: "verifyExit2", task: t.id, openedAt: e.line });
+    case 3:
+      return opened(
+        { ...t, verify: { kind: "exit3Decide", droppedShas: t.droppedShas } },
+        { kind: "verifyExit3", task: t.id, openedAt: e.line, droppedShas: t.droppedShas },
+      );
+    default:
+      return opened({ ...t, verify: { kind: "unknownExit", raw: e.exit } }, { kind: "verifyExit", task: t.id, openedAt: e.line, exit: e.exit });
+  }
+};
+
+/** The orphan rule (fold only): a rerun note after a started verify with no done closes it and holds the re-run again. */
+const onRerunNote: RegionHandler<"verifyRerun"> = (t, e) =>
+  t.verify.kind === "running" ? failed(t, t.verify.line, { kind: "contentionHeld", signature: e.signature }) : t;
+
+function rank(world: World, task: string): [number, number] {
+  const i = world.inputs.tasks.findIndex((p) => p.id === task);
+  return i === -1 ? [Infinity, Infinity] : [world.inputs.tasks[i].wave, i];
+}
+
+const ranksLater = (world: World, a: string, b: string): boolean => {
+  const [wa, ia] = rank(world, a);
+  const [wb, ib] = rank(world, b);
+  return wa !== wb ? wa > wb : ia > ib;
+};
+
+function overlap(world: World, a: string, b: string): boolean {
+  const plan = (id: string) => world.inputs.tasks.find((p) => p.id === id);
+  return (plan(a)?.overlaps.includes(b) ?? false) || (plan(b)?.overlaps.includes(a) ?? false);
+}
+
+const onWaits: RegionHandler<"verifyWaits"> = (t, e, world) => {
+  const v = t.verify;
+  if (v.kind !== "failed") return t;
+  const other = e.otherTask;
+  const x = world.tasks.get(other);
+  const unreleasable = (why: string): TaskState =>
+    opened(failed(t, v.line, { kind: "waitsUnreleasable", otherTask: other, why }), {
+      kind: "verifyWaitsUnreleasable",
+      task: t.id,
+      openedAt: e.line,
+      otherTask: other,
+      why,
+    });
+  if (!x || world.unknown.has(other)) return unreleasable(`${other} is not a task of the plan`);
+  // Complete or implemented already: nothing later releases the wait, so it is released now.
+  if (x.phase.kind === "complete") return { ...t, verify: { kind: "owed", atHead: true, why: "released" } };
+  const open = x.phase.kind === "cycle" || x.phase.kind === "atCap";
+  if (!open && overlap(world, t.id, other) && ranksLater(world, other, t.id)) {
+    return unreleasable(`${other} overlaps ${t.id}, is not open and ranks later`);
+  }
+  return failed(t, v.line, { kind: "waits", otherTask: other });
+};
+
+const onReleased: RegionHandler<"watchReleased"> = (t, e) =>
+  t.verify.kind === "failed" && t.verify.disposition.kind === "waits" && t.verify.disposition.otherTask === e.from
+    ? { ...t, verify: { kind: "owed", atHead: true, why: "released" } }
+    : t;
+
+const onRouted: RegionHandler<"verifyRouted"> = (t, e, world) => {
+  const v = t.verify;
+  if (v.kind !== "failed") return t;
+  const other = e.otherTask;
+  const x = world.tasks.get(other);
+  if (x && !world.unknown.has(other) && x.phase.kind !== "complete") {
+    return failed(t, v.line, { kind: "routedOut", otherTask: other, line: e.line });
+  }
+  return opened(failed(t, v.line, { kind: "routeRejected", otherTask: other }), {
+    kind: "verifyRouted",
+    task: t.id,
+    openedAt: e.line,
+    otherTask: other,
+  });
+};
+
+const onRouteAnswered: RegionHandler<"routeAnswered"> = (t, e) =>
+  t.verify.kind === "failed" && t.verify.disposition.kind === "routedOut" && t.verify.disposition.otherTask === e.from
+    ? { ...t, verify: { kind: "passedByRoute" } }
+    : t;
+
+/** One decided note closes the head of the queue only; a verify judgement there moves the verify on. */
+const onDecided: RegionHandler<"decided"> = (t, e) => {
+  const head = t.judgements[0];
+  if (head === undefined || !isVerifyJudgement(head) || !entryOf(head).close(head, e, t)) return t;
+  const closed = { ...t, judgements: t.judgements.slice(1) };
+  // A commit or a new run since the judgement opened already moved the verify on.
+  if (!HOLDS[head.kind](t.verify)) return closed;
+  const successor = entryOf(head).successor(head, e, t);
+  if (successor === "verifyOwed") return { ...closed, verify: { kind: "owed", atHead: false, why: "decided" } };
+  if (successor === "verifyKept" && t.verify.kind === "failed") return failed(closed, t.verify.line, { kind: "kept" });
+  return closed;
+};
+
+const onRoutedIn: RegionHandler<"routedIn"> = (t, e) => ({
+  ...t,
+  routedIn: [...t.routedIn, { from: e.from, line: e.line, answered: false }],
+});
+
+const NOOP_ROW = {
   dispatched: "noop", done: "noop", verifyStarted: "noop", verifyDone: "noop", developerWaits: "noop", fixQueued: "noop",
   fixRound: "noop", cascadeOwed: "noop", complete: "noop", implemented: "noop", noTestWriter: "noop", testHashes: "noop",
   reviewPackage: "noop", commits: "noop", decided: "noop", verifyRouted: "noop", verifyWaits: "noop", verifyRerun: "noop",
@@ -10,22 +229,41 @@ const STUB_ROW = {
   other: "noop", cascadeLanded: "noop", routeAnswered: "noop", routedIn: "noop", watchReleased: "noop", ruling: "noop",
 } satisfies RegionRow;
 
+/** The cells every verify state shares: a commit, a new run, a decision, and the routed-in record and its answers. */
+const BASE_ROW = {
+  ...NOOP_ROW,
+  commits: onCommit,
+  verifyStarted: onStarted,
+  decided: onDecided,
+  routedIn: onRoutedIn,
+  parked: answerRoutedIn,
+  complete: answerRoutedIn,
+  implemented: answerRoutedIn,
+} satisfies RegionRow;
+
 /** The verify region: VerifyState × event. */
 export const VERIFY_TABLE = {
-  notDue: STUB_ROW,
-  owed: STUB_ROW,
-  running: STUB_ROW,
-  passed: STUB_ROW,
-  failed: STUB_ROW,
-  exit2Stop: STUB_ROW,
-  exit3Decide: STUB_ROW,
-  unknownExit: STUB_ROW,
-  passedByRoute: STUB_ROW,
+  notDue: BASE_ROW,
+  owed: BASE_ROW,
+  running: { ...BASE_ROW, verifyDone: onDone, verifyRerun: onRerunNote },
+  passed: BASE_ROW,
+  failed: {
+    ...BASE_ROW,
+    verifyDone: onDone,
+    verifyWaits: onWaits,
+    watchReleased: onReleased,
+    verifyRouted: onRouted,
+    routeAnswered: onRouteAnswered,
+  },
+  exit2Stop: BASE_ROW,
+  exit3Decide: BASE_ROW,
+  unknownExit: BASE_ROW,
+  passedByRoute: BASE_ROW,
 } satisfies RegionTable<VerifyKind>;
 
 /** Applies one event to the task's region. */
 export function verifyStep(t: TaskState, e: MachineEvent, world: World): TaskState {
-  void e;
-  void world;
-  return t;
+  if (!("task" in e) || e.task !== t.id) return t;
+  const cell = (VERIFY_TABLE[t.verify.kind] as RegionRow)[e.type] as RegionHandler<typeof e.type> | "noop";
+  return cell === "noop" ? t : cell(t, e as never, world);
 }

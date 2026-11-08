@@ -220,21 +220,23 @@ export function liveCap(state: LedgerState, inputs: LoopInputs): Cap {
     if (!closed) owed.push({ kind: "decide", rule: "Invalid ceiling", reason: error, closes: `Ruling: … ${error}` });
   }
 
-  // Held re-runs: ledgered notes with no later verify of the task, plus the re-runs this call owes.
+  // Held re-runs: each task's latest rerun note with no later verify of the task, plus the re-runs this call owes.
+  // The latest note: a later note re-arms a re-run whose started verify was lost (the fold's orphan rule).
   const held: HeldRerun[] = [...owedHeld];
   let running: string | null = null;
-  const noted = new Set<string>();
+  const latestNote = new Map<string, number>();
   events.forEach((e, i) => {
-    if (e.type !== "verifyRerun" || noted.has(e.task)) return;
-    const after = events.slice(i + 1).filter((x) => ofTask(x, e.task));
-    if (after.some((x) => x.type === "verifyDone")) return;
-    noted.add(e.task);
-    if (after.some((x) => x.type === "verifyStarted")) {
-      if (running === null) running = e.task;
-    } else {
-      held.push({ task: e.task, atHead: atHead(events, e.task), kind: "rerun" });
-    }
+    if (e.type === "verifyRerun") latestNote.set(e.task, i);
   });
+  for (const [task, i] of latestNote) {
+    const after = events.slice(i + 1).filter((x) => ofTask(x, task));
+    if (after.some((x) => x.type === "verifyDone")) continue;
+    if (after.some((x) => x.type === "verifyStarted")) {
+      if (running === null) running = task;
+    } else {
+      held.push({ task, atHead: atHead(events, task), kind: "rerun" });
+    }
+  }
   if (running === null && plainRunning.length > 0) running = plainRunning[0];
   const rank = (task: string): [number, number] => {
     const i = inputs.tasks.findIndex((t) => t.id === task);

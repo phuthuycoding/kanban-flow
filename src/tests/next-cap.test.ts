@@ -556,3 +556,57 @@ describe("liveCap held re-runs", () => {
     expect(cap.contention.held).toEqual([{ task: "TASK-001", atHead: true, kind: "rerun" }]);
   });
 });
+
+describe("liveCap held re-runs keyed on the latest rerun note", () => {
+  const tasks = [task("TASK-001", 1), task("TASK-002", 1)];
+  const capAt = (n: number): [number, EventBody] => e(1, { type: "capRuling", from: 2, to: n, cause: { kind: "wave", wave: 0 } });
+  const stepDown: [number, EventBody] = e(4, { type: "capRuling", from: 2, to: 1, cause: { kind: "contention", signature: "EADDRINUSE", task: "TASK-001" } });
+  const runs = { "TASK-001": [block(3, 1, EADDR)] };
+
+  it("holds a lost re-run again when a second rerun note follows its orphan verify started", () => {
+    const state = ledger(
+      capAt(2),
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(3, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+      stepDown,
+      e(5, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }),
+      e(6, { type: "verifyStarted", task: "TASK-001" }),
+      e(7, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }),
+    );
+    const cap = liveCap(state, inputs(tasks, { verifyRuns: runs }));
+    expect(cap.contention).toEqual({
+      held: [{ task: "TASK-001", atHead: false, kind: "rerun" }],
+      running: null,
+      blocksDevelopers: true,
+    });
+  });
+
+  it("reads the re-run as running once a verify started follows the latest rerun note", () => {
+    const state = ledger(
+      capAt(2),
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(3, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+      stepDown,
+      e(5, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }),
+      e(6, { type: "verifyStarted", task: "TASK-001" }),
+      e(7, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }),
+      e(8, { type: "verifyStarted", task: "TASK-001" }),
+    );
+    const cap = liveCap(state, inputs(tasks, { verifyRuns: runs }));
+    expect(cap.contention).toEqual({ held: [], running: "TASK-001", blocksDevelopers: true });
+  });
+
+  it("lists the re-run once however many rerun notes the task has", () => {
+    const state = ledger(
+      capAt(2),
+      e(2, { type: "verifyStarted", task: "TASK-001" }),
+      e(3, { type: "verifyDone", task: "TASK-001", exit: 1 }),
+      stepDown,
+      e(5, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }),
+      e(6, { type: "verifyRerun", task: "TASK-001", signature: "EADDRINUSE" }),
+    );
+    const cap = liveCap(state, inputs(tasks, { verifyRuns: runs }));
+    expect(cap.contention.held).toEqual([{ task: "TASK-001", atHead: false, kind: "rerun" }]);
+    expect(cap.contention.running).toBeNull();
+  });
+});
