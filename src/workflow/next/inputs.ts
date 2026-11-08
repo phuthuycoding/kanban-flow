@@ -89,25 +89,40 @@ function loopFiles(dir: string, suffix: string): { id: string; path: string }[] 
 
 function commitsOfReport(text: string): string[] | null {
   const lines = text.split("\n");
-  const at = lines.findIndex((l) => l.includes("Commits created"));
-  if (at === -1) return null;
   const shas: string[] = [];
-  const rest = lines[at].slice(lines[at].indexOf("Commits created") + "Commits created".length);
-  const onLabel = SHA.exec(rest.replace(/^[*_]*\s*:?/, ""));
-  if (onLabel) shas.push(onLabel[0]);
-  let blank = false;
-  for (const line of lines.slice(at + 1)) {
-    if (/^#/.test(line)) break;
-    if (line.trim() === "") {
-      blank = true;
-      continue;
+  let found = false;
+  for (let at = 0; at < lines.length; at++) {
+    if (!lines[at].includes("Commits created")) continue;
+    found = true;
+    const rest = lines[at].slice(lines[at].indexOf("Commits created") + "Commits created".length);
+    const onLabel = SHA.exec(rest.replace(/^[*_]*\s*:?/, ""));
+    if (onLabel && !shas.includes(onLabel[0])) shas.push(onLabel[0]);
+    let blank = false;
+    for (const line of lines.slice(at + 1)) {
+      if (/^#/.test(line)) break;
+      if (line.trim() === "") {
+        blank = true;
+        continue;
+      }
+      if (/^\s*[-*]\s/.test(line)) {
+        const sha = SHA.exec(line.replace(/^\s*[-*]\s/, ""));
+        if (sha && !shas.includes(sha[0])) shas.push(sha[0]);
+      } else if (blank) break;
     }
-    if (/^\s*[-*]\s/.test(line)) {
-      const sha = SHA.exec(line.replace(/^\s*[-*]\s/, ""));
-      if (sha) shas.push(sha[0]);
-    } else if (blank) break;
   }
-  return shas;
+  return found ? shas : null;
+}
+
+// task-NNN-report.md first, then task-NNN-fix-R-report.md by ascending numeric R.
+function reportFiles(dir: string): { id: string; path: string }[] {
+  const loop = join(dir, "loop");
+  if (!existsSync(loop)) return [];
+  const fixes = readdirSync(loop).flatMap((name) => {
+    const m = /^task-(\d+)-fix-(\d+)-report\.md$/.exec(name);
+    return m ? [{ id: `TASK-${m[1]}`, round: Number(m[2]), path: join(loop, name) }] : [];
+  });
+  fixes.sort((a, b) => a.round - b.round);
+  return [...loopFiles(dir, "report\\.md"), ...fixes];
 }
 
 function parseVerifyLog(text: string): VerifyRun[] {
@@ -178,9 +193,10 @@ export function readLoopInputs(root: string, feature: Feature): InputsRead {
   }
 
   const reportCommits: Record<string, string[]> = {};
-  for (const f of loopFiles(feature.dir, "report\\.md")) {
+  for (const f of reportFiles(feature.dir)) {
     const shas = commitsOfReport(readFileSync(f.path, "utf8"));
-    if (shas !== null) reportCommits[f.id] = shas;
+    if (shas === null) continue;
+    reportCommits[f.id] = [...(reportCommits[f.id] ?? []), ...shas.filter((s) => !(reportCommits[f.id] ?? []).includes(s))];
   }
 
   const verifyRuns: Record<string, VerifyRun[]> = {};

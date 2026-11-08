@@ -289,6 +289,22 @@ describe("readLoopInputs: report commits", () => {
     await putItemFile("loop/task-004-report.md", "# Report\n\n- a1b2c3d mentioned in passing\n");
     expect(Object.keys(ok(readLoopInputs(root, featureOf())).reportCommits)).not.toContain("TASK-004");
   });
+
+  it("collects the shas of every Commits created section in file order without duplicates", async () => {
+    await putItemFile("loop/task-001-report.md", [
+      "# Report", "", "## Commits created", "", "- a1b2c3d feat: first", "- b2c3d4e second", "",
+      "## Concerns", "", "- deadbee not a commit", "",
+      "## Fix round 1", "", "## Commits created", "", "- b2c3d4e second again", "- c3d4e5f round fix", "",
+    ].join("\n"));
+    expect(ok(readLoopInputs(root, featureOf())).reportCommits["TASK-001"]).toEqual(["a1b2c3d", "b2c3d4e", "c3d4e5f"]);
+  });
+
+  it("appends commits from fix-round report files after the main report, rounds ascending", async () => {
+    await putItemFile("loop/task-001-report.md", "## Commits created\n\n- a1b2c3d first\n");
+    await putItemFile("loop/task-001-fix-10-report.md", "## Commits created\n\n- d4e5f60 round ten\n");
+    await putItemFile("loop/task-001-fix-2-report.md", "## Commits created\n\n- b2c3d4e round two\n- a1b2c3d repeated\n");
+    expect(ok(readLoopInputs(root, featureOf())).reportCommits["TASK-001"]).toEqual(["a1b2c3d", "b2c3d4e", "d4e5f60"]);
+  });
 });
 
 describe("readLoopInputs: verify runs", () => {
