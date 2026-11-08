@@ -1,9 +1,9 @@
-import type { JudgementTable, MachineEvent, Seat, TaskState } from "./types.js";
+import type { JudgementEntry, JudgementKind, JudgementTable, MachineEvent, Seat, TaskState } from "./types.js";
 
 // The judgement table: every decide and stop `kf next` prints for a judgement, with the lines that close it.
-// `closes` are ledger-line templates: `<task>` is the judged task, `<seat>` the gated seat, `<sha7>` a commit; any
-// other `<name>` and `…` are free text the session fills. Every alternative is a line `kf record` accepts, so no
-// judgement is a dead end (FR-022).
+// `closes` lists alternatives, each a conjunction of ledger-line templates: `<task>` is the judged task, `<seat>` the
+// gated seat, `<sha7>` a commit; any other `<name>` and `…` are free text the session fills. Every template is a line
+// `kf record` accepts, so no judgement is a dead end.
 
 const MINIMAL_FIX = "minimal fix past the cap:";
 
@@ -40,7 +40,7 @@ export const JUDGEMENTS: JudgementTable = {
   conflictScan: {
     rule: "Conflict scan",
     form: "decide",
-    closes: ["Scan: …"],
+    closes: [["Scan: …"]],
     close: (_j, e) => e.type === "scan",
     successor: () => "scanDone",
   },
@@ -48,54 +48,60 @@ export const JUDGEMENTS: JudgementTable = {
     rule: "Seat status",
     form: "decide",
     // A commits note closes a developer's gate only (a BLOCKED quoting `commit made`).
-    closes: ["<task>: <seat> dispatched …", DECIDED, "Ruling: <task> — <what>", "Note <task>: commits <sha7>"],
+    closes: [["<task>: <seat> dispatched …"], [DECIDED], ["Ruling: <task> — <what>"], ["Note <task>: commits <sha7>"]],
     close: (j, e) =>
       dispatched(e, j.task, j.seat) ||
       decided(e, j.task) ||
       (e.type === "ruling" && e.task === j.task) ||
       (j.seat === "developer" && e.type === "commits" && e.task === j.task),
-    successor: (_j, e) => (e.type === "dispatched" ? "seatRunning" : e.type === "commits" ? "afterDevDone" : "seatAsDone"),
+    successor: (j, e, t) => {
+      if (e.type === "dispatched") return "seatRunning";
+      if (e.type === "commits") return "afterDevDone";
+      // Closed by a decision: a review is owed again rather than taken as a verdict, and a minimal fix gets no retry.
+      if (j.seat === "code-reviewer") return "seatRedispatch";
+      if (j.seat === "developer" && t?.phase.kind === "cycle" && t.phase.cycle === "minimalFix") return "minimalFixAbandoned";
+      return "seatAsDone";
+    },
   },
   commitMissing: {
     rule: "Commit missing",
     form: "decide",
-    closes: ["Note <task>: commits <sha7>", "<task>: developer dispatched …"],
+    closes: [["Note <task>: commits <sha7>"], ["<task>: developer dispatched …"]],
     close: (j, e) => (e.type === "commits" && e.task === j.task) || dispatched(e, j.task, "developer"),
     successor: (_j, e) => (e.type === "dispatched" ? "seatRunning" : "afterDevDone"),
   },
   verifyExit2: {
     rule: "Verify exit 2",
     form: "stop",
-    closes: [DECIDED],
-    // A verify started also lifts it, as today.
+    closes: [[DECIDED], [VERIFY_STARTED]],
     close: (j, e) => decided(e, j.task) || (e.type === "verifyStarted" && e.task === j.task),
     successor: (_j, e) => (e.type === "verifyStarted" ? "verifyRunning" : "verifyOwed"),
   },
   verifyExit3: {
     rule: "Verify exit 3",
     form: "decide",
-    closes: [DECIDED, VERIFY_STARTED],
+    closes: [[DECIDED], [VERIFY_STARTED]],
     close: (j, e) => decided(e, j.task) || (e.type === "verifyStarted" && e.task === j.task),
     successor: (_j, e) => (e.type === "verifyStarted" ? "verifyRunning" : "verifyOwed"),
   },
   verifyExit: {
     rule: "Verify exit",
     form: "decide",
-    closes: [DECIDED, VERIFY_STARTED],
+    closes: [[DECIDED], [VERIFY_STARTED]],
     close: (j, e) => decided(e, j.task) || (e.type === "verifyStarted" && e.task === j.task),
     successor: (_j, e) => (e.type === "verifyStarted" ? "verifyRunning" : "verifyOwed"),
   },
   verifyRouted: {
     rule: "Verify routed",
     form: "decide",
-    closes: [DECIDED],
+    closes: [[DECIDED]],
     close: (j, e) => decided(e, j.task),
     successor: () => "verifyKept",
   },
   verifyWaitsUnreleasable: {
     rule: "Verify waits",
     form: "stop",
-    closes: [DECIDED],
+    closes: [[DECIDED]],
     close: (j, e) => decided(e, j.task),
     successor: () => "verifyKept",
   },
@@ -103,64 +109,71 @@ export const JUDGEMENTS: JudgementTable = {
     rule: "Breaker",
     form: "decide",
     // A parked line and a decided note together, in either order; or the one minimal fix.
-    closes: [PARK, DECIDED, MINIMAL_FIX_NOTE],
+    closes: [[PARK, DECIDED], [MINIMAL_FIX_NOTE]],
     close: (j, e, t) => minimalFix(e, j.task) || parkPairCloses(e, j.task, t),
     successor: (j, e) => (minimalFix(e, j.task) ? "minimalFixOwed" : "parkedClosed"),
   },
   breakerFixSpent: {
     rule: "Breaker",
     form: "decide",
-    closes: [PARK, DECIDED],
-    close: (j, e, t) => parkPairCloses(e, j.task, t),
+    // The minimal fix is spent: closable only by parking.
+    closes: [[PARK]],
+    close: (j, e) => parked(e, j.task),
     successor: () => "parkedClosed",
   },
   capStop: {
     rule: "Cap stop",
     form: "stop",
-    closes: [MINIMAL_FIX_NOTE, SUPERSEDED],
+    closes: [[MINIMAL_FIX_NOTE], [SUPERSEDED]],
     close: (j, e) => minimalFix(e, j.task) || superseded(e, j.task),
     successor: (j, e) => (minimalFix(e, j.task) ? "minimalFixOwed" : "complete"),
   },
   capStopFixSpent: {
     rule: "Cap stop",
     form: "stop",
-    closes: [SUPERSEDED],
+    closes: [[SUPERSEDED]],
     close: (j, e) => superseded(e, j.task),
     successor: () => "complete",
   },
   cascadeAtCapBreaker: {
     rule: "Breaker",
     form: "decide",
-    closes: [PARK],
+    closes: [[PARK]],
     close: (j, e) => parked(e, j.task),
     successor: () => "parkedClosed",
   },
   cascadeAtCapStop: {
     rule: "Cap stop",
     form: "stop",
-    closes: [SUPERSEDED],
+    closes: [[SUPERSEDED]],
     close: (j, e) => superseded(e, j.task),
     successor: () => "complete",
   },
   invalidCeiling: {
     rule: "Invalid ceiling",
     form: "decide",
-    closes: ["Ruling: … <error>"],
+    closes: [["Ruling: … <error>"]],
     close: (j, e) => e.type === "other" && e.text.startsWith("Ruling:") && e.text.includes(j.error),
     successor: () => "ceilingRuled",
   },
   drift: {
     rule: "Drift",
     form: "decide",
-    closes: ["<task>: developer done status=DONE"],
+    closes: [["<task>: developer done status=DONE"]],
     close: (j, e) => e.type === "done" && e.task === j.task && e.seat === "developer" && e.status === "DONE",
     successor: () => "afterDevDone",
   },
   unknownTask: {
     rule: "Unknown task",
     form: "decide",
-    closes: [DECIDED],
+    closes: [[DECIDED]],
     close: (j, e) => decided(e, j.task),
     successor: () => "unknownDecided",
   },
 };
+
+/** The closes alternatives as one line of text, `<task>` filled: the lines of a conjunction joined by `and`, the alternatives by `or`. */
+export function closesText<K extends JudgementKind>(entry: JudgementEntry<K>, task?: string): string {
+  const fill = (template: string): string => (task === undefined ? template : template.replaceAll("<task>", task));
+  return entry.closes.map((alt) => alt.map(fill).join(" and ")).join(" or ");
+}

@@ -17,7 +17,7 @@ export function itemIntents(world: World, opts: NextOptions): Intent[] {
   return [];
 }
 
-/** ReadyToComplete: the one predicate `complete <task>` is printed on (FR-023). */
+/** ReadyToComplete: the one predicate `complete <task>` is printed on. */
 export function completable(t: TaskState, world: World): boolean {
   void t;
   void world;

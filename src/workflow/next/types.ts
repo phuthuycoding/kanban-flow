@@ -377,7 +377,7 @@ export type ReviewDemand =
       phase: "lineOwed" | "owed" | "dispatched" | "clean" | "findings";
     };
 
-/** One code-reviewer per task at a time (FR-025); a done is attributed to the obligation the lane holds. */
+/** One code-reviewer per task at a time; a done is attributed to the obligation the lane holds. */
 export type ReviewLane = { kind: "free" } | { kind: "busy"; line: number; obligation: ReviewDemand };
 
 export type ReviewLaneKind = ReviewLane["kind"];
@@ -434,7 +434,7 @@ export interface World {
   ceiling: "valid" | "invalidUndecided" | "ruled";
   /** Tasks the ledger names (an event's task, or a waits or routed note's other task) that the plan does not have. */
   unknown: Map<string, { decided: boolean }>;
-  /** The only source of the In-flight list, of `free = n − |pool|`, and of resume (FR-024). */
+  /** The only source of the In-flight list, of `free = n − |pool|`, and of resume. */
   pool: PoolSeat[];
   /** Plan tasks, in plan order. */
   tasks: Map<string, TaskState>;
@@ -502,21 +502,29 @@ export interface JudgementFields {
 
 export type JudgementKind = keyof JudgementFields;
 
+/** The judgements about the item as a whole; every other kind is about one task. */
+export type ItemJudgementKind = "conflictScan" | "invalidCeiling";
+
 /** An open decide or stop the session or the human owes. `task` is absent for an item judgement. */
 export type Judgement<K extends JudgementKind = JudgementKind> = K extends JudgementKind
-  ? { kind: K; task?: string; openedAt: number | null } & JudgementFields[K]
+  ? { kind: K; openedAt: number | null } & (K extends ItemJudgementKind ? { task?: undefined } : { task: string }) &
+      JudgementFields[K]
   : never;
 
 /**
  * Where a closed judgement leaves its task or the world; the owning region applies it.
- * `seatAsDone`: a seat closed by a decided note or a Ruling goes on as DONE (FR-014), so a developer then takes the
- * commit check and gets Commit missing when nothing is recorded. `afterDevDone`: the implementer resolves as after a
- * developer DONE with what the ledger now records.
+ * `seatAsDone`: a developer, test-writer or automation-writer closed by a decided note or a Ruling goes on as DONE,
+ * so a developer then takes the commit check and gets Commit missing when nothing is recorded. `seatRedispatch`: a
+ * code-reviewer closed so is owed its review again, with no verdict taken. `minimalFixAbandoned`: the developer of a
+ * minimal fix past the cap closed so has spent the fix and failed it: the Breaker closes on a park only, the cap stop
+ * stays. `afterDevDone`: the implementer resolves as after a developer DONE with what the ledger now records.
  */
 export type JudgementSuccessor =
   | "scanDone"
   | "seatRunning"
   | "seatAsDone"
+  | "seatRedispatch"
+  | "minimalFixAbandoned"
   | "afterDevDone"
   | "verifyOwed"
   | "verifyRunning"
@@ -531,12 +539,15 @@ export interface JudgementEntry<K extends JudgementKind> {
   /** The decide's rule name; for a stop, the name it goes by in the judgement table. */
   rule: string;
   form: "decide" | "stop";
-  /** The closes alternatives, one ledger-line template each, every one a line `kf record` accepts. */
-  closes: string[];
+  /**
+   * The closes alternatives; each is a conjunction of ledger-line templates the session writes together, every one a
+   * line `kf record` accepts.
+   */
+  closes: string[][];
   /** True when `e` closes `j`; `t` is the task before `e` (null for an item judgement). */
   close: (j: Judgement<K>, e: MachineEvent, t: TaskState | null) => boolean;
-  /** Where `j` goes once `e` closed it. */
-  successor: (j: Judgement<K>, e: MachineEvent) => JudgementSuccessor;
+  /** Where `j` goes once `e` closed it; `t` is the task before `e` (null for an item judgement). */
+  successor: (j: Judgement<K>, e: MachineEvent, t: TaskState | null) => JudgementSuccessor;
 }
 
 export type JudgementTable = { [K in JudgementKind]: JudgementEntry<K> };
@@ -546,7 +557,9 @@ export type WaitBlocker =
   | { kind: "task"; task: string }
   | { kind: "pool" }
   | { kind: "verify"; task: string }
-  | { kind: "reviewer"; task: string };
+  | { kind: "reviewer"; task: string }
+  /** An open decide or stop holds the wait: `judgement` names its kind, or `stop` for any stop; `task` is set for a task's. */
+  | { kind: "hold"; judgement: JudgementKind | "stop"; task?: string };
 
 interface IntentBase {
   task?: string;
