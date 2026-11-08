@@ -65,8 +65,9 @@ const lineWrite = (feature: string, line: string, task: string): Write => ({
 });
 
 /**
- * The `fix round R/5` line of the round that ended. Printed only beside the action that ends round R, so it is
- * written once by construction: the fold keeps no flag for it.
+ * The `fix round R/5` line of the round that ended. Printed beside the action that ends round R — the next round's
+ * developer (also while a contention re-run or an overlap hold keeps it back; only a full pool suppresses the line),
+ * or the complete (at the cap, named in the decide or stop instead) — until the fold records it (`fixRoundWritten`).
  */
 const FIX_ROUND_BODY = "<X> addressed, <Y> open — <one-liners>; commits <a7>,…";
 
@@ -440,20 +441,31 @@ function packageWrite(t: TaskState, world: World): Intent[] {
 
 /**
  * The check pass waits for a developer resumed to commit the automation-writer's or a round seat's files: until that
- * developer is done, no verify or own review is named for the tree it is about to change.
+ * developer is done, no verify or own review is named for the tree it is about to change. A UI task under Level full
+ * also waits while its first cycle's automation-writer is running or gated, as its specs are still to be resumed
+ * (legacy seats.ts:275).
  */
-function resumeCommitPending(t: TaskState): boolean {
+function resumeCommitPending(t: TaskState, world: World): boolean {
   const p = t.phase;
   if (p.kind !== "cycle") return false;
   const step = p.implementer;
   if (step.kind === "specsOwed" || step.kind === "specsRunning" || step.kind === "resumeCommitOwed") return true;
-  return step.kind === "running" && step.dispatchLine > p.openedAt;
+  if (step.kind === "running" && step.dispatchLine > p.openedAt) return true;
+  const writer = t.seats["automation-writer"].kind;
+  return p.cycle === "first" && uiSpecs(t, world) && (writer === "running" || writer === "gated");
+}
+
+function uiSpecs(t: TaskState, world: World): boolean {
+  const plan = planOf(world, t.id);
+  return world.inputs.level === "full" && (plan.testTypes.includes("UI") || plan.testTypes.includes("E2E"));
 }
 
 const checkPassIntent = (i: Intent): boolean =>
   i.kind === "act" &&
   i.origin === "progress" &&
-  (i.action.kind === "verify" || (i.action.kind === "dispatch" && i.action.seat === "code-reviewer" && i.action.cascade === undefined));
+  (i.action.kind === "verify" ||
+    (i.action.kind === "write" && i.closes.includes("reviewPackage")) ||
+    (i.action.kind === "dispatch" && i.action.seat === "code-reviewer" && i.action.cascade === undefined));
 
 const IMPLEMENTER = {
   owed: (t, world, s) => {
@@ -557,8 +569,10 @@ export function intentsFor(t: TaskState, world: World): Intent[] {
   const queued = t.judgements.filter((j) => !CAP_JUDGEMENTS.includes(j.kind)).map((j) => judge(j, t));
   const phase = (PHASES[t.phase.kind] as (t: TaskState, w: World, p: TaskPhase) => Intent[])(t, world, t.phase);
   const checks = [...verifyIntents(t, world), ...reviewIntents(t, world)];
-  const held = resumeCommitPending(t) ? checks.filter((i) => !checkPassIntent(i)) : checks;
-  return [...phase, ...seatIntents(t, world), ...held, ...queued];
+  // The committed step names the package and a first verify itself, so the hold covers the phase's intents too.
+  const pending = resumeCommitPending(t, world);
+  const hold = (intents: Intent[]): Intent[] => (pending ? intents.filter((i) => !checkPassIntent(i)) : intents);
+  return [...hold(phase), ...seatIntents(t, world), ...hold(checks), ...queued];
 }
 
 /** A cap write is closed by the line it writes: a cap ruling, a no-step-up note, a rerun note. */

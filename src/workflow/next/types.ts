@@ -292,8 +292,8 @@ export type ImplementerStep =
   | { kind: "specsRunning" }
   /** The report names shas that are in the git log but in no ledger line. */
   | { kind: "commitNoteOwed"; shas: string[] }
-  /** The developer is done with no commit recorded since the dispatch it answers (`dispatchLine`). */
-  | { kind: "commitMissing"; dispatchLine: number }
+  /** The developer is done with no commit recorded since the dispatch it answers (`dispatchLine`); `resume` as on `running`. */
+  | { kind: "commitMissing"; dispatchLine: number; resume?: true }
   | { kind: "committed" };
 
 /** A first pass, a fix round (1–5), or the one minimal fix past the cap. */

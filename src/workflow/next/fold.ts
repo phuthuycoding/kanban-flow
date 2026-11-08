@@ -131,7 +131,7 @@ function owesSpecs(t: TaskState, world: World): boolean {
  * developer, unless this done is that developer's.
  */
 function specsAhead(t: TaskState, c: Cycle, world: World): boolean {
-  const resumed = c.implementer.kind === "running" && c.implementer.resume === true;
+  const resumed = (c.implementer.kind === "running" || c.implementer.kind === "commitMissing") && c.implementer.resume === true;
   return uiSpecs(t, world) && c.cycle === "first" && !resumed && t.seats["automation-writer"].kind === "reported";
 }
 
@@ -149,7 +149,9 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
   const unnamed = unnamedReportShas(t, world);
   if (unnamed.length > 0) return to({ kind: "commitNoteOwed", shas: unnamed });
   if (c.sinceCommit === null || c.sinceCommit < dispatchLine) {
-    return to({ kind: "commitMissing", dispatchLine }, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
+    const resume = (c.implementer.kind === "running" || c.implementer.kind === "commitMissing") && c.implementer.resume === true;
+    const missing: ImplementerStep = { kind: "commitMissing", dispatchLine, ...(resume ? { resume: true as const } : {}) };
+    return to(missing, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
   }
   if (owesSpecs(t, world)) return to({ kind: "specsOwed" });
   if (specsAhead(t, c, world)) return to({ kind: "resumeCommitOwed" });
@@ -238,7 +240,12 @@ function dispatchInCycle(t: TaskState, c: Cycle, e: Dispatched, slot: Running): 
     const implementer: ImplementerStep = e.seat === "developer" ? running : { kind: "owed", mode: roundMode(round), round };
     return openCycle(t, "round", round, e.line, implementer);
   }
-  if (e.seat === "developer") return withImplementer(t, c.implementer.kind === "resumeCommitOwed" ? { ...running, resume: true } : running);
+  if (e.seat === "developer") {
+    // Any developer dispatched after the owed resume-commit, re-dispatches included, is that resume (legacy seats.ts:276-277).
+    const step = c.implementer;
+    const resume = step.kind === "resumeCommitOwed" || ((step.kind === "running" || step.kind === "commitMissing") && step.resume === true);
+    return withImplementer(t, resume ? { ...running, resume: true } : running);
+  }
   if (e.seat === "automation-writer" && round === undefined && c.implementer.kind === "specsOwed") {
     return withImplementer(t, { kind: "specsRunning" });
   }

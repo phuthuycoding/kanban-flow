@@ -1419,6 +1419,98 @@ describe("schedule: a UI task under Level full owes the specs commit to the resu
   });
 });
 
+describe("schedule: a UI task under Level full holds the check pass until its specs are resumed", () => {
+  const T1 = "TASK-001";
+  const ui = task(T1, { testTypes: ["Unit", "UI"] });
+  const inputs = inputsOf([ui], { level: "full" });
+  const base: Fields[] = [scan, capStart(2), ...testsReady(T1)];
+
+  const expectReviewed = async (events: Fields[]): Promise<void> => {
+    const schedule = await loadSchedule();
+    for (const resume of [false, true]) {
+      const { actions } = schedule(stateOf(events), inputs, { resume });
+      expect(dispatchesOf(actions, T1, "developer")).toEqual([]);
+      expect(verifiesOf(actions, T1)).toHaveLength(1);
+      expect(dispatchesOf(actions, T1, "code-reviewer")).toHaveLength(1);
+      expect(actions.filter((a) => a.kind === "write" && a.line.startsWith(`${T1}: review package`))).toHaveLength(1);
+    }
+  };
+
+  // The resume-commit developer is the one dispatched after the specs and the first DONE; once it has run, nothing more is owed.
+  it("owes no further resume developer once the resume-commit developer finished with no commit and a commits note followed", async () => {
+    await expectReviewed([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0002"),
+    ]);
+  });
+
+  it("owes no further resume developer when the resume developer was re-dispatched after Commit missing and then committed", async () => {
+    await expectReviewed([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      done(T1, "developer"),
+      dispatched(T1, "developer"),
+      commits(T1, "aaa0002"),
+      done(T1, "developer"),
+    ]);
+  });
+
+  const expectHeld = async (events: Fields[]): Promise<void> => {
+    const schedule = await loadSchedule();
+    for (const resume of [false, true]) {
+      const { actions } = schedule(stateOf(events), inputs, { resume });
+      expect(verifiesOf(actions, T1)).toEqual([]);
+      expect(dispatchesOf(actions, T1, "code-reviewer")).toEqual([]);
+      expect(actions.filter((a) => a.kind === "write" && a.line.startsWith(`${T1}: review package`))).toEqual([]);
+      expect(completedIn(actions)).not.toContain(T1);
+    }
+  };
+
+  it("names no verify, review package or reviewer while the automation-writer is still running at the developer's DONE", async () => {
+    await expectHeld([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+    ]);
+  });
+
+  it("names no verify, review package or reviewer while the automation-writer's concerns are gated before the decided note", async () => {
+    await expectHeld([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "automation-writer", "DONE_WITH_CONCERNS"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+    ]);
+  });
+
+  it("names no verify, review package or reviewer when the concerns are gated after the developer's DONE and before the decided note", async () => {
+    await expectHeld([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer", "DONE_WITH_CONCERNS"),
+    ]);
+  });
+});
+
 describe("schedule: a fix round's review package", () => {
   const T1 = "TASK-001";
 
