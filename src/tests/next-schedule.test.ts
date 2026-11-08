@@ -213,6 +213,50 @@ describe("schedule: completion", () => {
     expect(schedule(state, inputs, { resume: false }).actions).toEqual([{ kind: "finished" }]);
   });
 
+  describe("finished once every task is complete", () => {
+    const tasks3 = inputsOf([task("TASK-001"), task("TASK-002"), task("TASK-003")]);
+    const allComplete = (opts: { openSeat: boolean; waveDecided: boolean }): LedgerState =>
+      stateOf([
+        scan,
+        capStart(2),
+        complete("TASK-001", "commits aaa0001, review clean"),
+        // A reviewer dispatched with no done, before its task's complete line: the complete line stands.
+        ...(opts.openSeat ? [dispatched("TASK-002", "code-reviewer")] : []),
+        complete("TASK-002", "commits bbb0002, review clean"),
+        complete("TASK-003", "commits ccc0003, review clean"),
+        ...(opts.waveDecided ? [noStepUp(1, "last wave")] : []),
+      ]);
+
+    it("prints only finished, with nothing in flight, when a completed task still has an open seat", async () => {
+      const schedule = await loadSchedule();
+      for (const resume of [false, true]) {
+        const result = schedule(allComplete({ openSeat: true, waveDecided: true }), tasks3, { resume });
+
+        expect(result.actions).toEqual([{ kind: "finished" }]);
+        expect(result.inFlight).toEqual([]);
+      }
+    });
+
+    it("prints only finished, with nothing in flight, when no seat or verify is open", async () => {
+      const schedule = await loadSchedule();
+      for (const resume of [false, true]) {
+        const result = schedule(allComplete({ openSeat: false, waveDecided: true }), tasks3, { resume });
+
+        expect(result.actions).toEqual([{ kind: "finished" }]);
+        expect(result.inFlight).toEqual([]);
+      }
+    });
+
+    it("prints no finished while a write is still owed", async () => {
+      const schedule = await loadSchedule();
+      // Wave 1 is complete with no step-up decision written: the decision is owed.
+      const { actions } = schedule(allComplete({ openSeat: false, waveDecided: false }), tasks3, { resume: false });
+
+      expect(actions.some((a) => a.kind === "finished")).toBe(false);
+      expect(actions.some((a) => a.kind === "write" && a.line === "Note wave 1: no step-up — last wave")).toBe(true);
+    });
+  });
+
   it("ignores a complete line written before the task's latest reopened note", async () => {
     const schedule = await loadSchedule();
     const state = stateOf([
@@ -559,7 +603,7 @@ interface Deviation {
 // Each entry is a dispatch the old loop made that the rules of `kf:implement` at 543cd17 did not call for at that
 // point of the ledger; its `why` quotes the rule. A port defect is never listed here; it is fixed in the code.
 const ROUND_SEAT_CHOICE =
-  "§ 3.4: \"Findings about a test go to the test-writer\" — which seat a finding needs is the controller's reading of the review, not a ledger fact, so the rules call for no test-writer round seat at this prefix";
+  "FR-009: \"Sending a finding to the test-writer or automation-writer stays the session's choice\" — kf next names the round developer, and here the session took the test-writer instead";
 const REPLAY_DEVIATIONS: Deviation[] = [
   {
     line: 32,

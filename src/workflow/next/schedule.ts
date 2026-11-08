@@ -141,8 +141,10 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
   }
 
   // Open seats and verifies: re-dispatched with --resume, in flight without (FR-012, FR-013).
-  const seats = openSeats(state).filter((s) => known.has(s.task));
-  const verifies = openVerifies(state).filter((v) => known.has(v.task));
+  // A task with a standing complete line is never re-dispatched (Resume from the ledger): its open seats and verifies are closed.
+  const completed = completedTaskIds(state);
+  const seats = openSeats(state).filter((s) => known.has(s.task) && !completed.has(s.task));
+  const verifies = openVerifies(state).filter((v) => known.has(v.task) && !completed.has(v.task));
   const inFlight: InFlight[] = [];
   const resumed: Dispatch[] = [];
   const resumeVerifies: Action[] = [];
@@ -234,7 +236,6 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
   const seatOut = seatActions(state, inputs, cap, granted);
 
   // Completion (FR-011).
-  const completed = completedTaskIds(state);
   const openTasks = new Set([...openSeats(state).map((s) => s.task), ...openVerifies(state).map((v) => v.task)]);
   const completes: Action[] = inputs.tasks
     .filter((t) => !completed.has(t.id) && completionDue(state, inputs, t, completed, openTasks))
@@ -276,10 +277,7 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
     return true;
   });
 
-  if (
-    inputs.tasks.every((t) => completed.has(t.id)) &&
-    !actions.some((a) => a.kind === "write" || a.kind === "decide" || a.kind === "stop")
-  ) {
+  if (inputs.tasks.every((t) => completed.has(t.id)) && actions.length === 0) {
     return { feature: f, n, inFlight, actions: [{ kind: "finished" }] };
   }
 
