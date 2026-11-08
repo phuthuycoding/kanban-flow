@@ -139,12 +139,13 @@ function firstNamings(events: LedgerEvent[], task: string): Naming[] {
 }
 
 /**
- * The task a `verify waits` note at `w` names has committed since the note: a line after the note first names one of
- * its commits. A commit named before the note was in the tree the failure was seen with.
+ * The task a `verify waits` note at `w` names has a named commit: a commits note or review package of it, before or
+ * after the note. A plain `--commits` verify runs at H's newest commit, so a commit named before the note can still be
+ * missing from the tree the failure was seen with; once any is named, the verify runs at head.
  */
 function namedTaskCommitted(events: LedgerEvent[], w: number): boolean {
   const waits = events[w] as Extract<LedgerEvent, { type: "verifyWaits" }>;
-  return firstNamings(events, waits.otherTask).some((n) => n.index > w);
+  return firstNamings(events, waits.otherTask).length > 0;
 }
 
 function verifyRouting(

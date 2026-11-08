@@ -219,25 +219,31 @@ describe("routing a failure another task explains", () => {
     expect(of(actions, T1).filter((a) => a.kind === "wait")).toEqual([]);
   });
 
-  // The failure was seen with that commit already in the tree, so naming it again changes nothing.
-  it("keeps waiting when a line after the note only names again a commit named before it", () => {
+  // A plain --commits verify runs at the failed run's own head, which may predate a commit named earlier, so any naming of the task releases the wait.
+  it("names an at-head verify when the named task's commit was named before the note", () => {
     const head: Stamped[] = [...failed().slice(0, 5), commits(5, T2, "e4f5a6b"), ...failed().slice(5)];
-    const again = routingActions(ledger(...head, waits, commits(11, T2, "e4f5a6b")), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
-    expect(of(again, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
-    expect(verifies(again, T1)).toEqual([]);
-
-    const repackaged = routingActions(
-      ledger(...head, waits, done(11, T2, "developer", "DONE"), [12, { type: "reviewPackage", task: T2, shas: ["e4f5a6b"] }]),
-      inputs([task(T1), task(T2)], failLog(T1, 7)),
-      cap(),
-    );
-    expect(of(repackaged, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
-    expect(verifies(repackaged, T1)).toEqual([]);
-
-    const fresh = routingActions(ledger(...head, waits, commits(11, T2, "e4f5a6b", "f5a6b7c")), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
-    expect(verifies(fresh, T1)).toEqual([
+    const atHead = [
       expect.objectContaining({ kind: "verify", task: T1, command: `kf verify ${FEATURE} --task ${T1} --commits ${SHA} --at-head` }),
-    ]);
+    ];
+
+    const named = routingActions(ledger(...head, waits), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
+    expect(verifies(named, T1)).toEqual(atHead);
+    expect(of(named, T1).filter((a) => a.kind === "wait")).toEqual([]);
+    expect(developerDispatches(named, T1)).toEqual([]);
+
+    const again = routingActions(ledger(...head, waits, commits(11, T2, "e4f5a6b")), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
+    expect(verifies(again, T1)).toEqual(atHead);
+
+    const packaged: Stamped[] = [...failed().slice(0, 5), [5, { type: "reviewPackage", task: T2, shas: ["e4f5a6b"] }], ...failed().slice(5)];
+    const viaPackage = routingActions(ledger(...packaged, waits), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
+    expect(verifies(viaPackage, T1)).toEqual(atHead);
+    expect(of(viaPackage, T1).filter((a) => a.kind === "wait")).toEqual([]);
+  });
+
+  it("keeps waiting when the named task's commit is named by no ledger line at all", () => {
+    const actions = routingActions(ledger(...failed(), waits), inputs([task(T1), task(T2)], failLog(T1, 7)), cap());
+    expect(of(actions, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
+    expect(verifies(actions, T1)).toEqual([]);
   });
 
   it("moves a routed failure's fix round to the named task", () => {
@@ -267,9 +273,9 @@ describe("routing a failure another task explains", () => {
   });
 
   it("lets a waits note win over a routed note on the same failure", () => {
+    // T2 has no named commit yet, so the waits note still holds.
     const state = ledger(
-      ...built(T2, "e4f5a6b", 0),
-      done(5, T2, "code-reviewer", "clean"),
+      dispatched(1, T2, "developer"),
       dispatched(6, T1, "developer"),
       commits(7, T1, SHA),
       done(8, T1, "developer", "DONE"),
