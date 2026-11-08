@@ -582,6 +582,109 @@ describe("seatActions after a developer's commit", () => {
     expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
   });
 
+  it("treats a DONE_WITH_CONCERNS developer followed by a Ruling line naming the task as done", () => {
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002")], {
+      reportCommits: { "TASK-001": ["abc1234"] },
+      gitLog: logOf("abc1234"),
+    });
+    const concerns = [scanClean, ...testsReady("TASK-001"), dispatched("TASK-001", "developer"), done("TASK-001", "developer", "DONE_WITH_CONCERNS")];
+
+    const ruled = seatActions(
+      stateOf(...concerns, { type: "other", text: "Ruling: TASK-001's wording choices stand — cost if wrong: a prose edit" }),
+      inputs,
+      capOf(2),
+    );
+    expect(writes(ruled)).toContainEqual(expect.objectContaining({ line: "TASK-001: review package abc1234" }));
+    expect(verifies(ruled, "TASK-001")).toEqual([
+      expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234" }),
+    ]);
+    expect(dispatches(ruled, "code-reviewer", "TASK-001")).toEqual([
+      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new" },
+    ]);
+
+    // A ruling about another task does not close this task's concerns.
+    const otherRuling = seatActions(
+      stateOf(...concerns, { type: "other", text: "Ruling: TASK-002 stays inside its Files — cost if wrong: a later refactor" }),
+      inputs,
+      capOf(2),
+    );
+    expect(verifies(otherRuling, "TASK-001")).toHaveLength(0);
+    expect(dispatches(otherRuling, "code-reviewer")).toHaveLength(0);
+  });
+
+  it("names nothing for a fix round until the round test-writer's resume-commit developer is done", () => {
+    const reviewed = [
+      scanClean,
+      ...testsReady("TASK-001"),
+      dispatched("TASK-001", "developer"),
+      done("TASK-001", "developer"),
+      { type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] } as Fields,
+      { type: "verifyStarted", task: "TASK-001" } as Fields,
+      dispatched("TASK-001", "code-reviewer"),
+      { type: "verifyDone", task: "TASK-001", exit: 0 } as Fields,
+      done("TASK-001", "code-reviewer", "findings"),
+      dispatched("TASK-001", "developer", { round: 1 }),
+      done("TASK-001", "developer"),
+    ];
+    const inputs = inputsOf([task("TASK-001")], { gitLog: logOf("abc1234", "def5678") });
+    const nothingForTheRound = (actions: Action[]) => {
+      expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
+      expect(verifies(actions, "TASK-001")).toHaveLength(0);
+      expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
+      expect(actions.filter((a: Action) => a.kind === "decide" && a.task === "TASK-001")).toHaveLength(0);
+    };
+
+    const testWriterOut = [...reviewed, dispatched("TASK-001", "test-writer", { round: 1 })];
+    nothingForTheRound(seatActions(stateOf(...testWriterOut), inputs, capOf(2)));
+
+    const testWriterDone = [...testWriterOut, done("TASK-001", "test-writer"), hashes("TASK-001")];
+    nothingForTheRound(seatActions(stateOf(...testWriterDone), inputs, capOf(2)));
+
+    const resumeOut = [...testWriterDone, dispatched("TASK-001", "developer", { round: 1 })];
+    nothingForTheRound(seatActions(stateOf(...resumeOut), inputs, capOf(2)));
+
+    const resumeDone = [
+      ...resumeOut,
+      done("TASK-001", "developer"),
+      { type: "reviewPackage", task: "TASK-001", shas: ["def5678"] } as Fields,
+    ];
+    const reReview = seatActions(stateOf(...resumeDone), inputs, capOf(2));
+    expect(verifies(reReview, "TASK-001")).toEqual([
+      expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234,def5678" }),
+    ]);
+    expect(dispatches(reReview, "code-reviewer", "TASK-001")).toEqual([
+      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new", round: 1 },
+    ]);
+  });
+
+  it("reads a fix round's commits from its review package line when no commits note was recorded", () => {
+    const state = stateOf(
+      scanClean,
+      ...testsReady("TASK-001"),
+      dispatched("TASK-001", "developer"),
+      done("TASK-001", "developer"),
+      { type: "reviewPackage", task: "TASK-001", shas: ["abc1234"] },
+      { type: "verifyStarted", task: "TASK-001" },
+      dispatched("TASK-001", "code-reviewer"),
+      { type: "verifyDone", task: "TASK-001", exit: 0 },
+      done("TASK-001", "code-reviewer", "findings"),
+      dispatched("TASK-001", "developer", { round: 1 }),
+      done("TASK-001", "developer"),
+      { type: "reviewPackage", task: "TASK-001", shas: ["def5678", "0123abc"] },
+    );
+    const inputs = inputsOf([task("TASK-001")], { gitLog: logOf("abc1234", "def5678", "0123abc") });
+    const actions = seatActions(state, inputs, capOf(2));
+    expect(actions.filter((a: Action) => a.kind === "decide" && a.task === "TASK-001")).toHaveLength(0);
+    // The package is already recorded after the round's done: it is not owed again.
+    expect(writes(actions).filter((w) => w.line.includes("review package"))).toHaveLength(0);
+    expect(verifies(actions, "TASK-001")).toEqual([
+      expect.objectContaining({ command: "kf verify feat --task TASK-001 --commits abc1234,def5678,0123abc" }),
+    ]);
+    expect(dispatches(actions, "code-reviewer", "TASK-001")).toEqual([
+      { kind: "dispatch", task: "TASK-001", seat: "code-reviewer", mode: "new", round: 1 },
+    ]);
+  });
+
   it("scopes the re-review after a fix round to the commits recorded since the last review and carries the round", () => {
     const state = developed(
       commitsNote("TASK-001", "abc1234"),

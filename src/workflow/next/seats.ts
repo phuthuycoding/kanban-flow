@@ -37,11 +37,16 @@ function answeredDispatch(own: LedgerEvent[], done: Done): Dispatched | undefine
 
 const doneOf = (own: LedgerEvent[], seat: string): Done[] => own.filter((e): e is Done => e.type === "done" && e.seat === seat);
 
-/** A developer `done` counts as DONE when it says so, or when the session went on from a concerns/blocked status by a decision or a commits note. */
-function countsAsDone(own: LedgerEvent[], done: Done): boolean {
+/**
+ * A developer `done` counts as DONE when it says so, or when the session went on from a concerns/blocked status
+ * by a decision, a commits note, or a `Ruling:` line naming the task.
+ */
+function countsAsDone(state: LedgerState, own: LedgerEvent[], done: Done): boolean {
   if (done.status === "DONE") return true;
   if (done.status !== "DONE_WITH_CONCERNS" && done.status !== "BLOCKED") return false;
-  return own.some((e) => (e.type === "decided" || e.type === "commits") && e.line > done.line);
+  if (own.some((e) => (e.type === "decided" || e.type === "commits") && e.line > done.line)) return true;
+  const named = new RegExp(`\\b${done.task}(?!\\d)`);
+  return state.events.some((e) => e.type === "other" && e.line > done.line && e.text.startsWith("Ruling:") && named.test(e.text));
 }
 
 const overlapping = (a: LoopTask, b: LoopTask): boolean =>
@@ -181,7 +186,7 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
     const events = sinceReopen(state, t.id);
     const devDones = doneOf(events, "developer");
     const latest = devDones.at(-1);
-    if (latest === undefined || !countsAsDone(events, latest)) continue;
+    if (latest === undefined || !countsAsDone(state, events, latest)) continue;
     const round = answeredDispatch(events, latest)?.round;
     const commits = taskCommits(state, t.id, inputs.reportCommits[t.id], inputs.gitLog);
     const missing = (): void =>
@@ -210,12 +215,27 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
     };
 
     if (round !== undefined) {
+      // The round is named only after its last developer done: a round test-writer or automation-writer
+      // dispatched after the latest developer done still owes its resume-commit developer.
+      const roundSeatPending = events.some(
+        (e) =>
+          e.type === "dispatched" &&
+          (e.seat === "test-writer" || e.seat === "automation-writer") &&
+          e.round === round &&
+          e.line > latest.line,
+      );
+      if (roundSeatPending) continue;
       if (verifyStarted(latest.line) && reviewerDispatched(latest.line)) continue;
       // The previous review is the latest one dispatched before this round's done, not a re-review already under way.
       const reviewed =
         events.filter((e) => e.type === "dispatched" && e.seat === "code-reviewer" && e.line < latest.line).at(-1)?.line ?? -1;
-      const recorded = events.flatMap((e) => (e.type === "commits" && e.line > reviewed ? e.shas : []));
-      const scoped = commits.filter((sha) => recorded.some((r) => r.startsWith(sha) || sha.startsWith(r)));
+      const since = events.filter((e) => e.line > reviewed);
+      const notes = since.flatMap((e) => (e.type === "commits" ? e.shas : []));
+      const packages = since.flatMap((e) => (e.type === "reviewPackage" ? e.shas : []));
+      const before = taskCommits({ events: events.filter((e) => e.line < reviewed) }, t.id, undefined, inputs.gitLog);
+      const fromReport = (inputs.reportCommits[t.id] ?? []).filter((sha) => !before.some((b) => b.startsWith(sha) || sha.startsWith(b)));
+      const recorded = notes.length > 0 ? notes : packages.length > 0 ? packages : fromReport;
+      const scoped = recorded.filter((sha, i) => !recorded.slice(0, i).some((r) => r.startsWith(sha) || sha.startsWith(r)));
       if (scoped.length === 0) missing();
       else trio(latest.line, scoped, round);
       continue;
@@ -259,7 +279,7 @@ export function seatActions(state: LedgerState, inputs: LoopInputs, cap: Cap, re
 
   // Developer release for new tasks, plan order (FR-003).
   const finished = (dep: string): boolean =>
-    doneOf(ev(dep), "developer").some((d) => countsAsDone(ev(dep), d)) &&
+    doneOf(ev(dep), "developer").some((d) => countsAsDone(state, ev(dep), d)) &&
     taskCommits(state, dep, inputs.reportCommits[dep], inputs.gitLog).length > 0;
 
   for (const t of inputs.tasks) {
