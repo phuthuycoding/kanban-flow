@@ -218,3 +218,57 @@ describe("review region: the minimal fix's own review", () => {
     expect(next.review.ownVerdict).toBe("clean");
   });
 });
+
+describe("review region: the cycle verdict at round five", () => {
+  const ROUND_FIVE: TaskPhase = { kind: "cycle", cycle: "round", round: 5, openedAt: 50, implementer: { kind: "committed" }, sinceCommit: 60, commits: [SHA7] };
+  const ownRun = (over: Parameters<typeof task>[0] = {}): TaskState =>
+    task({ phase: ROUND_FIVE, roundsUsed: 5, lane: busy(OWN), demands: [OWN], verify: { kind: "passed", line: 70 }, ...over });
+  const keptFailure: TaskState["verify"] = { kind: "failed", line: 70, disposition: { kind: "kept" } };
+  const unanswered = [{ from: "TASK-002", line: 80, answered: false }];
+
+  for (const reopened of [false, true]) {
+    const who = reopened ? "a reopened task" : "a task never reopened";
+    const atCap = reopened ? { kind: "capStop", noted: false, fixSpent: false } : { kind: "breaker", parked: [], fixSpent: false };
+
+    it(`puts ${who} at the cap when its own review has findings`, () => {
+      const next = reviewStep(ownRun({ reopened }), doneReviewer("findings"), world);
+      expect(next.phase).toMatchObject({ kind: "atCap", cap: atCap });
+    });
+
+    it(`puts ${who} at the cap when its own review is clean but a verify failure was kept`, () => {
+      const next = reviewStep(ownRun({ reopened, verify: keptFailure }), doneReviewer("clean"), world);
+      expect(next.phase).toMatchObject({ kind: "atCap", cap: atCap });
+    });
+
+    it(`puts ${who} at the cap when its own review is clean but a routed-in failure is unanswered`, () => {
+      const next = reviewStep(ownRun({ reopened, routedIn: unanswered }), doneReviewer("clean"), world);
+      expect(next.phase).toMatchObject({ kind: "atCap", cap: atCap });
+    });
+
+    it(`keeps ${who} in its cycle when nothing is left open`, () => {
+      const next = reviewStep(ownRun({ reopened, routedIn: [{ ...unanswered[0], answered: true }] }), doneReviewer("clean"), world);
+      expect(next.phase).toMatchObject({ kind: "cycle", cycle: "round", round: 5 });
+    });
+
+    it(`defers the cap for ${who} until its own review reports`, () => {
+      const waiting = ownRun({ reopened, verify: keptFailure, lane: busy(cascade("dispatched")), demands: [OWN, cascade("dispatched")] });
+      const afterCascade = reviewStep(waiting, doneReviewer("clean"), world);
+      expect(afterCascade.review.ownVerdict).toBe("none");
+      expect(afterCascade.phase.kind).toBe("cycle");
+    });
+  }
+});
+
+describe("review region: a failed minimal fix of a reopened task", () => {
+  it("returns to the cap stop with its cap reached note still written when the fix's own review has findings", () => {
+    const fixing = task({
+      phase: { kind: "cycle", cycle: "minimalFix", round: 5, openedAt: 70, implementer: { kind: "committed" }, sinceCommit: 75, commits: [SHA7] },
+      roundsUsed: 5,
+      reopened: true,
+      lane: busy(OWN),
+      demands: [OWN],
+    });
+    const next = reviewStep(fixing, doneReviewer("findings"), world);
+    expect(next.phase).toMatchObject({ kind: "atCap", cap: { kind: "capStop", fixSpent: true, noted: true } });
+  });
+});

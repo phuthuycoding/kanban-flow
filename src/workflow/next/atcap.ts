@@ -5,7 +5,6 @@ import type {
   Judgement,
   JudgementEntry,
   JudgementKind,
-  LoopInputs,
   MachineEvent,
   MachineEventOf,
   RegionHandler,
@@ -55,30 +54,33 @@ export function enterCascadeAtCap(t: TaskState, sha7: string, at: number): TaskS
     : toCap(t, { kind: "cascadeAtCap", sha7, reopened: false }, { kind: "cascadeAtCapBreaker", task: t.id, openedAt: at, sha7 });
 }
 
-/** The minimal fix failed or was abandoned: it is spent, the Breaker closes on a park only, the cap stop stays. */
+/**
+ * The minimal fix failed or was abandoned: it is spent, the Breaker closes on a park only, the cap stop stays. A minimal
+ * fix is reached from the cap stop only once its `cap reached` note is written, so the note stays written.
+ */
 export function fixFailed(t: TaskState, at: number): TaskState {
   return t.reopened
-    ? toCap(t, { kind: "capStop", noted: false, fixSpent: true }, { kind: "capStopFixSpent", task: t.id, openedAt: at })
+    ? toCap(t, { kind: "capStop", noted: true, fixSpent: true }, { kind: "capStopFixSpent", task: t.id, openedAt: at })
     : toCap(t, { kind: "breaker", parked: [], fixSpent: true }, { kind: "breakerFixSpent", task: t.id, openedAt: at });
 }
 
 // The verify runs that are the minimal fix's outcome: started once the fix developer is done and its first commit
 // is recorded. VerifyState keeps only the started line, so the verdict is taken at the start and read at the failure.
-// Keyed by the inputs object, which every fold step shares.
-const FIX_RUNS = new WeakMap<LoopInputs, Set<string>>();
+// Keyed by the World, one per fold run (the inputs object can be shared by several folds), since types.ts is frozen.
+const FIX_RUNS = new WeakMap<World, Set<string>>();
 
 const runKey = (task: string, line: number): string => `${task}@${line}`;
 
 function recordFixRun(world: World, task: string, line: number): void {
-  let runs = FIX_RUNS.get(world.inputs);
+  let runs = FIX_RUNS.get(world);
   if (!runs) {
     runs = new Set();
-    FIX_RUNS.set(world.inputs, runs);
+    FIX_RUNS.set(world, runs);
   }
   runs.add(runKey(task, line));
 }
 
-const isFixRun = (world: World, task: string, line: number): boolean => FIX_RUNS.get(world.inputs)?.has(runKey(task, line)) ?? false;
+const isFixRun = (world: World, task: string, line: number): boolean => FIX_RUNS.get(world)?.has(runKey(task, line)) ?? false;
 
 const ending: RegionHandler<"complete"> = (t, e) => ({
   ...t,

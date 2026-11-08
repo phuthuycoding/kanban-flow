@@ -212,3 +212,114 @@ describe("at cap: events outside the region", () => {
     expect(atCapStep(start, plain(), world)).toEqual(start);
   });
 });
+
+describe("at cap: a failed minimal fix of a reopened task", () => {
+  const fixOf = (): TaskState => ({
+    ...atCap({ kind: "capStop", noted: true, fixSpent: false }, { reopened: true }),
+    phase: { kind: "cycle", cycle: "minimalFix", round: 5, openedAt: 210, implementer: { kind: "running", dispatchLine: 210, inline: false }, sinceCommit: null, commits: [] },
+    seats: { ...initialTask(inputs.tasks[0]).seats, developer: { kind: "gated", status: "BLOCKED", doneLine: 215 } },
+  });
+
+  it("returns to the cap stop with its cap reached note still written", () => {
+    const next = atCapStep(fixOf(), plain(), world);
+    expect(next.phase).toMatchObject({ kind: "atCap", cap: { kind: "capStop", fixSpent: true, noted: true } });
+  });
+});
+
+describe("at cap: which verify runs are the minimal fix's outcome", () => {
+  const OPENED = 210;
+  const fixing = (over: Partial<TaskState> = {}, commit: number | null = 220): TaskState => ({
+    ...atCap(breaker()),
+    phase: { kind: "cycle", cycle: "minimalFix", round: 5, openedAt: OPENED, implementer: { kind: "committed" }, sinceCommit: commit, commits: [] },
+    seats: { ...initialTask(inputs.tasks[0]).seats, developer: { kind: "reported", status: "DONE", answers: OPENED } },
+    ...over,
+  });
+  const started = (): MachineEvent => ({ ...stamp(), type: "verifyStarted", task: TASK });
+  const keptFailure = (runLine: number): TaskState["verify"] => ({ kind: "failed", line: runLine, disposition: { kind: "kept" } });
+  // Any event of the task steps the machine; a cap reached note is one the fix cycle itself ignores.
+  const afterFailure = (t: TaskState, runLine: number, w: World): TaskState =>
+    atCapStep({ ...t, verify: keptFailure(runLine) }, { ...stamp(), type: "capReached", task: TASK, failure: "verify" }, w);
+  const freshWorld = (): World => ({ inputs, tasks: new Map() }) as unknown as World;
+
+  it("fails the fix when a verify started after the fix commit fails and is kept", () => {
+    const w = freshWorld();
+    const run = started();
+    const t = fixing();
+    atCapStep(t, run, w);
+    expect(afterFailure(t, run.line, w).phase).toMatchObject({ kind: "atCap", cap: { kind: "breaker", fixSpent: true } });
+  });
+
+  it("does not take a verify started before the fix developer is done for a fix run", () => {
+    const w = freshWorld();
+    const run = started();
+    const t = fixing({ seats: { ...initialTask(inputs.tasks[0]).seats, developer: { kind: "running", line: OPENED, inline: false, origin: "progress" } } });
+    atCapStep(t, run, w);
+    expect(afterFailure(t, run.line, w).phase).toMatchObject({ kind: "cycle", cycle: "minimalFix" });
+  });
+
+  it("does not take a verify started before the fix's first commit for a fix run", () => {
+    const w = freshWorld();
+    const run = started();
+    const t = fixing({}, null);
+    atCapStep(t, run, w);
+    expect(afterFailure(t, run.line, w).phase).toMatchObject({ kind: "cycle", cycle: "minimalFix" });
+  });
+
+  it("keeps the fix runs of two event streams over the same inputs apart", () => {
+    const streamA = freshWorld();
+    const streamB = freshWorld();
+    const run = started();
+    atCapStep(fixing(), run, streamA);
+    // The same ledger line in another stream, where the developer is still running: no fix run there.
+    const running = fixing({ seats: { ...initialTask(inputs.tasks[0]).seats, developer: { kind: "running", line: OPENED, inline: false, origin: "progress" } } });
+    atCapStep(running, run, streamB);
+    expect(afterFailure(running, run.line, streamB).phase).toMatchObject({ kind: "cycle", cycle: "minimalFix" });
+    expect(afterFailure(fixing(), run.line, streamA).phase).toMatchObject({ kind: "atCap", cap: { kind: "breaker", fixSpent: true } });
+  });
+});
+
+describe("at cap: how the minimal fix is abandoned", () => {
+  const OPENED = 210;
+  const fixWith = (over: Partial<TaskState>): TaskState => ({
+    ...atCap(breaker()),
+    phase: { kind: "cycle", cycle: "minimalFix", round: 5, openedAt: OPENED, implementer: { kind: "running", dispatchLine: OPENED, inline: false }, sinceCommit: null, commits: [] },
+    ...over,
+  });
+  const gatedSeats = { ...initialTask(inputs.tasks[0]).seats, developer: { kind: "gated", status: "BLOCKED", doneLine: 215 } } as TaskState["seats"];
+  const gateJudgement = { kind: "seatStatus", task: TASK, openedAt: 215, seat: "developer", status: "BLOCKED", doneLine: 215 } as const;
+  const ruling = (): MachineEvent => ({ ...stamp(), type: "ruling", task: TASK, text: "Ruling: TASK-001 — stop the fix" });
+  const spent = { kind: "atCap", cap: { kind: "breaker", fixSpent: true } };
+
+  it("abandons the fix on a Ruling that names the task and closes the developer's gate", () => {
+    const next = atCapStep(fixWith({ seats: gatedSeats, judgements: [gateJudgement] }), ruling(), world);
+    expect(next.phase).toMatchObject(spent);
+    expect(next.judgements.some((j) => j.kind === "seatStatus")).toBe(false);
+  });
+
+  it("abandons the fix when a developer is dispatched over the fix's open gate", () => {
+    const next = atCapStep(fixWith({ seats: gatedSeats, judgements: [gateJudgement] }), dispatchDev(), world);
+    expect(next.phase).toMatchObject(spent);
+  });
+
+  it("abandons the fix when a developer is dispatched over a missing commit", () => {
+    const missing = { kind: "commitMissing", task: TASK, openedAt: 215, dispatchLine: OPENED } as const;
+    const t = fixWith({
+      implementer: undefined,
+      judgements: [missing],
+      phase: { kind: "cycle", cycle: "minimalFix", round: 5, openedAt: OPENED, implementer: { kind: "commitMissing", dispatchLine: OPENED }, sinceCommit: null, commits: [] },
+    } as Partial<TaskState>);
+    const next = atCapStep(t, dispatchDev(), world);
+    expect(next.phase).toMatchObject(spent);
+    expect(next.judgements.some((j) => j.kind === "commitMissing")).toBe(false);
+  });
+
+  it("abandons the fix on a Ruling for a gated developer with no judgement on it", () => {
+    const next = atCapStep(fixWith({ seats: gatedSeats }), ruling(), world);
+    expect(next.phase).toMatchObject(spent);
+  });
+
+  it("keeps the fix running on a Ruling when the developer is not gated", () => {
+    const next = atCapStep(fixWith({}), ruling(), world);
+    expect(next.phase).toMatchObject({ kind: "cycle", cycle: "minimalFix" });
+  });
+});
