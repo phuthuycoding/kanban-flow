@@ -213,52 +213,23 @@ describe("resuming the task loop from the ledger", () => {
     expect(implement()).not.toContain("a task whose last line is a fix round resumes at the next round");
   });
 
-  it("rebuilds every open task, each at its first unmet step, in twelve ordered steps", () => {
-    const text = implement();
-    const intro = paragraphWith(text, "Resume from the ledger");
-    expect(intro).toContain("every open task");
-    expect(intro).not.toContain("only the head task H and the next task X");
-    expect(intro).toContain("first unmet step");
-    // The ordered list runs from the intro to the next bold-led paragraph or heading.
-    const after = text.slice(text.indexOf(intro) + intro.length);
-    const end = after.search(/\n(\*\*|#)/);
-    const list = (end === -1 ? after : after.slice(0, end)).trim();
-    const items = list.split(/\n(?=\d+\. )/).filter((i) => /^\d+\. /.test(i));
-    expect(items.map((i) => Number(/^(\d+)\./.exec(i)?.[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    for (const n of [0, 1]) expect(items[n]).toContain("test-writer");
-    expect(items[2]).toContain("developer waits");
-    expect(items[3]).toMatch(/developer`? `?done/);
-    expect(items[4]).toMatch(/automation-writer`? `?done/);
-    for (const n of [5, 6]) expect(items[n]).toContain("verify");
-    expect(items[7]).toContain("code-reviewer");
-    // A round's own test-writer or automation-writer seat must not count as the round's developer dispatch.
-    expect(items[8]).toMatch(/test-writer[\s\S]*automation-writer`? `?dispatched[\s\S]*round=/);
-    expect(items[8]).toContain("next fix round");
-    expect(items[8]).toContain("breaker");
-    expect(items[8]).toContain("resume the developer to commit them unchanged");
-    expect(items[8]).toContain("developer waits — <N> developers in flight");
-    expect(items[10]).toContain("cascade re-review owed");
-    expect(items[11]).toContain("completion check");
-  });
-
-  it("re-dispatches every unanswered seat and re-runs every unfinished verify before any new developer", () => {
-    const text = implement();
-    const resume = slice(text, "**Resume from the ledger", "**Pre-Task-1");
-    expect(resume).toMatch(/every[^.\n]*`?dispatched`?[^.\n]*(with )?no[^.\n]*`?done`?/);
-    expect(resume).toMatch(/always resumed whatever N is/);
-    expect(resume).toMatch(/N gates only new developer dispatches/);
-    expect(resume).toMatch(/every[^.\n]*`?verify started`?[^.\n]*(with )?no[^.\n]*`?verify done`?/);
+  // The twelve resume steps moved into `kf next --resume` (src/workflow/next/schedule.ts); their behaviour is
+  // pinned in next-schedule.test.ts. The skill keeps the call, drift and the inline resume.
+  it("resumes from kf next --resume, which lists every open seat and verify before any new developer", () => {
+    const resume = slice(implement(), "**Resume.**", "**Pre-Task-1");
+    expect(resume).toContain("`kf next --resume`");
+    expect(resume).toMatch(/every seat and verify the ledger shows open/);
     expect(resume).toMatch(/before (any|a) new developer/);
+    expect(resume).toContain("`Drift` decide");
   });
 
   it("never re-dispatches a complete task and earns completion only from the ledger", () => {
     const text = implement();
     expect(text).toContain("A task with a `complete` line is never re-dispatched");
     expect(text).not.toMatch(/all seats (are )?done/i);
-    const rule = paragraphWith(text, "`verify done exit=0`");
-    expect(rule).toContain("`developer done`");
-    expect(rule).toContain("last commit");
-    expect(rule).toMatch(/clean/);
+    const rule = paragraphWith(text, "once the ledger earns it");
+    expect(rule).toContain("`kf next` prints `complete TASK-NNN`");
+    expect(rule).toContain("never inferred from the absence of open seats");
   });
 
   it("quotes no commit range in any fix round or complete line of the skill or its loop reference", () => {

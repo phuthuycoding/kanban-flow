@@ -76,7 +76,7 @@ Each **tick**:
 
 **End of day** when the human says stop, or nothing is `driving` and nothing `queued` is dispatchable: §6.
 
-**Resume after compaction.** Read `.kf/travel/progress.md` first (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read as kf:implement's resume rule reads them. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
+**Resume after compaction.** Read `.kf/travel/progress.md` first (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read through `kf next --resume`, as kf:implement's Resume section says. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
 
 ### Line states
 

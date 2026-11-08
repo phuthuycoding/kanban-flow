@@ -54,7 +54,8 @@ describe("the task loop seats", () => {
 
   it("splits the fix loop between the developer and the test-writer under one five-round cap", () => {
     const fixLoop = slice(taskLoop(), "\n### 3.4", "\n### 3.5");
-    expect(fixLoop).toContain("Rounds 1–3 resume the original developer");
+    // Which round dispatches which seat moved into `kf next`; the skill keeps what each round does.
+    expect(fixLoop).toContain("in rounds 1–3 it is the original developer, resumed with the open findings verbatim");
     expect(fixLoop).toContain("Rounds 4–5 dispatch a fresh developer one tier up");
     expect(fixLoop).toContain("Findings about a test go to the test-writer");
     expect(fixLoop).toContain("Five rounds maximum per task");

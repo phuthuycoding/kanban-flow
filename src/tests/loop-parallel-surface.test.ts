@@ -43,33 +43,19 @@ describe("the parallel task loop window", () => {
     expect(reference("task-loop.md")).not.toContain(OLD);
   });
 
-  it("states the live cap counting fix-round and resume-commit developers, and the three dispatch conditions", () => {
-    for (const [name, text] of [["SKILL.md", taskLoop()]] as const) {
-      const cap = paragraphWith(text, "three dispatch conditions");
-      expect(cap, name).toContain("live cap");
-      expect(cap, name).toContain("fix-round");
-      expect(cap, name).toContain("resume-commit");
-      expect(cap, name).toContain("three dispatch conditions");
-      expect(cap, name).toMatch(/dependenc/i);
-      expect(cap, name).toContain("test hashes");
-      expect(cap, name).toContain("open task");
-    }
+  // Moved into `kf next` (src/workflow/next/); its behaviour is pinned in the next-*.test.ts unit tests.
+  it("leaves the live cap and the dispatch conditions to kf next", () => {
+    const loop = paragraphWith(taskLoop(), "**The loop runs on `kf next`.**");
+    expect(loop).toContain("the live developer cap");
+    expect(loop).toContain("task order and overlaps");
+    expect(loop).toContain("the session never re-derives them");
   });
 
-  it("defines an open task and makes unknown Files overlap everything, checked with overlaps of kf tasks --json", () => {
-    for (const [name, text] of [["SKILL.md", taskLoop()]] as const) {
-      expect(text, name).toMatch(/open task[^.]*developer[^.]*dispatched[^.]*no `complete` line/);
-      expect(text, name).toMatch(/unknown Files overlaps? everything/);
-      expect(text, name).toContain("kf tasks <f> --json");
-      expect(text, name).toContain("overlaps");
-    }
-  });
 
-  it("writes both wait lines verbatim in the skill and the loop reference", () => {
-    for (const [name, text] of [["SKILL.md", implement()], ["task-loop.md", reference("task-loop.md")]] as const) {
-      expect(text, name).toContain("TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)");
-      expect(text, name).toContain("TASK-NNN: developer waits — <N> developers in flight");
-    }
+  it("writes both wait lines verbatim in the loop reference", () => {
+    const text = reference("task-loop.md");
+    expect(text).toContain("TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)");
+    expect(text).toContain("TASK-NNN: developer waits — <N> developers in flight");
   });
 
   it("no longer states the one-developer, two-task window or head-first rules anywhere", () => {
@@ -97,8 +83,8 @@ describe("the parallel task loop window", () => {
   });
 
   it("writes the cap wait line for a fix round held by the cap and no longer ledgers a queued fix", () => {
-    const fixRound = paragraphWith(taskLoop(), "developer waits — <N> developers in flight");
-    expect(fixRound).toMatch(/fix round/i);
+    const fixRound = paragraphWith(reference("task-loop.md"), "developer waits — <N> developers in flight` instead");
+    expect(fixRound).toMatch(/fix round held by the cap/i);
     expect(implement()).not.toContain("TASK-H: fix queued — developer TASK-M in flight");
     expect(reference("task-loop.md")).not.toContain("TASK-H: fix queued — developer TASK-M in flight");
   });
@@ -134,11 +120,8 @@ describe("the parallel task loop window", () => {
     expect(reference("test-writer-brief.md")).toContain("advisory while a developer is in flight");
   });
 
-  it("lets test-writers run for the next 4 tasks but never write inside another open task's Files", () => {
-    const loop = taskLoop();
-    expect(loop).toMatch(/next 4 tasks[^\n]*`?test-writer done`?/);
-    expect(loop).toContain("another open task's Files");
-    expect(paragraphWith(implement(), "next 4 tasks")).toContain("advisory");
+  it("keeps a test-writer's run advisory while a developer is in flight and out of another open task's Files", () => {
+    expect(paragraphWith(taskLoop(), "A test-writer's runs are advisory")).toContain("advisory while any developer is in flight");
     const brief = reference("test-writer-brief.md");
     expect(brief).toContain("another open task's Files");
     expect(brief).toContain("advisory while a developer is in flight");
@@ -146,19 +129,7 @@ describe("the parallel task loop window", () => {
 });
 
 describe("dispatching tasks in parallel, gated on overlaps", () => {
-  it("gates a task's developer on its dependencies' developers, its test hashes and the open tasks' Files", () => {
-    const gate = paragraphWith(taskLoop(), "three dispatch conditions");
-    expect(gate).toMatch(/every dependency's developer[^\n]*(reported )?DONE/);
-    expect(gate).toMatch(/test-writer[^\n]*done[^\n]*test hashes/);
-    expect(gate).toMatch(/Files overlap no open task/);
-  });
 
-  it("makes a developer wait and ledgers the overlapping entries and the task that holds them", () => {
-    const wait = paragraphWith(taskLoop(), "TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)");
-    expect(wait).toContain("TASK-MMM: complete");
-    const cap = paragraphWith(taskLoop(), "TASK-NNN: developer waits — <N> developers in flight");
-    expect(cap).toMatch(/next `?developer done`?/);
-  });
 
   it("takes the fails-for-the-right-reason judgement from the developer's step-3 run when the test-writer's run was advisory", () => {
     const line = lineWith(taskLoop(), "step-3 run");
@@ -167,7 +138,7 @@ describe("dispatching tasks in parallel, gated on overlaps", () => {
   });
 
   it("ledgers same-wave test-writers as parallel, sequential or with unknown Files", () => {
-    const loop = taskLoop();
+    const loop = reference("task-loop.md");
     expect(loop).toContain("wave <w>: parallel test-writers TASK-A, TASK-B — disjoint Files");
     expect(loop).toContain("wave <w>: sequential TASK-A, TASK-B — Files overlap <entry> / <entry>");
     expect(loop).toContain("— Files unknown");
@@ -200,18 +171,13 @@ describe("loop calls by commit list", () => {
 });
 
 describe("the cascade re-review of a dependent task", () => {
-  it("owes a cascade re-review only to a task that depends on the fixed task, directly or transitively", () => {
+  it("puts the fixed dependency's diff in the brief of a cascade re-review kf next names", () => {
     const fixLoop = section("\n### 3.4", "\n### 3.5");
-    expect(fixLoop).toContain("TASK-X: cascade re-review owed — after <sha7> of TASK-H");
-    expect(fixLoop).toContain("TASK-X: code-reviewer dispatched model=<m> round=<R> cascade=<sha7>");
-    const owed = paragraphWith(fixLoop, "cascade re-review owed");
-    expect(owed).toMatch(/only when X depends on H/);
-    expect(owed).toContain("directly or transitively");
-    expect(owed).toContain("dependencies");
-    expect(owed).toContain("kf tasks");
-    expect(fixLoop).toMatch(/X is never marked complete[^\n]*cascade line of X is unanswered/);
-    expect(fixLoop).not.toContain("X is never marked complete before H is complete");
+    const cascade = paragraphWith(fixLoop, "**A cascade re-review.**");
+    expect(cascade).toContain("cascade=<sha7>");
+    expect(cascade).toContain("`[CASCADE_FIX_DIFF]`");
     expect(fixLoop).not.toContain("No file check decides it: every such fix triggers it");
+    expect(reference("task-loop.md")).toContain("TASK-NNN: cascade re-review owed — after <sha7> of TASK-MMM @ <ts>");
   });
 
   it("names the stage gate's full build and suite as the backstop for coupling the plan did not declare", () => {
@@ -230,24 +196,14 @@ describe("the cascade re-review of a dependent task", () => {
     expect(entry).toMatch(/none/i);
   });
 
-  it("completes a task when its own gates and its dependencies' completion hold, in any order, with no plan-order barrier", () => {
-    const loop = taskLoop();
-    const at = loop.indexOf("\n### 3.5");
-    expect(at, "### 3.5").toBeGreaterThanOrEqual(0);
-    const complete = loop.slice(at);
-    const start = complete.indexOf("A task is complete when");
-    expect(start, "A task is complete when").toBeGreaterThanOrEqual(0);
-    const check = paragraphs(complete.slice(start))[0];
-    expect(check).toMatch(/developer[^\n]*(done|DONE)/);
-    expect(check).toContain("exit=0");
-    expect(check).toMatch(/routed to/);
-    expect(check).toContain("clean");
-    expect(check).toContain("parked");
-    expect(check).toContain("five-round cap");
-    expect(check).toMatch(/cascade[^\n]*unanswered|unanswered[^\n]*cascade/);
-    expect(check).toMatch(/every dependency is complete|its dependencies are complete/);
+  it("completes a task when kf next says so, in any order, with no plan-order barrier", () => {
+    const complete = section("\n### 3.5", "\n**No subagent tool");
+    const check = paragraphWith(complete, "once the ledger earns it");
+    expect(check).toContain("`kf next` prints `complete TASK-NNN`");
     expect(check).toContain("no plan-order barrier");
     expect(check).toContain("any order");
+    expect(check).toContain("review clean");
+    expect(check).toContain("parked");
     expect(check).not.toContain("H is complete when");
   });
 });
@@ -394,12 +350,9 @@ describe("binding phrases of the parallel loop", () => {
     expect(reference("developer-brief.md")).toContain("any non-zero exit");
   });
 
-  it("counts a task whose test-writer is in flight as open", () => {
-    expect(implement()).toContain("a task whose test-writer is in flight counts as open");
-  });
 
-  it("gives a freed seat first to a named claimant in the skill", () => {
-    expect(implement()).toContain("a freed seat goes first to");
+  it("keeps the reason freed seats go to fix rounds first", () => {
+    expect(reference("task-loop.md")).toContain("Freed seats go to fix rounds first because finishing a task closes it sooner than starting another");
   });
 
   it("has the controller re-run the handed tests", () => {
@@ -485,14 +438,6 @@ describe("a commit that was made but whose sha could not be read, and the full-s
       .find((l) => l.startsWith("- `[IN_FLIGHT]`"));
     expect(entry, "placeholder entry").toBeDefined();
     expect(entry).toContain("every other seat in flight at dispatch, including the seats dispatched in the same turn");
-  });
-});
-
-describe("same-wave developers follow the dispatch conditions", () => {
-  it("keeps same-wave developers under the dispatch conditions, not a one-developer rule", () => {
-    const wave = paragraphWith(taskLoop(), "wave <w>: parallel test-writers");
-    expect(wave).toMatch(/dispatch conditions/i);
-    expect(wave).not.toMatch(/one-developer rule/i);
   });
 });
 

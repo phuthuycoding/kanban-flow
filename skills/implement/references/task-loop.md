@@ -61,11 +61,12 @@ Ruling: the empty commit list exits 3, not 1 — the requirement calls it bad in
 TASK-001: test hashes src/tests/verify.test.ts=72d245a130481dcd4de1129b37d039ebf1371023 @ 2026-11-01T20:42:30+07:00
 ```
 
-The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes, including the developer cap rulings, the verify rerun note and the `Note wave <w>: no step-up` line of `kf:implement` § The live cap, the stand-in note written right after a stand-in seat's dispatched line, the reopened note of a review repair and the no-subagent line:
+The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes, including the developer cap rulings, the verify rerun note and the `Note wave <w>: no step-up` line of the live cap `kf next` keeps, the stand-in note written right after a stand-in seat's dispatched line, the reopened note of a review repair and the no-subagent line:
 
 ```
 # Task loop ledger — <feature> — plan: <abs path>
 Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...> @ <ts>
+Scan: clean @ <ts>
 Ruling: <decision> — <why> — <cost if wrong> @ <ts>
 TASK-002: no test-writer — <why> @ <ts>
 TASK-001: test hashes <file>=<sha> … @ <ts>
@@ -86,7 +87,12 @@ Note wave <w>: no step-up — <reason> @ <ts>
 Note TASK-NNN: reopened — <testing|review|ci> <first 8 chars of the execution id> @ <ts>
 Note TASK-NNN: verify waits — <file> (TASK-MMM) @ <ts>
 TASK-NNN: implemented, test-writer seat: none, review seat: none @ <ts>
+Note TASK-NNN: commits <a7>,<b7> @ <ts>
+Note TASK-NNN: decided — <what> @ <ts>
+Note TASK-NNN: verify routed — TASK-MMM @ <ts>
 ```
+
+A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads the three last notes: the commits a developer made when its report or a review package does not name them, the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
 
 A `reopened` note cancels the task's earlier `complete` line: wherever the loop asks whether a task is complete, only a `complete` line after its latest `reopened` note counts (`kf:implement` § 3.4). The `implemented` line of a session with no subagent tool counts as the task's `complete` line, on resume too.
 
@@ -98,7 +104,7 @@ When `.works/` is gitignored (the default `kf init` answer), the ledger travels 
 
 ## Parallel developers
 
-`kf:implement` owns the rules: § Order and parallelism, § The live cap, § Contention, § Resume the live cap and § Waiting developers. This section keeps only the reasons.
+`kf next` owns the rules — task order and overlaps, the live cap, contention, resume and the wait lines (`src/workflow/next/`) — and `kf:implement` carries out what it prints. This section keeps only the reasons.
 
 The cap is live because no fixed number fits every project: one probe here had 4 full suites in one worktree pass at about 1.8× the throughput of one, but a suite that shares a database or binds fixed ports breaks at 2, and a light one is held back at 4. It starts low because 2 is the smallest value that still runs anything in parallel, rises additively because one clean wave proves little, and halves on contention because the load that failed will fail again. A contention failure is told from a real one by one re-run, cheaper than a solo run of the whole suite; a real hang that prints `Test timed out` costs one re-run before it reaches the fix loop. Step-ups are decided in wave order, from the ledger alone, so two controllers reach the same N and a resumed one never re-decides against a different N. Freed seats go to fix rounds first because finishing a task closes it sooner than starting another.
 
