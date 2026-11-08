@@ -1467,6 +1467,54 @@ describe("schedule: a UI task under Level full holds the check pass until its sp
     ]);
   });
 
+  // The resume developer's report names its commit, so the commit is known before the commits note is written.
+  const reported = ["aaa0001", "aaa0002"];
+  const reportedInputs = inputsOf([ui], {
+    level: "full",
+    reportCommits: { [T1]: reported },
+    gitLog: reported.map((sha, i) => ({ sha: `${sha}${"0".repeat(33)}`, ts: 1_000 + i })),
+  });
+  const expectReviewedReported = async (events: Fields[]): Promise<void> => {
+    const schedule = await loadSchedule();
+    for (const resume of [false, true]) {
+      const { actions } = schedule(stateOf(events), reportedInputs, { resume });
+      expect(dispatchesOf(actions, T1, "developer")).toEqual([]);
+      expect(verifiesOf(actions, T1)).toHaveLength(1);
+      expect(dispatchesOf(actions, T1, "code-reviewer")).toHaveLength(1);
+      expect(actions.filter((a) => a.kind === "write" && a.line.startsWith(`${T1}: review package`))).toHaveLength(1);
+    }
+  };
+
+  it("reviews the task when the resume developer's DONE came before its commits note and its report names the commit", async () => {
+    await expectReviewedReported([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0002"),
+    ]);
+  });
+
+  it("reviews the task when the resume developer was re-dispatched while its commits note was owed and the report names the commit", async () => {
+    await expectReviewedReported([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      done(T1, "developer"),
+      dispatched(T1, "developer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0002"),
+    ]);
+  });
+
   const expectHeld = async (events: Fields[]): Promise<void> => {
     const schedule = await loadSchedule();
     for (const resume of [false, true]) {

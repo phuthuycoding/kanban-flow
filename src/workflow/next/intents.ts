@@ -1,4 +1,5 @@
 import { developerGated } from "./arbiter.js";
+import { uiSpecs } from "./fold.js";
 import { JUDGEMENTS, closesText } from "./judgements.js";
 import { sameSha } from "./ledger-state.js";
 import { shellQuote } from "./record.js";
@@ -453,11 +454,6 @@ function resumeCommitPending(t: TaskState, world: World): boolean {
   if (step.kind === "running" && step.dispatchLine > p.openedAt) return true;
   const writer = t.seats["automation-writer"].kind;
   return p.cycle === "first" && uiSpecs(t, world) && (writer === "running" || writer === "gated");
-}
-
-function uiSpecs(t: TaskState, world: World): boolean {
-  const plan = planOf(world, t.id);
-  return world.inputs.level === "full" && (plan.testTypes.includes("UI") || plan.testTypes.includes("E2E"));
 }
 
 const checkPassIntent = (i: Intent): boolean =>

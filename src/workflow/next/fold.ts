@@ -116,11 +116,15 @@ function unnamedReportShas(t: TaskState, world: World): string[] {
 }
 
 /** A UI task under Level full: its automation-writer's specs are committed by a resumed developer. */
-function uiSpecs(t: TaskState, world: World): boolean {
+export function uiSpecs(t: TaskState, world: World): boolean {
   const plan = planTask(world, t.id);
   const ui = plan !== undefined && (plan.testTypes.includes("UI") || plan.testTypes.includes("E2E"));
   return ui && world.inputs.level === "full";
 }
+
+/** The implementer step is the resume-commit developer's: running, done with no commit, or owing its commits note. */
+const resumed = (step: ImplementerStep): boolean =>
+  (step.kind === "running" || step.kind === "commitMissing" || step.kind === "commitNoteOwed") && step.resume === true;
 
 function owesSpecs(t: TaskState, world: World): boolean {
   return uiSpecs(t, world) && t.seats["automation-writer"].kind === "idle";
@@ -131,8 +135,7 @@ function owesSpecs(t: TaskState, world: World): boolean {
  * developer, unless this done is that developer's.
  */
 function specsAhead(t: TaskState, c: Cycle, world: World): boolean {
-  const resumed = (c.implementer.kind === "running" || c.implementer.kind === "commitMissing") && c.implementer.resume === true;
-  return uiSpecs(t, world) && c.cycle === "first" && !resumed && t.seats["automation-writer"].kind === "reported";
+  return uiSpecs(t, world) && c.cycle === "first" && !resumed(c.implementer) && t.seats["automation-writer"].kind === "reported";
 }
 
 /** The implementer after a developer DONE (or a gate that goes on as DONE), with what the ledger records now. */
@@ -146,11 +149,13 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
     phase: { ...c, implementer },
   });
   if (resumePurpose(t, c, dispatchLine)) return to({ kind: "committed" });
+  const prior = c.implementer;
+  const specsAfter = (prior.kind === "commitNoteOwed" || prior.kind === "commitMissing") && prior.specsAfter === true;
+  const flags = { ...(resumed(prior) ? { resume: true as const } : {}), ...(specsAfter ? { specsAfter: true as const } : {}) };
   const unnamed = unnamedReportShas(t, world);
-  if (unnamed.length > 0) return to({ kind: "commitNoteOwed", shas: unnamed });
+  if (unnamed.length > 0) return to({ kind: "commitNoteOwed", shas: unnamed, ...flags });
   if (c.sinceCommit === null || c.sinceCommit < dispatchLine) {
-    const resume = (c.implementer.kind === "running" || c.implementer.kind === "commitMissing") && c.implementer.resume === true;
-    const missing: ImplementerStep = { kind: "commitMissing", dispatchLine, ...(resume ? { resume: true as const } : {}) };
+    const missing: ImplementerStep = { kind: "commitMissing", dispatchLine, ...flags };
     return to(missing, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
   }
   if (owesSpecs(t, world)) return to({ kind: "specsOwed" });
@@ -178,6 +183,11 @@ function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: st
     return withImplementer(next, seat === "test-writer" ? { kind: "roundHashOwed" } : { kind: "resumeCommitOwed", round: phase.round });
   }
   if (step.kind === "specsRunning" && seat === "automation-writer") return withImplementer(next, { kind: "resumeCommitOwed" });
+  // Specs reported while the first cycle's done still owes its commit or commits note: the next developer is the resume.
+  const owing = step.kind === "commitNoteOwed" || step.kind === "commitMissing";
+  if (owing && phase.cycle === "first" && seat === "automation-writer" && uiSpecs(t, world)) {
+    return withImplementer(next, { ...step, specsAfter: true });
+  }
   const slot = t.seats[seat];
   // Specs reported (or a gate accepted) after the first cycle's implementer committed: the resume-commit developer's.
   if (step.kind === "committed" && phase.cycle === "first" && seat === "automation-writer" && uiSpecs(t, world)) {
@@ -242,8 +252,10 @@ function dispatchInCycle(t: TaskState, c: Cycle, e: Dispatched, slot: Running): 
   }
   if (e.seat === "developer") {
     // Any developer dispatched after the owed resume-commit, re-dispatches included, is that resume (legacy seats.ts:276-277).
+    // So is one dispatched after specs reported while the first developer's done still owed its commit or commits note.
     const step = c.implementer;
-    const resume = step.kind === "resumeCommitOwed" || ((step.kind === "running" || step.kind === "commitMissing") && step.resume === true);
+    const afterSpecs = (step.kind === "commitNoteOwed" || step.kind === "commitMissing") && step.specsAfter === true;
+    const resume = step.kind === "resumeCommitOwed" || resumed(step) || afterSpecs;
     return withImplementer(t, resume ? { ...running, resume: true } : running);
   }
   if (e.seat === "automation-writer" && round === undefined && c.implementer.kind === "specsOwed") {

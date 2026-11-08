@@ -165,7 +165,8 @@ function endsFixRound(d: Difference, w: Action): boolean {
   );
   if (printsEnd) return true;
   const heldBehindVerify =
-    (d.next.inFlight.some((f) => f.task === w.task && f.seat === "verify") || d.next.actions.some((a) => a.kind === "verify" && a.task === w.task)) &&
+    (d.next.inFlight.some((f) => f.task === w.task && f.seat === "verify") ||
+      (d.resume && d.next.actions.some((a) => a.kind === "verify" && a.task === w.task))) &&
     !d.next.actions.some((a) => a.kind === "complete" && a.task === w.task);
   const printedBesideComplete = d.laterNext(w.task, round).some(
     (r) => r.actions.some((a) => a.kind === "write" && a.line === w.line) && r.actions.some((a) => a.kind === "complete" && a.task === w.task),
