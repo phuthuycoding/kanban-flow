@@ -196,3 +196,19 @@ export function taskCommits(state: LedgerState, task: string, reportCommits: str
   };
   return shas.map((sha, i) => ({ sha, i, r: rank(sha) })).sort((a, b) => (a.r === b.r ? a.i - b.i : a.r < b.r ? -1 : 1)).map((x) => x.sha);
 }
+
+/** Two spellings of one commit: either is a prefix of the other. */
+export const sameSha = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
+
+/**
+ * FR-012: `shas` split by the branch's git log, duplicates dropped. `kept` are the ones the log has, in history order;
+ * `dropped` the rest, in their given order. An empty log keeps every sha (a git-less fixture), in its given order.
+ */
+export function matchGitLog(shas: string[], gitLog: { sha: string; ts: number }[]): { kept: string[]; dropped: string[] } {
+  const unique: string[] = [];
+  for (const sha of shas) if (!unique.some((u) => sameSha(u, sha))) unique.push(sha);
+  if (gitLog.length === 0) return { kept: unique, dropped: [] };
+  const rank = (sha: string): number => gitLog.findIndex((g) => sameSha(g.sha, sha));
+  const kept = unique.filter((sha) => rank(sha) !== -1).sort((a, b) => rank(a) - rank(b));
+  return { kept, dropped: unique.filter((sha) => rank(sha) === -1) };
+}
