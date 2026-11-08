@@ -120,7 +120,7 @@ function seatStatus(events: LedgerEvent[], task: string, gates: Gate[]): Action[
 }
 
 const datedAfter = (inputs: LoopInputs, sha: string, ts: number): boolean =>
-  inputs.gitLog.some((g) => sameSha(g.sha, sha) && g.ts > ts);
+  inputs.gitLog.some((g) => sameSha(g.sha, sha) && g.ts >= ts);
 
 /**
  * The task a `verify waits` note at `w` names has committed since the note: a later commits note, or a later
@@ -333,8 +333,8 @@ function fixCommits(state: LedgerState, inputs: LoopInputs, h: string): FixCommi
     e.type === "dispatched" && e.task === h && e.seat === "developer" && e.round !== undefined && e.round >= 1;
   const found: FixCommit[] = [];
   events.forEach((d, i) => {
-    if (!isRoundDev(d)) return;
-    const next = events.findIndex((e, j) => j > i && isRoundDev(e));
+    if (!isRoundDev(d) || events.some((e, j) => j < i && isRoundDev(e) && e.round === d.round)) return;
+    const next = events.findIndex((e, j) => j > i && isRoundDev(e) && e.round! > d.round!);
     const inRound = (j: number): boolean => j > i && (next === -1 || j < next);
     const doneAt = events.findIndex((e, j) => inRound(j) && e.type === "done" && e.task === h && e.seat === "developer");
     const notes = events.flatMap((e, j) => (e.type === "commits" && e.task === h && inRound(j) ? [j] : []));

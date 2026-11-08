@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -212,6 +212,21 @@ describe("routing a failure another task explains", () => {
     const actions = routingActions(state, plan, cap());
     expect(of(actions, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
     expect(verifies(actions, T1)).toEqual([]);
+  });
+
+  // Ledger and git stamps have one-second resolution; the developer done after the note already orders the commit.
+  it("names an at-head verify for a reported commit dated in the same second as the note", () => {
+    const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"));
+    const plan = inputs([task(T1), task(T2)], {
+      ...failLog(T1, 7),
+      reportCommits: { [T2]: ["e4f5a6b"] },
+      gitLog: [{ sha: SHA, ts: at(2) }, { sha: "e4f5a6b", ts: at(10) }],
+    });
+    const actions = routingActions(state, plan, cap());
+    expect(verifies(actions, T1)).toEqual([
+      expect.objectContaining({ kind: "verify", task: T1, command: `kf verify ${FEATURE} --task ${T1} --commits ${SHA} --at-head` }),
+    ]);
+    expect(of(actions, T1).filter((a) => a.kind === "wait")).toEqual([]);
   });
 
   it("moves a routed failure's fix round to the named task", () => {
@@ -550,6 +565,30 @@ describe("cascade re-reviews", () => {
     expect(cascadeActions(actions, X)).toEqual([]);
   });
 
+  // A round test-writer between them makes the same round dispatch its developer twice; the round's commits
+  // span both dispatches, and the review package after the second is often their only source.
+  it("owes the re-review for a commit made before the round developer is dispatched again in the same round", () => {
+    const LATER = "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3";
+    const LATER7 = LATER.slice(0, 7);
+    const events: Stamped[] = [
+      ...roundWithoutNote(),
+      dispatched(8, H, "test-writer", { round: 1 }),
+      done(9, H, "test-writer", "DONE"),
+      [9, { type: "testHashes", task: H, files: { "src/tests/x.test.ts": "0123456789abcdef0123456789abcdef01234567" } }],
+      dispatched(9, H, "developer", { round: 1 }),
+      done(10, H, "developer", "DONE"),
+      [10, { type: "reviewPackage", task: H, shas: [SHA, FIX7, LATER7] }],
+      dispatched(10, H, "code-reviewer", { round: 1 }),
+    ];
+    const log = [...datedLog, { sha: LATER, ts: at(9.5) }];
+    const actions = routingActions(ledger(...events), inputs(plan(), { gitLog: log }), cap());
+    expect(writes(actions)).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7), record: `kf record ${FEATURE} cascade-owed ${X} ${FIX7} ${H}` }),
+    );
+    expect(writes(actions)).toContainEqual(expect.objectContaining({ kind: "write", task: X, line: owedLine(LATER7) }));
+    expect(writes(actions).filter((w) => w.line === owedLine(SHA))).toEqual([]);
+  });
+
   // Ledger stamps have one-second resolution: file order, not the stamp, says which came first.
   it("orders a dispatch and a landing with the same stamp by their place in the ledger", () => {
     const head: Stamped[] = [...built(H), done(5, H, "code-reviewer", "findings"), dispatched(6, H, "developer", { round: 1 })];
@@ -786,10 +825,18 @@ describe("printed record commands survive a shell", () => {
    * The arguments bash hands to `kf` when it runs the printed command, `kf` stubbed to echo them.
    * Runs in a scratch directory: an unquoted `<` or `>` in the text would otherwise redirect in the worktree.
    */
-  const shellArgs = (record: string): string[] =>
-    execFileSync("bash", ["-c", `kf() { printf '%s\\0' "$@"; }; ${record}`], { encoding: "utf8", cwd: mkdtempSync(join(tmpdir(), "kf-record-")) })
-      .split("\0")
-      .slice(0, -1);
+  const scratchDirs: string[] = [];
+  const shellArgs = (record: string): string[] => {
+    const cwd = mkdtempSync(join(tmpdir(), "kf-record-"));
+    scratchDirs.push(cwd);
+    try {
+      return execFileSync("bash", ["-c", `kf() { printf '%s\\0' "$@"; }; ${record}`], { encoding: "utf8", cwd })
+        .split("\0")
+        .slice(0, -1);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  };
   const writeOf = (actions: Action[], prefix: string) => {
     const found = writes(actions).find((w) => w.line.startsWith(prefix));
     expect(found).toBeDefined();
@@ -813,5 +860,14 @@ describe("printed record commands survive a shell", () => {
     const prefix = `${T1}: fix round 1/5 (`;
     const write = writeOf(routingActions(ledger(...events), inputs([task(T1)]), cap()), prefix);
     expect(shellArgs(write.record)).toEqual(["record", FEATURE, "fix-round", T1, "1", "--", write.line.slice(prefix.length, -1)]);
+  });
+
+  it("removes the scratch directory each round-trip runs in", () => {
+    const events: Stamped[] = [...built(), done(5, T1, "code-reviewer", "findings"), dispatched(6, T1, "test-writer", { round: 1 }), done(7, T1, "test-writer", "DONE")];
+    const write = writeOf(routingActions(ledger(...events), inputs([task(T1)]), cap()), `${T1}: test hashes`);
+    const before = scratchDirs.length;
+    shellArgs(write.record);
+    expect(scratchDirs).toHaveLength(before + 1);
+    expect(existsSync(scratchDirs[before])).toBe(false);
   });
 });
