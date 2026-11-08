@@ -431,6 +431,82 @@ describe("schedule: a reopened task at its round cap", () => {
     expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
     expect(completedIn(actions)).not.toContain("TASK-001");
   });
+
+  describe("a minimal fix whose verify exits 1 and is then re-run", () => {
+    const rerunNote = (task: string, signature: string): Fields => ({ type: "verifyRerun", task, signature });
+    /** The minimal fix is committed, its verify exits 1, and the review is clean. */
+    const failedFix = (): Fields[] =>
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        verifyDone("TASK-001", 1),
+        done("TASK-001", "code-reviewer", "clean"),
+      );
+    /** The same failure with the review finished first, so the plain re-run starts right after the exit 1. */
+    const failedFixReviewedFirst = (): Fields[] =>
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        done("TASK-001", "code-reviewer", "clean"),
+        verifyDone("TASK-001", 1),
+      );
+    const fixStartTs = (state: LedgerState): number =>
+      state.events.filter((e) => e.type === "verifyStarted" && e.task === "TASK-001").at(-1)!.ts;
+    const withLog = (state: LedgerState, text: string): LoopInputs =>
+      inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })], {
+        verifyRuns: { "TASK-001": [{ ts: fixStartTs(state) + 30_000, exit: 1, text }] },
+      });
+    const contention = "Error: listen EADDRINUSE: address already in use :::3000";
+
+    it("keeps the stop lifted for a contention-shaped exit 1 before its rerun note is written", async () => {
+      const schedule = await loadSchedule();
+      const state = stateOf(failedFix());
+
+      const { actions } = schedule(state, withLog(state, contention), { resume: false });
+
+      expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+      expect(actions).toContainEqual(
+        expect.objectContaining({ kind: "write", task: "TASK-001", line: "Note TASK-001: verify rerun — contention EADDRINUSE" }),
+      );
+    });
+
+    it("keeps the stop lifted for a contention-shaped exit 1 once its rerun note is written", async () => {
+      const schedule = await loadSchedule();
+      const state = stateOf([...failedFix(), rerunNote("TASK-001", "EADDRINUSE")]);
+
+      const { actions } = schedule(state, withLog(state, contention), { resume: false });
+
+      expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    });
+
+    it("keeps the stop lifted once the contention rerun has started", async () => {
+      const schedule = await loadSchedule();
+      const state = stateOf([...failedFix(), rerunNote("TASK-001", "EADDRINUSE"), verifyStarted("TASK-001")]);
+
+      const { actions } = schedule(state, withLog(state, contention), { resume: false });
+
+      expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    });
+
+    it("keeps the stop lifted for a plain exit 1 with no log once its re-run starts", async () => {
+      const schedule = await loadSchedule();
+      const state = stateOf([...failedFixReviewedFirst(), verifyStarted("TASK-001")]);
+
+      const { actions } = schedule(state, plan(), { resume: false });
+
+      expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    });
+
+    it("completes the task when the plain re-run passes", async () => {
+      const schedule = await loadSchedule();
+      const state = stateOf([...failedFixReviewedFirst(), verifyStarted("TASK-001"), verifyDone("TASK-001", 0)]);
+
+      const { actions } = schedule(state, plan(), { resume: false });
+
+      expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+      expect(completedIn(actions)).toContain("TASK-001");
+    });
+  });
 });
 
 describe("schedule: a dependent task owed a cascade re-review", () => {
@@ -488,6 +564,20 @@ describe("schedule: a dependent task owed a cascade re-review", () => {
   it("completes a task whose own review and cascade re-review are both clean", async () => {
     const schedule = await loadSchedule();
     const state = stateOf([...fixedUnderneath(), ...cascadeReview("clean")]);
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(completedIn(actions)).toContain(X);
+  });
+
+  it("completes a task whose cascade re-review ended with findings once a later own re-review is clean", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      ...fixedUnderneath(),
+      ...cascadeReview("findings"),
+      dispatched(X, "code-reviewer"),
+      done(X, "code-reviewer", "clean"),
+    ]);
 
     const { actions } = schedule(state, plan(), { resume: false });
 
