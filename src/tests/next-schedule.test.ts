@@ -389,6 +389,123 @@ describe("schedule: a reopened task at its round cap", () => {
     expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
     expect(completedIn(actions)).toContain("TASK-001");
   });
+
+  // One minimal fix per task: a second failure after it is the human's again, never a silent task.
+  it("brings the cap stop back when the minimal fix's review returns findings", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        verifyDone("TASK-001", 0),
+        done("TASK-001", "code-reviewer", "findings"),
+      ),
+    );
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+    expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
+    expect(completedIn(actions)).not.toContain("TASK-001");
+  });
+
+  it("brings the cap stop back when the minimal fix's verify fails with a kept exit 1", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        verifyDone("TASK-001", 1),
+        done("TASK-001", "code-reviewer", "clean"),
+      ),
+    );
+    const fixStart = state.events.filter((e) => e.type === "verifyStarted" && e.task === "TASK-001").at(-1)!;
+    // A logged failure with no contention signature: the task's own failure, kept rather than held for a re-run.
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })], {
+      verifyRuns: { "TASK-001": [{ ts: fixStart.ts + 30_000, exit: 1, text: "FAIL src/tests/task-001.test.ts\nAssertionError: expected 2 to be 3" }] },
+    });
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+    expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
+    expect(completedIn(actions)).not.toContain("TASK-001");
+  });
+});
+
+describe("schedule: a dependent task owed a cascade re-review", () => {
+  const H = "TASK-001";
+  const X = "TASK-002";
+  const FIX = "bbb0001";
+  const plan = (): LoopInputs => inputsOf([task(H), task(X, { dependencies: [H], wave: 2 })]);
+
+  /** H complete, X built, then H reopened and fixed in round 1 and complete again; X's own review is clean. */
+  const fixedUnderneath = (): Fields[] => [
+    scan,
+    capStart(2),
+    ...testsReady(H),
+    ...committedAndUnderReview(H, "aaa0001"),
+    verifyDone(H, 0),
+    done(H, "code-reviewer", "clean"),
+    complete(H, "commits aaa0001, review clean"),
+    noStepUp(1, "inline"),
+    ...testsReady(X),
+    dispatched(X, "developer"),
+    done(X, "developer"),
+    commits(X, "ccc0002"),
+    reviewPackage(X, "ccc0002"),
+    verifyStarted(X),
+    verifyDone(X, 0),
+    reopened(H),
+    dispatched(H, "developer", { round: 1 }),
+    done(H, "developer"),
+    commits(H, FIX),
+    reviewPackage(H, FIX),
+    verifyStarted(H),
+    dispatched(H, "code-reviewer", { round: 1 }),
+    verifyDone(H, 0),
+    done(H, "code-reviewer", "clean"),
+    fixRound(H, 1),
+    complete(H, `commits aaa0001,${FIX}, review clean`),
+    dispatched(X, "code-reviewer"),
+    done(X, "code-reviewer", "clean"),
+  ];
+  const cascadeReview = (status: string): Fields[] => [
+    { type: "cascadeOwed", task: X, sha: FIX, otherTask: H },
+    { type: "dispatched", task: X, seat: "code-reviewer", model: "sonnet", round: 1, cascade: FIX },
+    done(X, "code-reviewer", status),
+  ];
+
+  it("does not complete a task whose own review is clean while its cascade re-review ended with findings", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([...fixedUnderneath(), ...cascadeReview("findings")]);
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(completedIn(actions)).not.toContain(X);
+  });
+
+  it("completes a task whose own review and cascade re-review are both clean", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([...fixedUnderneath(), ...cascadeReview("clean")]);
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(completedIn(actions)).toContain(X);
+  });
+
+  // Recorded together, a complete line would close the task before the owed re-review is ever named.
+  it("does not complete a task in the same call that owes its cascade re-review line", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(fixedUnderneath());
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(actions).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: `${X}: cascade re-review owed — after ${FIX} of ${H}` }),
+    );
+    expect(completedIn(actions)).not.toContain(X);
+  });
 });
 
 // ---------------------------------------------------------------------------

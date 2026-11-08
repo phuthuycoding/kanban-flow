@@ -3,7 +3,7 @@ import { completedTaskIds, openSeats, openVerifies, taskCommits } from "./ledger
 import { shellQuote } from "./record.js";
 import { routingActions } from "./routing.js";
 import { seatActions } from "./seats.js";
-import type { Action, HeldRerun, InFlight, LedgerEvent, LedgerState, LoopInputs, LoopTask, NextResult, Seat } from "./types.js";
+import type { Action, Cap, HeldRerun, InFlight, LedgerEvent, LedgerState, LoopInputs, LoopTask, NextResult, Seat } from "./types.js";
 
 // FR-001, FR-003, FR-007, FR-011, FR-012, FR-013: `schedule()` arbitrates the rule modules into the actions due now,
 // as `kf:implement` lays out Resume from the ledger, § 3.5, Order and parallelism, Contention and Controller work
@@ -62,11 +62,37 @@ function breakerClosed(own: LedgerEvent[]): boolean {
   return parkedAt !== -1 && own.some((e, i) => i > parkedAt && e.type === "decided");
 }
 
-/** A `decided — minimal fix past the cap:` note after the task's latest `cap reached` note. */
-function minimalFixDecided(events: LedgerEvent[], task: string): boolean {
+/** The index of the latest `decided — minimal fix past the cap:` note after the task's latest `cap reached` note, or -1. */
+function minimalFixDecidedAt(events: LedgerEvent[], task: string): number {
   const capAt = events.map((e) => e.type === "capReached" && e.task === task).lastIndexOf(true);
-  if (capAt === -1) return false;
-  return events.some((e, i) => i > capAt && e.type === "decided" && e.task === task && e.what.startsWith("minimal fix past the cap:"));
+  if (capAt === -1) return -1;
+  const at = events.map((e) => e.type === "decided" && e.task === task && e.what.startsWith("minimal fix past the cap:")).lastIndexOf(true);
+  return at > capAt ? at : -1;
+}
+
+/**
+ * The minimal fix decided at `decidedAt` failed: a code-reviewer `findings` or a kept verify exit 1 of the task follows it.
+ * An exit 1 is not kept when a rerun, waits or routed note answers it before the task's next verify start, when that
+ * start follows it with no line of the task between (the plain re-run), or, as the latest, while the cap holds its re-run.
+ */
+function minimalFixFailed(events: LedgerEvent[], cap: Cap, task: string, decidedAt: number): boolean {
+  const after = events.slice(decidedAt + 1).filter((e) => taskOf(e) === task);
+  if (after.some((e) => e.type === "done" && e.seat === "code-reviewer" && e.status === "findings")) return true;
+  const heldNow =
+    cap.contention.held.some((h) => h.task === task) ||
+    cap.contention.running === task ||
+    cap.owed.some((a) => a.kind === "write" && (a.line.includes(`${task} verify`) || a.line.includes(`Note ${task}: verify rerun`)));
+  return after.some((e, i) => {
+    if (e.type !== "verifyDone" || e.exit !== 1) return false;
+    const rest = after.slice(i + 1);
+    const nextStart = rest.findIndex((x) => x.type === "verifyStarted");
+    if (nextStart === 0) return false;
+    const answered = (nextStart === -1 ? rest : rest.slice(0, nextStart)).some(
+      (x) => x.type === "verifyRerun" || x.type === "verifyWaits" || x.type === "verifyRouted",
+    );
+    if (answered) return false;
+    return nextStart !== -1 || !heldNow;
+  });
 }
 
 /** FR-011: the task's `complete` line is due now. */
@@ -101,22 +127,24 @@ function completionDue(state: LedgerState, inputs: LoopInputs, t: LoopTask, comp
     if (!passed && !(verify.exit === 1 && parkedAtCap)) return false;
   }
 
-  const reviews = own.filter((e): e is Done => {
-    if (e.type !== "done" || e.seat !== "code-reviewer") return false;
-    const answered = own.filter((d): d is Dispatched => d.type === "dispatched" && d.seat === "code-reviewer" && d.line < e.line).at(-1);
-    return answered?.cascade === undefined;
-  });
+  const answeredBy = (e: Done): Dispatched | undefined =>
+    own.filter((d): d is Dispatched => d.type === "dispatched" && d.seat === "code-reviewer" && d.line < e.line).at(-1);
+  const reviewerDones = own.filter((e): e is Done => e.type === "done" && e.seat === "code-reviewer");
+  const reviews = reviewerDones.filter((e) => answeredBy(e)?.cascade === undefined);
   const review = reviews.at(-1);
   if (review === undefined) return false;
   if (review.status !== "clean" && !parkedAtCap) return false;
 
   for (const owed of own) {
     if (owed.type !== "cascadeOwed") continue;
-    const answer = own.find(
-      (e): e is Dispatched => e.type === "dispatched" && e.seat === "code-reviewer" && e.cascade !== undefined && sameSha(e.cascade, owed.sha),
-    );
+    const answer = own
+      .filter((e): e is Dispatched => e.type === "dispatched" && e.seat === "code-reviewer" && e.cascade !== undefined && sameSha(e.cascade, owed.sha))
+      .at(-1);
     if (answer === undefined) return false;
-    if (!own.some((e) => e.type === "done" && e.seat === "code-reviewer" && e.line > answer.line)) return false;
+    const answerDone = reviewerDones.find((e) => answeredBy(e) === answer);
+    if (answerDone === undefined) return false;
+    // A cascade re-review with findings is a fix round: only a later own re-review that ends clean closes it.
+    if (answerDone.status !== "clean" && !reviews.some((e) => e.line > answerDone.line && e.status === "clean")) return false;
   }
   return true;
 }
@@ -261,12 +289,25 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
     ...completes,
   ];
 
+  // A task owed a cascade re-review line or dispatch in this call is not complete: recorded together, the owed review is never named.
+  const cascadeDue = new Set<string>();
+  for (const a of actions) {
+    if (a.kind === "dispatch" && a.cascade !== undefined) cascadeDue.add(a.task);
+    if (a.kind === "write" && a.task !== undefined && a.line.startsWith(`${a.task}: cascade re-review owed`)) cascadeDue.add(a.task);
+  }
+  actions = actions.filter((a) => !(a.kind === "complete" && cascadeDue.has(a.task)));
+
   // A resumed seat is not dispatched a second time by a rule module.
   const resumedKey = new Set(resumed.map((d) => `${d.task} ${d.seat}`));
   actions = actions.filter((a) => !(a.kind === "dispatch" && !resumed.includes(a) && resumedKey.has(`${a.task} ${a.seat}`)));
 
-  // A cap stop is lifted once the human's minimal fix past the cap is decided after the task's latest `cap reached`.
-  actions = actions.filter((a) => !(a.kind === "stop" && a.task !== undefined && a.reason.includes("five-round cap after a reopen") && minimalFixDecided(events, a.task)));
+  // A cap stop is lifted once the session's minimal fix past the cap is decided after the task's latest `cap reached`,
+  // and comes back once that fix fails: one minimal fix per task, a second failure is the human's.
+  actions = actions.filter((a) => {
+    if (a.kind !== "stop" || a.task === undefined || !a.reason.includes("five-round cap after a reopen")) return true;
+    const decidedAt = minimalFixDecidedAt(events, a.task);
+    return decidedAt === -1 || minimalFixFailed(events, cap, a.task, decidedAt);
+  });
 
   // Holds: a stop holds every dispatch; a task-less decide every dispatch; a task decide its own task's later actions.
   const stops = actions.some((a) => a.kind === "stop");
