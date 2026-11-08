@@ -124,6 +124,33 @@ describe("a task before and around its test-writer", () => {
     expect(t.judgements).toEqual([]);
   });
 
+  it.each([["decided note", decided(TASK)], ["Ruling", ruling(TASK)]] as const)(
+    "records the dispatch line as the answered line when a %s closes a test-writer's concerns",
+    (_name, decision) => {
+      const t = taskOf(fold([tw(TASK), done(TASK, "test-writer", "DONE_WITH_CONCERNS"), decision]));
+      expect(t.seats["test-writer"]).toEqual({ kind: "reported", status: "DONE_WITH_CONCERNS", answers: lineOf(0) });
+    },
+  );
+
+  it.each([
+    ["decided note", "NEEDS_CONTEXT", decided(TASK)],
+    ["Ruling", "NEEDS_CONTEXT", ruling(TASK)],
+    ["decided note", "BLOCKED", decided(TASK)],
+    ["Ruling", "BLOCKED", ruling(TASK)],
+    ["decided note", "FAILED", decided(TASK)],
+    ["Ruling", "FAILED", ruling(TASK)],
+  ] as const)("owes a test-writer redispatch, never the hashes, when a %s closes a test-writer that ended %s", (_name, status, decision) => {
+    const t = taskOf(fold([tw(TASK), done(TASK, "test-writer", status), decision]));
+    expect(t.judgements).toEqual([]);
+    expect(t.phase).toMatchObject({ kind: "tests", hashOwed: false });
+    expect(t.seats["test-writer"]).toEqual({ kind: "idle" });
+  });
+
+  it("does not take the hashes of a test-writer closed by a decision after it ended NEEDS_CONTEXT", () => {
+    const t = taskOf(fold([tw(TASK), done(TASK, "test-writer", "NEEDS_CONTEXT"), decided(TASK), hashes(TASK)]));
+    expect(t.phase).toMatchObject({ kind: "tests", hashOwed: false });
+  });
+
   it("runs the test-writer again when it is re-dispatched after a gate", () => {
     const t = taskOf(fold([tw(TASK), done(TASK, "test-writer", "NEEDS_CONTEXT"), tw(TASK)]));
     expect(t.seats["test-writer"]).toMatchObject({ kind: "running", line: lineOf(2) });
@@ -298,6 +325,19 @@ describe("a developer seat closed by a decision", () => {
   });
 });
 
+describe("an automation-writer seat closed by a decision", () => {
+  const uiTask = task(TASK, { testTypes: ["Unit", "UI"] });
+  const toSpecs: Spec[] = [...toDeveloper, dev(TASK), done(TASK, "developer", "DONE"), commits(TASK, "aaaaaaa"), { type: "dispatched", task: TASK, seat: "automation-writer", model: "sonnet" }];
+
+  it.each([["decided note", decided(TASK)], ["Ruling", ruling(TASK)]] as const)(
+    "records the dispatch line as the answered line when a %s closes its concerns",
+    (_name, decision) => {
+      const t = taskOf(fold([...toSpecs, done(TASK, "automation-writer", "DONE_WITH_CONCERNS"), decision], { tasks: [uiTask], level: "full" }));
+      expect(t.seats["automation-writer"]).toEqual({ kind: "reported", status: "DONE_WITH_CONCERNS", answers: lineOf(4) });
+    },
+  );
+});
+
 describe("a fix round's developer", () => {
   const firstPass: Spec[] = [...toDeveloper, dev(TASK), done(TASK, "developer", "DONE"), commits(TASK, "aaaaaaa")];
 
@@ -317,6 +357,16 @@ describe("a fix round's developer", () => {
 describe("completion and reopening", () => {
   it("is complete on a complete line", () => {
     expect(taskOf(fold([...toDeveloper, { type: "complete", task: TASK, text: "ok" }])).phase).toEqual({ kind: "complete", how: "complete" });
+  });
+
+  it("stays how complete when the complete note says not superseded", () => {
+    const t = taskOf(fold([...toDeveloper, { type: "complete", task: TASK, text: "complete (not superseded — the cascade is still live)" }]));
+    expect(t.phase).toEqual({ kind: "complete", how: "complete" });
+  });
+
+  it("is how superseded only on a complete note that says superseded by", () => {
+    const t = taskOf(fold([...toDeveloper, { type: "complete", task: TASK, text: "complete (superseded by TASK-002)" }]));
+    expect(t.phase).toEqual({ kind: "complete", how: "superseded" });
   });
 
   it("is complete on an implemented line", () => {

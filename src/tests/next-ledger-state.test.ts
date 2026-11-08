@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { completedTaskIds, openSeats, openVerifies, readLedgerState, taskCommits } from "../workflow/next/ledger-state.js";
+import { completedTaskIds, matchGitLog, openSeats, openVerifies, readLedgerState, sameSha, taskCommits } from "../workflow/next/ledger-state.js";
 import type { LedgerEvent, LedgerState } from "../workflow/next/types.js";
 
 const HEADER = "# Task loop ledger — test";
@@ -337,5 +337,47 @@ describe("readLedgerState refusal of implemented and review package lines", () =
     expect(repair).toHaveLength(1);
     expect(repair[0].line).toBe(4);
     expect(repair[0].text).toBe(text);
+  });
+});
+
+describe("sameSha", () => {
+  it("never matches when a side is shorter than seven characters", () => {
+    expect(sameSha("aaaaaa", "a".repeat(40))).toBe(false);
+    expect(sameSha("a".repeat(40), "aaaaaa")).toBe(false);
+    expect(sameSha("", "a".repeat(40))).toBe(false);
+    expect(sameSha("a".repeat(40), "")).toBe(false);
+    expect(sameSha("", "")).toBe(false);
+  });
+
+  it("matches a seven-character prefix against the full sha it starts, and two equal prefixes", () => {
+    expect(sameSha("aaaaaaa", "a".repeat(40))).toBe(true);
+    expect(sameSha("a".repeat(40), "aaaaaaa")).toBe(true);
+    expect(sameSha("aaaaaaa", "aaaaaaa")).toBe(true);
+  });
+
+  it("matches a seven-character prefix of a full sha by prefix only, so a differing prefix does not match", () => {
+    const full = "abcdef1" + "0".repeat(33);
+    expect(sameSha("abcdef1", full)).toBe(true);
+    expect(sameSha("abcdef2", full)).toBe(false);
+  });
+
+  it("does not match two full shas that differ after a shared seven-character prefix", () => {
+    expect(sameSha("abcdef1" + "0".repeat(33), "abcdef1" + "9".repeat(33))).toBe(false);
+  });
+});
+
+describe("matchGitLog", () => {
+  const log = [{ sha: "a".repeat(40), ts: 1 }, { sha: "b".repeat(40), ts: 2 }];
+
+  it("drops a sha the non-empty git log does not have and keeps the ones it has", () => {
+    expect(matchGitLog(["bbbbbbb", "ccccccc", "aaaaaaa"], log)).toEqual({ kept: ["aaaaaaa", "bbbbbbb"], dropped: ["ccccccc"] });
+  });
+
+  it("drops a sha shorter than seven characters even when it starts a logged sha", () => {
+    expect(matchGitLog(["aaaaaa"], log)).toEqual({ kept: [], dropped: ["aaaaaa"] });
+  });
+
+  it("keeps every sha when the git log is empty", () => {
+    expect(matchGitLog(["ccccccc", "ddddddd"], [])).toEqual({ kept: ["ccccccc", "ddddddd"], dropped: [] });
   });
 });

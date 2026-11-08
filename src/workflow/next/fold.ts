@@ -161,11 +161,50 @@ function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: st
   return next;
 }
 
-/** A gate closed by a decided note or a Ruling goes on as DONE (FR-014). */
+// The dispatch line each gated done answers, keyed by the done line. The gated slot keeps only its done line and
+// types.ts is frozen, so the line is kept here, per World (one per fold run), as atcap.ts keeps its fix runs.
+const GATED_DISPATCH = new WeakMap<World, Map<string, number>>();
+
+const gateKey = (task: string, seat: Seat, doneLine: number): string => `${task}:${seat}@${doneLine}`;
+
+function recordGatedDispatch(world: World, task: string, seat: Seat, doneLine: number, dispatchLine: number): void {
+  let lines = GATED_DISPATCH.get(world);
+  if (!lines) {
+    lines = new Map();
+    GATED_DISPATCH.set(world, lines);
+  }
+  lines.set(gateKey(task, seat, doneLine), dispatchLine);
+}
+
+function gatedDispatch(world: World, j: Extract<Judgement, { kind: "seatStatus" }>): number {
+  const line = GATED_DISPATCH.get(world)?.get(gateKey(j.task, j.seat, j.doneLine));
+  if (line === undefined) throw new Error(`${j.task}: no dispatch recorded for the ${j.seat} done at line ${j.doneLine}`);
+  return line;
+}
+
+/** A writer whose gate a decision closed without its work: the seat is owed again, never its hashes or commit. */
+function writerOwed(t: TaskState, seat: "test-writer" | "automation-writer"): TaskState {
+  const idle: SeatSlot = { kind: "idle" };
+  const next = withSeat(t, seat, idle);
+  const phase = next.phase;
+  if (phase.kind === "tests" && seat === "test-writer") return withPhase(next, { kind: "tests", writer: idle, hashOwed: false });
+  if (phase.kind === "cycle" && phase.implementer.kind === "specsRunning" && seat === "automation-writer") {
+    return withImplementer(next, { kind: "specsOwed" });
+  }
+  return next;
+}
+
+/**
+ * A gate closed by a decided note or a Ruling goes on as DONE (FR-014), answering the seat's dispatch. A writer goes on
+ * as DONE only from DONE_WITH_CONCERNS; any other status leaves it with no work to hash or commit, so it is owed again.
+ */
 function goOnAsDone(t: TaskState, j: Extract<Judgement, { kind: "seatStatus" }>, at: number, world: World): TaskState {
   if (j.seat === "code-reviewer") return t;
   const status = rawStatus(j.status);
-  if (j.seat !== "developer") return seatDone(t, j.seat, status, j.doneLine, at, world);
+  if (j.seat !== "developer") {
+    if (status !== "DONE_WITH_CONCERNS") return writerOwed(t, j.seat);
+    return seatDone(t, j.seat, status, gatedDispatch(world, j), at, world);
+  }
   const dispatchLine = devDispatchLine(t);
   return dispatchLine === null ? t : seatDone(t, "developer", status, dispatchLine, at, world);
 }
@@ -229,6 +268,7 @@ const onDone: RegionHandler<"done"> = (t, e, world) => {
   const slot = t.seats[e.seat];
   if (slot.kind !== "running") return t;
   if (e.status === "DONE") return seatDone(t, e.seat, e.status, slot.line, e.line, world);
+  recordGatedDispatch(world, t.id, e.seat, e.line, slot.line);
   const gated: SeatSlot = { kind: "gated", status: gateStatus(e.status), doneLine: e.line };
   const judgement: Judgement = { kind: "seatStatus", task: t.id, openedAt: e.line, seat: e.seat, status: gated.status, doneLine: e.line };
   const next = { ...withSeat(t, e.seat, gated), judgements: [...t.judgements, judgement] };
@@ -247,7 +287,7 @@ const onTestHashes: RegionHandler<"testHashes"> = (t) => {
 const toReady: RegionHandler<"noTestWriter"> = (t) => withPhase(t, { kind: "ready" });
 
 const onComplete: RegionHandler<"complete"> = (t, e) =>
-  withPhase(t, { kind: "complete", how: e.text.includes("superseded") ? "superseded" : "complete" });
+  withPhase(t, { kind: "complete", how: e.text.includes("superseded by") ? "superseded" : "complete" });
 
 const onImplemented: RegionHandler<"implemented"> = (t) => withPhase(t, { kind: "complete", how: "implemented" });
 

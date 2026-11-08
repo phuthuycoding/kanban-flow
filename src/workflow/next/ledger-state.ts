@@ -197,8 +197,9 @@ export function taskCommits(state: LedgerState, task: string, reportCommits: str
   return shas.map((sha, i) => ({ sha, i, r: rank(sha) })).sort((a, b) => (a.r === b.r ? a.i - b.i : a.r < b.r ? -1 : 1)).map((x) => x.sha);
 }
 
-/** Two spellings of one commit: either is a prefix of the other. */
-export const sameSha = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
+/** Two spellings of one commit: either is a prefix of the other, and the shorter has at least seven characters. */
+export const sameSha = (a: string, b: string): boolean =>
+  Math.min(a.length, b.length) >= 7 && (a.startsWith(b) || b.startsWith(a));
 
 /**
  * FR-012: `shas` split by the branch's git log, duplicates dropped. `kept` are the ones the log has, in history order;
