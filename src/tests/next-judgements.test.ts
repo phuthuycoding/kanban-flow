@@ -200,7 +200,7 @@ describe("closes alternatives as conjunctions", () => {
   });
 
   it("renders the Breaker's closes with the task filled and the pair kept together", () => {
-    const text = closesText(JUDGEMENTS.breaker, TASK);
+    const text = closesText(JUDGEMENTS.breaker, { kind: "breaker", task: TASK, openedAt: 10 });
     expect(typeof text).toBe("string");
     expect(text).not.toMatch(/<task>/i);
     expect(text).toContain(`${TASK}: parked — `);
@@ -214,8 +214,22 @@ describe("closes alternatives as conjunctions", () => {
     expect(plain).toBeLessThan(minimal);
   });
 
+  it("renders the Breaker's closes as the park and decided pair, then the minimal-fix note", () => {
+    const text = closesText(JUDGEMENTS.breaker, { kind: "breaker", task: TASK, openedAt: 10 });
+    expect(text).toBe(
+      `${TASK}: parked — <finding> — Ruling: <why> and Note ${TASK}: decided — <what> or Note ${TASK}: decided — minimal fix past the cap: <change>`,
+    );
+  });
+
+  it("renders the invalid ceiling's error in its closes", () => {
+    const error = "ceiling 9 is above the limit";
+    const text = closesText(JUDGEMENTS.invalidCeiling, { kind: "invalidCeiling", openedAt: 10, error });
+    expect(text).toContain(`Ruling: … ${error}`);
+    expect(text).not.toContain("<error>");
+  });
+
   it("renders a single-line alternative with the task filled", () => {
-    const text = closesText(JUDGEMENTS.commitMissing, TASK);
+    const text = closesText(JUDGEMENTS.commitMissing, { kind: "commitMissing", task: TASK, openedAt: 10, dispatchLine: 6 });
     expect(text).toContain(`Note ${TASK}: commits `);
     expect(text).not.toMatch(/<task>/i);
   });
@@ -338,6 +352,61 @@ describe("Seat status successor", () => {
     const { j, t } = gatedSeatTask("code-reviewer", cyclePhase("first"));
     const e: MachineEvent = { type: "dispatched", task: TASK, seat: "code-reviewer", model: "opus", line: 20, ts: 0 };
     expect(JUDGEMENTS.seatStatus.successor(j, e, t)).toBe("seatRunning");
+  });
+});
+
+describe("rendered closes agree with the close predicate", () => {
+  const dispatchedEvent = (seat: Seat): MachineEvent => ({ type: "dispatched", task: TASK, seat, model: "opus", line: 20, ts: 0 });
+  const commitsEvent: MachineEvent = { type: "commits", task: TASK, shas: [SHA7], line: 20, ts: 0 } as unknown as MachineEvent;
+
+  for (const seat of ["test-writer", "developer", "automation-writer", "code-reviewer"] as const) {
+    it(`offers the commits note on a gated ${seat} exactly when the predicate accepts it`, () => {
+      const phase = seat === "test-writer" ? ({ kind: "tests", writer: { kind: "gated", status: "BLOCKED", doneLine: 15 }, hashOwed: false } as TaskPhase) : cyclePhase("first");
+      const { j, t } = gatedSeatTask(seat, phase);
+      const text = closesText(JUDGEMENTS.seatStatus, j);
+      const accepts = JUDGEMENTS.seatStatus.close(j, commitsEvent, t);
+      expect(accepts).toBe(seat === "developer");
+      expect(text.includes(`Note ${TASK}: commits `)).toBe(accepts);
+    });
+
+    it(`names the gated ${seat} in the re-dispatch alternative it offers`, () => {
+      const { j, t } = gatedSeatTask(seat, cyclePhase("first"));
+      const text = closesText(JUDGEMENTS.seatStatus, j);
+      expect(JUDGEMENTS.seatStatus.close(j, dispatchedEvent(seat), t)).toBe(true);
+      expect(text).toContain(`${TASK}: ${seat} dispatched`);
+      expect(text).not.toMatch(/<task>|<seat>/);
+    });
+  }
+
+  it("offers no developer re-dispatch for a gated developer of a minimal fix", () => {
+    const { j, t } = gatedSeatTask("developer", cyclePhase("minimalFix"));
+    // The task state is passed as the third argument, as close and successor take it.
+    const text = (closesText as (entry: unknown, j: unknown, t: TaskState | null) => string)(JUDGEMENTS.seatStatus, j, t);
+    expect(text).not.toContain("developer dispatched");
+    expect(text).toContain("decided");
+  });
+
+  it("abandons the minimal fix when its gated developer is dispatched again", () => {
+    const { j, t } = gatedSeatTask("developer", cyclePhase("minimalFix"));
+    const e = dispatchedEvent("developer");
+    expect(JUDGEMENTS.seatStatus.close(j, e, t)).toBe(true);
+    expect(JUDGEMENTS.seatStatus.successor(j, e, t)).toBe("minimalFixAbandoned");
+  });
+
+  it("offers no developer re-dispatch for a missing commit of a minimal fix", () => {
+    const j: Judgement<"commitMissing"> = { kind: "commitMissing", task: TASK, openedAt: 10, dispatchLine: 6 };
+    const t = taskIn(cyclePhase("minimalFix"));
+    const text = (closesText as (entry: unknown, j: unknown, t: TaskState | null) => string)(JUDGEMENTS.commitMissing, j, t);
+    expect(text).toContain(`Note ${TASK}: commits `);
+    expect(text).not.toContain("developer dispatched");
+  });
+
+  it("abandons the minimal fix when a developer is dispatched after a missing commit", () => {
+    const j: Judgement<"commitMissing"> = { kind: "commitMissing", task: TASK, openedAt: 10, dispatchLine: 6 };
+    const t = taskIn(cyclePhase("minimalFix"));
+    const e = dispatchedEvent("developer");
+    expect(JUDGEMENTS.commitMissing.close(j, e, t)).toBe(true);
+    expect(JUDGEMENTS.commitMissing.successor(j, e, t)).toBe("minimalFixAbandoned");
   });
 });
 

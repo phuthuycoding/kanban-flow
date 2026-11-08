@@ -1,9 +1,9 @@
-import type { JudgementEntry, JudgementKind, JudgementTable, MachineEvent, Seat, TaskState } from "./types.js";
+import type { Judgement, JudgementEntry, JudgementKind, JudgementTable, MachineEvent, Seat, TaskState } from "./types.js";
 
 // The judgement table: every decide and stop `kf next` prints for a judgement, with the lines that close it.
 // `closes` lists alternatives, each a conjunction of ledger-line templates: `<task>` is the judged task, `<seat>` the
-// gated seat, `<sha7>` a commit; any other `<name>` and `…` are free text the session fills. Every template is a line
-// `kf record` accepts, so no judgement is a dead end.
+// gated seat, `<error>` the judgement's error, `<sha7>` a commit; any other `<name>` and `…` are free text the session
+// fills. Every template is a line `kf record` accepts, so no judgement is a dead end.
 
 const MINIMAL_FIX = "minimal fix past the cap:";
 
@@ -35,6 +35,12 @@ const DECIDED = "Note <task>: decided — <what>";
 const MINIMAL_FIX_NOTE = `Note <task>: decided — ${MINIMAL_FIX} <change>`;
 const SUPERSEDED = "<task>: complete (superseded — <why>)";
 const VERIFY_STARTED = "<task>: verify started";
+const SEAT_REDISPATCH = ["<task>: <seat> dispatched …"];
+const SEAT_COMMITS = ["Note <task>: commits <sha7>"];
+const DEV_REDISPATCH = ["<task>: developer dispatched …"];
+
+/** One minimal fix per task: a developer of a minimal-fix cycle is never re-armed. */
+const inMinimalFix = (t: TaskState | null | undefined): boolean => t?.phase.kind === "cycle" && t.phase.cycle === "minimalFix";
 
 export const JUDGEMENTS: JudgementTable = {
   conflictScan: {
@@ -48,27 +54,30 @@ export const JUDGEMENTS: JudgementTable = {
     rule: "Seat status",
     form: "decide",
     // A commits note closes a developer's gate only (a BLOCKED quoting `commit made`).
-    closes: [["<task>: <seat> dispatched …"], [DECIDED], ["Ruling: <task> — <what>"], ["Note <task>: commits <sha7>"]],
+    closes: [SEAT_REDISPATCH, [DECIDED], ["Ruling: <task> — <what>"], SEAT_COMMITS],
     close: (j, e) =>
       dispatched(e, j.task, j.seat) ||
       decided(e, j.task) ||
       (e.type === "ruling" && e.task === j.task) ||
       (j.seat === "developer" && e.type === "commits" && e.task === j.task),
     successor: (j, e, t) => {
-      if (e.type === "dispatched") return "seatRunning";
+      if (e.type === "dispatched") return j.seat === "developer" && inMinimalFix(t) ? "minimalFixAbandoned" : "seatRunning";
       if (e.type === "commits") return "afterDevDone";
       // Closed by a decision: a review is owed again rather than taken as a verdict, and a minimal fix gets no retry.
       if (j.seat === "code-reviewer") return "seatRedispatch";
-      if (j.seat === "developer" && t?.phase.kind === "cycle" && t.phase.cycle === "minimalFix") return "minimalFixAbandoned";
+      if (j.seat === "developer" && inMinimalFix(t)) return "minimalFixAbandoned";
       return "seatAsDone";
     },
   },
   commitMissing: {
     rule: "Commit missing",
     form: "decide",
-    closes: [["Note <task>: commits <sha7>"], ["<task>: developer dispatched …"]],
+    closes: [["Note <task>: commits <sha7>"], DEV_REDISPATCH],
     close: (j, e) => (e.type === "commits" && e.task === j.task) || dispatched(e, j.task, "developer"),
-    successor: (_j, e) => (e.type === "dispatched" ? "seatRunning" : "afterDevDone"),
+    successor: (_j, e, t) => {
+      if (e.type !== "dispatched") return "afterDevDone";
+      return inMinimalFix(t) ? "minimalFixAbandoned" : "seatRunning";
+    },
   },
   verifyExit2: {
     rule: "Verify exit 2",
@@ -172,8 +181,33 @@ export const JUDGEMENTS: JudgementTable = {
   },
 };
 
-/** The closes alternatives as one line of text, `<task>` filled: the lines of a conjunction joined by `and`, the alternatives by `or`. */
-export function closesText<K extends JudgementKind>(entry: JudgementEntry<K>, task?: string): string {
-  const fill = (template: string): string => (task === undefined ? template : template.replaceAll("<task>", task));
-  return entry.closes.map((alt) => alt.map(fill).join(" and ")).join(" or ");
+/**
+ * Whether `alt` is offered for `j` in task state `t`: a commits note only to a developer seat (the only seat its close
+ * predicate accepts it for), and no developer re-dispatch in a minimal-fix cycle (one recorded anyway abandons the fix).
+ */
+function offered(alt: string[], j: Judgement, t: TaskState | null | undefined): boolean {
+  if (alt === SEAT_COMMITS) return j.kind === "seatStatus" && j.seat === "developer";
+  if (alt === SEAT_REDISPATCH) return !(j.kind === "seatStatus" && j.seat === "developer" && inMinimalFix(t));
+  if (alt === DEV_REDISPATCH) return !inMinimalFix(t);
+  return true;
+}
+
+/**
+ * The closes alternatives offered for `j` as one line of text, `<task>`, `<seat>` and `<error>` filled from `j`: the
+ * lines of a conjunction joined by `and`, the alternatives by `or`. `t` is the task state, for the cycle-dependent
+ * alternatives.
+ */
+export function closesText<K extends JudgementKind>(entry: JudgementEntry<K>, j: Judgement<K>, t?: TaskState | null): string {
+  const judgement = j as Judgement;
+  const fill = (template: string): string => {
+    let line = template;
+    if (judgement.task !== undefined) line = line.replaceAll("<task>", judgement.task);
+    if (judgement.kind === "seatStatus") line = line.replaceAll("<seat>", judgement.seat);
+    if (judgement.kind === "invalidCeiling") line = line.replaceAll("<error>", judgement.error);
+    return line;
+  };
+  return entry.closes
+    .filter((alt) => offered(alt, judgement, t))
+    .map((alt) => alt.map(fill).join(" and "))
+    .join(" or ");
 }
