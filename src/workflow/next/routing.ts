@@ -1,4 +1,5 @@
 import { completedTaskIds, taskCommits } from "./ledger-state.js";
+import { shellQuote } from "./record.js";
 import type { Action, Cap, LedgerEvent, LedgerState, LoopInputs, LoopTask, Seat } from "./types.js";
 
 // FR-008, FR-009, FR-010, FR-014: verify exit codes, fix rounds, reopens, the breaker, cascades and non-DONE seat statuses,
@@ -118,6 +119,23 @@ function seatStatus(events: LedgerEvent[], task: string, gates: Gate[]): Action[
   return actions;
 }
 
+const datedAfter = (inputs: LoopInputs, sha: string, ts: number): boolean =>
+  inputs.gitLog.some((g) => sameSha(g.sha, sha) && g.ts > ts);
+
+/**
+ * The task a `verify waits` note at `w` names has committed since the note: a later commits note, or a later
+ * developer `done` whose review package or report names a commit dated after the note.
+ */
+function namedTaskCommitted(state: LedgerState, inputs: LoopInputs, w: number): boolean {
+  const { events } = state;
+  const waits = events[w] as Extract<LedgerEvent, { type: "verifyWaits" }>;
+  const other = waits.otherTask;
+  if (anyAfter(events, w, (e) => e.type === "commits" && e.task === other)) return true;
+  if (!anyAfter(events, w, (e) => e.type === "done" && e.task === other && e.seat === "developer")) return false;
+  const packaged = events.flatMap((e) => (e.type === "reviewPackage" && e.task === other ? e.shas : []));
+  return [...packaged, ...(inputs.reportCommits[other] ?? [])].some((sha) => datedAfter(inputs, sha, waits.ts));
+}
+
 function verifyRouting(
   state: LedgerState,
   inputs: LoopInputs,
@@ -163,7 +181,7 @@ function verifyRouting(
   const w = lastIndex(events, (e) => e.type === "verifyWaits" && e.task === task);
   if (w > v) {
     const waits = events[w] as Extract<LedgerEvent, { type: "verifyWaits" }>;
-    if (anyAfter(events, w, (e) => e.type === "commits" && e.task === waits.otherTask)) {
+    if (namedTaskCommitted(state, inputs, w)) {
       actions.push({ kind: "verify", task, command: verifyCommand(state, inputs, task, true) });
     } else {
       actions.push({ kind: "wait", task, reason: `verify waits for ${waits.otherTask}` });
@@ -226,7 +244,7 @@ function fixRounds(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[], view:
     }
   } else if (!capReached) {
     const line = `Note ${task}: cap reached — <failure>`;
-    actions.push(stop, { kind: "write", task, line, record: `kf record ${inputs.feature} line -- ${line}` });
+    actions.push(stop, { kind: "write", task, line, record: `kf record ${inputs.feature} line -- ${shellQuote(line)}` });
   }
   return actions;
 }
@@ -245,7 +263,7 @@ function roundSeatsDone(inputs: LoopInputs, t: LoopTask, events: LedgerEvent[]):
     if (!hashed) {
       const line = `${task}: test hashes <file>=<sha> …`;
       if (!actions.some((a) => a.kind === "write" && a.line === line)) {
-        actions.push({ kind: "write", task, line, record: `kf record ${inputs.feature} line -- ${line}` });
+        actions.push({ kind: "write", task, line, record: `kf record ${inputs.feature} line -- ${shellQuote(line)}` });
       }
       continue;
     }
@@ -274,7 +292,7 @@ function fixRoundLines(inputs: LoopInputs, task: string, events: LedgerEvent[]):
       kind: "write",
       task,
       line: `${task}: fix round ${round}/${MAX_ROUNDS} (${body})`,
-      record: `kf record ${inputs.feature} fix-round ${task} ${round} -- ${body}`,
+      record: `kf record ${inputs.feature} fix-round ${task} ${round} -- ${shellQuote(body)}`,
     });
   }
   return actions;
@@ -296,38 +314,87 @@ function dependents(tasks: LoopTask[], task: string): Set<string> {
   return found;
 }
 
+interface FixCommit {
+  sha: string;
+  round: number;
+  /** Ledger index the commit lands at: positions, not stamps, order lines written in the same second. */
+  landing: number;
+}
+
+/**
+ * The commits H's round developers made (`developer dispatched … round=R`). Per round dispatch, the first source that
+ * names any: its commits notes; else the review package of its re-review, else H's report, keeping only commits
+ * H did not have before the round (dated after the dispatch, and not after H's next round dispatch).
+ * A commit lands at the round developer's `done` or its commits note, whichever is earlier.
+ */
+function fixCommits(state: LedgerState, inputs: LoopInputs, h: string): FixCommit[] {
+  const { events } = state;
+  const isRoundDev = (e: LedgerEvent): e is Dispatched =>
+    e.type === "dispatched" && e.task === h && e.seat === "developer" && e.round !== undefined && e.round >= 1;
+  const found: FixCommit[] = [];
+  events.forEach((d, i) => {
+    if (!isRoundDev(d)) return;
+    const next = events.findIndex((e, j) => j > i && isRoundDev(e));
+    const inRound = (j: number): boolean => j > i && (next === -1 || j < next);
+    const doneAt = events.findIndex((e, j) => inRound(j) && e.type === "done" && e.task === h && e.seat === "developer");
+    const notes = events.flatMap((e, j) => (e.type === "commits" && e.task === h && inRound(j) ? [j] : []));
+    if (notes.length > 0) {
+      for (const j of notes) {
+        const landing = doneAt !== -1 && doneAt < j ? doneAt : j;
+        for (const sha of (events[j] as Extract<LedgerEvent, { type: "commits" }>).shas) found.push({ sha, round: d.round!, landing });
+      }
+      return;
+    }
+    const madeInRound = (sha: string): boolean =>
+      inputs.gitLog.some((g) => sameSha(g.sha, sha) && g.ts > d.ts && (next === -1 || g.ts <= events[next].ts));
+    const packaged = events.flatMap((e, j) => (e.type === "reviewPackage" && e.task === h && inRound(j) ? [{ e, j }] : []));
+    const fromPackage = packaged.flatMap(({ e }) => (e as Extract<LedgerEvent, { type: "reviewPackage" }>).shas).filter(madeInRound);
+    if (fromPackage.length > 0) {
+      const landing = doneAt !== -1 && doneAt < packaged[0].j ? doneAt : packaged[0].j;
+      for (const sha of fromPackage) found.push({ sha, round: d.round!, landing });
+      return;
+    }
+    if (doneAt === -1) return;
+    for (const sha of (inputs.reportCommits[h] ?? []).filter(madeInRound)) found.push({ sha, round: d.round!, landing: doneAt });
+  });
+  return found;
+}
+
+/**
+ * X is open at `landing`: no standing `complete` line there, and none after it — a reopen after the landing
+ * does not revive a cascade from before it.
+ */
+function openAt(events: LedgerEvent[], x: string, landing: number): boolean {
+  if (completedTaskIds({ events: events.slice(0, landing) }).has(x)) return false;
+  return !anyAfter(events, landing, (e) => (e.type === "complete" || e.type === "implemented") && e.task === x);
+}
+
 function cascades(state: LedgerState, inputs: LoopInputs): Action[] {
   const { events } = state;
-  const completed = completedTaskIds(state);
   const actions: Action[] = [];
   for (const h of inputs.tasks) {
-    const firstReview = events.findIndex((e) => e.type === "dispatched" && e.task === h.id && e.seat === "code-reviewer");
-    if (firstReview === -1) continue;
     const owers = dependents(inputs.tasks, h.id);
-    events.forEach((e, i) => {
-      if (i <= firstReview || e.type !== "commits" || e.task !== h.id) return;
-      const roundAt = lastIndex(events.slice(0, i), (x) => x.type === "dispatched" && x.task === h.id && x.seat === "developer" && x.round !== undefined);
-      if (roundAt === -1) return;
-      const round = (events[roundAt] as Dispatched).round!;
-      for (const sha of e.shas) {
-        const sha7 = sha.slice(0, 7);
-        for (const x of inputs.tasks) {
-          if (!owers.has(x.id) || completed.has(x.id)) continue;
-          const firstDev = events.find((d) => d.type === "dispatched" && d.task === x.id && d.seat === "developer");
-          if (!firstDev || firstDev.ts >= e.ts) continue;
-          const owed = events.some((o) => o.type === "cascadeOwed" && o.task === x.id && sameSha(o.sha, sha7));
-          if (!owed) {
-            const line = `${x.id}: cascade re-review owed — after ${sha7} of ${h.id}`;
-            actions.push({ kind: "write", task: x.id, line, record: `kf record ${inputs.feature} cascade-owed ${x.id} ${sha7} ${h.id}` });
-            continue;
-          }
-          const dispatched = events.some(
-            (d) => d.type === "dispatched" && d.task === x.id && d.seat === "code-reviewer" && d.cascade !== undefined && sameSha(d.cascade, sha7),
-          );
-          if (!dispatched) actions.push({ kind: "dispatch", task: x.id, seat: "code-reviewer", mode: "new", round, cascade: sha7 });
+    const seen = new Set<string>();
+    for (const { sha, round, landing } of fixCommits(state, inputs, h.id)) {
+      const sha7 = sha.slice(0, 7);
+      if (seen.has(sha7)) continue;
+      seen.add(sha7);
+      for (const x of inputs.tasks) {
+        if (!owers.has(x.id) || !openAt(events, x.id, landing)) continue;
+        const firstDev = events.findIndex((d) => d.type === "dispatched" && d.task === x.id && d.seat === "developer");
+        if (firstDev === -1 || firstDev >= landing) continue;
+        const owed = events.some((o) => o.type === "cascadeOwed" && o.task === x.id && sameSha(o.sha, sha7));
+        if (!owed) {
+          const line = `${x.id}: cascade re-review owed — after ${sha7} of ${h.id}`;
+          actions.push({ kind: "write", task: x.id, line, record: `kf record ${inputs.feature} cascade-owed ${x.id} ${sha7} ${h.id}` });
+          continue;
         }
+        const dispatched = events.some(
+          (d) => d.type === "dispatched" && d.task === x.id && d.seat === "code-reviewer" && d.cascade !== undefined && sameSha(d.cascade, sha7),
+        );
+        if (!dispatched) actions.push({ kind: "dispatch", task: x.id, seat: "code-reviewer", mode: "new", round, cascade: sha7 });
       }
-    });
+    }
   }
   return actions;
 }

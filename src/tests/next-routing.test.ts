@@ -1,3 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect } from "vitest";
 
 import { routingActions } from "../workflow/next/routing.js";
@@ -78,6 +83,9 @@ const failLog = (id: string, m: number): Partial<LoopInputs> => ({ verifyRuns: {
 const EXIT_2_STOP = `${T1} verify exit 2: a changed file is outside the task's Files — replan, have the human re-approve, then record Note ${T1}: decided — <what>`;
 const CAP_STOP = `${T1} reached the five-round cap after a reopen — the human decides`;
 
+/** One shell word: single quotes, each ' written as '\'' — the form a printed record's free text takes. */
+const quoted = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
+
 describe("routing a verify result by exit code", () => {
   it("asks for nothing after a pass with a clean review", () => {
     const state = ledger(...built(), verifyStarted(5, T1), verifyDone(6, T1, 0), done(7, T1, "code-reviewer", "clean"));
@@ -115,7 +123,7 @@ describe("routing a verify result by exit code", () => {
   it("names no fix round for a failure that owes a contention re-run note", () => {
     const state = ledger(...built(), verifyStarted(5, T1), verifyDone(7, T1, 1), done(8, T1, "code-reviewer", "clean"));
     const note = `Note ${T1}: verify rerun — contention EADDRINUSE`;
-    const owing = cap({ owed: [{ kind: "write", task: T1, line: note, record: `kf record ${FEATURE} line -- ${note}` }] });
+    const owing = cap({ owed: [{ kind: "write", task: T1, line: note, record: `kf record ${FEATURE} line -- ${quoted(note)}` }] });
     const actions = routingActions(state, inputs([task(T1)], failLog(T1, 6)), owing);
     expect(developerDispatches(actions, T1)).toEqual([]);
   });
@@ -176,6 +184,34 @@ describe("routing a failure another task explains", () => {
     ]);
     expect(developerDispatches(actions, T1)).toEqual([]);
     expect(of(actions, T1).filter((a) => a.kind === "wait")).toEqual([]);
+  });
+
+  // The named task usually commits through its developer's report, with no commits note in the ledger.
+  it("names an at-head verify once the named task's developer reports a commit dated after the note", () => {
+    const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"));
+    const plan = inputs([task(T1), task(T2)], {
+      ...failLog(T1, 7),
+      reportCommits: { [T2]: ["e4f5a6b"] },
+      gitLog: [{ sha: SHA, ts: at(2) }, { sha: "e4f5a6b", ts: at(10.5) }],
+    });
+    const actions = routingActions(state, plan, cap());
+    expect(verifies(actions, T1)).toEqual([
+      expect.objectContaining({ kind: "verify", task: T1, command: `kf verify ${FEATURE} --task ${T1} --commits ${SHA} --at-head` }),
+    ]);
+    expect(of(actions, T1).filter((a) => a.kind === "wait")).toEqual([]);
+    expect(developerDispatches(actions, T1)).toEqual([]);
+  });
+
+  it("keeps waiting when the named task's reported commit is dated before the note", () => {
+    const state = ledger(...failed(), waits, done(11, T2, "developer", "DONE"));
+    const plan = inputs([task(T1), task(T2)], {
+      ...failLog(T1, 7),
+      reportCommits: { [T2]: ["e4f5a6b"] },
+      gitLog: [{ sha: SHA, ts: at(2) }, { sha: "e4f5a6b", ts: at(9) }],
+    });
+    const actions = routingActions(state, plan, cap());
+    expect(of(actions, T1)).toContainEqual({ kind: "wait", task: T1, reason: `verify waits for ${T2}` });
+    expect(verifies(actions, T1)).toEqual([]);
   });
 
   it("moves a routed failure's fix round to the named task", () => {
@@ -274,7 +310,9 @@ describe("naming fix rounds", () => {
     const actions = routingActions(ledger(...events), inputs([task(T1)]), cap());
     const line = writes(actions).find((w) => w.line.startsWith(`${T1}: fix round 1/5 (`));
     expect(line).toBeDefined();
-    expect(line!.record.startsWith(`kf record ${FEATURE} fix-round ${T1} 1 -- `)).toBe(true);
+    // The record carries the text inside the line's parentheses, quoted as one shell word.
+    const body = line!.line.slice(`${T1}: fix round 1/5 (`.length, -1);
+    expect(line!.record).toBe(`kf record ${FEATURE} fix-round ${T1} 1 -- ${quoted(body)}`);
 
     const recorded = routingActions(ledger(...roundsDone(1)), inputs([task(T1)]), cap());
     expect(writes(recorded).filter((w) => w.line.startsWith(`${T1}: fix round 1/5`))).toEqual([]);
@@ -304,7 +342,7 @@ describe("rounds after a reopen", () => {
       expect.objectContaining({
         kind: "write",
         line: `Note ${T1}: cap reached — <failure>`,
-        record: `kf record ${FEATURE} line -- Note ${T1}: cap reached — <failure>`,
+        record: `kf record ${FEATURE} line -- ${quoted(`Note ${T1}: cap reached — <failure>`)}`,
       }),
     );
     expect(developerDispatches(actions, T1)).toEqual([]);
@@ -376,7 +414,7 @@ describe("the breaker and round seats", () => {
       expect.objectContaining({
         kind: "write",
         line: `${T1}: test hashes <file>=<sha> …`,
-        record: `kf record ${FEATURE} line -- ${T1}: test hashes <file>=<sha> …`,
+        record: `kf record ${FEATURE} line -- ${quoted(`${T1}: test hashes <file>=<sha> …`)}`,
       }),
     );
     expect(developerDispatches(owed, T1)).toEqual([]);
@@ -465,6 +503,87 @@ describe("cascade re-reviews", () => {
     ];
     const actions = routingActions(ledger(...events), inputs(plan()), cap());
     expect(cascadeActions(actions, X)).toEqual([]);
+  });
+
+  /** H reviewed with findings; X's developer dispatched; H's round 1 developer reports done with no commits note. */
+  const roundWithoutNote = (): Stamped[] => [
+    ...built(H),
+    done(5, H, "code-reviewer", "findings"),
+    dispatched(6, X, "developer"),
+    dispatched(7, H, "developer", { round: 1 }),
+    done(8, H, "developer", "DONE"),
+  ];
+  // SHA is H's first-pass commit (before the round), FIX the round developer's.
+  const datedLog = [{ sha: SHA, ts: at(2) }, { sha: FIX, ts: at(7.5) }];
+  const owedLine = (sha7: string) => `${X}: cascade re-review owed — after ${sha7} of ${H}`;
+
+  it("owes the re-review for a fix whose only sha source is the round's review package", () => {
+    const events: Stamped[] = [
+      ...roundWithoutNote(),
+      [9, { type: "reviewPackage", task: H, shas: [SHA, FIX7] }],
+      dispatched(10, H, "code-reviewer", { round: 1 }),
+    ];
+    const actions = routingActions(ledger(...events), inputs(plan(), { gitLog: datedLog }), cap());
+    expect(writes(actions)).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7), record: `kf record ${FEATURE} cascade-owed ${X} ${FIX7} ${H}` }),
+    );
+    // The first-pass commit in the same package is not a fix commit.
+    expect(writes(actions).filter((w) => w.line === owedLine(SHA))).toEqual([]);
+
+    const owed: Stamped = [11, { type: "cascadeOwed", task: X, sha: FIX7, otherTask: H }];
+    const dispatchedNext = routingActions(ledger(...events, owed), inputs(plan(), { gitLog: datedLog }), cap());
+    expect(cascadeActions(dispatchedNext, X)).toEqual([
+      expect.objectContaining({ kind: "dispatch", task: X, seat: "code-reviewer", mode: "new", round: 1, cascade: FIX7 }),
+    ]);
+  });
+
+  it("owes the re-review for a fix whose only sha source is the round developer's report", () => {
+    const actions = routingActions(ledger(...roundWithoutNote()), inputs(plan(), { reportCommits: { [H]: [SHA, FIX] }, gitLog: datedLog }), cap());
+    expect(writes(actions)).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7), record: `kf record ${FEATURE} cascade-owed ${X} ${FIX7} ${H}` }),
+    );
+    expect(writes(actions).filter((w) => w.line === owedLine(SHA))).toEqual([]);
+  });
+
+  it("owes nothing when the round developer's report names only commits dated before the round", () => {
+    const actions = routingActions(ledger(...roundWithoutNote()), inputs(plan(), { reportCommits: { [H]: [SHA] }, gitLog: datedLog }), cap());
+    expect(cascadeActions(actions, X)).toEqual([]);
+  });
+
+  // Ledger stamps have one-second resolution: file order, not the stamp, says which came first.
+  it("orders a dispatch and a landing with the same stamp by their place in the ledger", () => {
+    const head: Stamped[] = [...built(H), done(5, H, "code-reviewer", "findings"), dispatched(6, H, "developer", { round: 1 })];
+    const dispatchFirst = [...head, dispatched(7, X, "developer"), commits(7, H, FIX), done(8, H, "developer", "DONE")];
+    expect(writes(routingActions(ledger(...dispatchFirst), inputs(plan()), cap()))).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }),
+    );
+
+    const landingFirst = [...head, commits(7, H, FIX), dispatched(7, X, "developer"), done(8, H, "developer", "DONE")];
+    expect(cascadeActions(routingActions(ledger(...landingFirst), inputs(plan()), cap()), X)).toEqual([]);
+  });
+
+  /** H and X complete; H reopened and its round 1 fix starts at `m`. */
+  const bothComplete = (): Stamped[] => [
+    ...built(H),
+    done(5, H, "code-reviewer", "clean"),
+    complete(6, H),
+    ...built(X, "c0ffee1", 6),
+    done(11, X, "code-reviewer", "clean"),
+    complete(12, X),
+    reopened(13, H),
+  ];
+  const hFix = (m: number): Stamped[] => [dispatched(m, H, "developer", { round: 1 }), commits(m + 1, H, FIX), done(m + 2, H, "developer", "DONE")];
+
+  it("owes nothing for a fix that landed while the dependent was complete, even after the dependent reopens", () => {
+    const events = [...bothComplete(), ...hFix(14), reopened(17, X)];
+    expect(cascadeActions(routingActions(ledger(...events), inputs(plan()), cap()), X)).toEqual([]);
+  });
+
+  it("owes the re-review for a fix that lands after the dependent reopened", () => {
+    const events = [...bothComplete(), reopened(14, X), ...hFix(15)];
+    expect(writes(routingActions(ledger(...events), inputs(plan()), cap()))).toContainEqual(
+      expect.objectContaining({ kind: "write", task: X, line: owedLine(FIX7) }),
+    );
   });
 });
 
@@ -659,5 +778,40 @@ describe("a round developer dispatched beside its round test-writer", () => {
     expect(developerDispatches(actions, T1)).toEqual([
       expect.objectContaining({ kind: "dispatch", task: T1, seat: "developer", mode: "resume", round: 1 }),
     ]);
+  });
+});
+
+describe("printed record commands survive a shell", () => {
+  /**
+   * The arguments bash hands to `kf` when it runs the printed command, `kf` stubbed to echo them.
+   * Runs in a scratch directory: an unquoted `<` or `>` in the text would otherwise redirect in the worktree.
+   */
+  const shellArgs = (record: string): string[] =>
+    execFileSync("bash", ["-c", `kf() { printf '%s\\0' "$@"; }; ${record}`], { encoding: "utf8", cwd: mkdtempSync(join(tmpdir(), "kf-record-")) })
+      .split("\0")
+      .slice(0, -1);
+  const writeOf = (actions: Action[], prefix: string) => {
+    const found = writes(actions).find((w) => w.line.startsWith(prefix));
+    expect(found).toBeDefined();
+    return found!;
+  };
+
+  it("hands the cap reached line to kf record as one argument", () => {
+    const events = [...roundsDone(5), decided(60, T1, "parked the rest"), complete(61, T1), reopened(62, T1)];
+    const write = writeOf(routingActions(ledger(...events), inputs([task(T1)]), cap()), `Note ${T1}: cap reached`);
+    expect(shellArgs(write.record)).toEqual(["record", FEATURE, "line", "--", write.line]);
+  });
+
+  it("hands the test hashes line to kf record as one argument", () => {
+    const events: Stamped[] = [...built(), done(5, T1, "code-reviewer", "findings"), dispatched(6, T1, "test-writer", { round: 1 }), done(7, T1, "test-writer", "DONE")];
+    const write = writeOf(routingActions(ledger(...events), inputs([task(T1)]), cap()), `${T1}: test hashes`);
+    expect(shellArgs(write.record)).toEqual(["record", FEATURE, "line", "--", write.line]);
+  });
+
+  it("hands the fix round body to kf record as one argument", () => {
+    const events = roundsDone(1).filter(([, b]) => b.type !== "fixRound");
+    const prefix = `${T1}: fix round 1/5 (`;
+    const write = writeOf(routingActions(ledger(...events), inputs([task(T1)]), cap()), prefix);
+    expect(shellArgs(write.record)).toEqual(["record", FEATURE, "fix-round", T1, "1", "--", write.line.slice(prefix.length, -1)]);
   });
 });
