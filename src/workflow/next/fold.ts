@@ -126,10 +126,13 @@ function owesSpecs(t: TaskState, world: World): boolean {
   return uiSpecs(t, world) && t.seats["automation-writer"].kind === "idle";
 }
 
-/** The automation-writer ran ahead of the cycle's first developer: its specs still owe the resume-commit developer. */
-function specsAhead(t: TaskState, c: Cycle, dispatchLine: number, world: World): boolean {
-  const slot = t.seats["automation-writer"];
-  return uiSpecs(t, world) && c.cycle === "first" && dispatchLine === c.openedAt && slot.kind === "reported" && slot.answers < dispatchLine;
+/**
+ * The automation-writer reported before the first cycle's implementer was done: its specs still owe the resume-commit
+ * developer, unless this done is that developer's.
+ */
+function specsAhead(t: TaskState, c: Cycle, world: World): boolean {
+  const resumed = c.implementer.kind === "running" && c.implementer.resume === true;
+  return uiSpecs(t, world) && c.cycle === "first" && !resumed && t.seats["automation-writer"].kind === "reported";
 }
 
 /** The implementer after a developer DONE (or a gate that goes on as DONE), with what the ledger records now. */
@@ -149,7 +152,7 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
     return to({ kind: "commitMissing", dispatchLine }, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
   }
   if (owesSpecs(t, world)) return to({ kind: "specsOwed" });
-  if (specsAhead(t, c, dispatchLine, world)) return to({ kind: "resumeCommitOwed" });
+  if (specsAhead(t, c, world)) return to({ kind: "resumeCommitOwed" });
   const roundSeat = (["test-writer", "automation-writer"] as const).find((seat) => {
     const slot = t.seats[seat];
     return c.round > 0 && slot.kind === "running" && slot.round === c.round;
@@ -174,6 +177,10 @@ function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: st
   }
   if (step.kind === "specsRunning" && seat === "automation-writer") return withImplementer(next, { kind: "resumeCommitOwed" });
   const slot = t.seats[seat];
+  // Specs reported (or a gate accepted) after the first cycle's implementer committed: the resume-commit developer's.
+  if (step.kind === "committed" && phase.cycle === "first" && seat === "automation-writer" && uiSpecs(t, world)) {
+    return withImplementer(next, { kind: "resumeCommitOwed" });
+  }
   if (slot.kind === "running" && slot.round !== undefined && slot.round === phase.round) return { ...next, roundHashOwed: true };
   return next;
 }
@@ -231,7 +238,7 @@ function dispatchInCycle(t: TaskState, c: Cycle, e: Dispatched, slot: Running): 
     const implementer: ImplementerStep = e.seat === "developer" ? running : { kind: "owed", mode: roundMode(round), round };
     return openCycle(t, "round", round, e.line, implementer);
   }
-  if (e.seat === "developer") return withImplementer(t, running);
+  if (e.seat === "developer") return withImplementer(t, c.implementer.kind === "resumeCommitOwed" ? { ...running, resume: true } : running);
   if (e.seat === "automation-writer" && round === undefined && c.implementer.kind === "specsOwed") {
     return withImplementer(t, { kind: "specsRunning" });
   }
@@ -361,6 +368,7 @@ const onReopened: RegionHandler<"reopened"> = (t, e, world) => {
     roundsUsed: t.roundsUsed,
     // The round count goes on across the reopen, so a written fix round line stays written.
     ...(t.fixRoundWritten !== undefined ? { fixRoundWritten: t.fixRoundWritten } : {}),
+    ...(t.reviewedCommits !== undefined ? { reviewedCommits: t.reviewedCommits } : {}),
     commits: t.commits,
     droppedShas: t.droppedShas,
   };
@@ -641,7 +649,8 @@ export function step(world: World, task: TaskState, event: MachineEvent): TaskSt
     event.type === "reviewPackage" && event.shas.some((sha) => ![...task.commits, ...task.droppedShas].some((n) => sameSha(n, sha)))
       ? { ...event, type: "commits", fromPackage: true }
       : tagDecision(task, event);
-  const t = { ...scalars(task, e, world), ...(event.type === "reviewPackage" ? { packagedAt: event.line } : {}) };
+  const scaled = scalars(task, e, world);
+  const t = event.type === "reviewPackage" ? { ...scaled, packagedAt: event.line, reviewedCommits: scaled.commits } : scaled;
   const cell = LIFECYCLE_TABLE[t.phase.kind][e.type] as RegionHandler<MachineEventType> | "noop";
   const lifecycle = cell === "noop" ? t : cell(t, e, world);
   return atCapStep(reviewStep(verifyStep(lifecycle, e, world), e, world), e, world);

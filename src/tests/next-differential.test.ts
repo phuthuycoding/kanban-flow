@@ -38,6 +38,8 @@ interface Difference {
   onlyNext: Action[];
   inFlightChanged: boolean;
   nChanged: boolean;
+  /** Under --resume: the `task seat` pairs open in the ledger prefix, as the old scheduler lists them without --resume. */
+  openSeats: string[];
 }
 
 /** A canonical text of `x`: object keys sorted, so two actions built in another key order compare equal. */
@@ -136,6 +138,20 @@ function decideWording(id: string, rule: string, why: string): [string, Allowed]
 
 const isFixRoundWrite = (a: Action): boolean => a.kind === "write" && a.task !== undefined && a.line.startsWith(`${a.task}: fix round `);
 
+/** The legacy fix round write is moved, not lost, only when the machine prints an action that ends that round for the task. */
+function endsFixRound(d: Difference, w: Action): boolean {
+  if (w.kind !== "write" || w.task === undefined) return false;
+  const round = Number(/: fix round (\d+)\//.exec(w.line)?.[1]);
+  if (!Number.isInteger(round)) return false;
+  return d.next.actions.some(
+    (a) =>
+      (isDispatch(a) && a.task === w.task && a.round === round + 1) ||
+      (isDecide(a) && a.task === w.task && a.rule === "Breaker") ||
+      (a.kind === "stop" && a.task === w.task) ||
+      (a.kind === "complete" && a.task === w.task),
+  );
+}
+
 const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
   AUDITED("routed-target-completes-same-call", "a task a failure is routed into does not complete in the same call"),
   AUDITED("seat-status-closed-by-note-no-redispatch", "a seat status closed by a decided note goes on to the seat's successor"),
@@ -190,7 +206,7 @@ const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
   [
     "ruling:fix-round-placement",
     peeling("the fix round line is printed only beside the action that ends the round, not after its reviewer done", (d) =>
-      without(d, d.onlyLegacy.filter(isFixRoundWrite), []),
+      without(d, d.onlyLegacy.filter((a) => isFixRoundWrite(a) && endsFixRound(d, a)), []),
     ),
   ],
   [
@@ -226,10 +242,12 @@ const DIFF_ALLOWED: Record<string, Allowed> = Object.fromEntries([
         if (d.onlyLegacy.length > 0 || d.onlyNext.length > 0 || d.inFlightChanged || d.nChanged) return false;
         const strip = (r: NextResult): string[] => r.actions.filter((a) => !isDispatch(a)).map(key);
         if (key(strip(d.legacy)) !== key(strip(d.next))) return false;
-        // Resumed seats rank first in both schedulers (the legacy dispatch group 0) and a resumed spawn prints mode
-        // "new", so under --resume the seat order carries no signal: only the same actions in another order are allowed.
-        if (d.resume) return true;
-        const seats = d.next.actions.filter(isDispatch).map((a) => a.seat);
+        // Resumed seats rank first in both schedulers (the legacy dispatch group 0), so under --resume the (task, seat)
+        // pairs open in the ledger prefix form the leading block of the dispatches; developers-first applies to the rest.
+        const dispatches = d.next.actions.filter(isDispatch);
+        const lead = d.resume ? dispatches.filter((a) => d.openSeats.includes(`${a.task} ${a.seat}`)).length : 0;
+        if (d.resume && !dispatches.slice(0, lead).every((a) => d.openSeats.includes(`${a.task} ${a.seat}`))) return false;
+        const seats = dispatches.slice(lead).map((a) => a.seat);
         const firstTestWriter = seats.indexOf("test-writer");
         return firstTestWriter === -1 || !seats.slice(firstTestWriter).includes("developer");
       },
@@ -299,6 +317,9 @@ function compare(source: string, audit: boolean, prefix: number, resume: boolean
     onlyNext: minus(next.actions, legacy.actions),
     inFlightChanged: key(sortedInFlight(legacy.inFlight)) !== key(sortedInFlight(next.inFlight)),
     nChanged: legacy.n !== next.n,
+    openSeats: resume
+      ? scheduleLegacy(state, inputs, { resume: false }).inFlight.filter((f) => f.seat !== "verify").map((f) => `${f.task} ${f.seat}`)
+      : [],
   };
 }
 

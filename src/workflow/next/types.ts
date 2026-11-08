@@ -283,7 +283,8 @@ export type SeatSlot =
 /** Where the implementer of a cycle stands. */
 export type ImplementerStep =
   | { kind: "owed"; mode: DispatchMode; round?: number }
-  | { kind: "running"; dispatchLine: number; inline: boolean }
+  /** `resume`: dispatched for an owed resume-commit, so its done commits the files that were owed. */
+  | { kind: "running"; dispatchLine: number; inline: boolean; resume?: true }
   | { kind: "roundSeatRunning"; seat: Seat }
   | { kind: "roundHashOwed" }
   | { kind: "resumeCommitOwed"; round?: number }
@@ -438,6 +439,8 @@ export interface TaskState {
   /** Ledger line of the latest developer done, and of the latest review package. */
   devDoneAt?: number;
   packagedAt?: number;
+  /** The task's commits when its latest review package was written: the head that review saw (a fix round's base). */
+  reviewedCommits?: string[];
 }
 
 /** An open, non-inline developer seat of a known task that is neither complete nor a decided unknown. */

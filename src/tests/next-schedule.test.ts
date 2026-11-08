@@ -1341,6 +1341,112 @@ describe("schedule: completion and witnesses of a committed task", () => {
   });
 });
 
+describe("schedule: a UI task under Level full owes the specs commit to the resume-commit developer", () => {
+  const T1 = "TASK-001";
+  const ui = task(T1, { testTypes: ["Unit", "UI"] });
+  const inputs = inputsOf([ui], { level: "full" });
+  const base: Fields[] = [scan, capStart(2), ...testsReady(T1)];
+
+  // Until the specs are committed neither the verify, the own review, its package nor the completion may be named.
+  const expectSpecsOwed = async (events: Fields[]): Promise<void> => {
+    const schedule = await loadSchedule();
+    for (const resume of [false, true]) {
+      const { actions } = schedule(stateOf(events), inputs, { resume });
+      expect(dispatchesOf(actions, T1, "developer").map((d) => d.mode)).toEqual(["resume"]);
+      expect(verifiesOf(actions, T1)).toEqual([]);
+      expect(dispatchesOf(actions, T1, "code-reviewer")).toEqual([]);
+      expect(actions.filter((a) => a.kind === "write" && a.line.startsWith(`${T1}: review package`))).toEqual([]);
+      expect(completedIn(actions)).not.toContain(T1);
+    }
+  };
+
+  it("owes the resume-commit developer when the automation-writer reports after the developer's DONE", async () => {
+    await expectSpecsOwed([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+    ]);
+  });
+
+  it("owes the resume-commit developer when a decided note closes the automation-writer's concerns that were open at the developer's DONE", async () => {
+    await expectSpecsOwed([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "automation-writer", "DONE_WITH_CONCERNS"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      decided(T1, "the selector concerns are accepted"),
+    ]);
+  });
+
+  it("owes the resume-commit developer when the developer was re-dispatched after Commit missing", async () => {
+    await expectSpecsOwed([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "automation-writer"),
+      done(T1, "developer"),
+      dispatched(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "developer"),
+    ]);
+  });
+
+  it("reviews the task once the resume-commit developer is done with the specs commit", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      ...base,
+      dispatched(T1, "developer"),
+      dispatched(T1, "automation-writer"),
+      done(T1, "developer"),
+      commits(T1, "aaa0001"),
+      done(T1, "automation-writer"),
+      dispatched(T1, "developer"),
+      commits(T1, "aaa0002"),
+      done(T1, "developer"),
+    ]);
+
+    const { actions } = schedule(state, inputs, { resume: false });
+
+    expect(dispatchesOf(actions, T1, "developer")).toEqual([]);
+    expect(actions).toContainEqual(expect.objectContaining({ kind: "write", line: `${T1}: review package aaa0001,aaa0002` }));
+    expect(verifiesOf(actions, T1)).toHaveLength(1);
+    expect(dispatchesOf(actions, T1, "code-reviewer")).toHaveLength(1);
+  });
+});
+
+describe("schedule: a fix round's review package", () => {
+  const T1 = "TASK-001";
+
+  // A commits note written after the previous review was dispatched and before the round opened is in no review
+  // package yet; the round's reviewer must see it.
+  it("names a late commits note, written before the round opened, with the round's own commits", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady(T1),
+      ...committedAndUnderReview(T1, "aaa0001"),
+      commits(T1, "aaa0002"),
+      verifyDone(T1, 0),
+      done(T1, "code-reviewer", "findings"),
+      dispatched(T1, "developer", { round: 1 }),
+      done(T1, "developer"),
+      commits(T1, "bbb0003"),
+    ]);
+
+    const { actions } = schedule(state, inputsOf([task(T1)]), { resume: false });
+
+    expect(actions.filter((a) => a.kind === "write" && a.line.startsWith(`${T1}: review package`))).toEqual([
+      expect.objectContaining({ kind: "write", line: `${T1}: review package aaa0002,bbb0003` }),
+    ]);
+  });
+});
+
 describe("schedule: a minimal-fix note before the cap reached note", () => {
   // The cap stop is entered by its `cap reached` note: a minimal-fix note written before it decides nothing yet.
   it("names no fix developer and keeps the cap stop", async () => {

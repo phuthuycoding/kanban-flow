@@ -419,14 +419,21 @@ function checkPassOpen(t: TaskState, since: number): boolean {
 
 /**
  * `T: review package <shas>`: owed once the developer is done and committed, until the package line of that done. A
- * fix round's package is the round's own commits (543cd17 SKILL.md:143); the verify still runs on every commit.
+ * fix round's package is the commits since the head the previous review saw (FIX_BASE, 543cd17 SKILL.md:127), or the
+ * round's own commits when no package was written before; the verify still runs on every commit.
  */
 function packageWrite(t: TaskState, world: World): Intent[] {
   const since = t.devDoneAt;
   if (since === undefined || (t.packagedAt !== undefined && t.packagedAt > since) || t.commits.length === 0) return [];
   if (!checkPassOpen(t, since)) return [];
   const p = t.phase;
-  const fresh = p.kind === "cycle" && p.cycle === "round" ? t.commits.filter((sha) => p.commits.some((c) => sameSha(c, sha))) : [];
+  const base = t.reviewedCommits;
+  const fresh =
+    p.kind !== "cycle" || p.cycle !== "round"
+      ? []
+      : base !== undefined
+        ? t.commits.filter((sha) => !base.some((r) => sameSha(r, sha)))
+        : t.commits.filter((sha) => p.commits.some((c) => sameSha(c, sha)));
   const shas = fresh.length > 0 ? fresh : t.commits;
   return [act(t.id, lineWrite(world.inputs.feature, `${t.id}: review package ${shas.join(",")}`, t.id), ["reviewPackage"])];
 }
