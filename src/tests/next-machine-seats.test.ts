@@ -115,19 +115,17 @@ describe("machine seats: test-writers ahead", () => {
       task("TASK-003", { wave: 3, testTypes: ["UI"] }),
     ];
     const actions = seatActions(stateOf(scanClean), inputsOf(tasks), capOf(2));
-    // The arbiter ranks the owed line write ahead of the dispatches; the set of actions is what the rule fixes.
-    expect(actions).toHaveLength(3);
-    expect(actions).toEqual(
-      expect.arrayContaining([
-        { kind: "dispatch", task: "TASK-001", seat: "test-writer", mode: "new" },
-        { kind: "dispatch", task: "TASK-002", seat: "test-writer", mode: "new" },
-        expect.objectContaining({
-          kind: "write",
-          line: "TASK-003: no test-writer — <why>",
-          record: `kf record feat line -- ${q("TASK-003: no test-writer — <why>")}`,
-        }),
-      ]),
-    );
+    // The arbiter ranks the owed line write ahead of the dispatches, earliest task first.
+    expect(actions).toEqual([
+      {
+        kind: "write",
+        task: "TASK-003",
+        line: "TASK-003: no test-writer — <why>",
+        record: `kf record feat line -- ${q("TASK-003: no test-writer — <why>")}`,
+      },
+      { kind: "dispatch", task: "TASK-001", seat: "test-writer", mode: "new" },
+      { kind: "dispatch", task: "TASK-002", seat: "test-writer", mode: "new" },
+    ]);
     expect(dispatches(actions, "developer")).toHaveLength(0);
   });
 
@@ -223,7 +221,7 @@ describe("machine seats: developer release", () => {
   });
 
   it("releases no new developer when N are in flight and a fix round holds the next seat", () => {
-    const tasks = [task("TASK-001"), task("TASK-002"), task("TASK-003")];
+    const tasks = [task("TASK-001"), task("TASK-002"), task("TASK-003"), task("TASK-004")];
     const state = stateOf(
       scanClean,
       ...testsReady("TASK-001"),
@@ -231,10 +229,22 @@ describe("machine seats: developer release", () => {
       ...testsReady("TASK-002"),
       dispatched("TASK-002", "developer"),
       ...testsReady("TASK-003"),
+      dispatched("TASK-003", "developer"),
+      done("TASK-003", "developer"),
+      { type: "reviewPackage", task: "TASK-003", shas: ["abc1234"] } as Fields,
+      { type: "verifyStarted", task: "TASK-003" } as Fields,
+      dispatched("TASK-003", "code-reviewer"),
+      { type: "verifyDone", task: "TASK-003", exit: 0 } as Fields,
+      done("TASK-003", "code-reviewer", "findings"),
+      ...testsReady("TASK-004"),
     );
-    const actions = seatActions(state, inputsOf(tasks), capOf(2));
-    expect(dispatches(actions, "developer")).toHaveLength(0);
-    expect(waits(actions, "TASK-003")).toEqual([{ kind: "wait", task: "TASK-003", reason: "2 developers in flight" }]);
+    const actions = seatActions(state, inputsOf(tasks, { gitLog: logOf("abc1234") }), capOf(3));
+    // Two developers run and TASK-003's fix round takes the third seat, so TASK-004 gets none.
+    expect(dispatches(actions, "developer", "TASK-004")).toHaveLength(0);
+    expect(dispatches(actions, "developer", "TASK-003")).toEqual([
+      { kind: "dispatch", task: "TASK-003", seat: "developer", mode: "resume", round: 1 },
+    ]);
+    expect(waits(actions, "TASK-004")).toEqual([{ kind: "wait", task: "TASK-004", reason: "3 developers in flight" }]);
   });
 
   it("gives a freed seat to the fix round before a new task's developer", () => {
@@ -255,6 +265,9 @@ describe("machine seats: developer release", () => {
 
     const withFixRound = seatActions(state, inputsOf(tasks, { gitLog: logOf("abc1234") }), capOf(2));
     expect(dispatches(withFixRound, "developer", "TASK-002")).toHaveLength(0);
+    expect(dispatches(withFixRound, "developer", "TASK-003")).toEqual([
+      { kind: "dispatch", task: "TASK-003", seat: "developer", mode: "resume", round: 1 },
+    ]);
     expect(waits(withFixRound, "TASK-002")).toEqual([{ kind: "wait", task: "TASK-002", reason: "2 developers in flight" }]);
     expect(writes(withFixRound)).toContainEqual(
       expect.objectContaining({ line: "TASK-002: developer waits — 2 developers in flight" }),
@@ -513,7 +526,8 @@ describe("machine seats: after a developer's commit", () => {
     expect(dispatches(actions, "code-reviewer", "TASK-001")).toHaveLength(1);
   });
 
-  it("leaves a DONE_WITH_CONCERNS developer with no decision after it to the status rules (the machine prints the Seat status decide itself)", () => {
+  // Ledger ruling (progress.md): "the Commit made decide folds into Seat status", so the machine prints only the Seat status decide.
+  it("leaves a DONE_WITH_CONCERNS developer with no decision after it to the status rules (the Commit made decide is folded into Seat status)", () => {
     const state = stateOf(
       scanClean,
       ...testsReady("TASK-001"),
@@ -866,8 +880,9 @@ describe("machine seats: after a developer's commit", () => {
       it("writes no commits note and names no after-commit action", () => {
         const actions = seatActions(developed(completeNote), reported(), capOf(2));
         expect(notes(actions)).toHaveLength(0);
-        // The wave step-up note is an item-level write, so only actions naming the task are counted.
-        expect(actions.filter((a) => (a.kind === "write" || a.kind === "verify" || a.kind === "decide") && a.task === "TASK-001")).toHaveLength(0);
+        // The item-level wave step-up note is the only write allowed: it names no task.
+        const afterCommit = actions.filter((a) => (a.kind === "write" && !a.line.startsWith("Note wave ")) || a.kind === "verify" || a.kind === "decide");
+        expect(afterCommit).toHaveLength(0);
         expect(dispatches(actions, "code-reviewer")).toHaveLength(0);
       });
 
