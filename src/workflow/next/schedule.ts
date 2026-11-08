@@ -62,6 +62,13 @@ function breakerClosed(own: LedgerEvent[]): boolean {
   return parkedAt !== -1 && own.some((e, i) => i > parkedAt && e.type === "decided");
 }
 
+/** A `decided — minimal fix past the cap:` note after the task's latest `cap reached` note. */
+function minimalFixDecided(events: LedgerEvent[], task: string): boolean {
+  const capAt = events.map((e) => e.type === "capReached" && e.task === task).lastIndexOf(true);
+  if (capAt === -1) return false;
+  return events.some((e, i) => i > capAt && e.type === "decided" && e.task === task && e.what.startsWith("minimal fix past the cap:"));
+}
+
 /** FR-011: the task's `complete` line is due now. */
 function completionDue(state: LedgerState, inputs: LoopInputs, t: LoopTask, completed: Set<string>, open: Set<string>): boolean {
   const { events } = state;
@@ -257,6 +264,9 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
   // A resumed seat is not dispatched a second time by a rule module.
   const resumedKey = new Set(resumed.map((d) => `${d.task} ${d.seat}`));
   actions = actions.filter((a) => !(a.kind === "dispatch" && !resumed.includes(a) && resumedKey.has(`${a.task} ${a.seat}`)));
+
+  // A cap stop is lifted once the human's minimal fix past the cap is decided after the task's latest `cap reached`.
+  actions = actions.filter((a) => !(a.kind === "stop" && a.task !== undefined && minimalFixDecided(events, a.task)));
 
   // Holds: a stop holds every dispatch; a task-less decide every dispatch; a task decide its own task's later actions.
   const stops = actions.some((a) => a.kind === "stop");

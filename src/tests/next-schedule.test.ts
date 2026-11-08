@@ -308,6 +308,65 @@ describe("schedule: completion", () => {
   });
 });
 
+describe("schedule: a reopened task at its round cap", () => {
+  const capReached = (task: string): Fields => ({ type: "capReached", task, failure: "the retry loop is still unbounded" });
+  const minimalFix = (task: string): Fields =>
+    decided(task, "minimal fix past the cap: bound the retry loop to three attempts");
+
+  /** TASK-001 completed, reopened, and spent its five rounds with findings; TASK-002 has not started. */
+  const atCap = (...tail: Fields[]): Fields[] => [
+    scan,
+    capStart(2),
+    ...testsReady("TASK-001"),
+    ...committedAndUnderReview("TASK-001", "aaa0000"),
+    verifyDone("TASK-001", 0),
+    done("TASK-001", "code-reviewer", "clean"),
+    complete("TASK-001", "commits aaa0000, review clean"),
+    reopened("TASK-001"),
+    ...fiveRoundsWithFindings("TASK-001", "aaa000"),
+    capReached("TASK-001"),
+    ...tail,
+  ];
+  const plan = (): LoopInputs => inputsOf([task("TASK-001"), task("TASK-002", { files: ["src/other.ts"] })]);
+
+  it("prints no stop and still dispatches another task once the minimal fix is decided", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(atCap(minimalFix("TASK-001")));
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    expect(dispatchesOf(actions, "TASK-002").length).toBeGreaterThan(0);
+  });
+
+  it("keeps the stop and holds every dispatch while no minimal fix is decided", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(atCap());
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop").map((a) => a.task)).toEqual(["TASK-001"]);
+    expect(actions.filter((a) => a.kind === "dispatch")).toEqual([]);
+  });
+
+  it("completes the task after the decided minimal fix is committed, verified and reviewed clean", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf(
+      atCap(
+        minimalFix("TASK-001"),
+        ...committedAndUnderReview("TASK-001", "bbb0001"),
+        verifyDone("TASK-001", 0),
+        done("TASK-001", "code-reviewer", "clean"),
+      ),
+    );
+
+    const { actions } = schedule(state, plan(), { resume: false });
+
+    expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    expect(completedIn(actions)).toContain("TASK-001");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Resume, in flight and drift
 // ---------------------------------------------------------------------------
