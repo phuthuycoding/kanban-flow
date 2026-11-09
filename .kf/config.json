@@ -41,11 +41,13 @@
           "npm",
           "run",
           "typecheck"
-        ],
-        [
-          "npm",
-          "test"
         ]
+      ],
+      "related": [
+        "npx",
+        "vitest",
+        "related",
+        "--run"
       ],
       "stage": [
         [
