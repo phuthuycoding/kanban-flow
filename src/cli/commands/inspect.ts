@@ -190,7 +190,7 @@ export async function cmdStatus(args: ParsedArgs, cwd: string): Promise<CmdResul
     return { code: 1, stdout: `${migrated}Unknown feature '${change}'. Run: kf list`, stderr: "unknown feature" };
   }
   const statuses = features.map((f) => {
-    const s = computeStatus(f);
+    const s = computeStatus(f, root.root);
     const close = closed.states.get(f.name);
     return close ? { ...s, close } : s;
   });

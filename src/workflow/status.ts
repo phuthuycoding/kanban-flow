@@ -16,6 +16,7 @@ import { executionContractHash, findWorksRoot } from "./features.js";
 import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { validateFeature } from "./validate.js";
 import type { Finding } from "./findings.js";
+import { evaluateStageEvidence, type StageEvidence } from "./stage-evidence.js";
 
 export type ArtifactStatus = "done" | "missing" | "waiting";
 
@@ -51,6 +52,8 @@ export interface FeatureStatus {
   taskProgress: { done: number; total: number };
   /** Why a review PASS item did not close on this run; set by the command that attempted it. */
   close?: CloseState;
+  /** Stage verify evidence while the item is in implementation, testing or review; null otherwise or without a root. */
+  stageVerify: StageEvidence | null;
 }
 
 /**
@@ -102,7 +105,7 @@ export function countTasks(content: string): { done: number; total: number } {
 }
 
 /** Compute artifact completion status for a feature at its current stage. */
-export function computeStatus(feature: Feature): FeatureStatus {
+export function computeStatus(feature: Feature, root?: string): FeatureStatus {
   const stageIndex = STAGE_INDEX[feature.stage];
   const artifacts: ArtifactState[] = [];
   let doneCount = 0;
@@ -161,7 +164,38 @@ export function computeStatus(feature: Feature): FeatureStatus {
     next,
     blockers,
     taskProgress,
+    stageVerify: root !== undefined && STAGE_VERIFY_STAGES.includes(feature.stage)
+      ? evaluateStageEvidence(root, feature)
+      : null,
   };
+}
+
+const STAGE_VERIFY_STAGES: readonly string[] = ["implementation", "testing", "review"];
+
+const sha7 = (sha: string | null | undefined): string => (sha ?? "").slice(0, 7);
+
+function ageSince(at: string): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(at)) / 60000));
+  if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d`;
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h`;
+  return `${minutes}m`;
+}
+
+function stageVerifyLine(ev: StageEvidence, feature: string): string {
+  const rec = ev.record;
+  switch (ev.state) {
+    case "pass": return `Stage verify: PASS ${sha7(rec?.sha)} at HEAD, ${ageSince(rec?.at ?? "")} ago`;
+    case "fail": return `Stage verify: FAIL ${sha7(rec?.sha)} at HEAD (exit ${rec?.exit})`;
+    case "stale": return `Stage verify: stale (record ${sha7(rec?.sha)}, HEAD ${sha7(ev.head)})`;
+    case "waived": return `Stage verify: waived — ${ev.waiver?.reason} (${ev.waiver?.by}, ${ev.waiver?.at.slice(0, 10)})`;
+    case "none": return `Stage verify: none — run kf verify ${feature} --stage`;
+    case "not-configured": return "Stage verify: not configured — pin harness.verify.stage or record a waiver";
+    case "dirty-at-record": return `Stage verify: record ${sha7(rec?.sha)} taken on a dirty tree`;
+    case "dirty-now": return "Stage verify: tree has uncommitted changes";
+    case "config-changed": return `Stage verify: harness.verify.stage changed since record ${sha7(rec?.sha)}`;
+    case "invalid": return `Stage verify: invalid record — ${ev.reason}`;
+    case "dir-missing": return `Stage verify: item directory missing — ${ev.dir}`;
+  }
 }
 
 interface DomainsFlag { domains: boolean; error?: string }
@@ -220,6 +254,7 @@ export function renderStatusText(s: FeatureStatus): string {
   }
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);
+  if (s.stageVerify) lines.push(stageVerifyLine(s.stageVerify, s.feature.name));
   const cancellation = s.feature.meta?.cancellation;
   if (cancellation) {
     lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${currentStageName(cancellation.fromStage)}) — ${cancellation.reason.split("\n")[0]}`);
@@ -296,6 +331,18 @@ export function statusToJson(s: FeatureStatus) {
     next: s.next,
     blockers: s.blockers,
     tasks: s.taskProgress,
+    stageVerify: s.stageVerify
+      ? {
+          state: s.stageVerify.state,
+          sha: s.stageVerify.record?.sha ?? null,
+          head: s.stageVerify.head,
+          matchesHead: s.stageVerify.record && s.stageVerify.head ? s.stageVerify.record.sha === s.stageVerify.head : null,
+          at: s.stageVerify.record?.at ?? null,
+          exit: s.stageVerify.record?.exit ?? null,
+          reason: s.stageVerify.waiver?.reason ?? null,
+          by: s.stageVerify.waiver?.by ?? null,
+        }
+      : null,
   };
 }
 
