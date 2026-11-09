@@ -230,7 +230,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   record: {
-    help: "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]  — append one stamped line to the item's task loop ledger (loop/progress.md) under the item lock. Events: dispatched, done, verify-started, verify-done, commits, waits, fix-round, cascade-owed, complete, line. Exit 0 written, 1 refused (file unchanged), 3 bad input",
+    help: "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]  — append one stamped line to the item's task loop ledger (loop/progress.md) under the item lock. Events: dispatched, done, verify-started, verify-done, commits, waits, fix-round, cascade-owed, complete, wave-verify-started <w>, wave-verify-done <w> --exit <n>, line. Exit 0 written, 1 refused (file unchanged), 3 bad input",
     allowPositionals: true,
     options: {
       model: { type: "string" },

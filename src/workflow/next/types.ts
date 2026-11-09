@@ -118,8 +118,14 @@ export type LedgerEvent = EventBase &
     | { type: "verifyWaits"; task: string; file: string; otherTask: string }
     /** `Note TASK-NNN: verify rerun — contention <signature>` */
     | { type: "verifyRerun"; task: string; signature: string }
-    /** `Note TASK-NNN: reopened — <testing|review|ci> <exec8>` */
-    | { type: "reopened"; task: string; source: string; execution: string }
+    /** `Note TASK-NNN: reopened — <testing|review|ci> <exec8>`, or `reopened — wave <w>` (source `wave`, no execution) */
+    | { type: "reopened"; task: string; source: string; execution: string; wave?: number }
+    /** `wave <w>: verify started` */
+    | { type: "waveVerifyStarted"; wave: number }
+    /** `wave <w>: verify done exit=<n>` */
+    | { type: "waveVerifyDone"; wave: number; exit: number }
+    /** `Note wave <w>: decided — <what>` */
+    | { type: "waveDecided"; wave: number; text: string }
     /** `Note TASK-NNN: cap reached — <failure>` */
     | { type: "capReached"; task: string; failure: string }
     /** `Note TASK-NNN: developer seat inline` */

@@ -17,6 +17,10 @@ const VERIFY_ROUTED = /^Note (TASK-\d+): verify routed — (TASK-\d+)$/;
 const VERIFY_WAITS = /^Note (TASK-\d+): verify waits — (.+) \((TASK-\d+)\)$/;
 const VERIFY_RERUN = /^Note (TASK-\d+): verify rerun — contention (.+)$/;
 const REOPENED = /^Note (TASK-\d+): reopened — (testing|review|ci) (\S{8})$/;
+const REOPENED_WAVE = /^Note (TASK-\d+): reopened — wave (\d+)$/;
+const WAVE_VERIFY_STARTED = /^wave (\d+): verify started$/;
+const WAVE_VERIFY_DONE = /^wave (\d+): verify done exit=(\d+)$/;
+const WAVE_DECIDED = /^Note wave (\d+): decided — (.+)$/;
 const CAP_REACHED = /^Note (TASK-\d+): cap reached — (.+)$/;
 const INLINE = /^Note (TASK-\d+): developer seat inline$/;
 const CAP_START = /^Ruling: developer cap (\d+) — start — .+$/;
@@ -98,6 +102,10 @@ function schedulerEvent(body: string): Fields | null {
     return signature ? { type: "verifyRerun", task: m[1], signature } : null;
   }
   if ((m = REOPENED.exec(body))) return { type: "reopened", task: m[1], source: m[2], execution: m[3] };
+  if ((m = REOPENED_WAVE.exec(body))) return { type: "reopened", task: m[1], source: "wave", wave: Number(m[2]), execution: "" };
+  if ((m = WAVE_VERIFY_STARTED.exec(body))) return { type: "waveVerifyStarted", wave: Number(m[1]) };
+  if ((m = WAVE_VERIFY_DONE.exec(body))) return { type: "waveVerifyDone", wave: Number(m[1]), exit: Number(m[2]) };
+  if ((m = WAVE_DECIDED.exec(body))) return { type: "waveDecided", wave: Number(m[1]), text: m[2] };
   if ((m = CAP_REACHED.exec(body))) return { type: "capReached", task: m[1], failure: m[2] };
   if ((m = INLINE.exec(body))) return { type: "inline", task: m[1] };
   if ((m = CAP_START.exec(body))) return { type: "capRuling", from: null, to: Number(m[1]), cause: { kind: "start" } };
@@ -171,6 +179,16 @@ export function openVerifies(state: LedgerState): { task: string; line: number }
     else if (e.type === "verifyDone") open.delete(e.task);
   }
   return [...open.values()].sort((a, b) => a.line - b.line);
+}
+
+/** The waves with a `wave <w>: verify started` no later `verify done` of the wave answers; a repeated start supersedes. */
+export function openWaveVerifies(state: LedgerState): Set<number> {
+  const open = new Set<number>();
+  for (const e of state.events) {
+    if (e.type === "waveVerifyStarted") open.add(e.wave);
+    else if (e.type === "waveVerifyDone") open.delete(e.wave);
+  }
+  return open;
 }
 
 /** Tasks whose latest `complete` or `implemented` event no later `reopened` event of the same task cancels. */
