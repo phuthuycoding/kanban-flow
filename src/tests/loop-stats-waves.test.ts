@@ -158,3 +158,34 @@ describe("loop-stats help", () => {
     expect(commandHelp("loop-stats")).toContain("wave verify");
   });
 });
+
+/*
+ * Wave verify minutes are neither busy nor controller time: controller = wall - union(busy intervals, wave intervals).
+ *   apart:       seat 10:00-10:10 = 10, wave 10:12-10:18 = 6, complete 10:20 -> wall 20, busy 10, controller 20-10-6 = 4
+ *   overlapping: seat 10:00-10:10 = 10, wave 10:08-10:14 = 6, complete 10:16 -> wall 16, busy 10, union 14, controller 2
+ */
+describe("controller minutes with a wave verify", () => {
+  const ledger = (waveStart: string, waveEnd: string, complete: string): string[] => [
+    `TASK-001: developer dispatched model=sonnet @ ${at("10:00")}`,
+    `TASK-001: developer done status=DONE @ ${at("10:10")}`,
+    `wave 1: verify started @ ${at(waveStart)}`,
+    `wave 1: verify done exit=0 @ ${at(waveEnd)}`,
+    `TASK-001: complete (commits a1b2c3d, review clean) @ ${at(complete)}`,
+  ];
+
+  it("does not count a wave verify apart from the task seats as controller time", async () => {
+    await setUp("cw", ledger("10:12", "10:18", "10:20"), { "wave-1-verify.log": `## kf verify ${iso("10:18")} exit=0\n` });
+    const out = JSON.parse((await run("cw", { json: true })).stdout) as Record<string, unknown>;
+    expect(out.wallMinutes).toBe(20);
+    expect(out.busyMinutes).toBe(10);
+    expect(out.controllerMinutes).toBe(4);
+  });
+
+  it("counts the minutes a wave verify shares with a task seat once", async () => {
+    await setUp("cwo", ledger("10:08", "10:14", "10:16"), { "wave-1-verify.log": `## kf verify ${iso("10:14")} exit=0\n` });
+    const out = JSON.parse((await run("cwo", { json: true })).stdout) as Record<string, unknown>;
+    expect(out.wallMinutes).toBe(16);
+    expect(out.busyMinutes).toBe(10);
+    expect(out.controllerMinutes).toBe(2);
+  });
+});

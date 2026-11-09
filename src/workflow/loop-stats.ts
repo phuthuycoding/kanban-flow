@@ -489,6 +489,9 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
   const seatMs = sum(seatIntervals.map((iv) => iv.end - iv.start));
   const verifyMs = sum(verifyIntervals.map((iv) => iv.end - iv.start));
   const busyMs = unionMs([...seatIntervals, ...verifyIntervals]);
+  // A wave verify is kf work, not controller time, yet it stays out of busy and saved.
+  const waveIntervals = wavePairs.map(({ open, close }) => ({ start: open.ts!, end: close.ts! }));
+  const workMs = unionMs([...seatIntervals, ...verifyIntervals, ...waveIntervals]);
 
   return {
     inProgress,
@@ -500,7 +503,7 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
     verifyMinutes: round1(verifyMs / MINUTE),
     busyMinutes: round1(busyMs / MINUTE),
     savedMinutes: round1((seatMs + verifyMs - busyMs) / MINUTE),
-    controllerMinutes: round1((wallMs - busyMs) / MINUTE),
+    controllerMinutes: round1((wallMs - workMs) / MINUTE),
     waitMinutes: round1(waitMs / MINUTE),
     rounds: of("fixRound").length,
     cascades: of("cascadeOwed").length,
