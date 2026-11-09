@@ -109,10 +109,11 @@ When `.works/` is gitignored (the default `kf init` answer), the ledger travels 
 
 The cap is live because no fixed number fits every project: one probe here had 4 full suites in one worktree pass at about 1.8× the throughput of one, but a suite that shares a database or binds fixed ports breaks at 2, and a light one is held back at 4. It starts low because 2 is the smallest value that still runs anything in parallel, rises additively because one clean wave proves little, and halves on contention because the load that failed will fail again. A contention failure is told from a real one by one re-run, cheaper than a solo run of the whole suite; a real hang that prints `Test timed out` costs one re-run before it reaches the fix loop. Step-ups are decided in wave order, from the ledger alone, so two controllers reach the same N and a resumed one never re-decides against a different N. Freed seats go to fix rounds first because finishing a task closes it sooner than starting another.
 
-The two wait lines:
+The three wait lines:
 
 ```
 TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)
+TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM <seat> in flight)
 TASK-NNN: developer waits — <N> developers in flight
 ```
 
