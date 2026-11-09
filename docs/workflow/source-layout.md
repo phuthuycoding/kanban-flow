@@ -36,7 +36,7 @@ src/
 │   ├── cancel.ts         # cancel transaction (cancelItem) behind kf cancel
 │   ├── tasks.ts          # the plan's task graph
 │   ├── allowlist.ts      # task Files allowlist matching
-│   ├── verify.ts         # verifyTask / verifyStage behind kf verify
+│   ├── verify.ts         # verifyTask / verifyStage / verifyWave behind kf verify
 │   ├── loop-stats.ts     # src/workflow/loop-stats.ts: ledger parsing and loop measurements behind kf loop-stats
 │   ├── next/             # the task loop state machine behind kf next and kf record
 │   │   ├── types.ts      # the contract: LedgerState, LoopInputs, World, Intent, Action and NextResult
@@ -51,6 +51,7 @@ src/
 │   │   ├── arbiter.ts    # cross-task arbitration: holds, dependencies, overlaps, the live cap, the reviewer lane
 │   │   ├── cap.ts        # the live developer cap and contention re-runs
 │   │   ├── liveness.ts   # the liveness guard: every open task has a witness, every decide names a closing line
+│   │   ├── waves.ts      # the wave tier: per-wave verify state, the later-wave developer hold, wave verify actions and decides
 │   │   ├── schedule.ts   # schedule(): fold, intents, arbiter, then the liveness guard
 │   │   └── record.ts     # recordEvent(): validates and appends one ledger line
 │   ├── migrate.ts        # one-time move of legacy dones/shipping items to done/review

@@ -217,11 +217,11 @@ the agents inside them and runs the mechanical checks through `kf verify`; kf
 spawns no worker process and keeps no run state. In the task loop, `kf next`
 prints what is due and `kf record` writes the ledger.
 The commands `kf drive`, `kf run`, `kf runs` and `kf harness` were removed, together with the
-role, runner and stage configuration behind them. The only `harness` keys left are the two verify lists and the developer ceiling:
+role, runner and stage configuration behind them. The only `harness` keys left are the verify settings (`task`, `related`, `stage`) and the developer ceiling:
 
 ```json
 "harness": {
-  "verify": { "task": [["npm", "run", "typecheck"]], "stage": [["npm", "run", "build"], ["npm", "test"]] },
+  "verify": { "task": [["npm", "run", "typecheck"]], "related": ["npx", "vitest", "related", "--run"], "stage": [["npm", "run", "build"], ["npm", "test"]] },
   "developers": { "max": 6 }
 }
 ```
