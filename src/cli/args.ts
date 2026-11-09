@@ -213,7 +213,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   "loop-stats": {
-    help: "Usage: kf loop-stats <feature> [--json] [--record] | kf loop-stats --all [--json]  — measure a task loop from its ledger (loop/progress.md); --record writes the row to .works/loop-metrics.md, --all summarises the history. Exit 0 report, 1 no ledger / untimed / refused, 3 bad input",
+    help: "Usage: kf loop-stats <feature> [--json] [--record] | kf loop-stats --all [--json]  — measure a task loop from its ledger (loop/progress.md), wave verify runs included as their own line (wave verify); --record writes the row to .works/loop-metrics.md, --all summarises the history. Exit 0 report, 1 no ledger / untimed / refused, 3 bad input",
     allowPositionals: true,
     options: {
       json: { type: "boolean" },
