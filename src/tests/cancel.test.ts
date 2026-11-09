@@ -18,6 +18,7 @@ import { ARTIFACTS } from "../workflow/schema.js";
 import { cmdList, cmdStatus, cmdView } from "../cli/commands/inspect.js";
 import * as paths from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 let root: string;
@@ -70,6 +71,7 @@ async function archivedItem(name: string): Promise<void> {
     writeFile(join(dir(), ARTIFACTS[id].file),
       `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
+  await grantStageWaiver(root, name);
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report("review-report");
   await writeFile(join(dir(), ARTIFACTS["feature-report"].file), "# Feature Report\nShipped FR-001 as specified.");

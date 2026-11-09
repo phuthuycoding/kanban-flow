@@ -11,6 +11,10 @@ import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
 import { runVerify } from "../workflow/verify.js";
+import { runVerifySteps } from "../workflow/verify.js";
+import { cmdVerify } from "../cli/commands/verify.js";
+import { createHash } from "node:crypto";
+import { rmSync, writeFileSync } from "node:fs";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 
@@ -663,5 +667,187 @@ describe("this repository's verify configuration", () => {
   it("runs typecheck then the test suite for a task", () => {
     const config = JSON.parse(readFileSync(join(PKG_ROOT, ".kf", "config.json"), "utf8"));
     expect(config.harness.verify.task).toEqual([["npm", "run", "typecheck"], ["npm", "test"]]);
+  });
+});
+
+describe("runVerifySteps", () => {
+  let cwd: string;
+  beforeEach(async () => {
+    cwd = realpathSync(await mkdtemp(join(tmpdir(), "kf-runsteps-")));
+  });
+  afterEach(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  const ok = ["node", "-e", "process.exit(0)"];
+  const exit2 = ["node", "-e", "process.exit(2)"];
+  const noop = ["node", "-e", "0"];
+  const missing = ["no-such-cmd-xyz"];
+  const selfKill = ["node", "-e", "process.kill(process.pid,'SIGTERM')"];
+
+  it("records an exit outcome with code 0 for a passing command", () => {
+    const res = runVerifySteps([ok], cwd);
+    expect(res.steps).toEqual([{ argv: ok, outcome: "exit", code: 0 }]);
+    expect(res.failure).toBeNull();
+    expect(runVerify([ok], cwd)).toBeNull();
+  });
+
+  it("records the failing exit code and marks every later command not-run", () => {
+    const res = runVerifySteps([exit2, noop], cwd);
+    expect(res.steps).toEqual([
+      { argv: exit2, outcome: "exit", code: 2 },
+      { argv: noop, outcome: "not-run" },
+    ]);
+    expect(res.failure).toBe(runVerify([exit2, noop], cwd));
+    expect(runVerify([exit2, noop], cwd)).toBe(`verify command failed (exit 2): ${exit2.join(" ")}`);
+  });
+
+  it("records a missing command as not-started naming it, and marks the later command not-run", () => {
+    const res = runVerifySteps([missing, noop], cwd);
+    expect(res.steps).toEqual([
+      { argv: missing, outcome: "not-started", error: "verify command not found: no-such-cmd-xyz" },
+      { argv: noop, outcome: "not-run" },
+    ]);
+    expect(runVerify([missing, noop], cwd)).toBe("verify command not found: no-such-cmd-xyz");
+  });
+
+  it("records a command killed by a signal as a signal outcome", () => {
+    const res = runVerifySteps([selfKill], cwd);
+    expect(res.steps).toEqual([{ argv: selfKill, outcome: "signal", signal: "SIGTERM" }]);
+    expect(runVerify([selfKill], cwd)).toBe(`verify command failed (signal SIGTERM): ${selfKill.join(" ")}`);
+  });
+
+  it("returns the combined stdout and stderr of the commands that ran, in order", () => {
+    const a = ["node", "-e", "process.stdout.write('one\\n')"];
+    const b = ["node", "-e", "process.stderr.write('two\\n')"];
+    expect(runVerifySteps([a, b], cwd).output).toBe("one\ntwo\n");
+  });
+});
+
+describe("kf verify --stage record", () => {
+  const cmd = (script: string): string[] => ["node", "-e", script];
+  const pass1 = cmd("console.log('one')");
+  const pass2 = cmd("console.log('two')");
+  const fail2 = cmd("process.exit(1)");
+
+  const run = (cwd: string) => cmdVerify(args("verify", ["f"], { stage: true }), cwd);
+  const recordFile = () => join(findFeature(item.root, "f")!.dir, "loop", "stage-verify.jsonl");
+  const lines = (): string[] => (existsSync(recordFile()) ? readFileSync(recordFile(), "utf8").split("\n").filter((l) => l !== "") : []);
+
+  describe("without a worktree", () => {
+    beforeEach(async () => {
+      item = await makeItem({ files: "src/a.ts", worktree: false });
+    });
+
+    it("appends one record for a passing run with the head sha, a clean tree, both commands in order, the output hash and an ISO time", async () => {
+      await item.configure({ stage: [pass1, pass2] });
+
+      const res = await run(item.root);
+
+      expect(res.code).toBe(0);
+      const all = lines();
+      expect(all).toHaveLength(1);
+      const record = JSON.parse(all[0]);
+      expect(record.sha).toBe(gitIn(item.root, "rev-parse", "HEAD"));
+      expect(record.clean).toBe(true);
+      expect(record.commands).toEqual([
+        { argv: pass1, outcome: "exit", code: 0 },
+        { argv: pass2, outcome: "exit", code: 0 },
+      ]);
+      expect(record.outputSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(record.outputSha256).toBe(createHash("sha256").update("one\ntwo\n").digest("hex"));
+      expect(record.exit).toBe(0);
+      expect(new Date(record.at).toISOString()).toBe(record.at);
+    });
+
+    it("appends one record with exit 1 and exits 1 when the second command fails", async () => {
+      await item.configure({ stage: [pass1, fail2] });
+
+      const res = await run(item.root);
+
+      expect(res.code).toBe(1);
+      const all = lines();
+      expect(all).toHaveLength(1);
+      const record = JSON.parse(all[0]);
+      expect(record.exit).toBe(1);
+      expect(record.commands[1]).toEqual({ argv: fail2, outcome: "exit", code: 1 });
+    });
+
+    it("writes no record and says so when no stage verify is configured", async () => {
+      await item.configure({ task: [["true"]] });
+
+      const res = await run(item.root);
+
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain("No stage verify configured");
+      expect(existsSync(recordFile())).toBe(false);
+    });
+
+    it("records clean false after a tracked file is modified, and clean true when only an untracked file is added", async () => {
+      await item.configure({ stage: [pass1, pass2] });
+      await item.commit({ "tracked.txt": "a\n" });
+
+      writeFileSync(join(item.root, "tracked.txt"), "changed\n");
+      await run(item.root);
+      gitIn(item.root, "checkout", "--", "tracked.txt");
+      writeFileSync(join(item.root, "untracked.txt"), "x\n");
+      await run(item.root);
+
+      const all = lines().map((l) => JSON.parse(l));
+      expect(all).toHaveLength(2);
+      expect(all[0].clean).toBe(false);
+      expect(all[1].clean).toBe(true);
+    });
+
+    it("keeps the first line byte-identical when a second run appends another", async () => {
+      await item.configure({ stage: [pass1, pass2] });
+
+      await run(item.root);
+      const first = lines()[0];
+      await run(item.root);
+
+      const all = lines();
+      expect(all).toHaveLength(2);
+      expect(all[0]).toBe(first);
+    });
+
+    it("keeps the verdict and warns on stderr when the loop folder cannot be written, for a pass and for a fail", async () => {
+      writeFileSync(join(findFeature(item.root, "f")!.dir, "loop"), "not a directory");
+
+      await item.configure({ stage: [pass1, pass2] });
+      const passed = await run(item.root);
+      await item.configure({ stage: [pass1, fail2] });
+      const failed = await run(item.root);
+
+      expect(passed.code).toBe(0);
+      expect(passed.stderr).toContain("could not write the stage verify record");
+      expect(failed.code).toBe(1);
+      expect(failed.stderr).toContain("could not write the stage verify record");
+      expect(readFileSync(join(findFeature(item.root, "f")!.dir, "loop"), "utf8")).toBe("not a directory");
+    });
+  });
+
+  describe("with a worktree", () => {
+    beforeEach(async () => {
+      item = await makeItem({ files: "src/a.ts", worktree: true });
+    });
+
+    it("records the worktree's head sha", async () => {
+      await item.configure({ stage: [pass1, pass2] });
+
+      await run(item.root);
+
+      expect(JSON.parse(lines()[0]).sha).toBe(item.head());
+    });
+
+    it("exits 3 and writes no record when the item worktree is missing", async () => {
+      await item.configure({ stage: [pass1, pass2] });
+      rmSync(item.dir, { recursive: true, force: true });
+
+      const res = await run(item.root);
+
+      expect(res.code).toBe(3);
+      expect(existsSync(recordFile())).toBe(false);
+    });
   });
 });

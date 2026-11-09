@@ -10,7 +10,7 @@ stateDiagram-v2
     backlog --> planning: revise scope/plan
     implementation --> testing: implementation complete
     implementation --> planning: scope/plan needs change
-    testing --> review: testing result PASS
+    testing --> review: testing result PASS + stage record at HEAD (or waiver)
     testing --> implementation: testing FAIL/REJECT
     testing --> planning: scope change
     review --> done: review PASS + PR merged (or nothing to land)

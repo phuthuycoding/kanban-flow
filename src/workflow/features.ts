@@ -49,6 +49,12 @@ function isWorktreeRegistration(value: unknown): value is WorktreeRegistration {
     && (w.createdAt === undefined || typeof w.createdAt === "string");
 }
 
+export interface VerifyWaiver {
+  reason: string;
+  at: string;
+  by: string;
+}
+
 export interface FeatureMeta {
   schema: string;
   feature: string;
@@ -76,6 +82,8 @@ export interface FeatureMeta {
   bypasses?: Bypass[];
   /** Git worktree + domain allocated for implementation; absent until created. */
   worktree?: WorktreeRegistration;
+  /** The human's reason to enter review with no stage verify pinned; `kf verify --stage --waive` writes it. */
+  verifyWaiver?: VerifyWaiver;
   /** Progress of the removed `kf ship` pipeline. Nothing writes it now; items shipped by earlier releases still carry it, so it must keep loading. */
   ship?: ShipState;
 }
@@ -195,6 +203,7 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
     || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))
     || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))
+    || (meta.verifyWaiver !== undefined && !isVerifyWaiver(meta.verifyWaiver))
     || (meta.ship !== undefined && !isShipState(meta.ship))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
@@ -212,6 +221,12 @@ function isBypass(value: unknown): value is Bypass {
     && typeof b.to === "string" && isStageOrLegacy(b.to)
     && (b.flag === "force" || b.flag === "skip-hooks")
     && Array.isArray(b.codes) && b.codes.every((c) => typeof c === "string");
+}
+
+function isVerifyWaiver(value: unknown): value is VerifyWaiver {
+  if (!value || typeof value !== "object") return false;
+  const w = value as Partial<VerifyWaiver>;
+  return typeof w.reason === "string" && typeof w.at === "string" && typeof w.by === "string";
 }
 
 function isCancellation(value: unknown): value is Cancellation {

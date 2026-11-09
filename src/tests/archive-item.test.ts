@@ -11,6 +11,7 @@ import { archiveItem } from "../workflow/archive.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
   ({ command, positionals, options });
@@ -55,6 +56,7 @@ async function reviewStage(name = "shipit"): Promise<void> {
   await implementationStage(name);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   await report(name, "testing-result");
+  await grantStageWaiver(root, name);
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report(name, "review-report");
   await writeFile(join(feature(name).dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified");

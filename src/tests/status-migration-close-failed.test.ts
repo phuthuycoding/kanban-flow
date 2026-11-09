@@ -10,6 +10,7 @@ import { cmdStatus } from "../cli/commands/inspect.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 const GH_STUB = `#!/usr/bin/env bash
 case "$1" in
@@ -51,6 +52,7 @@ async function shippedItemWhoseCloseThrows(): Promise<string> {
   expect((await cmdApprove(args("approve", ["shipped"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", ["shipped", "testing"]), root)).code).toBe(0);
   await report("testing-result");
+  await grantStageWaiver(root, "shipped");
   expect((await cmdStage(args("stage", ["shipped", "review"]), root)).code).toBe(0);
   await report("review-report");
   await writeFile(join(dir(), ARTIFACTS["feature-report"].file), "# Feature report\nVerified");

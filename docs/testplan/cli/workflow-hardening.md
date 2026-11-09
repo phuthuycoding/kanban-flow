@@ -6,6 +6,8 @@ status: archived
 ---
 # Test Plan
 
+> **Partly superseded by `verify-evidence`:** the `testing_exit_code` cases (TC-010) no longer hold — the check was removed and a PASS report is not refused for its Commands table; the stage verify record gates review instead. Kept for history.
+
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
 

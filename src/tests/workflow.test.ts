@@ -20,6 +20,7 @@ import { readProjectConfig } from "../project/config.js";
 import { resolveTemplate, resolveRule } from "../shared/paths.js";
 import * as paths from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 let root: string;
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
@@ -53,6 +54,7 @@ async function review(): Promise<void> {
   await implementation();
   expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
   await report("testing-result");
+  await grantStageWaiver(root, "demo");
   expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
   await report("review-report");
 }
@@ -155,6 +157,7 @@ describe("requirement and approval gates", () => {
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
     await report("testing-result");
+    await grantStageWaiver(root, "demo");
     expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
     await report("review-report");
     const canonical = join(root, "docs", "requirement", "app", "demo.md");
@@ -257,6 +260,7 @@ describe("requirement and approval gates", () => {
     await cmdApprove(args("approve", ["demo"]), root);
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result");
+    await grantStageWaiver(root, "demo");
     await cmdStage(args("stage", ["demo", "review"]), root);
     await report("review-report");
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified");
@@ -327,6 +331,7 @@ describe("testing and review cycles", () => {
     await implementation();
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result", status);
+    await grantStageWaiver(root, "demo");
     expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(1);
   });
 
@@ -337,8 +342,10 @@ describe("testing and review cycles", () => {
     expect((await cmdStage(args("stage", ["demo", "implementation"]), root)).code).toBe(0);
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
     expect(feature().meta!.executionId).not.toBe(oldExecution);
+    await grantStageWaiver(root, "demo");
     expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(1);
     await report("testing-result");
+    await grantStageWaiver(root, "demo");
     expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nCurrent summary");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(1);
@@ -396,6 +403,7 @@ describe("archive consistency", () => {
     await cmdApprove(args("approve", ["demo"]), root);
     await cmdStage(args("stage", ["demo", "testing"]), root);
     await report("testing-result");
+    await grantStageWaiver(root, "demo");
     await cmdStage(args("stage", ["demo", "review"]), root);
     await report("review-report");
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified scope and tests");

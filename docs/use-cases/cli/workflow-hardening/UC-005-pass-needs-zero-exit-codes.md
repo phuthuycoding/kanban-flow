@@ -6,6 +6,8 @@ status: archived
 ---
 # Use Case
 
+> **Superseded by `verify-evidence`.** The validator no longer reads exit codes from the testing report's Commands table (`testing_exit_code` was removed); the move into review gates on the stage verify record kf writes itself. Kept for history.
+
 > **Partly superseded by `exit-code-cell`:** step 3 no longer reads a fixed second column — the cell under the `Exit code` header decides, and a raw `|` in a cell can fail the row.
 
 ## Overview

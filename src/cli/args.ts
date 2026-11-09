@@ -126,7 +126,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   stage: {
-    help: "Usage: kf stage <feature> <next-stage> [--skip-hooks]  — move feature to next stage",
+    help: "Usage: kf stage <feature> <next-stage> [--skip-hooks]  — move feature to next stage. testing → review also needs a passing stage verify record at the item's HEAD (kf verify <feature> --stage), or a waiver when no harness.verify.stage is pinned",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
@@ -241,7 +241,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   verify: {
-    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage. On a bug, --task also takes a TASK-### from tasks.md, checked with no Files allowlist. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
+    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage [--waive \"<reason>\"]  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage and record the run (sha, clean tree, each command's outcome, output hash) in the item's loop/stage-verify.jsonl. --stage --waive records the human's reason to enter review in a project with no harness.verify.stage (refused while stage commands are pinned). On a bug, --task also takes a TASK-### from tasks.md, checked with no Files allowlist. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
     allowPositionals: true,
     options: {
       task: { type: "string" },
@@ -249,6 +249,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       commits: { type: "string" },
       "at-head": { type: "boolean" },
       stage: { type: "boolean" },
+      waive: { type: "string" },
     },
   },
   worktree: {

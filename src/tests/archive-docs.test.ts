@@ -11,6 +11,7 @@ import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdArchive } from "../cli/commands/archive.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 let root: string;
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
@@ -63,6 +64,7 @@ async function archived(uc = ucFile, beforeArchive?: () => void): Promise<void> 
   expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
   expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
   await report("testing-result");
+  await grantStageWaiver(root, "demo");
   expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
   await report("review-report");
   await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified scope and tests");

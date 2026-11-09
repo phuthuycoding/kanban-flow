@@ -19,7 +19,7 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 ```
 
 - `harness.verify.task` runs after each task commit.
-- `harness.verify.stage` runs once per stage, before the item leaves implementation for testing.
+- `harness.verify.stage` runs at the end of implementation and again after the last commit of testing; each run is recorded in `<item>/loop/stage-verify.jsonl`, and `kf stage <feature> review` moves only on a passing record at the item's HEAD (see [gates](gates.md)). With no `harness.verify.stage`, an item enters review only on a waiver (`kf verify <feature> --stage --waive "<reason>"`).
 - `harness.developers.max` is the ceiling of the live developer cap (integer 1..16, default 6); `kf tasks --json` reports it as `developers: {max, source}`. The start value and the step rules are not configurable.
 
 ## `kf verify`
@@ -27,21 +27,21 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 ```
 kf verify <feature> --task TASK-### --base <sha>
 kf verify <feature> --task TASK-### --commits <sha>[,<sha>…] [--at-head]
-kf verify <feature> --stage
+kf verify <feature> --stage [--waive "<reason>"]
 ```
 
 `--at-head` keeps the allowlist check on the listed commits and runs the commands at HEAD, for a commit that cannot build without a parallel task's commit.
 
-`--task` runs `harness.verify.task` and checks that the task changed only files inside its **Files** allowlist in the approved plan, comparing `HEAD` against `--base` (the commit before the task). `--commits` takes the exact commit list instead: those commits are checked against the allowlist and the commands run in a temporary detached worktree at the newest of them, which is how the pipelined loop verifies a task while the next one is being written (`--base` stays the single-task form). For a bug, `--task` takes a `TASK-###` checkbox line of its `tasks.md`; a bug has no Files, so no allowlist check runs. `--stage` runs `harness.verify.stage`. Neither moves a stage, commits or edits anything.
+`--task` runs `harness.verify.task` and checks that the task changed only files inside its **Files** allowlist in the approved plan, comparing `HEAD` against `--base` (the commit before the task). `--commits` takes the exact commit list instead: those commits are checked against the allowlist and the commands run in a temporary detached worktree at the newest of them, which is how the pipelined loop verifies a task while the next one is being written (`--base` stays the single-task form). For a bug, `--task` takes a `TASK-###` checkbox line of its `tasks.md`; a bug has no Files, so no allowlist check runs. `--stage` runs `harness.verify.stage` and appends the run to `<item>/loop/stage-verify.jsonl` (HEAD sha, clean tree, each command's outcome, output sha256, exit) — the record `kf stage <f> review` reads; nothing is recorded when nothing ran. `--stage --waive "<reason>"` runs nothing and writes `verifyWaiver` (the reason, the time and who gave it) into the item's `.kfw.json`, for a project with no `harness.verify.stage`. `--task` writes only its log, `<item>/loop/task-NNN-verify.log`. None of them moves a stage or commits.
 
 | Exit | Meaning |
 |---|---|
-| 0 | the verify commands passed or none are configured (nothing is run), and, for `--task`, every changed file is inside the allowlist |
+| 0 | the verify commands passed or none are configured (nothing is run — for `--stage` that is no evidence: the review gate then needs a waiver), and, for `--task`, every changed file is inside the allowlist; or a `--waive` was recorded |
 | 1 | a verify command failed |
 | 2 | a file outside the task's allowlist changed: `kf stage <f> planning`, edit the plan's Files, the human approves, `kf approve <f>` (moves the item back to implementation), then re-run `kf verify`; or revert the file |
-| 3 | bad input (missing feature, `--task` without `--base` or `--commits`, `--at-head` without `--commits`, both `--base` and `--commits`, `--commits` with `--stage`, an empty `--commits` element, both or neither of `--task` and `--stage`, `--base` with `--stage`, and for `--commits` a sha that is not a commit, a merge commit, a root commit, not an ancestor of HEAD, repeated, or out of history order, an unknown task, a missing worktree), or `kf verify could not run: …` (an unexpected error while preparing; the stack is on stderr); nothing was run |
+| 3 | bad input (missing feature, `--task` without `--base` or `--commits`, `--at-head` without `--commits`, both `--base` and `--commits`, `--commits` with `--stage`, an empty `--commits` element, both or neither of `--task` and `--stage`, `--base` with `--stage`, and for `--commits` a sha that is not a commit, a merge commit, a root commit, not an ancestor of HEAD, repeated, or out of history order, an unknown task, a missing worktree, `--waive` without `--stage`, a blank `--waive` reason, or `--waive` while `harness.verify.stage` pins commands), or `kf verify could not run: …` (an unexpected error while preparing; the stack is on stderr); nothing was run |
 
-The task loop in `/kf:implement` runs `kf verify --task` after each task commit and `kf verify --stage` before it moves on; the exit code, not the developer's report, decides whether the task is done.
+The task loop in `/kf:implement` runs `kf verify --task` after each task commit and `kf verify --stage` once all tasks are complete, and `/kf:test` runs `--stage` again after the last commit of testing, because the review gate needs a passing record at HEAD; the exit code, not the developer's report, decides whether the task is done.
 
 ## kf next and kf record
 

@@ -205,4 +205,11 @@ describe("feature meta tasks", () => {
     // Legacy names are tolerated, not anything goes.
     expect(() => readWith({ ...legacy, bypasses: [{ ...legacy.bypasses[0], to: "shipped" }] })).toThrow("Invalid feature metadata");
   });
+
+  it("loads a well-formed verify waiver and rejects a malformed one", () => {
+    const verifyWaiver = { reason: "no runner", at: "2026-11-09T10:00:00.000Z", by: "q" };
+    expect((readWith({ verifyWaiver }) as unknown as Record<string, unknown>).verifyWaiver).toEqual(verifyWaiver);
+    expect(() => readWith({ verifyWaiver: "x" })).toThrow("Invalid feature metadata");
+    expect(() => readWith({ verifyWaiver: { reason: 1 } })).toThrow("Invalid feature metadata");
+  });
 });
