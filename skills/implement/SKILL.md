@@ -152,7 +152,7 @@ Coupling the plan did not declare is not a cascade: the stage gate's full build 
 {build_command}
 ```
 
-When `.kf/config.json` sets `harness.verify.stage`, `kf verify <f> --stage` replaces the hand-run build gate: run it in the worktree once all tasks are complete, instead of `{build_command}`. Exit 0 is the PASS and exit 1 the FAIL below; exit 3 means your call is wrong — fix it and re-run.
+When `.kf/config.json` sets `harness.verify.stage`, `kf verify <f> --stage` replaces the hand-run build gate: run it in the worktree once all tasks are complete, instead of `{build_command}`. Exit 0 is the PASS and exit 1 the FAIL below; exit 3 means your call is wrong — fix it and re-run. Each run is recorded in `<item>/loop/stage-verify.jsonl`, and the stage record is the gate into review: `kf stage <f> review` moves only on a passing record taken at the item's HEAD on a clean tree, so every later commit owes a new `kf verify <f> --stage`. A project with no `harness.verify.stage` enters review on a waiver, `kf verify <f> --stage --waive "<reason>"` (`--waive`), recorded only on the human's word — never to get past a failing run.
 
 - PASS → continue.
 - FAIL → the failing task's developer fixes, re-run.
