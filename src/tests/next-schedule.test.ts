@@ -196,6 +196,32 @@ describe("schedule: completion", () => {
     expect(completed).not.toContain("TASK-005");
   });
 
+  it("prints why a task done in every way waits on its incomplete dependency, and no complete for it", async () => {
+    const schedule = await loadSchedule();
+    const state = stateOf([
+      scan,
+      capStart(2),
+      ...testsReady("TASK-001"),
+      ...testsReady("TASK-002"),
+      // TASK-001 has its commit but its review is still running, so it is not complete.
+      ...committedAndUnderReview("TASK-001", "aaa0001"),
+      verifyDone("TASK-001", 0),
+      ...committedAndUnderReview("TASK-002", "bbb0002"),
+      verifyDone("TASK-002", 0),
+      done("TASK-002", "code-reviewer", "clean"),
+    ]);
+    const inputs = inputsOf([task("TASK-001"), task("TASK-002", { dependencies: ["TASK-001"], wave: 2 })]);
+
+    for (const resume of [false, true]) {
+      const { actions } = schedule(state, inputs, { resume });
+
+      expect(actions.filter((a) => a.kind === "wait" && a.task === "TASK-002")).toEqual([
+        { kind: "wait", task: "TASK-002", reason: "dependency TASK-001 incomplete" },
+      ]);
+      expect(completedIn(actions)).toEqual([]);
+    }
+  });
+
   it("prints finished when every task is complete, a superseded one and an implemented one included", async () => {
     const schedule = await loadSchedule();
     const state = stateOf([
@@ -379,7 +405,9 @@ describe("schedule: a reopened task at its round cap", () => {
 
     const { actions } = schedule(state, inputs, { resume: false });
 
-    expect(actions.filter((a) => a.kind === "stop" && a.reason.includes("five-round cap"))).toEqual([]);
+    expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    // The fix the decided note owes is still dispatched: the exit 1 neither re-arms the cap nor holds the fix.
+    expect(dispatchesOf(actions, "TASK-001", "developer")).toEqual([{ kind: "dispatch", task: "TASK-001", seat: "developer", mode: "fresh" }]);
   });
 
   it("keeps the stop and holds every dispatch while no minimal fix is decided", async () => {
@@ -617,7 +645,12 @@ describe("schedule: a reopened task at its round cap", () => {
 
     const { actions } = schedule(state, inputs, { resume: false });
 
-    expect(actions.filter((a) => a.kind === "stop" && a.reason.includes("five-round cap"))).toEqual([]);
+    expect(actions.filter((a) => a.kind === "stop")).toEqual([]);
+    // The fix's commit goes on to its own verify and review, as any committed developer's does.
+    expect(verifiesOf(actions, "TASK-001")).toEqual([
+      expect.objectContaining({ kind: "verify", task: "TASK-001", command: expect.stringMatching(/^kf verify feat --task TASK-001 --commits \S*bbb0001$/) }),
+    ]);
+    expect(dispatchesOf(actions, "TASK-001", "code-reviewer")).toHaveLength(1);
   });
 
   // Ruled with the human: cascade findings after the minimal fix of a reopened task leave no round and no second

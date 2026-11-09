@@ -469,7 +469,7 @@ describe("machine seats: after a developer's commit", () => {
   });
 
   // A cascade re-review answers another task's commit; it must not stand in for the task's own review.
-  it("still names the task's own code-reviewer when only a cascade re-review was dispatched (FR-025, audit cascade-collides-own-review: the own review waits for the reviewer lane)", () => {
+  it("keeps one reviewer lane per task: the own review waits while a cascade re-review is in flight (audit cascade-collides-own-review)", () => {
     const inputs = inputsOf([task("TASK-001")], { reportCommits: { "TASK-001": ["abc1234"] }, gitLog: logOf("abc1234") });
     const actions = seatActions(
       developed(
@@ -479,7 +479,7 @@ describe("machine seats: after a developer's commit", () => {
       inputs,
       capOf(2),
     );
-    // FR-025 (audit cascade-collides-own-review): one reviewer lane per task, so the own review waits for the cascade's.
+    // One reviewer lane per task, so the own review waits for the cascade's.
     expect(dispatches(actions, "code-reviewer", "TASK-001")).toHaveLength(0);
     expect(waits(actions, "TASK-001")).toEqual([
       { kind: "wait", task: "TASK-001", reason: "code-reviewer of TASK-001 in flight" },

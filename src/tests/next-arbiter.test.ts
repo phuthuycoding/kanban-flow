@@ -759,6 +759,70 @@ describe("arbiter: overlaps and the test-writer window", () => {
     });
   });
 
+  // The printed wait is a CLI contract the implement skill and the harness docs quote: it names the Files pair and
+  // the later task's seat that holds the earlier one, so the session knows which done releases it.
+  describe("the wait on a later overlapping seat in flight", () => {
+    const pair = (): LoopTask[] => [
+      loopTask("TASK-001", { ...shared, overlaps: ["TASK-002"] }),
+      loopTask("TASK-002", { ...shared, overlaps: ["TASK-001"] }),
+    ];
+    const running = (): TaskState["seats"]["developer"] => ({ kind: "running", line: 10, inline: false, origin: "progress" });
+    /** A world where TASK-002, the later overlapping task, has `seat` in flight. */
+    const laterInFlight = (seat: Seat, earlier: TaskSeed): World => {
+      const world = worldOf({
+        tasks: pair(),
+        n: 4,
+        pool: seat === "developer" ? [poolSeat("TASK-002")] : [],
+        states: {
+          "TASK-001": earlier,
+          "TASK-002":
+            seat === "developer"
+              ? { phase: cycle(), commits: ["def5678"], developerSeat: running() }
+              : seat === "test-writer"
+                ? { phase: tw() }
+                : { phase: cycle(), commits: ["def5678"] },
+        },
+      });
+      if (seat === "automation-writer") {
+        const later = world.tasks.get("TASK-002")!;
+        world.tasks.set("TASK-002", { ...later, seats: { ...later.seats, "automation-writer": running() } });
+      }
+      return world;
+    };
+    const reasonFor = (seat: Seat): string => `Files overlap src/shared.ts / src/shared.ts (TASK-002 ${seat} in flight)`;
+    const writerSeats: Seat[] = ["developer", "test-writer", "automation-writer"];
+
+    it.each(writerSeats)("makes an earlier round developer wait on the later task's %s, naming it, and owes the developer waits line", (seat) => {
+      const world = laterInFlight(seat, { phase: cycle(), commits: ["abc1234"] });
+      const r = run(world, [dev("TASK-001", { mode: "resume", round: 1 })]);
+      const reason = reasonFor(seat);
+      expect(dispatchedTasks(r, "developer")).toEqual([]);
+      expect(waitsOf(r, "TASK-001")).toEqual([{ kind: "wait", task: "TASK-001", reason }]);
+      expect(r.waits.filter((w) => w.wait.task === "TASK-001")).toEqual([
+        { wait: { kind: "wait", task: "TASK-001", reason }, blockedBy: { kind: "task", task: "TASK-002" } },
+      ]);
+      expect(r.actions.filter((a) => a.kind === "write" && a.task === "TASK-001")).toEqual([
+        {
+          kind: "write",
+          task: "TASK-001",
+          line: `TASK-001: developer waits — ${reason}`,
+          record: `kf record feat waits TASK-001 -- '${reason}'`,
+        },
+      ]);
+    });
+
+    it.each(writerSeats)("makes an earlier test-writer wait on the later task's %s, naming it, with no developer waits line", (seat) => {
+      const world = laterInFlight(seat, {});
+      const r = run(world, [seatDispatch("TASK-001", "test-writer")]);
+      const reason = reasonFor(seat);
+      expect(dispatchedTasks(r, "test-writer")).toEqual([]);
+      expect(r.waits.filter((w) => w.wait.task === "TASK-001")).toEqual([
+        { wait: { kind: "wait", task: "TASK-001", reason }, blockedBy: { kind: "task", task: "TASK-002" } },
+      ]);
+      expect(r.actions.filter((a) => a.kind === "write" && a.task === "TASK-001")).toEqual([]);
+    });
+  });
+
   it("holds a later task's test-writer behind an open overlapping task that ranks earlier", () => {
     const world = worldOf({
       tasks: [

@@ -712,6 +712,37 @@ describe("completable", () => {
     expect(completable(t, worldOf([t, dep({ kind: "complete", how: "implemented" })], { inputs }))).toBe(true);
   });
 
+  // A task done in every way but held by its dependency must still print why it waits, or the item looks stalled.
+  it("waits on an incomplete dependency that has a commit, naming it, and owes no complete", () => {
+    const t = readyT();
+    const inputs = inputsOf([plan(T1, { dependencies: [T2] }), plan(T2)]);
+    const intents = intentsOf(t, worldOf([t, taskOf(T2, committedCycle(), { commits: [SHA_B] })], { inputs }));
+    expect(waitsOf(intents)).toEqual([
+      expect.objectContaining({
+        task: T1,
+        action: { kind: "wait", task: T1, reason: `dependency ${T2} incomplete` },
+        blockedBy: { kind: "task", task: T2 },
+      }),
+    ]);
+    expect(acts(intents).filter((i) => i.action.kind === "complete")).toEqual([]);
+  });
+
+  it("waits on an incomplete dependency with no commit, saying it has none, and owes no complete", () => {
+    const t = readyT();
+    const inputs = inputsOf([plan(T1, { dependencies: [T2] }), plan(T2)]);
+    for (const dep of [taskOf(T2, { kind: "pending" }), taskOf(T2, { kind: "ready" })]) {
+      const intents = intentsOf(t, worldOf([t, dep], { inputs }));
+      expect(waitsOf(intents)).toEqual([
+        expect.objectContaining({
+          task: T1,
+          action: { kind: "wait", task: T1, reason: `dependency ${T2} has no commit` },
+          blockedBy: { kind: "task", task: T2 },
+        }),
+      ]);
+      expect(acts(intents).filter((i) => i.action.kind === "complete")).toEqual([]);
+    }
+  });
+
   it("is false while contention holds or runs a re-run of the task", () => {
     const t = readyT();
     const held = worldOf([t], { contention: { held: [{ task: T1, atHead: false, kind: "rerun" }], running: null, blocksDevelopers: true } });
