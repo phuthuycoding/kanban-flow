@@ -1,4 +1,4 @@
-import { appendVerifyLog, verifyStage, verifyTask, verifyTaskCommits } from "../../workflow/verify.js";
+import { appendVerifyLog, appendWaveVerifyLog, verifyStage, verifyTask, verifyTaskCommits, verifyWave } from "../../workflow/verify.js";
 import type { VerifyResult } from "../../workflow/verify.js";
 import { appendStageRecord } from "../../workflow/stage-record.js";
 import type { StageRecord } from "../../workflow/stage-record.js";
@@ -9,7 +9,7 @@ import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
-const USAGE = "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage [--waive \"<reason>\"]";
+const USAGE = "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage [--waive \"<reason>\"] | kf verify <feature> --wave <w>";
 
 const badInput = (reason: string): CmdResult => ({ code: 3, stdout: `${reason}\n${USAGE}`, stderr: "bad input" });
 
@@ -23,6 +23,14 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
   const stage = args.options.stage === true;
   const atHead = args.options["at-head"] === true;
   const waive = typeof args.options.waive === "string" ? args.options.waive : undefined;
+  const waveArg = typeof args.options.wave === "string" ? args.options.wave : undefined;
+  if (waveArg !== undefined) {
+    if (task !== undefined || stage || base !== undefined || commits !== undefined || atHead || waive !== undefined) {
+      return badInput("--wave runs alone: not with --task, --stage, --base, --commits, --at-head or --waive.");
+    }
+    if (!/^[1-9]\d*$/.test(waveArg)) return badInput(`--wave '${waveArg}' is not a wave number (1, 2, …).`);
+    return runWave(cwd, name, Number(waveArg));
+  }
   if (waive !== undefined && !stage) return badInput("--waive goes with --stage.");
   if (waive !== undefined && waive.trim() === "") return badInput("--waive needs a reason: kf verify <feature> --stage --waive \"<why this project has no stage verify>\".");
   if (atHead && commits === undefined) return badInput("--at-head goes with --commits.");
@@ -82,4 +90,30 @@ async function recordWaiver(root: string, name: string, reason: string): Promise
   const waiver = { reason, at: new Date().toISOString(), by: detectReviewer(root) };
   await updateFeatureMeta(root, name, (meta) => ({ ...meta, verifyWaiver: waiver }));
   return { code: 0, stdout: `Recorded a stage verify waiver for '${name}' (by ${waiver.by}): ${reason}` };
+}
+
+/** `kf verify <f> --wave <w>`: the wave's full suite, recorded as a stage record and logged beside the ledger. */
+async function runWave(cwd: string, name: string, wave: number): Promise<CmdResult> {
+  const item = await resolveItem(cwd, name);
+  if (!item.ok) return { ...item.refusal, code: 3 };
+  let res: VerifyResult & { record?: StageRecord };
+  try {
+    res = verifyWave(item.root, item.item, wave);
+  } catch (err) {
+    if (err instanceof ProjectConfigError) return badInput(err.message);
+    return { code: 3, stdout: `kf verify could not run: ${err instanceof Error ? err.message : String(err)}`, stderr: err instanceof Error ? (err.stack ?? err.message) : String(err) };
+  }
+  if (res.code === 3 || !res.record) return { code: res.code, stdout: res.lines.join("\n") };
+  const warnings: string[] = [];
+  try {
+    appendWaveVerifyLog(item.item.dir, wave, res);
+  } catch (err) {
+    warnings.push(`warning: could not write the wave verify log: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    await appendStageRecord(item.root, item.item, res.record);
+  } catch (err) {
+    warnings.push(`warning: could not write the stage verify record: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return warnings.length > 0 ? { code: res.code, stdout: res.lines.join("\n"), stderr: warnings.join("\n") } : { code: res.code, stdout: res.lines.join("\n") };
 }

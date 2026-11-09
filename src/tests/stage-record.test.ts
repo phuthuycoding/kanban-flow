@@ -11,7 +11,8 @@ import { cmdNew } from "../cli/commands/new.js";
 import { cmdVerify } from "../cli/commands/verify.js";
 import { cmdLoopStats } from "../cli/commands/loop-stats.js";
 import { readLoopInputs } from "../workflow/next/inputs.js";
-import { appendStageRecord, readLatestStageRecord, stageRecordPath } from "../workflow/stage-record.js";
+import { appendStageRecord, readLatestStageRecord, readStageRecords, stageRecordPath } from "../workflow/stage-record.js";
+import { evaluateStageEvidence } from "../workflow/stage-evidence.js";
 import type { StageRecord } from "../workflow/stage-record.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -177,5 +178,64 @@ describe("loop readers ignore the stage record file", () => {
     expect(statsWith).toEqual(statsWithout);
     expect(statsWith.code).toBe(0);
     expect(await readdir(join(feature.dir, "loop"))).toContain("stage-verify.jsonl");
+  });
+});
+
+describe("wave records in the stage record file", () => {
+  const write = async (text: string): Promise<void> => {
+    await mkdir(join(feature.dir, "loop"), { recursive: true });
+    await writeFile(fileOf(), text);
+  };
+  const lines = (...records: StageRecord[]): string => records.map((r) => `${JSON.stringify(r)}\n`).join("");
+
+  it("returns every record in file order with its wave, and the wave-2 record as the latest", async () => {
+    const stage = record({ sha: "1".repeat(40) });
+    const wave1 = record({ sha: "2".repeat(40), wave: 1 });
+    const wave2 = record({ sha: "3".repeat(40), wave: 2 });
+    await write(lines(stage, wave1, wave2));
+
+    const all = readStageRecords(feature);
+
+    expect(all).toEqual([stage, wave1, wave2]);
+    expect(all.map((r) => r.wave)).toEqual([undefined, 1, 2]);
+    expect(readLatestStageRecord(feature)).toEqual({ kind: "record", record: wave2 });
+  });
+
+  it("evaluates a wave record like any record: pass at HEAD with the pinned commands", async () => {
+    await configure([["true"]]);
+    const head = gitIn(root, "rev-parse", "HEAD");
+    await write(lines(record({ sha: "1".repeat(40) }), record({ sha: head, wave: 2 })));
+
+    const ev = evaluateStageEvidence(root, feature);
+
+    expect(ev.state).toBe("pass");
+    expect(ev.record?.wave).toBe(2);
+  });
+
+  it("evaluates a wave record at another sha as stale", async () => {
+    await configure([["true"]]);
+    await write(lines(record({ sha: "1".repeat(40), wave: 1 })));
+
+    expect(evaluateStageEvidence(root, feature).state).toBe("stale");
+  });
+
+  it("returns no records when there is no file", () => {
+    expect(readStageRecords(feature)).toEqual([]);
+  });
+
+  it("skips lines that are not JSON and keeps the others in order", async () => {
+    const first = record({ wave: 1 });
+    const last = record({ wave: 2, exit: 1 });
+    await write(`${JSON.stringify(first)}\n{not json\n\n${JSON.stringify(last)}\n`);
+
+    expect(readStageRecords(feature)).toEqual([first, last]);
+  });
+
+  it("refuses a wave that is not a positive integer", async () => {
+    await write(lines(record({ wave: 0 })));
+    expect(readLatestStageRecord(feature).kind).toBe("invalid");
+
+    await write(lines(record({ wave: 1.5 })));
+    expect(readLatestStageRecord(feature).kind).toBe("invalid");
   });
 });
