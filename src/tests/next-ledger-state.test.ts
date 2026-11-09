@@ -385,3 +385,40 @@ describe("matchGitLog", () => {
     expect(matchGitLog(["ccccccc", "ddddddd"], [])).toEqual({ kept: ["ccccccc", "ddddddd"], dropped: [] });
   });
 });
+
+describe("loop-stats dispatch lag behind an in-flight overlap wait", () => {
+  const Z = (hhmm: string): string => `2026-11-01T${hhmm}:00Z`;
+
+  // TASK-002's developer waits on a later seat of another task; its lag runs from that seat's done, not from its own test-writer's done.
+  function overlapLedger(seat: "developer" | "test-writer" | "automation-writer"): string {
+    const other = seat === "developer" ? "TASK-001" : "TASK-003";
+    const lines = [
+      "# Task loop ledger — in-flight overlap",
+      stamp("TASK-001: test-writer dispatched model=opus", Z("09:00")),
+      stamp("TASK-002: test-writer dispatched model=opus", Z("09:00")),
+      stamp("TASK-001: test-writer done status=DONE", Z("09:01")),
+      stamp("TASK-002: test-writer done status=DONE", Z("09:02")),
+      stamp("TASK-001: developer dispatched model=opus", Z("09:02")),
+    ];
+    if (seat !== "developer") lines.push(stamp(`${other}: ${seat} dispatched model=opus`, Z("09:03")));
+    lines.push(
+      stamp(`TASK-002: developer waits — Files overlap a / b (${other} ${seat} in flight)`, Z("09:04")),
+      stamp(`${other}: ${seat} done status=DONE`, Z("09:10")),
+      stamp("TASK-002: developer dispatched model=opus", Z("09:12")),
+    );
+    return lines.join("\n") + "\n";
+  }
+
+  async function developerLag(text: string): Promise<unknown> {
+    const { parseLedger, loopStats } = await import("../workflow/loop-stats.js");
+    const stats = loopStats(parseLedger(text)) as unknown as { dispatchLag: { developer: unknown } };
+    return stats.dispatchLag.developer;
+  }
+
+  for (const seat of ["developer", "test-writer", "automation-writer"] as const) {
+    it(`measures the developer dispatch lag from the later ${seat} done of the overlapping task`, async () => {
+      // TASK-001 developer lag 1 (from its test-writer done), TASK-002 developer lag 2 (from the ${seat} done at 09:10).
+      expect(await developerLag(overlapLedger(seat))).toEqual({ median: 1.5, max: 2, n: 2 });
+    });
+  }
+});
