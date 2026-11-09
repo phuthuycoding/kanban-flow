@@ -22,6 +22,13 @@ describe("this repository's verify tiers", () => {
   it("appends the changed files to the related argv", () => {
     expect(relatedArgv(config.harness.verify.related, ["src/a.ts"])).toEqual(["npx", "vitest", "related", "--run", "src/a.ts"]);
   });
+
+  // The ordering and appended files of --task are run end to end in verify-related.test.ts with stub scripts;
+  // this pins that the repository's own config yields typecheck first, then the related vitest argv.
+  it("drives the task tier as typecheck, then vitest related on the changed source file", () => {
+    const commands = [...config.harness.verify.task, relatedArgv(config.harness.verify.related, ["src/workflow/verify.ts"])];
+    expect(commands).toEqual([["npm", "run", "typecheck"], ["npx", "vitest", "related", "--run", "src/workflow/verify.ts"]]);
+  });
 });
 
 describe("the agent contract names the verify tiers", () => {
@@ -38,6 +45,17 @@ describe("the agent contract names the verify tiers", () => {
     const text = read("skills", "implement", "references", "task-loop.md");
     expect(text).toContain("wave <w>: verify done exit=<n>");
     expect(text).toContain("reopened — wave <w>");
+  });
+
+  it("the task loop reference names who writes the wave lines and why waves exist", () => {
+    const text = read("skills", "implement", "references", "task-loop.md");
+    expect(text).toContain("wave-verify-started");
+    expect(text).toContain("Why waves");
+  });
+
+  it("flow names the wave verify command and implement names the wave verify exit 3 decide", () => {
+    expect(skill("flow")).toContain("kf verify {feature} --wave <w>");
+    expect(skill("implement")).toContain("Wave verify exit 3");
   });
 
   for (const name of ["test", "flow"]) {
