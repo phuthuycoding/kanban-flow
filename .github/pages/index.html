@@ -178,7 +178,9 @@
           <p class="quiet" style="margin-top:14px">After each task commit, <code>kf verify</code>
              decides the mechanical part, not the developer's report: it checks the files the task
              changed against the allowlist (<code>--commits</code> for the pipelined loop) and runs the verify commands you pinned in config;
-             <code>kf loop-stats</code> measures where the loop's time went. The
+             <code>kf loop-stats</code> measures where the loop's time went. Before review, <code>kf verify --stage</code>
+             records its run at the item's HEAD, and <code>kf stage review</code> moves only on a passing record
+             (or a waiver the human gives when no stage commands are pinned) — never on the report's word. The
              work stops when a review PASS waits for its merge, or earlier with a named reason.
              The commands <code>kf drive</code>, <code>kf run</code>, <code>kf runs</code>, <code>kf harness</code> were removed.</p>
         </div>
@@ -227,7 +229,7 @@ kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstor
 kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
 kf next user-login                  <span class="c"># after approval: what the task loop does now</span>
 kf record user-login dispatched TASK-001 developer --model sonnet  <span class="c"># one stamped ledger line</span>
-kf verify user-login --stage        <span class="c"># the session runs the loop, kf verify checks it</span>
+kf verify user-login --stage        <span class="c"># records the run at HEAD; kf stage review reads that record</span>
 kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
       <div class="cta" style="margin-top:26px">
         <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>

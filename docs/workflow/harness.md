@@ -19,7 +19,7 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 ```
 
 - `harness.verify.task` runs after each task commit.
-- `harness.verify.stage` runs once per stage, before the item leaves implementation for testing.
+- `harness.verify.stage` runs at the end of implementation and again after the last commit of testing; each run is recorded in `<item>/loop/stage-verify.jsonl`, and `kf stage <feature> review` moves only on a passing record at the item's HEAD (see [gates](gates.md)). With no `harness.verify.stage`, an item enters review only on a waiver (`kf verify <feature> --stage --waive "<reason>"`).
 - `harness.developers.max` is the ceiling of the live developer cap (integer 1..16, default 6); `kf tasks --json` reports it as `developers: {max, source}`. The start value and the step rules are not configurable.
 
 ## `kf verify`
@@ -27,7 +27,7 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 ```
 kf verify <feature> --task TASK-### --base <sha>
 kf verify <feature> --task TASK-### --commits <sha>[,<sha>…] [--at-head]
-kf verify <feature> --stage
+kf verify <feature> --stage [--waive "<reason>"]
 ```
 
 `--at-head` keeps the allowlist check on the listed commits and runs the commands at HEAD, for a commit that cannot build without a parallel task's commit.

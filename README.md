@@ -164,7 +164,9 @@ kf approve user-login               # decision two; fingerprints all of it and s
                                     # JSON outputs still carry `domain`) — see docs/workflow
 kf stage user-login testing         # mints a fresh execution id
 # write the testing report, carrying that id and real exit codes
-kf stage user-login review          # refused unless that report says PASS
+kf verify user-login --stage        # runs harness.verify.stage and records the run at HEAD
+kf stage user-login review          # refused unless that report says PASS and the stage record
+                                    # passed at HEAD (or, with no harness.verify.stage, a waiver)
 # an independent code-reviewer writes the review report (ci: green|none, landing: pr|none)
 # PASS → push the branch, open the PR, watch CI
 # decision three: merge the PR on GitHub
@@ -236,7 +238,8 @@ kf record user-login dispatched TASK-001 developer --model sonnet  # appends one
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
 kf verify user-login --task TASK-002 --commits <sha>[,<sha>…] [--at-head]  # exactly those commits, in a detached worktree at the newest, or at HEAD (pipelined loop)
 kf loop-stats user-login --record                     # where the loop's time went; writes (replacing any earlier) the item's row in .works/loop-metrics.md
-kf verify user-login --stage                          # runs harness.verify.stage
+kf verify user-login --stage                          # runs harness.verify.stage, records the run in loop/stage-verify.jsonl
+kf verify user-login --stage --waive "no suite yet"   # no harness.verify.stage pinned: the human's reason to enter review
 kf doctor --fix                                       # strips the removed harness keys and leftover run state
 ```
 
@@ -277,8 +280,14 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
 - Per task: a `test-writer`, a `developer`, then `kf verify --task` and a
   `code-reviewer` on the task's diff. The exit code of `kf verify`, not the
   developer's report, decides the task passed its mechanical checks.
-- Before testing, `kf verify --stage` runs the commands you pinned in
-  `harness.verify.stage`.
+- Before review, `kf verify --stage` runs the commands you pinned in
+  `harness.verify.stage` and records the run: the HEAD sha, whether the tracked
+  tree was clean, each command's outcome and a hash of the output. `kf stage
+  <f> review` moves only on a passing record at HEAD, with the commands pinned
+  now, and never re-runs them. A project with no `harness.verify.stage` enters
+  review on a waiver the human gives (`--waive "<reason>"`), shown by `kf status`
+  and in the review report. The testing report's Commands table describes the
+  run; it is no longer what the gate reads.
 - Testing and review run through the normal gates and stop at **review PASS:
   merge the PR**, or earlier with a blocker that names the human step.
 - The loop is pipelined: developers, up to the live developer cap, share one worktree on ready tasks whose

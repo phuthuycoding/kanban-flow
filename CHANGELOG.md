@@ -2,6 +2,20 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Added
+- **`kf verify <feature> --stage` records every run.** Each run that ran a stage command appends one line to `<item>/loop/stage-verify.jsonl`: the item's HEAD sha, whether the tracked tree was clean, each pinned command's outcome (exit code, signal, not started, not run), a sha256 of the output and the overall exit. Nothing is recorded when nothing ran.
+- **`kf verify <feature> --stage --waive "<reason>"`.** In a project with no `harness.verify.stage`, records the human's reason to enter review (with the time and who gave it). Refused for a blank reason, without `--stage`, and while stage commands are pinned.
+- **`kf status` shows the stage evidence.** A `Stage verify:` line (and `stageVerify` in `--json`) for items in implementation, testing and review: the record's result and sha against HEAD, the waiver, or what is missing.
+
+### Changed
+- **`kf stage <feature> review` gates on kf's own evidence.** The move from testing needs the latest stage record to have passed at the item's HEAD, on a clean tracked tree, with the commands pinned now — or, with no `harness.verify.stage`, a waiver. Refusal codes: `verify_record_missing`, `verify_record_failed`, `verify_record_stale`, `verify_tree_dirty`, `verify_config_changed`, `verify_record_invalid`, `verify_not_configured`, `verify_dir_missing`; `--force` passes and records them as a bypass. **Upgrading:** an item in testing needs `kf verify <feature> --stage` (or a waiver) before review; a project without `harness.verify.stage` is stopped there until it pins one or records a waiver.
+- The review report template gains a `verify` row in `## Delivery`; `/kf:implement`, `/kf:test`, `/kf:review` and `/kf:flow` describe the record as the gate.
+
+### Removed
+- **`testing_exit_code`.** `kf validate` no longer parses the exit codes typed into a testing report's `## Commands and Evidence` table; the stage record replaces it.
+
 ## [0.16.0] - 2026-11-09
 
 ### Added
