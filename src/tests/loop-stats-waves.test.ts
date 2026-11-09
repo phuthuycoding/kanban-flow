@@ -188,4 +188,21 @@ describe("controller minutes with a wave verify", () => {
     expect(out.busyMinutes).toBe(10);
     expect(out.controllerMinutes).toBe(2);
   });
+  // The wall ends at the last complete line, so a wave verify running past it is clipped to the wall window.
+  //   after:      seat 10:00-10:10 = 10, complete 10:12 -> wall 12, busy 10, wave 10:14-10:20 outside -> controller 2
+  //   straddling: seat 10:00-10:10 = 10, wave 10:11-10:17, complete 10:14 -> wall 14, wave inside 10:11-10:14 = 3, controller 14-10-3 = 1
+  it("ignores a wave verify that lies wholly after the last complete line", async () => {
+    await setUp("ca", ledger("10:14", "10:20", "10:12"), { "wave-1-verify.log": `## kf verify ${iso("10:20")} exit=0\n` });
+    const out = JSON.parse((await run("ca", { json: true })).stdout) as Record<string, unknown>;
+    expect(out.wallMinutes).toBe(12);
+    expect(out.busyMinutes).toBe(10);
+    expect(out.controllerMinutes).toBe(2);
+  });
+
+  it("subtracts only the part of a straddling wave verify inside the wall", async () => {
+    await setUp("cs", ledger("10:11", "10:17", "10:14"), { "wave-1-verify.log": `## kf verify ${iso("10:17")} exit=0\n` });
+    const out = JSON.parse((await run("cs", { json: true })).stdout) as Record<string, unknown>;
+    expect(out.wallMinutes).toBe(14);
+    expect(out.controllerMinutes).toBe(1);
+  });
 });

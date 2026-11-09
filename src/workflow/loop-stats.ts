@@ -461,10 +461,12 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
 
   const timed = parsed.lines.filter((l) => l.ts !== undefined).map((l) => l.ts!);
   let wallMs = 0;
+  let wallStart = 0;
+  let wallEnd = 0;
   if (dispatched.length > 0) {
-    const start = Math.min(...dispatched.map((l) => l.ts!));
-    const end = inProgress || completes.length === 0 ? Math.max(...timed) : Math.max(...completes.map((l) => l.ts!));
-    wallMs = end - start;
+    wallStart = Math.min(...dispatched.map((l) => l.ts!));
+    wallEnd = inProgress || completes.length === 0 ? Math.max(...timed) : Math.max(...completes.map((l) => l.ts!));
+    wallMs = wallEnd - wallStart;
   }
 
   const openWaits: number[] = [];
@@ -490,7 +492,10 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
   const verifyMs = sum(verifyIntervals.map((iv) => iv.end - iv.start));
   const busyMs = unionMs([...seatIntervals, ...verifyIntervals]);
   // A wave verify is kf work, not controller time, yet it stays out of busy and saved.
-  const waveIntervals = wavePairs.map(({ open, close }) => ({ start: open.ts!, end: close.ts! }));
+  // Clipped to the wall window so a wave verify outside it cannot push controller time below zero.
+  const waveIntervals = wavePairs
+    .map(({ open, close }) => ({ start: Math.max(open.ts!, wallStart), end: Math.min(close.ts!, wallEnd) }))
+    .filter((iv) => iv.end > iv.start);
   const workMs = unionMs([...seatIntervals, ...verifyIntervals, ...waveIntervals]);
 
   return {
@@ -503,7 +508,7 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
     verifyMinutes: round1(verifyMs / MINUTE),
     busyMinutes: round1(busyMs / MINUTE),
     savedMinutes: round1((seatMs + verifyMs - busyMs) / MINUTE),
-    controllerMinutes: round1((wallMs - workMs) / MINUTE),
+    controllerMinutes: round1(Math.max(0, wallMs - workMs) / MINUTE),
     waitMinutes: round1(waitMs / MINUTE),
     rounds: of("fixRound").length,
     cascades: of("cascadeOwed").length,
