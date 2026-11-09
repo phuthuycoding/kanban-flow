@@ -578,7 +578,7 @@ export function intentsFor(t: TaskState, world: World): Intent[] {
   // The committed step names the package and a first verify itself, so the hold covers the phase's intents too.
   const pending = resumeCommitPending(t, world);
   const hold = (intents: Intent[]): Intent[] => (pending ? intents.filter((i) => !checkPassIntent(i)) : intents);
-  return [...hold(phase), ...seatIntents(t, world), ...hold(checks), ...queued];
+  return [...hold(phase), ...seatIntents(t, world), ...hold(checks), ...queued, ...dependencyWait(t, world)];
 }
 
 /** A cap write is closed by the line it writes: a cap ruling, a no-step-up note, a rerun note. */
@@ -630,6 +630,11 @@ function verifySettled(t: TaskState): boolean {
 
 /** ReadyToComplete: the one predicate `complete <task>` is printed on. */
 export function completable(t: TaskState, world: World): boolean {
+  return ownWorkDone(t, world) && incompleteDependency(t, world) === undefined;
+}
+
+/** Everything ReadyToComplete asks of the task itself, its dependencies aside. */
+function ownWorkDone(t: TaskState, world: World): boolean {
   const p = t.phase;
   const parked = p.kind === "atCap" && p.cap.kind === "parkedClosed";
   if (!parked && !(p.kind === "cycle" && p.implementer.kind === "committed")) return false;
@@ -645,6 +650,21 @@ export function completable(t: TaskState, world: World): boolean {
     if (d.kind === "own") return false;
     if (!(d.phase === "clean" || (parked && d.phase === "findings"))) return false;
   }
-  if (t.routedIn.some((r) => !r.answered)) return false;
-  return planOf(world, t.id).dependencies.every((dep) => world.tasks.get(dep)?.phase.kind === "complete");
+  return !t.routedIn.some((r) => !r.answered);
+}
+
+/** The first dependency of `t`, in plan order, that is not complete. */
+const incompleteDependency = (t: TaskState, world: World): string | undefined =>
+  planOf(world, t.id).dependencies.find((dep) => world.tasks.get(dep)?.phase.kind !== "complete");
+
+/**
+ * A task whose own work is done waits on its first incomplete dependency (FR-022): the wait names it, in the
+ * `dependency TASK-MMM …` family the developer release already prints.
+ */
+function dependencyWait(t: TaskState, world: World): Intent[] {
+  const dep = incompleteDependency(t, world);
+  if (dep === undefined || !ownWorkDone(t, world)) return [];
+  const s = world.tasks.get(dep);
+  const reason = s === undefined || s.commits.length === 0 ? `dependency ${dep} has no commit` : `dependency ${dep} incomplete`;
+  return [{ kind: "wait", task: t.id, origin: "progress", closes: ["complete"], action: { kind: "wait", task: t.id, reason }, blockedBy: { kind: "task", task: dep } }];
 }

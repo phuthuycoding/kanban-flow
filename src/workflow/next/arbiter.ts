@@ -367,7 +367,8 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
     developerWaits(d.task, `${n} developers in flight`, { kind: "pool" });
   }
 
-  // Test-writers ahead: at most four open at once, earliest first, none inside an open or earlier overlapping task.
+  // Test-writers ahead: at most four open at once, earliest first, none inside an open or earlier overlapping task. An
+  // overlap hold is printed, so the held task's wait names what releases it (FR-022); the window's hold stays quiet.
   const opened: string[] = [];
   testWriters.sort((a, b) => rankPos(a.task) - rankPos(b.task) || planPos(a.task) - planPos(b.task));
   const writing = ordered
@@ -381,13 +382,13 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
     const later = t !== undefined ? runningLater(t) : undefined;
     if (later !== undefined && t !== undefined) {
       const reason = overlapReason(t, later.task, `${later.task.id} ${later.seat} in flight`);
-      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.task.id }, true);
+      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.task.id });
       continue;
     }
     const overlap = t !== undefined ? overlapHold(t) : null;
     if (overlap !== null && t !== undefined) {
       const reason = overlap.kind === "open" ? overlapReason(t, overlap.other, overlap.other.id) : `earlier overlapping ${overlap.other.id} incomplete`;
-      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: overlap.other.id }, true);
+      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: overlap.other.id });
       continue;
     }
     if (writing.length >= TEST_WRITER_WINDOW) {

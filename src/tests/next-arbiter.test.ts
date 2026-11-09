@@ -595,10 +595,22 @@ describe("arbiter: overlaps and the test-writer window", () => {
       n: 4,
       states: { "TASK-001": { phase: cycle(), commits: ["abc1234"] }, "TASK-002": { phase: tw() } },
     });
-    const r = run(world, [dev("TASK-001", { mode: "resume", round: 1 }), dev("TASK-002")]);
+    const r = run(world, [dev("TASK-001", { mode: "resume", round: 1 }), dev("TASK-002"), inFlight("TASK-002", "test-writer")]);
     expect(dispatchedTasks(r, "developer")).toEqual([]);
     expect(r.waits.find((w) => w.wait.task === "TASK-001")?.blockedBy).toEqual({ kind: "task", task: "TASK-002" });
     expect(r.waits.find((w) => w.wait.task === "TASK-002")?.blockedBy).toEqual({ kind: "task", task: "TASK-001" });
+    // The two-way wait ends at TASK-002's test-writer, in flight: a seat that ends on its own is a sink, not a deadlock.
+    const sinks = new Set([...r.inFlight.map((f) => f.task), ...dispatchedTasks(r)]);
+    expect(sinks.has("TASK-002")).toBe(true);
+    const edges = new Map<string, string>();
+    for (const w of r.waits) if (w.blockedBy.kind === "task" && w.wait.task !== undefined && !sinks.has(w.blockedBy.task)) edges.set(w.wait.task, w.blockedBy.task);
+    for (const start of edges.keys()) {
+      const seen = new Set<string>([start]);
+      for (let at = edges.get(start); at !== undefined; at = edges.get(at)) {
+        expect(seen.has(at), `wait cycle through ${at}`).toBe(false);
+        seen.add(at);
+      }
+    }
   });
 
   describe("one file-writing seat per overlapping Files", () => {

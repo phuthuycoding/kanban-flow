@@ -193,22 +193,22 @@ export function completionOracle(state: LedgerState, inputs: LoopInputs, task: s
   }
 
   // The cap: parked findings plus a decided note that is not a minimal fix, in either order, waive the findings. After
-  // a minimal fix past the cap, a park written after the fix note closes it on its own: a failed or abandoned fix
-  // leaves the Breaker closable only by parking (FR-026).
+  // a minimal fix past the cap, a park written after the fix developer's done closes it on its own: a failed or
+  // abandoned fix leaves the Breaker closable only by parking (FR-026). The first minimal-fix note names the one fix.
   const roundFive = events.findIndex((e, i) => i >= from && e.type === "dispatched" && e.task === task && (e.round ?? 0) >= CAP);
   const afterCap = (i: number): boolean => roundFive !== -1 && i > roundFive;
-  // The latest minimal-fix note: the fix whose outcome the task completes on.
-  const fixNote = events.reduce((at, e, i) => (afterCap(i) && e.type === "decided" && e.task === task && MIN_FIX.test(e.what) ? i : at), -1);
+  const fixNote = events.findIndex((e, i) => afterCap(i) && e.type === "decided" && e.task === task && MIN_FIX.test(e.what));
   const minimalFix = fixNote !== -1;
-  const closesCap = (i: number): boolean => afterCap(i) && (!minimalFix || i > fixNote);
+  const fixDev = minimalFix ? dispatches.find((d) => d.seat === "developer" && d.round === undefined && d.index > fixNote) : undefined;
+  if (minimalFix && !fixDev) block("the minimal fix past the cap has no developer");
+  const fixDone = fixDev !== undefined && fixDev.status !== null ? fixDev.doneAt : -1;
+  const closesCap = (i: number): boolean => afterCap(i) && (!minimalFix || (fixDone !== -1 && i > fixDone));
   const parkedAt = events.map((e, i) => (closesCap(i) && e.type === "parked" && e.task === task ? i : -1)).filter((i) => i !== -1);
   const decidedPlain = events.some((e, i) => closesCap(i) && e.type === "decided" && e.task === task && !MIN_FIX.test(e.what));
   const parkedClosed = parkedAt.length > 0 && (minimalFix || decidedPlain);
 
-  const fixDev = minimalFix ? dispatches.find((d) => d.seat === "developer" && d.round === undefined && d.index > fixNote) : undefined;
-  if (minimalFix && !fixDev) block("the minimal fix past the cap has no developer");
-  // A minimal fix whose developer was abandoned with no commit is waived once the park closes the Breaker it left.
-  const abandonedFixWaived = parkedClosed && fixDev !== undefined && lastDev === fixDev;
+  // A minimal fix whose developer ended other than DONE, with no commit, is waived once the park closes the Breaker.
+  const abandonedFixWaived = parkedClosed && fixDev !== undefined && lastDev === fixDev && fixDev.status !== "DONE";
   if (lastDev && !commitIdx.some((i) => i > lastDev.index) && !abandonedFixWaived) block("the latest developer has no commit after its dispatch");
 
   // The verify passed on the latest commits, passed by route, or a kept failure is waived by parking.

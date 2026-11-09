@@ -634,7 +634,7 @@ export interface Arbitration {
   inFlight: InFlight[];
   /**
    * The blocker of every wait in `actions`, by the same object. `quiet`: a hold `kf next` does not print (no
-   * conventions.md prefix): a test-writer held by the window or an overlap, or a dispatch an item judgement holds.
+   * conventions.md prefix): a test-writer held by the window, or a dispatch an item judgement holds.
    */
   waits: { wait: Extract<Action, { kind: "wait" }>; blockedBy: WaitBlocker; quiet?: true }[];
   /** Tasks the arbiter found no rule for (a check that would have thrown): each gets the liveness guard's stop. */

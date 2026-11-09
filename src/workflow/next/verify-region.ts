@@ -222,8 +222,15 @@ const onRouted: RegionHandler<"verifyRouted"> = (t, e, world) => {
   return rejectRoute(failed(t, v.line, { kind: "routeRejected", otherTask: other }), e);
 };
 
-/** A route note with no failure of this task open names a target that cannot take it: a Verify routed judgement too. */
-const onRoutedUnfailed: RegionHandler<"verifyRouted"> = (t, e, world) => (routable(world, e.otherTask) ? t : rejectRoute(t, e));
+/**
+ * A route note on a verify with no result yet names a target that cannot take it: a Verify routed judgement too, once.
+ * A verify that already passed or has its own judgement leaves the note nothing to route.
+ */
+const onRoutedUnfailed: RegionHandler<"verifyRouted"> = (t, e, world) => {
+  const unresolved = t.verify.kind === "notDue" || t.verify.kind === "owed" || t.verify.kind === "running";
+  if (!unresolved || routable(world, e.otherTask) || t.judgements.some((j) => j.kind === "verifyRouted")) return t;
+  return rejectRoute(t, e);
+};
 
 /**
  * A pass or park of the task the failure was routed to answers it. Its complete with neither since the route leaves

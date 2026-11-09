@@ -422,6 +422,27 @@ describe("the completion oracle", () => {
     expect(oracleOn([...FAILED_MINIMAL_FIX, PARKED[0], ...VERIFIED])).toEqual({ ready: true, blockers: [] });
   });
 
+  it("judges the fix by the first minimal-fix note, so a second note does not refuse a fix that passed", () => {
+    const passedFix = [
+      ...FAILED_MINIMAL_FIX.slice(0, -1),
+      "TASK-001: code-reviewer done status=clean @ 2026-11-07T10:08:30+07:00",
+      "Note TASK-001: decided — minimal fix past the cap: bound the loop again @ 2026-11-07T10:09:00+07:00",
+    ];
+    expect(oracleOn([...passedFix, ...VERIFIED])).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("refuses a park written before the minimal fix's developer is done", () => {
+    const [head, ...rest] = FAILED_MINIMAL_FIX;
+    // The park sits between the fix developer's dispatch and its done.
+    const parkedEarly = [head, ...rest.slice(0, 7), PARKED[0].replace("10:09:00", "10:06:30"), ...rest.slice(7)];
+    expect(oracleOn([...parkedEarly, ...VERIFIED]).blockers).toContain("the latest own review is findings");
+  });
+
+  it("refuses a parked minimal fix whose developer reported DONE with no commit", () => {
+    const doneNoCommit = [...FAILED_MINIMAL_FIX.slice(0, 9), PARKED[0], ...VERIFIED];
+    expect(oracleOn(doneNoCommit).blockers).toContain("the latest developer has no commit after its dispatch");
+  });
+
   it("refuses a failed minimal fix past the cap that no park closed after it", () => {
     const [head, ...rest] = FAILED_MINIMAL_FIX;
     const parkedBeforeFix = [head, ...rest.slice(0, 5), ...PARKED.map((l) => l.replace("10:09:00", "10:04:20").replace("10:10:00", "10:04:40")), ...rest.slice(5)];

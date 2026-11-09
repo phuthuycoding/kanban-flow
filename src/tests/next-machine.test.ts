@@ -682,3 +682,143 @@ describe("explorer findings (TASK-025)", () => {
     });
   });
 });
+
+describe("a parked task with a commit left on the branch", () => {
+  // The verify must pass on the task's latest commits (FR-023): a park waives findings, not the commit list.
+  const parkedAtBreaker = [
+    ...START,
+    ...testsReady(T1),
+    ...roundsWithFindings(T1, "aaa000", 5),
+    `${T1}: parked — the retry loop — Ruling: the retry loop waits for the next item`,
+    `Note ${T1}: decided — park the retry loop`,
+  ];
+  const abandonedFixParked = [
+    ...START,
+    ...testsReady(T1),
+    ...roundsWithFindings(T1, "aaa000", 5),
+    MINIMAL_FIX(T1),
+    `${T1}: developer dispatched model=sonnet`,
+    `${T1}: developer done status=NEEDS_CONTEXT`,
+    `Note ${T1}: decided — the fix needs a schema change; abandon it`,
+    `${T1}: parked — the retry loop — Ruling: the retry loop waits for the next item`,
+  ];
+
+  /** The parked ledger's inputs, plus `bbb0009` in the task's report and on the branch, made before `at`. */
+  const withLeftCommit = (bodies: string[], at: number): LoopInputs => {
+    const base = inputsFor(bodies, inputsOf([planTask(T1)]));
+    return {
+      ...base,
+      reportCommits: { ...base.reportCommits, [T1]: [...(base.reportCommits[T1] ?? []), "bbb0009"] },
+      gitLog: [...base.gitLog, { sha: fullSha("bbb0009"), ts: before(at) }],
+    };
+  };
+
+  it.each([
+    ["parked at the Breaker", parkedAtBreaker],
+    ["parked after an abandoned minimal fix", abandonedFixParked],
+  ])("records the commit before it completes when %s, then completes after a passing verify", (_name, parked) => {
+    const inputs = withLeftCommit(parked, parked.length - 1);
+
+    const first = run(parked, inputs);
+    expect(first.actions.filter((a) => a.kind === "complete"), show(first)).toEqual([]);
+    expect(
+      first.actions.filter((a) => a.kind === "write" && a.task === T1 && a.line === `Note ${T1}: commits bbb0009`),
+      show(first),
+    ).toHaveLength(1);
+
+    const verified = [...parked, `Note ${T1}: commits bbb0009`, `${T1}: verify started`, `${T1}: verify done exit=0`];
+    const runs = { ...inputs.verifyRuns, [T1]: [...(inputs.verifyRuns[T1] ?? []), { ts: before(verified.length - 1), exit: 0, text: "Test Files 1 passed" }] };
+    const after = run(verified, { ...inputs, verifyRuns: runs });
+    expect(after.actions.filter((a) => a.kind === "complete" && a.task === T1), show(after)).toHaveLength(1);
+  });
+});
+
+describe("report commits dated at a developer done", () => {
+  // The report is read as it is now: a commit dated after the done belongs to a later seat, so it is no commit of this one.
+  const bodies = ["Scan: clean", `${T1}: developer dispatched model=sonnet`, `${T1}: developer done status=DONE`];
+  const DONE_AT = 2;
+  const reportOnly = (ts: number | null): LoopInputs =>
+    inputsOf([planTask(T1)], {
+      reportCommits: { [T1]: ["0010001"] },
+      gitLog: ts === null ? [] : [{ sha: fullSha("0010001"), ts }],
+    });
+  const commitsNote = (r: NextResult): Action[] => r.actions.filter((a) => a.kind === "write" && a.line === `Note ${T1}: commits 0010001`);
+  const commitMissing = (r: NextResult): Action[] =>
+    r.actions.filter((a) => a.kind === "decide" && a.task === T1 && a.rule === JUDGEMENTS.commitMissing.rule);
+
+  it("counts a commit dated in the same second as the done line at that done", () => {
+    const result = run(bodies, reportOnly(T0 + DONE_AT * 60_000));
+    expect(commitsNote(result), show(result)).toHaveLength(1);
+    expect(commitMissing(result), show(result)).toEqual([]);
+  });
+
+  it("gives Commit missing when the only report commit is dated after the done line", () => {
+    const result = run(bodies, reportOnly(T0 + DONE_AT * 60_000 + 1_000));
+    expect(commitMissing(result), show(result)).toHaveLength(1);
+    expect(commitsNote(result), show(result)).toEqual([]);
+  });
+
+  it("counts every report commit at the done when the git log is empty", () => {
+    const result = run(bodies, reportOnly(null));
+    expect(commitsNote(result), show(result)).toHaveLength(1);
+    expect(commitMissing(result), show(result)).toEqual([]);
+  });
+});
+
+describe("a resume-commit developer's gate closed by a decision", () => {
+  // A gate a decided note closes goes on as DONE (FR-014), and a developer that goes on as DONE takes the commit check.
+  const bodies = [
+    "Scan: clean",
+    `${T1}: developer dispatched model=sonnet`,
+    `${T1}: developer done status=DONE`,
+    `Note ${T1}: commits 0010001`,
+    `${T1}: automation-writer dispatched model=sonnet`,
+    `${T1}: automation-writer done status=DONE`,
+    `${T1}: developer dispatched model=sonnet`,
+    `${T1}: developer done status=DONE_WITH_CONCERNS`,
+    `Note ${T1}: decided — the specs are fine as written; go on`,
+  ];
+  const uiPlan = (): LoopInputs => inputsOf([planTask(T1, { testTypes: ["Unit", "UI"] })], { level: "full" });
+
+  it("gives the Commit missing decide, which a commits note closes", () => {
+    const inputs = inputsFor(bodies, uiPlan());
+    const result = run(bodies, inputs);
+    const missing = result.actions.filter((a) => a.kind === "decide" && a.task === T1 && a.rule === JUDGEMENTS.commitMissing.rule);
+    expect(missing, show(result)).toHaveLength(1);
+    expect(missing[0].kind === "decide" && missing[0].closes).toContain(`Note ${T1}: commits <sha7>`);
+
+    const noted = [...bodies, `Note ${T1}: commits 0010002`];
+    const after = run(noted, inputsFor(noted, uiPlan()));
+    expect(
+      after.actions.filter((a) => a.kind === "decide" && a.task === T1 && a.rule === JUDGEMENTS.commitMissing.rule),
+      show(after),
+    ).toEqual([]);
+  });
+});
+
+describe("a route note on a task with no unresolved routed verify", () => {
+  const routedDecides = (r: NextResult): Action[] =>
+    r.actions.filter((a) => a.kind === "decide" && a.task === T1 && a.rule === JUDGEMENTS.verifyRouted.rule);
+  const committed = [
+    "Scan: clean",
+    `${T1}: developer dispatched model=sonnet`,
+    `${T1}: developer done status=DONE`,
+    `Note ${T1}: commits 0010001`,
+    `${T1}: verify started`,
+    `${T1}: code-reviewer dispatched model=sonnet`,
+    `${T1}: code-reviewer done status=clean`,
+  ];
+
+  it("prints no Verify routed decide when the router's verify already passed", () => {
+    const bodies = [...committed, `${T1}: verify done exit=0`, `Note ${T1}: verify routed — ${T2}`];
+    const result = run(bodies, inputsFor(bodies, overlappingPlan()));
+    expect(routedDecides(result), show(result)).toEqual([]);
+    expect(guardStops(result), show(result)).toEqual([]);
+  });
+
+  it("prints one Verify routed decide for two identical route notes on one failed verify", () => {
+    const bodies = [...committed, `${T1}: verify done exit=1`, `Note ${T1}: verify routed — ${T2}`, `Note ${T1}: verify routed — ${T2}`];
+    const result = run(bodies, inputsFor(bodies, overlappingPlan()));
+    expect(routedDecides(result), show(result)).toHaveLength(1);
+  });
+});
