@@ -270,15 +270,18 @@ describe("testing → review stage evidence gate", () => {
     });
   });
 
-  it("gates a bug without a worktree on the project root's HEAD and records that sha", async () => {
-    await configure([markerCmd()]);
+  it("gates a bug without a worktree on the project root's HEAD, with the record kf verify wrote", async () => {
+    await configure([["node", "-e", "process.exit(0)"]]);
     await itemInTesting();
-    await writeRecord({}, [markerCmd()]);
+
+    const verified = await cmdVerify(args("verify", ["f"], { stage: true }), root);
+    expect(verified.code).toBe(0);
+    const lines = readFileSync(join(feature().dir, "loop", "stage-verify.jsonl"), "utf8").trim().split("\n");
+    expect(JSON.parse(lines[lines.length - 1]).sha).toBe(gitIn(root, "rev-parse", "HEAD"));
 
     const res = await toReview();
 
     expect(res.code).toBe(0);
-    const lines = readFileSync(join(feature().dir, "loop", "stage-verify.jsonl"), "utf8").trim().split("\n");
-    expect(JSON.parse(lines[lines.length - 1]).sha).toBe(head());
+    expect(feature().stage).toBe("review");
   });
 });

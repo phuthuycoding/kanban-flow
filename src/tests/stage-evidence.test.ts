@@ -15,10 +15,9 @@ const gitIn = (dir: string, ...a: string[]): string =>
 
 const STAGE_CMD = [["npm", "test"]];
 
-let root: string | undefined;
+const roots: string[] = [];
 afterEach(async () => {
-  if (root) await rm(root, { recursive: true, force: true });
-  root = undefined;
+  for (const r of roots.splice(0)) await rm(r, { recursive: true, force: true });
 });
 
 interface Fixture {
@@ -32,8 +31,8 @@ interface Fixture {
 }
 
 async function makeFixture(stageConfig: string[][] | null = STAGE_CMD, stage: Stage = "testing"): Promise<Fixture> {
-  root = realpathSync(await mkdtemp(join(tmpdir(), "kf-evidence-")));
-  const r = root;
+  const r = realpathSync(await mkdtemp(join(tmpdir(), "kf-evidence-")));
+  roots.push(r);
   gitIn(r, "init", "-q");
   gitIn(r, "config", "user.email", "t@t");
   gitIn(r, "config", "user.name", "t");
