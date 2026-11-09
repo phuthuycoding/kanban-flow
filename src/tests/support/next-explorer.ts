@@ -165,6 +165,23 @@ function serialize(value: unknown, dropPositions: boolean): string {
   });
 }
 
+type Scheduler = typeof schedule;
+let scheduler: Scheduler = schedule;
+
+/**
+ * Runs `body` with a stand-in for `schedule`, so the search-level checks (repeating, trap) can be shown to catch a
+ * defect the machine does not have; the real scheduler is restored however `body` ends.
+ */
+export function withScheduler<T>(standIn: Scheduler, body: () => T): T {
+  const saved = scheduler;
+  scheduler = standIn;
+  try {
+    return body();
+  } finally {
+    scheduler = saved;
+  }
+}
+
 /** Folds the state and keys it; the two `kf next` results are computed on first read, so a seen state costs no schedule. */
 export function evaluate(base: LoopInputs, steps: Step[]): Evaluated {
   const state = parse(ledgerText(steps));
@@ -179,10 +196,10 @@ export function evaluate(base: LoopInputs, steps: Step[]): Evaluated {
     state,
     inputs,
     get plain() {
-      return (plain ??= schedule(state, inputs, { resume: false }));
+      return (plain ??= scheduler(state, inputs, { resume: false }));
     },
     get resumed() {
-      return (resumed ??= schedule(state, inputs, { resume: true }));
+      return (resumed ??= scheduler(state, inputs, { resume: true }));
     },
     get worldExact() {
       return (exact ??= serialize(world, false) + outside);
@@ -579,6 +596,8 @@ export function checkResult(ev: Evaluated, resume: boolean): Violation[] {
   if (!finished && open.length === 0 && result.actions.length === 0 && result.inFlight.length === 0) v("(a)", "every task is complete but finished is not printed");
 
   // (b) Every open plan task has a witness; a wait's chain ends in an action, an In-flight entry or an item halt.
+  // The edges come from printed waits only: a dependency or an overlap kf next did not print is no witness, or a task
+  // it leaves silent would pass whenever its partner is busy.
   const itemHalt = result.actions.some((a) => (a.kind === "stop" || a.kind === "decide") && a.task === undefined);
   if (!itemHalt) {
     const witnessed = new Set<string>();
@@ -589,9 +608,7 @@ export function checkResult(ev: Evaluated, resume: boolean): Violation[] {
       result.actions.some((a) => a.kind === "dispatch" && a.seat === "developer" && a.inline !== true);
     const edges = new Map<string, string[]>();
     for (const t of open) {
-      const targets: string[] = t.dependencies.filter((d) => !complete.has(d));
-      const rank = plan.indexOf(t);
-      for (const o of open) if (overlapping(t, o) && (o.wave < t.wave || (o.wave === t.wave && plan.indexOf(o) < rank))) targets.push(o.id);
+      const targets: string[] = [];
       for (const a of result.actions) {
         if (a.kind !== "wait" || a.task !== t.id) continue;
         if (holdsOn(a.reason, result)) {
