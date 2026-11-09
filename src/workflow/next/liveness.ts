@@ -24,21 +24,23 @@ export function emptyClosesGuard(emptyCloses: Action[]): { tasks: string[]; item
 const TASK_ID = /\bTASK-\d+\b/g;
 const CAP_WAIT = /\bdevelopers in flight$/;
 const WAVE_WAIT = /^wave (\d+) verify$/;
+const WAVE_DECIDES = new Set(["Wave verify", "Wave verify exit 3"]);
+const waveDecide = (a: Action): a is Extract<Action, { kind: "decide" }> => a.kind === "decide" && WAVE_DECIDES.has(a.rule);
 
 /**
  * A task is witnessed by an action or In-flight entry naming it, or through an edge to a witnessed task:
  * a wait naming another task, a cap wait while a developer is in flight or dispatched, an incomplete dependency,
  * an earlier incomplete overlapping task, and — for a task with no ledger line yet — any running test-writer. A hold
- * on a complete wave's verify is witnessed by that wave's printed verify or its run in flight.
- * A task-less stop or decide witnesses every task. Edges are resolved as a least fixed point, so a wait cycle
- * that reaches no action or In-flight entry stays silent.
+ * on a complete wave's verify is witnessed by that wave's printed verify, its run in flight or its decide.
+ * A task-less stop or decide witnesses every task, but for a wave's decide: dispatching goes on beside it. Edges are
+ * resolved as a least fixed point, so a wait cycle that reaches no action or In-flight entry stays silent.
  */
 export function checkLiveness(result: NextResult, state: LedgerState, inputs: LoopInputs): LivenessReport {
   const emptyCloses = result.actions.filter((a) => a.kind === "decide" && a.closes.trim() === "");
   const complete = completedTaskIds(state);
   const open = inputs.tasks.filter((t) => !complete.has(t.id));
 
-  const itemHalt = result.actions.some((a) => (a.kind === "stop" || a.kind === "decide") && a.task === undefined);
+  const itemHalt = result.actions.some((a) => (a.kind === "stop" || a.kind === "decide") && a.task === undefined && !waveDecide(a));
   if (itemHalt) return { silent: [], emptyCloses };
 
   const witnessed = new Set<string>();
@@ -61,7 +63,8 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
   const rank = new Map(inputs.tasks.map((t, i) => [t.id, i]));
   const byId = new Map(inputs.tasks.map((t) => [t.id, t]));
   const waveWitnessed = (wave: number): boolean =>
-    (result.waveRuns ?? []).includes(wave) || result.actions.some((a) => a.kind === "verify-wave" && a.wave === wave);
+    (result.waveRuns ?? []).includes(wave) ||
+    result.actions.some((a) => (a.kind === "verify-wave" && a.wave === wave) || (waveDecide(a) && a.reason.startsWith(`wave ${wave} `)));
 
   const edges = new Map<string, string[]>();
   const implicit = new Set<string>();

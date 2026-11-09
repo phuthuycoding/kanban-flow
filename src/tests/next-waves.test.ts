@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { readLedgerState } from "../workflow/next/ledger-state.js";
 import { readLoopInputs } from "../workflow/next/inputs.js";
+import { checkLiveness } from "../workflow/next/liveness.js";
 import { schedule } from "../workflow/next/schedule.js";
 import type { Action, LedgerState, LoopInputs, NextResult } from "../workflow/next/types.js";
 import { ensureWorksStructure } from "../workflow/features.js";
@@ -232,6 +233,28 @@ describe("kf next with stage commands pinned: a failed wave verify", () => {
     expect(decide.closes).toMatch(/^Note TASK-(?:NNN|001|002): reopened — wave 1 or Note wave 1: decided — <what>$/);
     expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
     expect(result.actions.some((a) => a.kind === "wait" && a.task === "TASK-003"), show(result)).toBe(true);
+  });
+
+  it("keeps the liveness guard on while the Wave verify decide is open: a task with no witness is still reported", () => {
+    const { ledger, inputs } = failed();
+    const result = run(ledger, inputs);
+    expect(decides(result, "Wave verify"), show(result)).toHaveLength(1);
+    // Dropping TASK-003's hold leaves it with no action, no in-flight entry and no wait.
+    const silenced: NextResult = { ...result, actions: result.actions.filter((a) => !("task" in a && a.task === "TASK-003")) };
+
+    const report = checkLiveness(silenced, ledgerState(ledger), inputs);
+
+    expect(report.silent, show(silenced)).toContain("TASK-003");
+  });
+
+  it("does not report a later-wave developer held by the wave verify while the Wave verify decide is open", () => {
+    const { ledger, inputs } = failed();
+    const result = run(ledger, inputs);
+    expect(result.actions.some((a) => a.kind === "wait" && a.task === "TASK-003" && /^wave 1 verify/.test(a.reason)), show(result)).toBe(true);
+
+    const report = checkLiveness(result, ledgerState(ledger), inputs);
+
+    expect(report.silent, show(result)).not.toContain("TASK-003");
   });
 
   it("owes the reopened task a developer round after a reopened — wave note, closing the decide", () => {
