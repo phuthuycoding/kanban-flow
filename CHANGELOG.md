@@ -2,7 +2,7 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
-## [Unreleased]
+## [0.16.0] - 2026-11-09
 
 ### Added
 - **`kf next <feature> [--resume] [--json]`.** A read-only query that prints the task loop's actions due now — dispatch a seat, verify a task, write a ledger line, complete a task, wait, decide, stop, or finished — read from the ledger, the plan, the reports, the verify logs and the item branch's `git log`. `--resume` lists the seats and verifies left open for a re-run. It changes no file and starts no process. Exit 0, 1 refused (a ledger line to repair, or a plan `kf tasks` refuses), 3 bad input.

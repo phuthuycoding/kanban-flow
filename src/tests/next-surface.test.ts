@@ -206,11 +206,11 @@ describe("the user-facing docs after the state machine", () => {
     expect(readDoc("docs", "workflow", "cli-reference.md")).toMatch(/liveness guard/i);
   });
 
-  it("has a changelog entry for the state machine in Unreleased", () => {
+  it("has a changelog entry for the state machine in 0.16.0", () => {
     const changelog = readDoc("CHANGELOG.md");
-    const unreleased = changelog.slice(changelog.indexOf("## [Unreleased]"), changelog.indexOf("## [0.15.1]"));
-    expect(unreleased).toMatch(/state machine/i);
-    expect(unreleased).toMatch(/liveness guard/i);
+    const release = changelog.slice(changelog.indexOf("## [0.16.0]"), changelog.indexOf("## [0.15.1]"));
+    expect(release).toMatch(/state machine/i);
+    expect(release).toMatch(/liveness guard/i);
   });
 });
 
