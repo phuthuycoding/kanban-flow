@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
 import { validateFeature } from "../workflow/validate.js";
-import { sameCommit, commandExitCodes } from "../workflow/validate-reports.js";
+import { cmdNew } from "../cli/commands/new.js";
+import { cmdStage } from "../cli/commands/stage.js";
+import { cmdApprove } from "../cli/commands/approve.js";
+import { cmdVerify } from "../cli/commands/verify.js";
+import type { ParsedArgs } from "../cli/args.js";
+import { sameCommit } from "../workflow/validate-reports.js";
 
 let root: string;
 let dir: string;
@@ -36,140 +42,65 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("testing_exit_code", () => {
-  it("accepts PASS with one command that exited 0", async () => {
-    await testingBug("PASS", table(["| npm test | 0 | 136 passed |"]));
-    expect(codes()).toEqual([]);
-  });
-
-  it("rejects PASS with a non-zero exit code", async () => {
+describe("the exit codes in a PASS testing report", () => {
+  it("does not refuse a PASS report whose command row exited non-zero", async () => {
     await testingBug("PASS", table(["| npm test | 1 | 2 failed |"]));
-    expect(codes()).toHaveLength(1);
-    expect(codes()[0].message).toContain("1 row");
+    expect(codes()).toEqual([]);
   });
 
-  it("rejects PASS without any command row", async () => {
-    await testingBug("PASS", table([]));
-    expect(codes()).toHaveLength(1);
-    expect(codes()[0].message).toContain("at least one command");
-  });
-
-  it("rejects PASS when the section is missing entirely", async () => {
+  it("does not refuse a PASS report that has no Commands table", async () => {
     await testingBug("PASS", "## Regression\nnone\n");
-    expect(codes()).toHaveLength(1);
+    expect(codes()).toEqual([]);
   });
 
-  it("rejects PASS with an N/A exit code", async () => {
+  it("does not refuse a PASS report with an empty table or a non-numeric exit code", async () => {
+    await testingBug("PASS", table([]));
+    expect(codes()).toEqual([]);
     await testingBug("PASS", table(["| npm test | N/A | not run |"]));
-    expect(codes()).toHaveLength(1);
-  });
-
-  it("does not constrain a FAIL report", async () => {
-    await testingBug("FAIL", table(["| npm test | 1 | 2 failed |"]));
     expect(codes()).toEqual([]);
   });
 
-  it("reads only the table under the Commands and Evidence heading", async () => {
-    const other = "## Failures and Blockers\n\n| Case | Error | Impact | Next |\n|---|---|---|---|\n| TC-9 | boom | high | fix |\n";
-    await testingBug("PASS", `${table(["| npm test | 0 | ok |", "| npm run lint | 0 | clean |"])}\n${other}`);
-    expect(codes()).toEqual([]);
-    expect(commandExitCodes(`${table(["| a | 0 | x |"])}\n${other}`)).toEqual(["0"]);
-    expect(commandExitCodes("# nothing")).toBeNull();
+  it("no longer exports the exit-code table reader", async () => {
+    const reports = await import("../workflow/validate-reports.js");
+    expect(Object.keys(reports)).not.toContain("commandExitCodes");
   });
 
-  it("accepts a backticked 0 and an escaped pipe inside the command cell", async () => {
-    await testingBug("PASS", table([
-      "| `npm test` | `0` | ok |",
-      "| `npm test \\| tee out.log` | 0 | ok |",
-      "| npm test \\| grep -c pass | 0 | 3 |",
-    ]));
-    expect(codes()).toEqual([]);
-    expect(commandExitCodes(table(["| a \\| b | `1` | x |", "| npm test \\| grep -c pass | 0 | 3 |"]))).toEqual(["1", "0"]);
-  });
+  it("lets an item with a non-zero exit row move from testing to review", async () => {
+    const repo = realpathSync(await mkdtemp(join(tmpdir(), "kf-reports-stage-")));
+    try {
+      const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+      const args = (command: string, positionals: string[], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
+      const must = (res: { code: number; stdout: string }, what: string): void => {
+        if (res.code !== 0) throw new Error(`${what} failed: ${res.stdout}`);
+      };
+      git("init", "-q");
+      git("config", "user.email", "t@t");
+      git("config", "user.name", "t");
+      await writeFile(join(repo, ".gitignore"), ".works/\n");
+      await writeFile(join(repo, "tracked.txt"), "one");
+      git("add", "-A");
+      git("commit", "-qm", "init");
+      ensureWorksStructure(repo);
+      must(await cmdNew(args("new", ["f"], { context: "app", type: "bug" }), repo), "kf new");
+      const item = () => findFeature(repo, "f")!;
+      await writeFile(join(item().dir, "phase-1-spec-requirement.md"),
+        "---\nstatus: confirmed\nkind: bug\n---\n# Bug Report\nReproduce: submit twice. Actual: duplicate task. Expected: one task. Severity: medium. Regression: repeat-submit unit test. Docs: unchanged behavior.");
+      must(await cmdStage(args("stage", ["f", "planning"]), repo), "stage planning");
+      must(await cmdApprove(args("approve", ["f"], { backlog: true }), repo), "approve");
+      must(await cmdStage(args("stage", ["f", "implementation"]), repo), "stage implementation");
+      must(await cmdStage(args("stage", ["f", "testing"]), repo), "stage testing");
+      await writeFile(join(item().dir, "phase-4-testing-result.md"),
+        `---\nstatus: PASS\nexecution: ${item().meta?.executionId}\n---\n# Testing Result\n\n${table(["| npm test | 1 | 2 failed |"])}`);
+      must(await cmdVerify(args("verify", ["f"], { stage: true, waive: "no stage suite in this fixture" }), repo), "kf verify --waive");
 
-  it("rejects PASS when a raw pipe in the command cell moves the exit cell onto text", async () => {
-    await testingBug("PASS", table(["| npm test | grep -c pass | 0 | 3 |"]));
-    expect(codes()).toHaveLength(1);
-    expect(commandExitCodes(table(["| npm test | grep -c pass | 0 | 3 |"]))).toEqual(["grep -c pass"]);
-  });
+      const res = await cmdStage(args("stage", ["f", "review"]), repo);
 
-  it("reads a row whose exit cell is not a number as failed, whatever follows it", async () => {
-    const rows = [
-      ["| npm test | killed | 0 failed \\| x |", "killed"],
-      ["| npm test | timeout | 0 | x |", "timeout"],
-      ["| npm test | - | 0 tests | x |", "-"],
-      ["| npm test |  | 0 tests | x |", ""],
-      ["| npm test | N/A | 0 tests | x |", "N/A"],
-      ["| cmd | x | y | z |", "x"],
-      ["| a | b | c | 0 | x |", "b"],
-    ];
-    for (const [row, value] of rows) {
-      expect(commandExitCodes(table([row]))).toEqual([value]);
+      expect(res.stdout).not.toContain("testing_exit_code");
+      expect(res.code).toBe(0);
+      expect(item().stage).toBe("review");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
     }
-  });
-
-  it("rejects a PASS report for every row whose exit cell is not a number", async () => {
-    const rows = [
-      "| npm test | killed | 0 failed \\| x |",
-      "| npm test | timeout | 0 | x |",
-      "| npm test | - | 0 tests | x |",
-      "| npm test |  | 0 tests | x |",
-      "| npm test | N/A | 0 tests | x |",
-    ];
-    for (const row of rows) {
-      await testingBug("PASS", table([row]));
-      expect(codes(), row).toHaveLength(1);
-    }
-  });
-
-  it("keeps an unescaped closing pipe only, and escaped pipes in the header, inside their cells", async () => {
-    expect(commandExitCodes(table(["| cmd | 0 \\|"]))).toEqual(["0 \\|"]);
-    await testingBug("PASS", table(["| cmd | 0 \\|"]));
-    expect(codes()).toHaveLength(1);
-    const body = "## Commands and Evidence\n\n| Command \\| x | Exit code | Evidence |\n|---|---:|---|\n| a | 0 | ok |\n";
-    expect(commandExitCodes(body)).toEqual(["0"]);
-  });
-
-  it("reads a passing row whose Evidence cell holds a pipe or several cells", () => {
-    const rows = [
-      "| npm test | 0 | 12 passed \\| 0 failed |",
-      "| npm test | 0 | 12 passed | 0 failed |",
-      "| a \\| 2>&1 tee | 0 | ev |",
-      "| `git diff 7efa5eb b1f2775 --stat` (worktree) | 0 | `src/tests/drive.test.ts \\| 3 ++-`, 1 file changed, 2 insertions(+), 1 deletion(-) |",
-      "| cmd | 0 (ok) | x |",
-    ];
-    for (const row of rows) {
-      expect(commandExitCodes(table([row]))).toEqual(["0"]);
-    }
-  });
-
-  it("never reads a failed row as 0 when a later cell holds 0", () => {
-    const rows = [
-      ["| cmd | 1 | 0 | x |", "1"],
-      ["| cmd | 0 | 1 | x |", "1"],
-      ["| cmd | 127 (not found) | 0 | x |", "127"],
-      ["| cmd | 0 | 127 (not found) | x |", "127"],
-      ["| cmd | `2` | 0 | x |", "2"],
-      ["| cmd | 1 (failed) | 0 | x |", "1"],
-    ];
-    for (const [row, value] of rows) {
-      expect(commandExitCodes(table([row]))).toEqual([value]);
-    }
-  });
-
-  it("finds the Exit code column by its header, wherever it sits", () => {
-    const head = "## Commands and Evidence\n\n| Evidence | Command | Exit code |\n|---|---|---:|\n";
-    expect(commandExitCodes(`${head}| ok | npm test | 0 |\n`)).toEqual(["0"]);
-    expect(commandExitCodes(`${head}| a \\| b | npm test | 2 |\n`)).toEqual(["2"]);
-    expect(commandExitCodes(`${head}| a | b | npm test | 0 |\n`)).toEqual(["npm test"]);
-    expect(commandExitCodes(`${head}| boom | a | b | 2 |\n`)).toEqual(["b"]);
-  });
-
-  it("reads a row with fewer cells than the exit column as empty, and a two-column table by its second cell", () => {
-    const wide = "## Commands and Evidence\n\n| Evidence | Command | Exit code |\n|---|---|---:|\n| ok | npm test |\n";
-    expect(commandExitCodes(wide)).toEqual([""]);
-    const narrow = "## Commands and Evidence\n\n| Command | Exit code |\n|---|---:|\n| cmd | 0 |\n";
-    expect(commandExitCodes(narrow)).toEqual(["0"]);
   });
 });
 

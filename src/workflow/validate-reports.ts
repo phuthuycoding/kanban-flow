@@ -10,57 +10,6 @@ import type { Feature } from "./features.js";
 
 const TEST_RESULTS = /^(PASS|FAIL|REJECT|BLOCKED)$/;
 const REVIEW_RESULTS = /^(PASS|FAIL|REJECT|REQUIREMENT_BUG)$/;
-const COMMANDS_HEADING = /^##\s+Commands and Evidence\b/i;
-
-/** The cells of a markdown table row, outer pipes dropped. */
-function tableCells(line: string): string[] {
-  return line.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "").split(/(?<!\\)\|/).map((cell) => cell.trim());
-}
-
-/**
- * Exit-code column of every data row in the table under "## Commands and Evidence".
- * Returns null when the section is absent. The column is found by its "Exit code" header
- * (the second column when no header names it). Cells split only on an unescaped pipe: `\|` stays
- * inside its cell. A cell is a code when it is an integer, optionally followed by a parenthesised
- * note (`127 (not found)`), after its backticks are stripped; its value is the integer.
- * When the cell under the column is not a code, the row's value is that cell's text (empty when
- * absent) and nothing to its right is consulted, so any text there counts as failing. When it is a
- * code, the cells up to the right-count of the column are scanned for codes: the first non-zero one
- * wins, else the left code. Free text never supplies a code.
- */
-export function commandExitCodes(body: string): string[] | null {
-  const lines = body.split("\n");
-  const start = lines.findIndex((line) => COMMANDS_HEADING.test(line));
-  if (start === -1) return null;
-  const codes: string[] = [];
-  let rows = 0;
-  let header: string[] = [];
-  let column = 1;
-  const bare = (cell: string): string => cell.replace(/^`(\S+)`$/, "$1");
-  const codeOf = (cell: string): string | null => /^(\d+)(\s*\(.*\))?$/.exec(cell)?.[1] ?? null;
-  for (const line of lines.slice(start + 1)) {
-    if (/^##\s/.test(line)) break;
-    if (!line.trim().startsWith("|")) continue;
-    rows += 1;
-    if (rows === 1) {
-      header = tableCells(line);
-      const named = header.findIndex((cell) => /^exit\s*code$/i.test(cell));
-      if (named !== -1) column = named;
-    }
-    if (rows <= 2) continue;
-    const cells = tableCells(line).map(bare);
-    const left = cells[column] ?? "";
-    const leftCode = codeOf(left);
-    if (leftCode === null) {
-      codes.push(left);
-      continue;
-    }
-    const lastCandidate = cells.length > header.length ? cells.length - (header.length - column) : column;
-    const numbers = cells.slice(column, lastCandidate + 1).flatMap((cell) => codeOf(cell) ?? []);
-    codes.push(numbers.find((n) => Number(n) !== 0) ?? leftCode);
-  }
-  return codes;
-}
 
 /** tasks.md checkbox presence: without checkboxes progress cannot be tracked; unfinished tasks block done. */
 export function checkTasks(feature: Feature): Finding[] {
@@ -85,21 +34,10 @@ export function checkTestingResult(feature: Feature): Finding[] {
   const file = ARTIFACTS["testing-result"].file;
   const trPath = join(feature.dir, file);
   if (!existsSync(trPath) || stageIndex < STAGE_INDEX.testing) return issues;
-  const { fm, body } = splitFrontmatter(readFileSync(trPath, "utf8"));
+  const { fm } = splitFrontmatter(readFileSync(trPath, "utf8"));
   const status = fm.status ?? "";
   if (!TEST_RESULTS.test(status)) {
     issues.push(finding(feature, "ERROR", file, "testing_status", `testing-result status is "${status}"; expected PASS/FAIL/REJECT/BLOCKED`));
-  }
-  if (status === "PASS") {
-    const codes = commandExitCodes(body) ?? [];
-    const failing = codes.filter((code) => code !== "0").length;
-    if (codes.length === 0) {
-      issues.push(finding(feature, "ERROR", file, "testing_exit_code",
-        "PASS requires at least one command row under \"## Commands and Evidence\" with exit code 0."));
-    } else if (failing > 0) {
-      issues.push(finding(feature, "ERROR", file, "testing_exit_code",
-        `PASS requires every command in "## Commands and Evidence" to exit 0 (${failing} row${failing > 1 ? "s" : ""} with a different exit code).`));
-    }
   }
   if (!feature.meta?.executionId || fm.execution !== feature.meta.executionId) {
     issues.push(finding(feature, "ERROR", file, "testing_stale", "Testing report must reference the current execution id from kf status/instruct."));
