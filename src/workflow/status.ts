@@ -54,6 +54,8 @@ export interface FeatureStatus {
   close?: CloseState;
   /** Stage verify evidence while the item is in implementation, testing or review; null otherwise or without a root. */
   stageVerify: StageEvidence | null;
+  /** Set instead of stageVerify when .kf/config.json is invalid, so status still renders. */
+  stageVerifyError?: string;
 }
 
 /**
@@ -154,6 +156,17 @@ export function computeStatus(feature: Feature, root?: string): FeatureStatus {
   const blockers = validateFeature(feature, false, true).issues
     .filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
 
+  let stageVerify: StageEvidence | null = null;
+  let stageVerifyError: string | undefined;
+  if (root !== undefined && STAGE_VERIFY_STAGES.includes(feature.stage)) {
+    try {
+      stageVerify = evaluateStageEvidence(root, feature);
+    } catch (err) {
+      if (!(err instanceof ProjectConfigError)) throw err;
+      stageVerifyError = err.message;
+    }
+  }
+
   return {
     feature,
     stageIndex,
@@ -164,9 +177,8 @@ export function computeStatus(feature: Feature, root?: string): FeatureStatus {
     next,
     blockers,
     taskProgress,
-    stageVerify: root !== undefined && STAGE_VERIFY_STAGES.includes(feature.stage)
-      ? evaluateStageEvidence(root, feature)
-      : null,
+    stageVerify,
+    ...(stageVerifyError === undefined ? {} : { stageVerifyError }),
   };
 }
 
@@ -175,7 +187,9 @@ const STAGE_VERIFY_STAGES: readonly string[] = ["implementation", "testing", "re
 const sha7 = (sha: string | null | undefined): string => (sha ?? "").slice(0, 7);
 
 function ageSince(at: string): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(at)) / 60000));
+  const elapsed = Date.now() - Date.parse(at);
+  if (Number.isNaN(elapsed)) return "?";
+  const minutes = Math.max(0, Math.floor(elapsed / 60000));
   if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d`;
   if (minutes >= 60) return `${Math.floor(minutes / 60)}h`;
   return `${minutes}m`;
@@ -255,6 +269,7 @@ export function renderStatusText(s: FeatureStatus): string {
   const bypasses = s.feature.meta?.bypasses ?? [];
   if (bypasses.length > 0) lines.push(`Bypasses: ${bypasses.length} (${bypasses.map((b) => `--${b.flag} → ${currentStageName(b.to)}`).join(", ")})`);
   if (s.stageVerify) lines.push(stageVerifyLine(s.stageVerify, s.feature.name));
+  else if (s.stageVerifyError !== undefined) lines.push(`Stage verify: unknown — ${s.stageVerifyError}`);
   const cancellation = s.feature.meta?.cancellation;
   if (cancellation) {
     lines.push(`Cancelled: ${cancellation.at} by ${cancellation.by} (was ${currentStageName(cancellation.fromStage)}) — ${cancellation.reason.split("\n")[0]}`);

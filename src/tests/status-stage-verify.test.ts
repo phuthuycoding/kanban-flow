@@ -246,4 +246,16 @@ describe("kf status stage verify", () => {
 
     expect(status.stageVerify?.state).toBe("pass");
   });
+
+  it("prints an unknown line and a null stageVerify instead of throwing when the project config is invalid", async () => {
+    const fx = await makeFixture();
+    await fx.addItem("f", "testing");
+    await writeFile(join(fx.root, ".kf", "config.json"), "{");
+
+    const text = await cmdStatus(args({ change: "f" }), fx.root);
+    const json = await cmdStatus(args({ change: "f", json: true }), fx.root);
+
+    expect(text.stdout).toMatch(/^Stage verify: unknown — .+/m);
+    expect(JSON.parse(json.stdout).stageVerify).toBeNull();
+  });
 });
