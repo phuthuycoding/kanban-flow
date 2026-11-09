@@ -1,6 +1,6 @@
 import { developerGated } from "./arbiter.js";
-import { uiSpecs } from "./fold.js";
-import { JUDGEMENTS, closesText } from "./judgements.js";
+import { uiSpecs, unnamedReportShas } from "./fold.js";
+import { JUDGEMENTS, closesText, commitsCloseGate } from "./judgements.js";
 import { sameSha } from "./ledger-state.js";
 import { shellQuote } from "./record.js";
 import type {
@@ -153,7 +153,7 @@ const REASONS = {
 /** The events that close each judgement: its close predicate's event types. */
 const CLOSES = {
   conflictScan: () => ["scan"],
-  seatStatus: (j) => (j.seat === "developer" ? ["dispatched", "decided", "ruling", "commits"] : ["dispatched", "decided", "ruling"]),
+  seatStatus: (j) => (commitsCloseGate(j) ? ["dispatched", "decided", "ruling", "commits"] : ["dispatched", "decided", "ruling"]),
   commitMissing: () => ["commits", "dispatched"],
   verifyExit2: () => ["decided", "verifyStarted"],
   verifyExit3: () => ["decided", "verifyStarted"],
@@ -443,14 +443,15 @@ function packageWrite(t: TaskState, world: World): Intent[] {
 /**
  * The check pass waits for a developer resumed to commit the automation-writer's or a round seat's files: until that
  * developer is done, no verify or own review is named for the tree it is about to change. A UI task under Level full
- * also waits while its first cycle's automation-writer is running or gated, as its specs are still to be resumed
- * (legacy seats.ts:275).
+ * also waits while its first cycle's automation-writer is running or gated, as its specs are still to be resumed.
  */
 function resumeCommitPending(t: TaskState, world: World): boolean {
   const p = t.phase;
   if (p.kind !== "cycle") return false;
   const step = p.implementer;
   if (step.kind === "specsOwed" || step.kind === "specsRunning" || step.kind === "resumeCommitOwed") return true;
+  // The resume-commit developer's commit is not on the task's list until its commits note: a check now would miss it.
+  if (step.kind === "commitNoteOwed" && step.resume === true) return true;
   if (step.kind === "running" && step.dispatchLine > p.openedAt) return true;
   const writer = t.seats["automation-writer"].kind;
   return p.cycle === "first" && uiSpecs(t, world) && (writer === "running" || writer === "gated");
@@ -462,6 +463,15 @@ const checkPassIntent = (i: Intent): boolean =>
   (i.action.kind === "verify" ||
     (i.action.kind === "write" && i.closes.includes("reviewPackage")) ||
     (i.action.kind === "dispatch" && i.action.seat === "code-reviewer" && i.action.cascade === undefined));
+
+function commitsWrite(t: TaskState, world: World, shas: string[]): Intent {
+  const list = shas.join(",");
+  const write: Write = { kind: "write", task: t.id, line: `Note ${t.id}: commits ${list}`, record: `kf record ${world.inputs.feature} commits ${t.id} ${list}` };
+  return act(t.id, write, ["commits"]);
+}
+
+/** Commits the task's report names on the branch that no ledger line records: an abandoned fix developer's, say. */
+const unrecorded = (t: TaskState, world: World): string[] => unnamedReportShas(t, world, Infinity);
 
 const IMPLEMENTER = {
   owed: (t, world, s) => {
@@ -488,11 +498,7 @@ const IMPLEMENTER = {
     t.seats["automation-writer"].kind === "idle"
       ? [{ kind: "inFlight", task: t.id, origin: "progress", closes: ["done"], entry: { task: t.id, seat: "automation-writer" } }]
       : [],
-  commitNoteOwed: (t, world, s) => {
-    const shas = s.shas.join(",");
-    const write: Write = { kind: "write", task: t.id, line: `Note ${t.id}: commits ${shas}`, record: `kf record ${world.inputs.feature} commits ${t.id} ${shas}` };
-    return [act(t.id, write, ["commits"])];
-  },
+  commitNoteOwed: (t, world, s) => [commitsWrite(t, world, s.shas)],
   commitMissing: (t, _world, s) =>
     t.judgements.some((j) => j.kind === "commitMissing")
       ? []
@@ -545,10 +551,14 @@ const PHASES = {
         return cap.reopened
           ? [judge(openOr(t, "cascadeAtCapStop", () => true, { kind: "cascadeAtCapStop", task: t.id, openedAt: null, sha7: cap.sha7 }), t)]
           : [judge(openOr(t, "cascadeAtCapBreaker", () => true, { kind: "cascadeAtCapBreaker", task: t.id, openedAt: null, sha7: cap.sha7 }), t)];
-      case "parkedClosed":
+      case "parkedClosed": {
+        // A commit left on the branch is recorded first, so the verify the completion needs runs on it (FR-023).
+        const shas = unrecorded(t, world);
+        if (shas.length > 0) return [commitsWrite(t, world, shas)];
         return t.verify.kind === "notDue"
           ? [act(t.id, { kind: "verify", task: t.id, command: verifyCommand(t, world, false) }, ["verifyStarted"])]
           : [];
+      }
     }
   },
   complete: () => [],
@@ -623,6 +633,7 @@ export function completable(t: TaskState, world: World): boolean {
   const p = t.phase;
   const parked = p.kind === "atCap" && p.cap.kind === "parkedClosed";
   if (!parked && !(p.kind === "cycle" && p.implementer.kind === "committed")) return false;
+  if (parked && unrecorded(t, world).length > 0) return false;
   if (t.judgements.length > 0) return false;
   if (SEATS.some((s) => seatBusy(t.seats[s]))) return false;
   if (!verifySettled(t)) return false;

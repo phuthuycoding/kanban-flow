@@ -341,14 +341,91 @@ describe("the completion oracle", () => {
     expect(oracleOn(without("TASK-001: test hashes")).blockers).toContain("the test-writer done at line 5 has no test hashes after it");
   });
 
-  it("refuses a task whose DONE automation-writer has no test hashes after it", () => {
+  it("refuses a task whose DONE fix-round automation-writer has no test hashes after it", () => {
+    const lines = [
+      ...READY.slice(0, 6),
+      "TASK-001: automation-writer dispatched model=sonnet round=1 @ 2026-11-07T10:04:10+07:00",
+      "TASK-001: automation-writer done status=DONE @ 2026-11-07T10:04:20+07:00",
+      ...READY.slice(6),
+    ];
+    expect(oracleOn(lines).blockers).toContain("the automation-writer done at line 8 has no test hashes after it");
+  });
+
+  it("owes no test hashes after a first-pass automation-writer, whose specs the developer commits unchanged", () => {
     const lines = [
       ...READY.slice(0, 6),
       "TASK-001: automation-writer dispatched model=sonnet @ 2026-11-07T10:04:10+07:00",
       "TASK-001: automation-writer done status=DONE @ 2026-11-07T10:04:20+07:00",
       ...READY.slice(6),
     ];
-    expect(oracleOn(lines).blockers).toContain("the automation-writer done at line 8 has no test hashes after it");
+    expect(oracleOn(lines)).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("does not count a review package that repeats noted shas as a later commit", () => {
+    const lines = [...READY, "TASK-001: review package aaaaaaa @ 2026-11-07T10:13:00+07:00"];
+    expect(oracleOn(lines)).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("counts a review package that names a new sha as a later commit", () => {
+    const lines = [...READY, "TASK-001: review package aaaaaaa,bbbbbbb @ 2026-11-07T10:13:00+07:00"];
+    const { blockers } = oracleOn(lines);
+    expect(blockers).toContain("no verify after the latest commit");
+    expect(blockers).toContain("the latest own review predates the latest commit");
+  });
+
+  it.each(["DONE_WITH_CONCERNS", "BLOCKED"])("accepts a developer %s closed by a commits note", (status) => {
+    const lines = [...READY.slice(0, 7), `TASK-001: developer done status=${status} @ 2026-11-07T10:06:00+07:00`, ...READY.slice(8)];
+    expect(oracleOn(lines)).toEqual({ ready: true, blockers: [] });
+  });
+
+  it.each(["NEEDS_CONTEXT", "WEIRD"])("refuses a developer %s closed only by a commits note", (status) => {
+    const lines = [...READY.slice(0, 7), `TASK-001: developer done status=${status} @ 2026-11-07T10:06:00+07:00`, ...READY.slice(8)];
+    expect(oracleOn(lines).blockers).toContain(`developer ended ${status} with no closing decision`);
+  });
+
+  // A failed minimal fix past the cap leaves the Breaker, which a park and a decided note close (FR-026).
+  const FAILED_MINIMAL_FIX = [
+    READY[0],
+    "TASK-001: developer dispatched model=sonnet round=5 @ 2026-11-07T10:00:00+07:00",
+    "TASK-001: developer done status=DONE @ 2026-11-07T10:01:00+07:00",
+    "Note TASK-001: commits 0010005 @ 2026-11-07T10:02:00+07:00",
+    "TASK-001: code-reviewer dispatched model=sonnet round=5 @ 2026-11-07T10:03:00+07:00",
+    "TASK-001: code-reviewer done status=findings @ 2026-11-07T10:04:00+07:00",
+    "Note TASK-001: decided — minimal fix past the cap: bound the loop @ 2026-11-07T10:05:00+07:00",
+    "TASK-001: developer dispatched model=sonnet @ 2026-11-07T10:06:00+07:00",
+    "TASK-001: developer done status=DONE @ 2026-11-07T10:07:00+07:00",
+    "Note TASK-001: commits 0010006 @ 2026-11-07T10:07:30+07:00",
+    "TASK-001: code-reviewer dispatched model=sonnet @ 2026-11-07T10:08:00+07:00",
+    "TASK-001: code-reviewer done status=findings @ 2026-11-07T10:08:30+07:00",
+  ];
+  const PARKED = [
+    "TASK-001: parked — the loop — Ruling: the loop waits for the next item @ 2026-11-07T10:09:00+07:00",
+    "Note TASK-001: decided — park the loop @ 2026-11-07T10:10:00+07:00",
+  ];
+  const VERIFIED = ["TASK-001: verify started @ 2026-11-07T10:11:00+07:00", "TASK-001: verify done exit=0 @ 2026-11-07T10:12:00+07:00"];
+
+  it("accepts a failed minimal fix past the cap once a park and a decided note close the Breaker it left", () => {
+    expect(oracleOn([...FAILED_MINIMAL_FIX, ...PARKED, ...VERIFIED])).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("accepts an abandoned minimal fix past the cap once a park and a decided note close the Breaker it left", () => {
+    const abandoned = [
+      ...FAILED_MINIMAL_FIX.slice(0, 8),
+      "TASK-001: developer done status=NEEDS_CONTEXT @ 2026-11-07T10:07:00+07:00",
+      "Note TASK-001: decided — the fix needs a schema change; abandon it @ 2026-11-07T10:08:00+07:00",
+    ];
+    const verifiedOnRoundFive = ["TASK-001: verify started @ 2026-11-07T10:11:00+07:00", "TASK-001: verify done exit=0 @ 2026-11-07T10:12:00+07:00"];
+    expect(oracleOn([...abandoned, ...PARKED, ...verifiedOnRoundFive])).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("accepts a failed minimal fix past the cap closed by a park alone", () => {
+    expect(oracleOn([...FAILED_MINIMAL_FIX, PARKED[0], ...VERIFIED])).toEqual({ ready: true, blockers: [] });
+  });
+
+  it("refuses a failed minimal fix past the cap that no park closed after it", () => {
+    const [head, ...rest] = FAILED_MINIMAL_FIX;
+    const parkedBeforeFix = [head, ...rest.slice(0, 5), ...PARKED.map((l) => l.replace("10:09:00", "10:04:20").replace("10:10:00", "10:04:40")), ...rest.slice(5)];
+    expect(oracleOn([...parkedBeforeFix, ...VERIFIED]).blockers).toContain("the latest own review is findings");
   });
 
   it("refuses a task whose verify still waits on another task's commit", () => {

@@ -19,8 +19,23 @@ const MIN_FIX = /^minimal fix past the cap:/;
 const CAP = 5;
 
 const taskOf = (e: Ev): string | undefined => ("task" in e ? e.task : undefined);
-const isCommit = (e: Ev, task: string): boolean => (e.type === "commits" || e.type === "reviewPackage") && e.task === task;
 const sameSha = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
+
+/**
+ * Indexes of the task's commits: each commits note, and each review package that names a sha no earlier line of the
+ * task named. A package that only repeats noted shas records no new commit, so it is not a later commit.
+ */
+function commitIndexes(events: Ev[], task: string): number[] {
+  const named: string[] = [];
+  const found: number[] = [];
+  events.forEach((e, i) => {
+    if ((e.type !== "commits" && e.type !== "reviewPackage") || e.task !== task) return;
+    const fresh = e.shas.filter((s) => !named.some((n) => sameSha(n, s)));
+    named.push(...fresh);
+    if (e.type === "commits" || fresh.length > 0) found.push(i);
+  });
+  return found;
+}
 
 /** Index just after the task's latest `reopened` note: the events of its current life start here. */
 function lifeStart(events: Ev[], task: string): number {
@@ -134,13 +149,18 @@ export function completionOracle(state: LedgerState, inputs: LoopInputs, task: s
     if (!latest) continue;
     if (latest.status === "DONE") continue;
     if (decisionAfter(events, task, latest.doneAt)) continue;
+    // Ruling @83: a commits note closes a developer that ended DONE_WITH_CONCERNS or BLOCKED as DONE; no other status.
+    const commitsCloses = seat === "developer" && (latest.status === "DONE_WITH_CONCERNS" || latest.status === "BLOCKED");
+    if (commitsCloses && events.some((e, i) => i > latest.doneAt && e.type === "commits" && e.task === task && !e.fromPackage)) continue;
     block(`${seat} ended ${latest.status} with no closing decision`);
   }
 
-  // A test-writer or automation-writer that ended DONE wrote tests: their hashes must be recorded after its done, or
-  // the developer's commit cannot be checked against them.
+  // A test-writer, or an automation-writer of a fix round, that ended DONE wrote tests: their hashes must be recorded
+  // after its done, or the developer's commit cannot be checked against them. A first-pass automation-writer owes none:
+  // the developer commits its specs unchanged as the task's second commit (543cd17 § UI tasks).
   for (const d of dispatches) {
     if ((d.seat !== "test-writer" && d.seat !== "automation-writer") || d.status !== "DONE") continue;
+    if (d.seat === "automation-writer" && d.round === undefined) continue;
     if (!events.some((e, i) => i > d.doneAt && e.type === "testHashes" && e.task === task)) block(`the ${d.seat} done at line ${events[d.doneAt].line} has no test hashes after it`);
   }
 
@@ -162,9 +182,8 @@ export function completionOracle(state: LedgerState, inputs: LoopInputs, task: s
   const devs = dispatches.filter((d) => d.seat === "developer" && !d.superseded);
   const lastDev = devs[devs.length - 1];
   if (!lastDev) block("no developer ran in this life of the task");
-  const commitIdx = events.map((e, i) => (i >= from && isCommit(e, task) ? i : -1)).filter((i) => i !== -1);
+  const commitIdx = commitIndexes(events, task).filter((i) => i >= from);
   const lastCommit = commitIdx.length > 0 ? commitIdx[commitIdx.length - 1] : -1;
-  if (lastDev && !commitIdx.some((i) => i > lastDev.index)) block("the latest developer has no commit after its dispatch");
 
   // A round test-writer or automation-writer owes a developer that reports after it and commits its fixed tests.
   for (const d of dispatches) {
@@ -173,19 +192,24 @@ export function completionOracle(state: LedgerState, inputs: LoopInputs, task: s
     }
   }
 
-  // The cap: parked findings plus a decided note that is not a minimal fix, in either order, waive the findings.
+  // The cap: parked findings plus a decided note that is not a minimal fix, in either order, waive the findings. After
+  // a minimal fix past the cap, a park written after the fix note closes it on its own: a failed or abandoned fix
+  // leaves the Breaker closable only by parking (FR-026).
   const roundFive = events.findIndex((e, i) => i >= from && e.type === "dispatched" && e.task === task && (e.round ?? 0) >= CAP);
   const afterCap = (i: number): boolean => roundFive !== -1 && i > roundFive;
-  const parkedAt = events.map((e, i) => (afterCap(i) && e.type === "parked" && e.task === task ? i : -1)).filter((i) => i !== -1);
-  const decidedPlain = events.some((e, i) => afterCap(i) && e.type === "decided" && e.task === task && !MIN_FIX.test(e.what));
-  const fixNote = events.findIndex((e, i) => afterCap(i) && e.type === "decided" && e.task === task && MIN_FIX.test(e.what));
+  // The latest minimal-fix note: the fix whose outcome the task completes on.
+  const fixNote = events.reduce((at, e, i) => (afterCap(i) && e.type === "decided" && e.task === task && MIN_FIX.test(e.what) ? i : at), -1);
   const minimalFix = fixNote !== -1;
-  const parkedClosed = parkedAt.length > 0 && decidedPlain && !minimalFix;
+  const closesCap = (i: number): boolean => afterCap(i) && (!minimalFix || i > fixNote);
+  const parkedAt = events.map((e, i) => (closesCap(i) && e.type === "parked" && e.task === task ? i : -1)).filter((i) => i !== -1);
+  const decidedPlain = events.some((e, i) => closesCap(i) && e.type === "decided" && e.task === task && !MIN_FIX.test(e.what));
+  const parkedClosed = parkedAt.length > 0 && (minimalFix || decidedPlain);
 
-  if (minimalFix) {
-    const fixDev = dispatches.find((d) => d.seat === "developer" && d.round === undefined && d.index > fixNote);
-    if (!fixDev) block("the minimal fix past the cap has no developer");
-  }
+  const fixDev = minimalFix ? dispatches.find((d) => d.seat === "developer" && d.round === undefined && d.index > fixNote) : undefined;
+  if (minimalFix && !fixDev) block("the minimal fix past the cap has no developer");
+  // A minimal fix whose developer was abandoned with no commit is waived once the park closes the Breaker it left.
+  const abandonedFixWaived = parkedClosed && fixDev !== undefined && lastDev === fixDev;
+  if (lastDev && !commitIdx.some((i) => i > lastDev.index) && !abandonedFixWaived) block("the latest developer has no commit after its dispatch");
 
   // The verify passed on the latest commits, passed by route, or a kept failure is waived by parking.
   const passedOnLatest = lastRun !== null && lastRun.exit === 0 && lastStart > lastCommit;

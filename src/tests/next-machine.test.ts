@@ -454,3 +454,231 @@ describe("the liveness guard's stop", () => {
     expect(found).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Explorer findings: minimal ledgers on which kf next stopped with no rule, overlapped two writers, held a lost run
+// under --resume, left a commit out of the task's list or completed a task a gate still held
+// ---------------------------------------------------------------------------
+
+/** A full commit sha whose first seven characters are `sha7`. */
+const fullSha = (sha7: string): string => `${sha7}${"c".repeat(33)}`;
+
+/** Epoch ms just before the `i`-th body line of `ledgerOf`: when a commit or verify block that line reports was made. */
+const before = (i: number): number => T0 + i * 60_000 - 30_000;
+
+const FAIL_LOG = "FAIL src/tests/shared.test.ts > keeps the rule: expected 1 to be 2";
+
+/** Two tasks of the same wave rank whose Files overlap on src/shared.ts. */
+const overlappingPlan = (over: Partial<LoopInputs> = {}): LoopInputs =>
+  inputsOf(
+    [
+      planTask(T1, { files: ["src/shared.ts", "src/task-001.ts"], overlaps: [T2] }),
+      planTask(T2, { files: ["src/shared.ts", "src/task-002.ts"], overlaps: [T1], wave: 2 }),
+    ],
+    over,
+  );
+
+/** The inputs of `bodies`: each `Note T: commits` sha on the branch and in T's report, and a block for each failing verify. */
+function inputsFor(bodies: string[], base: LoopInputs, failLog = FAIL_LOG): LoopInputs {
+  const gitLog: { sha: string; ts: number }[] = [];
+  const reportCommits: Record<string, string[]> = {};
+  const verifyRuns: LoopInputs["verifyRuns"] = {};
+  bodies.forEach((b, i) => {
+    let m: RegExpMatchArray | null;
+    if ((m = b.match(/^Note (TASK-\d+): commits (\w+)$/))) {
+      gitLog.push({ sha: fullSha(m[2]), ts: before(i) });
+      (reportCommits[m[1]] ??= []).push(m[2]);
+    } else if ((m = b.match(/^(TASK-\d+): verify done exit=(\d+)$/))) {
+      (verifyRuns[m[1]] ??= []).push({ ts: before(i), exit: Number(m[2]), text: m[2] === "0" ? "Test Files 1 passed" : failLog });
+    }
+  });
+  return { ...base, gitLog, reportCommits, verifyRuns };
+}
+
+const run = (bodies: string[], inputs: LoopInputs, resume = false): NextResult => schedule(parse(ledgerOf(bodies)), inputs, { resume });
+
+const guardStops = (result: NextResult): Action[] => result.actions.filter((a) => a.kind === "stop" && NO_RULE.test(a.reason));
+
+const show = (result: NextResult): string => JSON.stringify({ inFlight: result.inFlight, actions: result.actions }, null, 1);
+
+/** TASK-001 failed its verify and routed it to TASK-002 after `lines`. */
+const routedToT2 = (lines: string[]): string[] => [...lines, `${T1}: verify done exit=1`, `Note ${T1}: verify routed — ${T2}`];
+
+describe("explorer findings (TASK-025)", () => {
+  describe("a verify failure routed to a task that has not started", () => {
+    const firstPass = routedToT2([
+      "Scan: clean",
+      `${T1}: developer dispatched model=sonnet`,
+      `${T1}: developer done status=DONE`,
+      `Note ${T1}: commits 0010001`,
+      `${T1}: verify started`,
+      `${T1}: code-reviewer dispatched model=sonnet`,
+      `${T1}: code-reviewer done status=clean`,
+    ]);
+    const roundFive = routedToT2([
+      ...START,
+      ...roundsWithFindings(T1, "aaa000", 4),
+      `${T1}: developer dispatched model=sonnet round=5`,
+      `${T1}: developer done status=DONE`,
+      `Note ${T1}: commits aaa0005`,
+      `${T1}: review package aaa0005`,
+      `${T1}: verify started`,
+      `${T1}: code-reviewer dispatched model=sonnet round=5`,
+      `${T1}: code-reviewer done status=clean`,
+    ]);
+    const parkedAtBreaker = routedToT2([
+      ...START,
+      ...roundsWithFindings(T1, "aaa000", 5),
+      `${T1}: parked — the retry loop — Ruling: the retry loop waits for the next item`,
+      `Note ${T1}: decided — park the retry loop`,
+      `${T1}: verify started`,
+    ]);
+
+    it.each([
+      ["in its first pass", firstPass],
+      ["in fix round 5", roundFive],
+      ["closed at the Breaker by parking", parkedAtBreaker],
+    ])("gives the Verify routed decide for the routing task %s, never the liveness guard's stop", (_name, bodies) => {
+      const inputs = inputsFor(bodies, overlappingPlan());
+      for (const resume of [false, true]) {
+        const result = run(bodies, inputs, resume);
+        expect(guardStops(result), show(result)).toEqual([]);
+        const routed = result.actions.filter((a) => a.kind === "decide" && a.task === T1 && a.rule === JUDGEMENTS.verifyRouted.rule);
+        expect(routed, show(result)).toHaveLength(1);
+        const [decide] = routed;
+        expect(decide.kind === "decide" && decide.closes.trim()).not.toBe("");
+      }
+    });
+  });
+
+  it("gives a decide with closes, never the liveness guard's stop, when a failure is routed into a task inside its minimal fix past the cap", () => {
+    const bodies = [
+      "Scan: clean",
+      `${T1}: developer dispatched model=sonnet`,
+      `${T1}: fix round 5/5 (1 addressed, 1 open — the retry loop; commits aaa0005)`,
+      `Note ${T1}: reopened — review 1a2b3c4d`,
+      `Note ${T1}: cap reached — the retry loop is still unbounded`,
+      `Note ${T1}: decided — minimal fix past the cap: bound the loop`,
+      `${T1}: developer dispatched model=sonnet`,
+      `${T1}: developer done status=DONE`,
+      `${T1}: review package 0010001,0010002,0010003,0010004,0010005,0010006,0010007`,
+      `${T1}: verify started`,
+      `${T1}: code-reviewer dispatched model=sonnet`,
+      `${T1}: verify done exit=0`,
+      `Note ${T2}: verify routed — ${T1}`,
+      `${T1}: code-reviewer done status=clean`,
+    ];
+    const inputs = inputsFor(bodies, dependentPlan());
+    for (const resume of [false, true]) {
+      const result = run(bodies, inputs, resume);
+      expect(guardStops(result), show(result)).toEqual([]);
+      const decides = result.actions.filter((a) => a.kind === "decide" && (a.task === T1 || a.task === T2) && a.closes.trim() !== "");
+      expect(decides, show(result)).not.toEqual([]);
+    }
+  });
+
+  describe("one file-writing seat per overlapping Files", () => {
+    // An earlier task's seat waits only while a later overlapping task has a seat in flight.
+    const completedT1 = [
+      ...START,
+      ...testsReady(T1),
+      ...pass(T1, "aaa0001", "clean"),
+      `${T1}: complete (commits aaa0001, review clean)`,
+    ];
+
+    it.each([
+      ["with the reopen as the only line before it", ["Scan: clean", `${T2}: test-writer dispatched model=sonnet`, `Note ${T1}: reopened — review 1a2b3c4d`]],
+      [
+        "after the earlier task completed and was reopened",
+        [...completedT1, `${T2}: test-writer dispatched model=sonnet`, `Note ${T1}: reopened — review 1a2b3c4d`],
+      ],
+    ])("holds a reopened earlier task's fix developer while a later overlapping test-writer is in flight, %s", (_name, bodies) => {
+      const result = run(bodies, inputsFor(bodies, overlappingPlan()));
+      expect(result.inFlight, show(result)).toContainEqual({ task: T2, seat: "test-writer" });
+      expect(
+        result.actions.filter((a) => a.kind === "dispatch" && a.task === T1),
+        show(result),
+      ).toEqual([]);
+      expect(
+        result.actions.filter((a) => a.kind === "wait" && a.task === T1),
+        show(result),
+      ).not.toEqual([]);
+    });
+  });
+
+  it("re-issues a lost plain verify re-run under --resume even when the developer cap is full", () => {
+    // A resumed item is exempt from every hold and from the cap: the lost run is re-issued, not held behind the cap.
+    const bodies = [`${T1}: verify started`, `${T1}: developer dispatched model=sonnet round=1`, `${T1}: verify done exit=1`, `${T1}: verify started`];
+    const inputs = inputsOf([planTask(T1)], { ceiling: { max: 1, source: "config" } });
+
+    const plain = run(bodies, inputs);
+    expect(plain.inFlight, show(plain)).toContainEqual({ task: T1, seat: "verify" });
+
+    const resumed = run(bodies, inputs, true);
+    expect(
+      resumed.actions.filter((a) => a.kind === "verify" && a.task === T1),
+      show(resumed),
+    ).toHaveLength(1);
+  });
+
+  it("puts a UI task's specs commit in the task's commit list, so its verify and review package cover it", () => {
+    // The developer commits the automation-writer's specs as a second commit of the task.
+    const bodies = [
+      `${T1}: developer dispatched model=sonnet`,
+      `${T1}: developer done status=DONE`,
+      `Note ${T1}: commits 0010001`,
+      `${T1}: automation-writer dispatched model=sonnet`,
+      `${T1}: automation-writer done status=DONE`,
+      `${T1}: developer dispatched model=sonnet`,
+      `${T1}: developer done status=DONE`,
+    ];
+    const base = inputsOf([planTask(T1, { testTypes: ["Unit", "UI"] })], { level: "full", ceiling: { max: 2, source: "config" } });
+    const inputs: LoopInputs = {
+      ...base,
+      reportCommits: { [T1]: ["0010001", "0010002"] },
+      gitLog: [
+        { sha: fullSha("0010001"), ts: before(1) },
+        { sha: fullSha("0010002"), ts: before(6) },
+      ],
+    };
+
+    const result = run(bodies, inputs);
+    const verifies = result.actions.filter((a) => a.kind === "verify" && a.task === T1);
+    const packages = result.actions.filter((a) => a.kind === "write" && a.task === T1 && /: review package /.test(a.line));
+    const commitNotes = result.actions.filter((a) => a.kind === "write" && a.task === T1 && /^Note TASK-001: commits 0010002$/.test(a.line));
+    expect([...verifies, ...packages, ...commitNotes], show(result)).not.toEqual([]);
+    for (const v of verifies) expect(v.kind === "verify" && v.command, show(result)).toMatch(/0010002/);
+    for (const p of packages) expect(p.kind === "write" && p.line, show(result)).toMatch(/0010002/);
+  });
+
+  describe("a developer gate closed only by a commits note", () => {
+    const closedByCommits = (status: string): string[] => [
+      "Scan: clean",
+      `${T1}: developer dispatched model=sonnet`,
+      `${T1}: developer done status=${status}`,
+      `Note ${T1}: commits 0010001`,
+      `${T1}: verify started`,
+      `${T1}: code-reviewer dispatched model=sonnet`,
+      `${T1}: code-reviewer done status=clean`,
+      `${T1}: verify done exit=0`,
+    ];
+    const completes = (result: NextResult): Action[] => result.actions.filter((a) => a.kind === "complete" && a.task === T1);
+
+    it.each(["NEEDS_CONTEXT", "WEIRD"])("does not complete the task when the developer ended %s", (status) => {
+      const bodies = closedByCommits(status);
+      const inputs = inputsFor(bodies, inputsOf([planTask(T1)]));
+      for (const resume of [false, true]) {
+        const result = run(bodies, inputs, resume);
+        expect(completes(result), show(result)).toEqual([]);
+        expect(guardStops(result), show(result)).toEqual([]);
+      }
+    });
+
+    // The commits note counts as DONE for these two statuses, so the same ledger still completes.
+    it.each(["DONE_WITH_CONCERNS", "BLOCKED"])("still completes the task when the developer ended %s", (status) => {
+      const bodies = closedByCommits(status);
+      const result = run(bodies, inputsFor(bodies, inputsOf([planTask(T1)])));
+      expect(completes(result), show(result)).toHaveLength(1);
+    });
+  });
+});

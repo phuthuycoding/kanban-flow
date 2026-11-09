@@ -189,23 +189,41 @@ const onReleased: RegionHandler<"watchReleased"> = (t, e) =>
     ? { ...t, verify: { kind: "owed", atHead: true, why: "released" } }
     : t;
 
+/**
+ * A failure can be routed only to an open task that can still take a fix round: its test-writer or developer has been
+ * dispatched, it is not complete, and it is not inside its one minimal fix past the cap (which takes no further round).
+ */
+export function routable(world: World, other: string): boolean {
+  const x = world.tasks.get(other);
+  if (x === undefined || world.unknown.has(other)) return false;
+  switch (x.phase.kind) {
+    case "tests":
+    case "atCap":
+      return true;
+    case "cycle":
+      return x.phase.cycle !== "minimalFix";
+    case "ready":
+      return x.seats["test-writer"].kind !== "idle";
+    default:
+      return false;
+  }
+}
+
+const rejectRoute = (t: TaskState, e: MachineEventOf<"verifyRouted">): TaskState =>
+  opened(t, { kind: "verifyRouted", task: t.id, openedAt: e.line, otherTask: e.otherTask });
+
 const onRouted: RegionHandler<"verifyRouted"> = (t, e, world) => {
   const v = t.verify;
   if (v.kind !== "failed") return t;
   // A waits note on the same failure holds until the named task's commit releases it; a later route does not lift it.
   if (v.disposition.kind === "waits") return t;
   const other = e.otherTask;
-  const x = world.tasks.get(other);
-  if (x && !world.unknown.has(other) && x.phase.kind !== "complete") {
-    return failed(t, v.line, { kind: "routedOut", otherTask: other, line: e.line });
-  }
-  return opened(failed(t, v.line, { kind: "routeRejected", otherTask: other }), {
-    kind: "verifyRouted",
-    task: t.id,
-    openedAt: e.line,
-    otherTask: other,
-  });
+  if (routable(world, other)) return failed(t, v.line, { kind: "routedOut", otherTask: other, line: e.line });
+  return rejectRoute(failed(t, v.line, { kind: "routeRejected", otherTask: other }), e);
 };
+
+/** A route note with no failure of this task open names a target that cannot take it: a Verify routed judgement too. */
+const onRoutedUnfailed: RegionHandler<"verifyRouted"> = (t, e, world) => (routable(world, e.otherTask) ? t : rejectRoute(t, e));
 
 /**
  * A pass or park of the task the failure was routed to answers it. Its complete with neither since the route leaves
@@ -258,6 +276,7 @@ const BASE_ROW = {
   commits: onCommit,
   verifyStarted: onStarted,
   decided: onDecided,
+  verifyRouted: onRoutedUnfailed,
   routedIn: onRoutedIn,
   parked: answerRoutedIn,
   complete: answerRoutedIn,

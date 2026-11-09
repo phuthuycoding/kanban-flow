@@ -2,7 +2,7 @@ import { atCapStep } from "./atcap.js";
 import { JUDGEMENTS, isSuperseded } from "./judgements.js";
 import { matchGitLog, sameSha, taskCommits } from "./ledger-state.js";
 import { reviewStep } from "./review-region.js";
-import { verifyStep } from "./verify-region.js";
+import { routable, verifyStep } from "./verify-region.js";
 import type {
   Cap,
   DecisionRegion,
@@ -101,14 +101,17 @@ function resumePurpose(t: TaskState, c: Cycle, dispatchLine: number): boolean {
   });
 }
 
-/** Rule 5: the report names commits git log has (any, when the log is empty) that no ledger line names. */
-function unnamedReportShas(t: TaskState, world: World): string[] {
+/**
+ * Rule 5: the report names commits git log has (any, when the log is empty) that no ledger line names, made by `ts`:
+ * the report is read as it is now, so a commit dated after the line being folded belongs to a later seat.
+ */
+export function unnamedReportShas(t: TaskState, world: World, ts: number): string[] {
   const named = [...t.commits, ...t.droppedShas];
   const log = world.inputs.gitLog;
   const unnamed: string[] = [];
   for (const sha of world.inputs.reportCommits[t.id] ?? []) {
     const short = sha.slice(0, 7);
-    if (log.length > 0 && !log.some((g) => sameSha(g.sha, short))) continue;
+    if (log.length > 0 && !log.some((g) => sameSha(g.sha, short) && g.ts <= ts)) continue;
     if (named.some((n) => sameSha(n, short)) || unnamed.some((u) => sameSha(u, short))) continue;
     unnamed.push(short);
   }
@@ -139,7 +142,7 @@ function specsAhead(t: TaskState, c: Cycle, world: World): boolean {
 }
 
 /** The implementer after a developer DONE (or a gate that goes on as DONE), with what the ledger records now. */
-function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: World): TaskState {
+function afterDevDone(t: TaskState, dispatchLine: number, at: number, ts: number, world: World): TaskState {
   if (t.phase.kind !== "cycle") return t;
   const c = t.phase;
   const judgements = t.judgements.filter((j) => j.kind !== "commitMissing");
@@ -148,13 +151,17 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
     judgements: [...judgements, ...opened],
     phase: { ...c, implementer },
   });
-  if (resumePurpose(t, c, dispatchLine)) return to({ kind: "committed" });
   const prior = c.implementer;
   const specsAfter = prior.kind === "commitNoteOwed" && prior.specsAfter === true;
   const resume = resumed(prior) ? { resume: true as const } : {};
   const flags = { ...resume, ...(specsAfter ? { specsAfter: true as const } : {}) };
-  const unnamed = unnamedReportShas(t, world);
+  // A resume-commit developer's own commit joins the task's commit list first (543cd17 SKILL § UI tasks).
+  const unnamed = unnamedReportShas(t, world, ts);
   if (unnamed.length > 0) return to({ kind: "commitNoteOwed", shas: unnamed, ...flags });
+  // A gate a decision closed goes on as DONE but still takes the commit check (FR-014): only a reported DONE skips it.
+  const dev = t.seats.developer;
+  const reportedDone = dev.kind === "reported" && dev.status === "DONE";
+  if (reportedDone && resumePurpose(t, c, dispatchLine)) return to({ kind: "committed" });
   if (c.sinceCommit === null || c.sinceCommit < dispatchLine) {
     const missing: ImplementerStep = { kind: "commitMissing", dispatchLine, ...resume };
     return to(missing, [{ kind: "commitMissing", task: t.id, openedAt: at, dispatchLine }]);
@@ -170,13 +177,13 @@ function afterDevDone(t: TaskState, dispatchLine: number, at: number, world: Wor
 }
 
 /** What a seat's DONE (or a gate that goes on as DONE) does to the phase; `answers` is the dispatch it answers. */
-function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: string, answers: number, at: number, world: World): TaskState {
+function seatDone(t: TaskState, seat: Exclude<Seat, "code-reviewer">, status: string, answers: number, at: number, ts: number, world: World): TaskState {
   const reported: SeatSlot = { kind: "reported", status, answers };
   const next = withSeat(t, seat, reported);
   const phase = next.phase;
   if (phase.kind === "tests" && seat === "test-writer") return withPhase(next, { kind: "tests", writer: reported, hashOwed: true });
   if (phase.kind !== "cycle") return next;
-  if (seat === "developer") return afterDevDone(next, answers, at, world);
+  if (seat === "developer") return afterDevDone(next, answers, at, ts, world);
   const step = phase.implementer;
   // A round seat sent instead of the round's developer: its tests are hashed, then the developer resumed to commit them.
   const roundSeat = (s: SeatSlot): boolean => s.kind === "running" && s.round !== undefined && s.round === phase.round;
@@ -224,15 +231,15 @@ function writerOwed(t: TaskState, seat: "test-writer" | "automation-writer"): Ta
  * A gate closed by a decided note or a Ruling goes on as DONE (FR-014), answering the seat's dispatch. A writer goes on
  * as DONE only from DONE_WITH_CONCERNS; any other status leaves it with no work to hash or commit, so it is owed again.
  */
-function goOnAsDone(t: TaskState, j: Extract<Judgement, { kind: "seatStatus" }>, at: number, world: World): TaskState {
+function goOnAsDone(t: TaskState, j: Extract<Judgement, { kind: "seatStatus" }>, at: number, ts: number, world: World): TaskState {
   if (j.seat === "code-reviewer") return t;
   const status = rawStatus(j.status);
   if (j.seat !== "developer") {
     if (status !== "DONE_WITH_CONCERNS") return writerOwed(t, j.seat);
-    return seatDone(t, j.seat, status, gatedDispatch(j), at, world);
+    return seatDone(t, j.seat, status, gatedDispatch(j), at, ts, world);
   }
   const dispatchLine = devDispatchLine(t);
-  return dispatchLine === null ? t : seatDone(t, "developer", status, dispatchLine, at, world);
+  return dispatchLine === null ? t : seatDone(t, "developer", status, dispatchLine, at, ts, world);
 }
 
 function openCycle(t: TaskState, cycle: Cycle["cycle"], round: number, openedAt: number, implementer: ImplementerStep): TaskState {
@@ -252,7 +259,7 @@ function dispatchInCycle(t: TaskState, c: Cycle, e: Dispatched, slot: Running): 
     return openCycle(t, "round", round, e.line, implementer);
   }
   if (e.seat === "developer") {
-    // Any developer dispatched after the owed resume-commit, re-dispatches included, is that resume (legacy seats.ts:276-277).
+    // Any developer dispatched after the owed resume-commit, re-dispatches included, is that resume.
     // So is one dispatched after specs reported while the first developer's done still owed its commits note.
     const step = c.implementer;
     const afterSpecs = step.kind === "commitNoteOwed" && step.specsAfter === true;
@@ -308,7 +315,7 @@ const onDone: RegionHandler<"done"> = (t, e, world) => {
   if (e.seat === "code-reviewer") return t;
   const slot = t.seats[e.seat];
   if (slot.kind !== "running") return t;
-  if (e.status === "DONE") return seatDone(t, e.seat, e.status, slot.line, e.line, world);
+  if (e.status === "DONE") return seatDone(t, e.seat, e.status, slot.line, e.line, e.ts, world);
   const gated: SeatSlot = { kind: "gated", status: gateStatus(e.status), doneLine: e.line };
   const judgement: Judgement = {
     kind: "seatStatus",
@@ -356,7 +363,7 @@ const onCommits: RegionHandler<"commits"> = (task, e, world) => {
   if (gate !== undefined && gate.j.kind === "seatStatus") {
     t = withSeat(t, "developer", { kind: "reported", status: rawStatus(gate.j.status), answers: dispatchLine });
   }
-  return afterDevDone(t, dispatchLine, e.line, world);
+  return afterDevDone(t, dispatchLine, e.line, e.ts, world);
 };
 
 /** A decided note or a Ruling tagged for the lifecycle closes that judgement; a seat gate goes on as DONE. */
@@ -367,7 +374,7 @@ function onDecision(t: TaskState, e: MachineEventOf<"decided"> | MachineEventOf<
   if (j === undefined || !lifecycleOwns(j) || j.kind !== "seatStatus") return t;
   const successor = entryOf(j).successor(j, e, t);
   if (successor !== "seatAsDone") return t;
-  return goOnAsDone({ ...t, judgements: t.judgements.filter((open) => open !== j) }, j, e.line, world);
+  return goOnAsDone({ ...t, judgements: t.judgements.filter((open) => open !== j) }, j, e.line, e.ts, world);
 }
 
 const onDecided: RegionHandler<"decided"> = (t, e, world) => onDecision(t, e, world);
@@ -550,7 +557,7 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
       firstDeveloper.add(h);
       if (e.round !== undefined && e.round >= 1) fixRoundOf.set(h, e.round);
     }
-    if (e.type === "verifyRouted" && !waiting(h)) {
+    if (e.type === "verifyRouted" && !waiting(h) && routable(world, e.otherTask)) {
       if (known(e.otherTask)) deliver(e.otherTask, { type: "routedIn", task: e.otherTask, from: h, line: e.line, ts: e.ts });
       routes.set(e.otherTask, (routes.get(e.otherTask) ?? new Set()).add(h));
     }

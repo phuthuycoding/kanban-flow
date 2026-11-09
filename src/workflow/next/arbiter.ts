@@ -183,7 +183,10 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
   if (lost !== undefined && lost.action.kind === "verify") {
     const task = lost.action.task;
     const signature = world.rerunSignature?.get(task);
-    if (world.pool.length < n) emit({ ...lost.action, rerun: true }, true, -1);
+    const v = world.tasks.get(task)?.verify;
+    // Only a contention re-run is held by the full cap; a plain re-run is exempt from the cap like any resumed item.
+    const contentionRerun = v?.kind === "running" && v.rerun;
+    if (world.pool.length < n || !contentionRerun) emit({ ...lost.action, rerun: true }, true, -1);
     else if (signature !== undefined) {
       const line = `Note ${task}: verify rerun — contention ${signature}`;
       emit({ kind: "write", task, line, record: `kf record ${f} line -- ${shellQuote(line)}` });
@@ -272,12 +275,29 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
     return earlier ? { kind: "earlier", other: earlier } : null;
   }
 
+  /** The file-writing seat of `task` in flight: its developer in the pool, or a running test-writer or automation-writer. */
+  const writingSeat = (task: string): Seat | undefined => {
+    if (world.pool.some((p) => p.task === task)) return "developer";
+    const s = world.tasks.get(task);
+    if (s === undefined) return undefined;
+    const writer = s.phase.kind === "tests" ? s.phase.writer : s.seats["test-writer"];
+    if (writer.kind === "running") return "test-writer";
+    return s.seats["automation-writer"].kind === "running" ? "automation-writer" : undefined;
+  };
+
   /**
-   * A later overlapping task whose developer is in the pool holds an earlier task's seat: the wait is on an in-flight
-   * seat that ends on its own, so it never closes a cycle with the open-task hold, which only points at earlier tasks.
+   * A later overlapping task with a file-writing seat in flight holds an earlier task's seat (Ruling @1126): the wait is
+   * on an in-flight seat that ends on its own, so it never closes a cycle with the open-task hold, which only points at
+   * earlier tasks.
    */
-  const runningLater = (t: LoopTask): LoopTask | undefined =>
-    plan.find((o) => overlapping(t, o) && rankPos(o.id) > rankPos(t.id) && world.pool.some((p) => p.task === o.id));
+  const runningLater = (t: LoopTask): { task: LoopTask; seat: Seat } | undefined => {
+    for (const o of plan) {
+      if (!overlapping(t, o) || rankPos(o.id) <= rankPos(t.id)) continue;
+      const seat = writingSeat(o.id);
+      if (seat !== undefined) return { task: o, seat };
+    }
+    return undefined;
+  };
 
   // The developer pool against the live cap: fix-round, resume-commit and minimal-fix developers first, then new
   // developers, each in plan order. Inline developers bypass N.
@@ -298,8 +318,8 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
     if (t !== undefined) {
       const later = runningLater(t);
       if (later !== undefined) {
-        const reason = overlapReason(t, later, `${later.id} developer in flight`);
-        if (reason !== null) developerWaits(d.task, reason, { kind: "task", task: later.id });
+        const reason = overlapReason(t, later.task, `${later.task.id} ${later.seat} in flight`);
+        if (reason !== null) developerWaits(d.task, reason, { kind: "task", task: later.task.id });
         continue;
       }
     }
@@ -360,8 +380,8 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
     const t = byId.get(d.task);
     const later = t !== undefined ? runningLater(t) : undefined;
     if (later !== undefined && t !== undefined) {
-      const reason = overlapReason(t, later, `${later.id} developer in flight`);
-      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.id }, true);
+      const reason = overlapReason(t, later.task, `${later.task.id} ${later.seat} in flight`);
+      if (reason !== null) wait({ kind: "wait", task: d.task, reason }, { kind: "task", task: later.task.id }, true);
       continue;
     }
     const overlap = t !== undefined ? overlapHold(t) : null;

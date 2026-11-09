@@ -49,6 +49,13 @@ const SEAT_REDISPATCH = ["<task>: <seat> dispatched …"];
 const SEAT_COMMITS = ["Note <task>: commits <sha7>"];
 const DEV_REDISPATCH = ["<task>: developer dispatched …"];
 
+/**
+ * A commits note closes a developer gate only from DONE_WITH_CONCERNS or BLOCKED, as DONE (Ruling @83): a BLOCKED
+ * quoting `commit made`. NEEDS_CONTEXT or an unknown status still needs a decision.
+ */
+export const commitsCloseGate = (j: Judgement): boolean =>
+  j.kind === "seatStatus" && j.seat === "developer" && (j.status === "DONE_WITH_CONCERNS" || j.status === "BLOCKED");
+
 /** One minimal fix per task: a developer of a minimal-fix cycle is never re-armed. */
 const inMinimalFix = (t: TaskState | null | undefined): boolean => t?.phase.kind === "cycle" && t.phase.cycle === "minimalFix";
 
@@ -63,13 +70,12 @@ export const JUDGEMENTS: JudgementTable = {
   seatStatus: {
     rule: "Seat status",
     form: "decide",
-    // A commits note closes a developer's gate only (a BLOCKED quoting `commit made`).
     closes: [SEAT_REDISPATCH, [DECIDED], ["Ruling: <task> — <what>"], SEAT_COMMITS],
     close: (j, e) =>
       dispatched(e, j.task, j.seat) ||
       decided(e, j.task) ||
       (e.type === "ruling" && e.task === j.task) ||
-      (j.seat === "developer" && e.type === "commits" && e.fromPackage !== true && e.task === j.task),
+      (commitsCloseGate(j) && e.type === "commits" && e.fromPackage !== true && e.task === j.task),
     successor: (j, e, t) => {
       if (e.type === "dispatched") return j.seat === "developer" && inMinimalFix(t) ? "minimalFixAbandoned" : "seatRunning";
       if (e.type === "commits") return "afterDevDone";
@@ -192,11 +198,12 @@ export const JUDGEMENTS: JudgementTable = {
 };
 
 /**
- * Whether `alt` is offered for `j` in task state `t`: a commits note only to a developer seat (the only seat its close
- * predicate accepts it for), and no developer re-dispatch in a minimal-fix cycle (one recorded anyway abandons the fix).
+ * Whether `alt` is offered for `j` in task state `t`: a commits note only to a developer ended DONE_WITH_CONCERNS or
+ * BLOCKED (the only gates its close predicate accepts it for), and no developer re-dispatch in a minimal-fix cycle (one
+ * recorded anyway abandons the fix).
  */
 function offered(alt: string[], j: Judgement, t: TaskState | null | undefined): boolean {
-  if (alt === SEAT_COMMITS) return j.kind === "seatStatus" && j.seat === "developer";
+  if (alt === SEAT_COMMITS) return commitsCloseGate(j);
   if (alt === SEAT_REDISPATCH) return !(j.kind === "seatStatus" && j.seat === "developer" && inMinimalFix(t));
   if (alt === DEV_REDISPATCH) return !inMinimalFix(t);
   return true;
