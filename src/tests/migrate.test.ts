@@ -13,6 +13,7 @@ import { cmdSync } from "../cli/commands/sync.js";
 import { ensureWorksStructure, findFeature, listFeatures, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 const statusAll = (options: Record<string, unknown> = {}): ParsedArgs => ({ command: "status", positionals: [], options: { all: true, ...options } });
 const syncArgs: ParsedArgs = { command: "sync", positionals: [], options: {} };
@@ -56,6 +57,7 @@ async function shippingBug(name: string, pr: string): Promise<string> {
     if (to === "approve") expect((await cmdApprove({ command: "approve", positionals: [name], options: {} }, root)).code).toBe(0);
     else expect((await cmdStage({ command: "stage", positionals: [name, to], options: {} }, root)).code).toBe(0);
     if (to === "testing") await report(name, "testing-result");
+    if (to === "testing") await grantStageWaiver(root, name);
   }
   await writeFeatureMeta(feature(name).dir, { ...readFeatureMeta(feature(name).dir)!, pr });
   await report(name, "review-report");

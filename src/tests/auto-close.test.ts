@@ -19,6 +19,7 @@ import { deleteItemBranch } from "../worktree/lifecycle.js";
 import { runDoctor } from "../project/doctor.js";
 import { checkMergeGate, gh } from "../integrations/github.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 let root: string;
 let scratch: string;
@@ -145,6 +146,7 @@ async function reviewItem(name = "demo", opts: { landing?: "pr" | "none"; commit
   if (landing === "pr") git(wt.path, "push", "-q", "-u", "origin", wt.branch);
   expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
   await writeReport(name, "testing-result", "PASS");
+  await grantStageWaiver(root, name);
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   if (landing === "pr") await writeFeatureMeta(feature(name).dir, { ...readFeatureMeta(feature(name).dir)!, pr: PR });
   await writeReport(name, "review-report", "PASS", landing);
@@ -257,6 +259,7 @@ describe("auto-close on merge", () => {
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(0);
     expect(feature().meta!.executionId).not.toBe(stale);
     await writeReport("demo", "testing-result", "PASS");
+    await grantStageWaiver(root, "demo");
     expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
     await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
       `---\nstatus: PASS\nexecution: ${stale}\nci: green\nlanding: pr\n---\n# Evidence\nVerified.\n`);

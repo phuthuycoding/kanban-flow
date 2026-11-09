@@ -17,6 +17,7 @@ import { cmdSync } from "../cli/commands/sync.js";
 import { cmdCancel } from "../cli/commands/cancel.js";
 import { parseArgsCli, type ParsedArgs } from "../cli/args.js";
 import { PKG_ROOT } from "../shared/paths.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 const feature = (name = "demo") => findFeature(root, name)!;
@@ -77,6 +78,7 @@ async function shipReadyItem(name = "demo"): Promise<void> {
     writeFile(join(feature(name).dir, ARTIFACTS[id].file),
       `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
+  await grantStageWaiver(root, name);
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report("review-report");
 }

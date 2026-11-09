@@ -11,6 +11,7 @@ import { cmdSync } from "../cli/commands/sync.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 const args = (positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
   ({ command: "sync", positionals, options });
@@ -54,6 +55,7 @@ async function reviewBug(name: string): Promise<void> {
   expect((await cmdApprove({ command: "approve", positionals: [name], options: {} }, root)).code).toBe(0);
   expect((await cmdStage({ command: "stage", positionals: [name, "testing"], options: {} }, root)).code).toBe(0);
   await report(name, "testing-result");
+  await grantStageWaiver(root, name);
   expect((await cmdStage({ command: "stage", positionals: [name, "review"], options: {} }, root)).code).toBe(0);
   await report(name, "review-report");
 }

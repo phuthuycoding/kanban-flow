@@ -13,6 +13,7 @@ import { readProjectConfig } from "../project/config.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
+import { evaluateStageEvidence, stageEvidenceFindings } from "./stage-evidence.js";
 
 export interface TransitionOptions {
   force?: boolean;
@@ -135,6 +136,9 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
 
   // Directional gate: PASS/FAIL/REQUIREMENT_BUG semantics of the reports.
   const direction = checkDirectionGate(f, to);
+  // Review is entered on evidence kf produced itself (the stage record) or the human's waiver — never on the report alone.
+  // Kept out of checkDirectionGate, which stays a pure read of the item folder.
+  if (f.stage === "testing" && to === "review") direction.push(...stageEvidenceFindings(f, evaluateStageEvidence(root, f)));
   if (direction.length > 0) {
     if (!force) {
       const lines = direction.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`).join("\n");

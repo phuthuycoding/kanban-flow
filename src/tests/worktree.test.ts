@@ -21,6 +21,7 @@ import * as manager from "../worktree/manager.js";
 import { teardownWorktree } from "../worktree/lifecycle.js";
 import { writeFeatureMeta } from "../workflow/features.js";
 import type { ParsedArgs } from "../cli/args.js";
+import { grantStageWaiver } from "./support/stage-waiver.js";
 
 let root: string;
 let scratch: string;
@@ -89,6 +90,7 @@ async function reviewReadyItem(name = "demo"): Promise<void> {
     writeFile(join(feature(name).dir, ARTIFACTS[id].file),
       `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
+  await grantStageWaiver(root, name);
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);
   await report("review-report");
 }

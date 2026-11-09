@@ -126,7 +126,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   stage: {
-    help: "Usage: kf stage <feature> <next-stage> [--skip-hooks]  — move feature to next stage",
+    help: "Usage: kf stage <feature> <next-stage> [--skip-hooks]  — move feature to next stage. testing → review also needs a passing stage verify record at the item's HEAD (kf verify <feature> --stage), or a waiver when no harness.verify.stage is pinned",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
