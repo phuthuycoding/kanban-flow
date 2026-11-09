@@ -17,10 +17,10 @@ const VERIFY_ROUTED = /^Note (TASK-\d+): verify routed — (TASK-\d+)$/;
 const VERIFY_WAITS = /^Note (TASK-\d+): verify waits — (.+) \((TASK-\d+)\)$/;
 const VERIFY_RERUN = /^Note (TASK-\d+): verify rerun — contention (.+)$/;
 const REOPENED = /^Note (TASK-\d+): reopened — (testing|review|ci) (\S{8})$/;
-const REOPENED_WAVE = /^Note (TASK-\d+): reopened — wave (\d+)$/;
-const WAVE_VERIFY_STARTED = /^wave (\d+): verify started$/;
-const WAVE_VERIFY_DONE = /^wave (\d+): verify done exit=(\d+)$/;
-const WAVE_DECIDED = /^Note wave (\d+): decided — (.+)$/;
+const REOPENED_WAVE = /^Note (TASK-\d+): reopened — wave ([1-9]\d*)$/;
+const WAVE_VERIFY_STARTED = /^wave ([1-9]\d*): verify started$/;
+const WAVE_VERIFY_DONE = /^wave ([1-9]\d*): verify done exit=(\d+)$/;
+const WAVE_DECIDED = /^Note wave ([1-9]\d*): decided — (.+)$/;
 const CAP_REACHED = /^Note (TASK-\d+): cap reached — (.+)$/;
 const INLINE = /^Note (TASK-\d+): developer seat inline$/;
 const CAP_START = /^Ruling: developer cap (\d+) — start — .+$/;
@@ -32,7 +32,7 @@ const CAUSE_CEILING = /^ceiling lowered to (\d+)$/;
 
 /** A body that starts a claim the scheduler reads (behind an optional bullet): when it fails its grammar the ledger needs repair. */
 const CLAIM =
-  /^\s*(?:[-*+]\s+)?(?:Ruling: developer cap|Note wave [^:]*: no step-up|Note TASK-\d+: (?:verify rerun|verify waits|verify routed|commits|decided|reopened|cap reached|developer seat inline)|TASK-\d+: (?:implemented|review package|no test-writer|test hashes|parked))/;
+  /^\s*(?:[-*+]\s+)?(?:Ruling: developer cap|Note wave [^:]*: (?:no step-up|decided)|wave \d+: verify|Note TASK-\d+: (?:verify rerun|verify waits|verify routed|commits|decided|reopened|cap reached|developer seat inline)|TASK-\d+: (?:implemented|review package|no test-writer|test hashes|parked))/;
 
 const TASK_OF = /^(?:Note )?(TASK-\d+):/;
 

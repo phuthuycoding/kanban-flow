@@ -56,4 +56,23 @@ describe("wave ledger lines", () => {
     expect(events.map((e) => e.type)).toEqual(["waveVerifyStarted", "waveVerifyDone", "reopened", "waveDecided"]);
     expect(events.some((e) => e.type === "other")).toBe(false);
   });
+
+  // A malformed wave line must make the ledger refuse, as every other scheduler grammar does, not fall to `other`.
+  it.each([
+    ["a wave verify done with no exit", "wave 1: verify done exit="],
+    ["a wave verify done with a non-numeric exit", "wave 1: verify done exit=x"],
+    ["a wave decision with no text", "Note wave 1: decided"],
+    ["a reopen note naming wave 0", "Note TASK-001: reopened — wave 0"],
+    ["a wave decision note naming wave 0", "Note wave 0: decided — x"],
+  ])("refuses the ledger for %s", (_what, body) => {
+    const read = readLedgerState(ledger(stamp(body)));
+    expect(read.ok).toBe(false);
+    if (read.ok) return;
+    expect(read.repair.map((r) => r.text)).toEqual([stamp(body)]);
+  });
+
+  it("refuses the ledger for a wave verify start without its timestamp", () => {
+    const read = readLedgerState(ledger("wave 1: verify started"));
+    expect(read.ok).toBe(false);
+  });
 });
