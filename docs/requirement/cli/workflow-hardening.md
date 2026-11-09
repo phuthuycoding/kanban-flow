@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `verify-evidence`:** the `testing_exit_code` rule (a PASS testing report needs a Commands and Evidence table with every exit code `0`) no longer holds — `kf validate` no longer parses that table; `kf stage <f> review` gates on the stage verify record kf writes itself (`kf verify <f> --stage`). Kept for history.
+
 ## Feature
 workflow-hardening
 
