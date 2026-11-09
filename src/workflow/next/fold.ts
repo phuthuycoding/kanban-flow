@@ -3,6 +3,7 @@ import { JUDGEMENTS, isSuperseded } from "./judgements.js";
 import { matchGitLog, sameSha, taskCommits } from "./ledger-state.js";
 import { reviewStep } from "./review-region.js";
 import { routable, verifyStep } from "./verify-region.js";
+import { foldWaves } from "./waves.js";
 import type {
   Cap,
   DecisionRegion,
@@ -610,6 +611,8 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
       return [{ task: t.id, line: slot.line, ...(slot.round !== undefined ? { round: slot.round } : {}) }];
     })
     .sort((a, b) => a.line - b.line);
+  const waves = foldWaves(state, inputs, world.tasks);
+  if (waves !== undefined) world.waves = waves;
   return world;
 }
 

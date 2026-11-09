@@ -23,11 +23,13 @@ export function emptyClosesGuard(emptyCloses: Action[]): { tasks: string[]; item
 
 const TASK_ID = /\bTASK-\d+\b/g;
 const CAP_WAIT = /\bdevelopers in flight$/;
+const WAVE_WAIT = /^wave (\d+) verify$/;
 
 /**
  * A task is witnessed by an action or In-flight entry naming it, or through an edge to a witnessed task:
  * a wait naming another task, a cap wait while a developer is in flight or dispatched, an incomplete dependency,
- * an earlier incomplete overlapping task, and — for a task with no ledger line yet — any running test-writer.
+ * an earlier incomplete overlapping task, and — for a task with no ledger line yet — any running test-writer. A hold
+ * on a complete wave's verify is witnessed by that wave's printed verify or its run in flight.
  * A task-less stop or decide witnesses every task. Edges are resolved as a least fixed point, so a wait cycle
  * that reaches no action or In-flight entry stays silent.
  */
@@ -40,7 +42,7 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
   if (itemHalt) return { silent: [], emptyCloses };
 
   const witnessed = new Set<string>();
-  for (const a of result.actions) if (a.kind !== "wait" && a.kind !== "finished" && a.task !== undefined) witnessed.add(a.task);
+  for (const a of result.actions) if (a.kind !== "wait" && a.kind !== "finished" && a.kind !== "verify-wave" && a.task !== undefined) witnessed.add(a.task);
   for (const f of result.inFlight) witnessed.add(f.task);
 
   // A cap wait waits on FR-024's pool: a spawned developer seat in flight or dispatched, never an inline one. A plan-inline
@@ -58,6 +60,8 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
   const ledgered = new Set(state.events.flatMap((e) => ("task" in e && e.task !== undefined ? [e.task] : [])));
   const rank = new Map(inputs.tasks.map((t, i) => [t.id, i]));
   const byId = new Map(inputs.tasks.map((t) => [t.id, t]));
+  const waveWitnessed = (wave: number): boolean =>
+    (result.waveRuns ?? []).includes(wave) || result.actions.some((a) => a.kind === "verify-wave" && a.wave === wave);
 
   const edges = new Map<string, string[]>();
   const implicit = new Set<string>();
@@ -72,6 +76,8 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
       if (a.kind !== "wait" || a.task !== t.id) continue;
       for (const m of a.reason.matchAll(TASK_ID)) if (m[0] !== t.id) targets.push(m[0]);
       if (CAP_WAIT.test(a.reason) && developerRunning) implicit.add(t.id);
+      const wave = WAVE_WAIT.exec(a.reason);
+      if (wave !== null && waveWitnessed(Number(wave[1]))) implicit.add(t.id);
     }
     if (!ledgered.has(t.id) && testWriterRunning) implicit.add(t.id);
     edges.set(t.id, targets);

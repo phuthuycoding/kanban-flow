@@ -1757,7 +1757,7 @@ describe("schedule: an assertion inside the arbiter", () => {
     expect(stops.map((a) => a.task)).toEqual(["TASK-002"]);
     expect(stops[0].kind === "stop" && NO_RULE.test(stops[0].reason)).toBe(true);
     expect(result.actions.filter((a) => a.kind === "dispatch")).toEqual([]);
-    expect(result.actions.filter((a) => a.kind !== "finished" && a.task === "TASK-002" && a.kind !== "stop")).toEqual([]);
+    expect(result.actions.filter((a) => a.kind !== "finished" && a.kind !== "verify-wave" && a.task === "TASK-002" && a.kind !== "stop")).toEqual([]);
     // The held task names the stop that holds it, as a stop's hold does.
     expect(result.actions.filter((a) => a.kind === "wait" && a.task === "TASK-003" && a.reason.includes("TASK-002"))).toHaveLength(1);
     expect(result.inFlight).toContainEqual({ task: "TASK-001", seat: "developer" });
@@ -1977,7 +1977,7 @@ describe("schedule: a task whose only wait is not printed", () => {
     const result = schedule(state, inputs, { resume: false });
 
     expect(result.actions.filter((a) => a.kind === "stop")).toEqual([]);
-    expect(result.actions.filter((a) => a.kind !== "finished" && a.task === T5)).toEqual([]);
+    expect(result.actions.filter((a) => a.kind !== "finished" && a.kind !== "verify-wave" && a.task === T5)).toEqual([]);
     for (const t of writers) expect(result.inFlight).toContainEqual({ task: t, seat: "test-writer" });
   });
 });
@@ -2201,6 +2201,8 @@ function findActionLine(lines: string[], a: Action, from: number): number {
           (a.cascade === undefined || l.includes(` cascade=${a.cascade}`)) &&
           (!a.inline || l.includes(" inline"))
         );
+      case "verify-wave":
+        return l === `verify wave ${a.wave}: ${a.command}`;
       case "verify":
         return l === `verify ${a.task}: ${a.command}`;
       case "write":
