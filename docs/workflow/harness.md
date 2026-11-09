@@ -6,12 +6,13 @@ kanban-flow has one execution path: the **in-session loop**. The session you are
 
 ## Config
 
-The only `harness` keys are the two verify lists and the developer ceiling in `.kf/config.json`. Each entry is an argv array run without a shell; kf never runs a command read from an artifact, a report or agent output.
+The only `harness` keys are the verify settings (`task`, `related`, `stage`) and the developer ceiling in `.kf/config.json`. Each entry is an argv array run without a shell; kf never runs a command read from an artifact, a report or agent output.
 
 ```json
 "harness": {
   "verify": {
     "task":  [["npm", "run", "typecheck"]],
+    "related": ["npx", "vitest", "related", "--run"],
     "stage": [["npm", "run", "build"], ["npm", "test"]]
   },
   "developers": { "max": 6 }
@@ -19,7 +20,9 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 ```
 
 - `harness.verify.task` runs after each task commit.
-- `harness.verify.stage` runs at the end of implementation and again after the last commit of testing; each run is recorded in `<item>/loop/stage-verify.jsonl`, and `kf stage <feature> review` moves only on a passing record at the item's HEAD (see [gates](gates.md)). With no `harness.verify.stage`, an item enters review only on a waiver (`kf verify <feature> --stage --waive "<reason>"`).
+- `harness.verify.related` is one argv; `kf verify --task` appends the task's changed files that still exist to it and runs it after the task commands, so a task runs only the tests related to what it touched. Each command is printed as `Ran: <argv>`; a task whose changed files are all gone prints `No related tests: …` and runs none.
+- Per wave, `kf verify <feature> --wave <w>` runs `harness.verify.stage` once the wave's tasks are all complete, in a detached worktree at HEAD, and appends a stage record with `wave: <w>`. The next wave's developers wait until that wave verify passed at a commit containing every wave commit; test-writers are not held, and a failed wave verify is a `Wave verify` decide for the controller.
+- `harness.verify.stage` runs at the end of implementation and again after the last commit of testing; each run is recorded in `<item>/loop/stage-verify.jsonl`, and `kf stage <feature> review` moves only on a passing record at the item's HEAD (see [gates](gates.md)). The review gate reuses the last wave's record when it passed at HEAD on a clean tree, so `kf verify <feature> --stage` runs only when `kf status` does not show PASS at HEAD. With no `harness.verify.stage`, an item enters review only on a waiver (`kf verify <feature> --stage --waive "<reason>"`).
 - `harness.developers.max` is the ceiling of the live developer cap (integer 1..16, default 6); `kf tasks --json` reports it as `developers: {max, source}`. The start value and the step rules are not configurable.
 
 ## `kf verify`
@@ -28,6 +31,7 @@ The only `harness` keys are the two verify lists and the developer ceiling in `.
 kf verify <feature> --task TASK-### --base <sha>
 kf verify <feature> --task TASK-### --commits <sha>[,<sha>…] [--at-head]
 kf verify <feature> --stage [--waive "<reason>"]
+kf verify <feature> --wave <w>
 ```
 
 `--at-head` keeps the allowlist check on the listed commits and runs the commands at HEAD, for a commit that cannot build without a parallel task's commit.
