@@ -87,12 +87,13 @@ function itemDir(root: string, feature: Feature): { dir: string; line: string } 
   return { dir: root, line: "no worktree — running in the project root" };
 }
 
-function runCommands(commands: string[][] | undefined, dir: string, what: "task" | "stage", lines: string[]): VerifyResult {
+function runCommands(commands: string[][] | undefined, dir: string, what: "task" | "stage", lines: string[], named = false): VerifyResult {
   if (!commands || commands.length === 0) {
     lines.push(`No ${what} verify configured (harness.verify.${what}).`);
     return { code: 0, lines };
   }
-  const failure = runVerify(commands, dir);
+  const { steps, failure } = runVerifySteps(commands, dir);
+  if (named) for (const step of steps) if (step.outcome === "exit" || step.outcome === "signal") lines.push(`Ran: ${step.argv.join(" ")}`);
   if (failure !== null) {
     lines.push(failure);
     return { code: 1, lines };
@@ -123,28 +124,25 @@ export function taskChangedFiles(dir: string, range: { base: string } | { commit
   return [...files].sort();
 }
 
+/** Pinned `harness.verify.related`, or null when the project has none (the task tier then runs exactly as before). */
+function pinnedRelated(root: string): string[] | null {
+  const related = readProjectConfig(root).harness?.verify?.related;
+  return related && related.length > 0 ? related : null;
+}
+
 /**
- * The task tier: `harness.verify.task` in order, then — when `harness.verify.related` is set — the related command with
- * the task's changed files that exist in `dir` appended. Every command run is named on a `Ran:` line.
+ * The task tier: `harness.verify.task` in order, then the related command with the task's changed files that exist in
+ * `dir` appended. Every command that ran is named on a `Ran:` line. `changed` is read only here, so a project with no
+ * related command never runs the extra diff.
  */
-function runTaskTier(root: string, dir: string, sha: string, changed: string[], lines: string[]): VerifyResult {
-  const verify = readProjectConfig(root).harness?.verify;
-  const commands = [...(verify?.task ?? [])];
-  const related = verify?.related;
-  if (related && related.length > 0) {
-    const existing = changed.filter((f) => existsSync(join(dir, f)));
-    if (existing.length > 0) commands.push(relatedArgv(related, existing));
-    else lines.push(`No related tests: the task changed no file that exists at ${sha.slice(0, 7)}.`);
-  }
-  if (commands.length === 0) return runCommands(commands, dir, "task", lines);
-  const { steps, failure } = runVerifySteps(commands, dir);
-  for (const step of steps) if (step.outcome !== "not-run") lines.push(`Ran: ${step.argv.join(" ")}`);
-  if (failure !== null) {
-    lines.push(failure);
-    return { code: 1, lines };
-  }
-  lines.push(`All ${commands.length} task verify command(s) passed.`);
-  return { code: 0, lines };
+function runTaskTier(root: string, dir: string, sha: string, changed: () => string[], lines: string[]): VerifyResult {
+  const commands = [...(readProjectConfig(root).harness?.verify?.task ?? [])];
+  const related = pinnedRelated(root);
+  if (related === null) return runCommands(commands, dir, "task", lines);
+  const existing = changed().filter((f) => existsSync(join(dir, f)));
+  if (existing.length > 0) commands.push(relatedArgv(related, existing));
+  else lines.push(`No related tests: the task changed no file that exists at ${sha.slice(0, 7)}.`);
+  return runCommands(commands, dir, "task", lines, true);
 }
 
 /** A bug has no plan: its tasks are the TASK-### checkbox lines of tasks.md, with Files unknown. */
@@ -205,9 +203,10 @@ export function verifyTask(root: string, feature: Feature, taskId: string, base:
     const outside = checkFiles(task, diff.stdout.split("\0").filter((f) => f !== ""), lines);
     if (outside) return outside;
   }
+  if (pinnedRelated(root) === null) return runCommands(readProjectConfig(root).harness?.verify?.task, dir, "task", lines);
   const head = runGit(dir, ["rev-parse", "HEAD"]);
   if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
-  return runTaskTier(root, dir, head.stdout.trim(), taskChangedFiles(dir, { base }), lines);
+  return runTaskTier(root, dir, head.stdout.trim(), () => taskChangedFiles(dir, { base }), lines);
 }
 
 /**
@@ -259,10 +258,9 @@ export function verifyTaskCommits(root: string, feature: Feature, taskId: string
     if (outside) return outside;
   }
 
-  const verify = readProjectConfig(root).harness?.verify;
-  const nothingPinned = (verify?.task ?? []).length === 0 && (verify?.related ?? []).length === 0;
-  if (nothingPinned) return runCommands(verify?.task, dir, "task", lines);
-  const changed = taskChangedFiles(dir, { commits: resolved });
+  const taskCommands = readProjectConfig(root).harness?.verify?.task;
+  if ((taskCommands ?? []).length === 0 && pinnedRelated(root) === null) return runCommands(taskCommands, dir, "task", lines);
+  const changed = (): string[] => taskChangedFiles(dir, { commits: resolved });
   if (!atHead) return runDetached(root, dir, resolved[resolved.length - 1], changed, lines);
   const head = runGit(dir, ["rev-parse", "HEAD"]);
   if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
@@ -270,7 +268,7 @@ export function verifyTaskCommits(root: string, feature: Feature, taskId: string
 }
 
 /** Run the task tier in a temporary detached worktree of `itemDir` at `sha`, removing it on every exit path. */
-function runDetached(root: string, itemDir: string, sha: string, changed: string[], lines: string[]): VerifyResult {
+function runDetached(root: string, itemDir: string, sha: string, changed: () => string[], lines: string[]): VerifyResult {
   const path = realpathSync(mkdtempSync(join(tmpdir(), "kf-verify-")));
   const itemModules = join(itemDir, "node_modules");
   const link = join(path, "node_modules");
