@@ -38,12 +38,20 @@ src/
 │   ├── allowlist.ts      # task Files allowlist matching
 │   ├── verify.ts         # verifyTask / verifyStage behind kf verify
 │   ├── loop-stats.ts     # src/workflow/loop-stats.ts: ledger parsing and loop measurements behind kf loop-stats
-│   ├── next/             # the task loop scheduler behind kf next and kf record
-│   │   ├── types.ts      # LedgerState, LoopInputs, Action and NextResult
-│   │   ├── ledger-state.ts # the ledger as scheduler events; open seats and verifies, completed tasks, commits
+│   ├── next/             # the task loop state machine behind kf next and kf record
+│   │   ├── types.ts      # the contract: LedgerState, LoopInputs, World, Intent, Action and NextResult
+│   │   ├── ledger-state.ts # the ledger as events; open seats and verifies, completed tasks, commits
 │   │   ├── inputs.ts     # plan or bug tasks.md, reports, verify logs, the item branch's git log
+│   │   ├── fold.ts       # foldWorld(): the ledger folded once into one state per task; lifecycle transitions
+│   │   ├── verify-region.ts # verify region: exits, failures, re-runs, stale runs, waits and routed failures
+│   │   ├── review-region.ts # review region: one reviewer lane per task, own and cascade demands, the own verdict
+│   │   ├── atcap.ts      # at-cap region: the Breaker, the cap stop, the minimal fix past the cap, cascades at the cap
+│   │   ├── judgements.ts # the judgement table: every decide and stop, with the ledger lines that close it
+│   │   ├── intents.ts    # what each task and the item owe, before arbitration
+│   │   ├── arbiter.ts    # cross-task arbitration: holds, dependencies, overlaps, the live cap, the reviewer lane
 │   │   ├── cap.ts        # the live developer cap and contention re-runs
-│   │   ├── schedule.ts   # schedule(): arbitrates the rules, resume, drift and completion
+│   │   ├── liveness.ts   # the liveness guard: every open task has a witness, every decide names a closing line
+│   │   ├── schedule.ts   # schedule(): fold, intents, arbiter, then the liveness guard
 │   │   └── record.ts     # recordEvent(): validates and appends one ledger line
 │   ├── migrate.ts        # one-time move of legacy dones/shipping items to done/review
 │   ├── status.ts         # artifact checklist rendering

@@ -45,7 +45,7 @@ describe("the ledger's clock and open questions", () => {
 describe("the round cap", () => {
   it("keeps five rounds for the whole task, repairs included", () => {
     expect(implement()).toContain("Five rounds is the whole life of a task");
-    // The round count of the resume steps moved into `kf next` (routing.ts; next-routing.test.ts).
+    // The round count of the resume steps moved into `kf next` (src/workflow/next; next-machine-routing.test.ts).
     expect(implement()).toContain("continuing the task's round count");
     expect(loop()).toContain("continues that count");
   });
@@ -56,7 +56,7 @@ describe("the round cap", () => {
     expect(implement()).toContain("Five things stop you");
     expect(implement()).toContain("A task never reopened takes the breaker");
     // The resume steps and the completion check that restated the stop moved into `kf next`
-    // (routing.ts, schedule.ts; next-routing.test.ts, next-schedule.test.ts).
+    // (src/workflow/next; next-machine-routing.test.ts, next-schedule.test.ts).
     expect(implement()).toContain("takes the `cap reached` stop instead");
     expect(implement()).not.toContain("accepted by ruling");
     expect(implement()).toContain("gives the work a new task with its own five rounds");
