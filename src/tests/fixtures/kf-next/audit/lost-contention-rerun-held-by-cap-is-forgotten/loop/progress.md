@@ -24,10 +24,6 @@ TASK-003: developer dispatched model=sonnet @ 2026-11-07T10:21:00+07:00
 TASK-001: verify done exit=1 @ 2026-11-07T10:22:00+07:00
 Ruling: developer cap 2 → 1 — EADDRINUSE in TASK-001 verify — cost if wrong: x @ 2026-11-07T10:23:00+07:00
 Note TASK-001: verify rerun — contention EADDRINUSE @ 2026-11-07T10:24:00+07:00
-TASK-001: verify started @ 2026-11-07T10:25:00+07:00
-TASK-002: developer dispatched model=sonnet @ 2026-11-07T10:26:00+07:00
-TASK-003: developer dispatched model=sonnet @ 2026-11-07T10:27:00+07:00
-TASK-001: code-reviewer dispatched model=sonnet @ 2026-11-07T10:28:00+07:00
 TASK-002: developer done status=DONE @ 2026-11-07T10:29:00+07:00
 Note TASK-002: commits 2222222 @ 2026-11-07T10:30:00+07:00
 TASK-003: developer done status=DONE @ 2026-11-07T10:31:00+07:00

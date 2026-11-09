@@ -16,6 +16,13 @@
             "task": "TASK-001",
             "seat": "verify"
           }
+        },
+        {
+          "action": {
+            "kind": "write",
+            "task": "TASK-001",
+            "line": "Note TASK-001: verify rerun — contention EADDRINUSE"
+          }
         }
       ]
     }

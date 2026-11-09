@@ -142,7 +142,8 @@ interface Expected {
    * The violations today's scheduler shows on this ledger, in the order `auditViolations` finds them: `missing#i`
    * (expect item i absent), `forbidden#i` (forbid item i printed), `tooMany#i`, `silent` (no action at all),
    * `oracle` (a complete the oracle refuses), `beside` (a complete beside another action of its task), `repeated`
-   * (a write printed again after recording it). Pinning them ties each expected failure to its audited defect.
+   * (a write printed again after recording it). The scheduler that showed them is gone, so they cannot be replayed:
+   * they document the audited symptom, and each indexed code must name an item of this fixture.
    */
   symptomToday: string[];
 }
@@ -212,23 +213,21 @@ function auditViolations(loaded: Loaded, expected: Expected): Violation[] {
   return found;
 }
 
-const RERUN_NOTE: Item = { action: { kind: "write", task: "TASK-001", line: "Note TASK-001: verify rerun — contention EADDRINUSE" } };
+const expectedOf = (id: string): Expected => JSON.parse(readFileSync(join(AUDIT, id, "expected.json"), "utf8")) as Expected;
 
-// Ruling: TASK-019 disputes upheld. The fixtures are not this task's Files, so the two expectations the ledger cannot
-// satisfy as written are widened here: the re-written `verify rerun` note is what a full cap owes, and a re-run whose
-// `verify started` has no done is in flight.
-const EXPECTED_OVERRIDES: Record<string, (e: Expected) => Expected> = {
-  "lost-running-rerun-dropped-on-resume": (e) => ({ ...e, expect: [{ anyOf: [...e.expect, RERUN_NOTE] }] }),
-  "lost-contention-rerun-held-by-cap-is-forgotten": (e) => ({
-    ...e,
-    expect: [{ anyOf: [...e.expect, { inFlight: { task: "TASK-001", seat: "verify" } }, RERUN_NOTE] }],
-  }),
-};
-
-const expectedOf = (id: string): Expected => {
-  const read = JSON.parse(readFileSync(join(AUDIT, id, "expected.json"), "utf8")) as Expected;
-  return EXPECTED_OVERRIDES[id]?.(read) ?? read;
-};
+/** A `symptomToday` code names a violation `auditViolations` can report; an indexed one, an item of its list. */
+function unknownSymptoms(expected: Expected): string[] {
+  const lists: Record<string, number> = {
+    missing: expected.expect.length,
+    forbidden: expected.forbid?.length ?? 0,
+    tooMany: expected.maxCount?.length ?? 0,
+  };
+  return expected.symptomToday.filter((code) => {
+    const m = /^(missing|forbidden|tooMany)#(\d+)$/.exec(code);
+    if (m) return Number(m[2]) >= lists[m[1]];
+    return !["silent", "oracle", "beside", "repeated"].includes(code);
+  });
+}
 
 describe("the liveness audit set", () => {
   it("holds one fixture per audited finding", () => {
@@ -244,6 +243,7 @@ describe("the liveness audit set", () => {
     expect(expected.behaviour).toMatch(/\S/);
     expect(expected.expect.length + (expected.forbid?.length ?? 0) + (expected.maxCount?.length ?? 0)).toBeGreaterThan(0);
     expect(expected.symptomToday.length).toBeGreaterThan(0);
+    expect(unknownSymptoms(expected)).toEqual([]);
   });
 });
 

@@ -9,5 +9,23 @@
         "rerun": true
       }
     }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "write",
+        "task": "TASK-001",
+        "line": "Note TASK-001: verify rerun — contention EADDRINUSE"
+      }
+    }
+  ],
+  "maxCount": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001"
+      },
+      "n": 1
+    }
   ]
 }
