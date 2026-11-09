@@ -1,0 +1,20 @@
+{
+  "behaviour": "an abandoned minimal fix on a reopened task brings back the cap stop",
+  "symptomToday": ["missing#0", "silent"],
+  "expect": [
+    {
+      "action": {
+        "kind": "stop",
+        "task": "TASK-001"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "behaviour": "a sha that is not on the branch is dropped from the verify call after the exit-3 decide",
+  "symptomToday": ["missing#0"],
+  "expect": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001",
+        "command": "kf verify demo --task TASK-001 --commits aaaaaaa,aaaaaab"
+      }
+    }
+  ]
+}

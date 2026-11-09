@@ -1,0 +1,31 @@
+{
+  "behaviour": "an own review and a cascade re-review answered by one done leave the task with a witness, not silence",
+  "symptomToday": ["missing#0"],
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-002",
+            "seat": "code-reviewer"
+          }
+        },
+        {
+          "inFlight": {
+            "task": "TASK-002",
+            "seat": "code-reviewer"
+          }
+        }
+      ]
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-002"
+      }
+    }
+  ]
+}

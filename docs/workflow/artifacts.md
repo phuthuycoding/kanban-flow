@@ -67,6 +67,17 @@ Snapshots alone go stale when a later feature changes the same behavior, so revi
 
 When the primary checkout is on a clean, current default branch, the canonical docs are written into its working tree. Otherwise they are committed to an unpushed `docs/<context>-<feature>` branch cut from `origin/<default>`, the name is stamped in the work item's `meta.docsBranch`, and `kf status --all` lists it under **Waiting to merge** until it is pushed (`kf doctor` warns `docs_branch_unpushed`).
 
+## The task loop ledger `<item>/loop/progress.md`
+
+The `/kf:implement` loop keeps its state in the ledger `<item>/loop/progress.md`, beside the task briefs, reports and `task-NNN-verify.log` files under `<item>/loop/`. `kf record <feature> <event> …` writes each line, stamped ` @ <ISO>`, under the item lock; `kf next <feature>` reads it, with the plan, the reports, the verify logs and `git log`, to print the actions due now. The nine line shapes `kf loop-stats` reads are fixed in `skills/implement/references/task-loop.md` § The ledger. Beside them `kf next` reads these lines:
+
+| Line | Meaning |
+|---|---|
+| `Scan: clean` | The pre-task conflict scan found no conflict; no seat opens before a `Scan:` line |
+| `Note TASK-NNN: commits <a7>,<b7>` | The task's commits; `kf next` prints it after a developer's `done` for every reported commit no ledger line names yet, before the review. A commit lands at the first ledger line that names it (this note or a `review package` line), and cascades and verify waits are read from that position |
+| `Note TASK-NNN: decided — <what>` | The session's decision that closes one open `decide` of the task |
+| `Note TASK-NNN: verify routed — TASK-MMM` | The task's verify failure was sent to TASK-MMM as a fix round of TASK-MMM |
+
 ## The loop metrics file `.works/loop-metrics.md`
 
 `kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, or `verify done` lines the `kf verify` log does not back, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.

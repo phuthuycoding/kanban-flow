@@ -1,0 +1,28 @@
+{
+  "behaviour": "a task with a failure routed into it gets the fix round and is not complete",
+  "symptomToday": ["forbidden#0", "oracle", "beside"],
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "round": 1
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    },
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-002"
+      }
+    }
+  ]
+}

@@ -45,7 +45,7 @@ function renderRow(t: ShownTask): string {
  * The ceiling `kf tasks --json` reports. A bad `harness.developers` is refused; any other config error must not
  * hide the task list, and since the configured ceiling is then unknown it reads 1, which every project allows.
  */
-function readDeveloperCeiling(root: string): { max: number; source: string; error?: string } | { failed: string } {
+export function readDeveloperCeiling(root: string): { max: number; source: string; error?: string } | { failed: string } {
   try {
     const max = readProjectConfig(root).harness?.developers?.max;
     return max === undefined ? { max: DEFAULT_DEVELOPER_MAX, source: "default" } : { max, source: "config" };

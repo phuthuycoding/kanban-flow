@@ -1,0 +1,31 @@
+{
+  "behaviour": "an orphaned contention re-run is released once the developers drop below the cap",
+  "symptomToday": ["missing#0"],
+  "expect": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001",
+        "rerun": true
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "write",
+        "task": "TASK-001",
+        "line": "Note TASK-001: verify rerun — contention EADDRINUSE"
+      }
+    }
+  ],
+  "maxCount": [
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001"
+      },
+      "n": 1
+    }
+  ]
+}

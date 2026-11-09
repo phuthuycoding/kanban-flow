@@ -1,0 +1,12 @@
+{
+  "behaviour": "a Breaker closed by a decided note before its parked line completes the task",
+  "symptomToday": ["missing#0", "silent"],
+  "expect": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

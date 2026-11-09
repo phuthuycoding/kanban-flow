@@ -7,6 +7,8 @@ status: archived
 ---
 # Spec Requirement
 
+> **Partly superseded by `kf-next`:** the scheduling rules this doc puts in the `kf:implement` skill text (dispatch order, the live developer cap, contention, resume, fix-round and cascade routing) are now computed by `kf next` and ledger lines are written through `kf record`; the skill no longer states them. The behaviour itself still holds. Kept for history.
+
 ## Feature
 adaptive-developer-cap
 

@@ -11,6 +11,8 @@ status: archived
 
 > **Partly superseded by `parallel-developers`:** the one-developer-per-worktree rule and the head/next two-task window no longer hold — up to 4 developers run at once under the dispatch conditions, test-writers run for the next 4 tasks, tasks complete out of order and a cascade reaches only dependents. Kept for history.
 
+> **Partly superseded by `kf-next`:** the scheduling rules this doc puts in the `kf:implement` skill text (dispatch order, the live developer cap, contention, resume, fix-round and cascade routing) are now computed by `kf next` and ledger lines are written through `kf record`; the skill no longer states them. The behaviour itself still holds. Kept for history.
+
 ## Feature
 loop-throughput
 

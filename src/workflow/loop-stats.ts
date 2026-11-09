@@ -20,7 +20,7 @@ export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|
 const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
 
 /** A line that claims a shape behind a markdown bullet or indentation; it fails the grammar but must not pass as other-timed. */
-const LOOSE_KEYWORD = /^\s*(?:[-*+]\s+)?TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
+export const LOOSE_KEYWORD = /^\s*(?:[-*+]\s+)?TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
 
 const REOPENED = /^Note (TASK-\d+): reopened — /;
 
@@ -88,7 +88,7 @@ function shapeFields(shape: ShapeName, m: RegExpExecArray): Partial<LedgerLine> 
   }
 }
 
-function classify(text: string, line: number): LedgerLine {
+export function classify(text: string, line: number): LedgerLine {
   const suffix = TS_SUFFIX.exec(text);
   if (!suffix) return { line, kind: LOOSE_KEYWORD.test(text) && STAMP_ATTEMPT.test(text) ? "unparsed" : "untimed" };
   const stamp = suffix[1];
@@ -330,8 +330,12 @@ function developerGates(d: LedgerLine, before: LedgerLine[], deps: Record<string
   for (const wait of before.filter((l) => l.shape === "developerWaits" && l.task === d.task)) {
     const after = before.slice(before.indexOf(wait) + 1);
     const overlap = /\((TASK-\d+)\)$/.exec(wait.reason!);
+    const inFlight = /\((TASK-\d+) (developer|test-writer|automation-writer) in flight\)$/.exec(wait.reason!);
     if (overlap) gates.push(...after.filter((l) => l.shape === "complete" && l.task === overlap[1]));
-    else if (/^\d+ developers in flight/.test(wait.reason!)) {
+    else if (inFlight) {
+      const next = after.find((l) => isDone(l, inFlight[1]!, inFlight[2] as Seat));
+      if (next) gates.push(next);
+    } else if (/^\d+ developers in flight/.test(wait.reason!)) {
       const first = after.find((l) => l.shape === "done" && l.seat === "developer");
       if (first) gates.push(first);
     }

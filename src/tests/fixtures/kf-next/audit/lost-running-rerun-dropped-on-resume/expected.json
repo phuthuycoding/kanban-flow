@@ -1,0 +1,30 @@
+{
+  "behaviour": "a contention re-run lost at compaction is listed again on resume",
+  "symptomToday": ["missing#0"],
+  "resume": true,
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "verify",
+            "task": "TASK-001"
+          }
+        },
+        {
+          "inFlight": {
+            "task": "TASK-001",
+            "seat": "verify"
+          }
+        },
+        {
+          "action": {
+            "kind": "write",
+            "task": "TASK-001",
+            "line": "Note TASK-001: verify rerun — contention EADDRINUSE"
+          }
+        }
+      ]
+    }
+  ]
+}

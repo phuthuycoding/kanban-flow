@@ -1,0 +1,7 @@
+{
+  "n": 2,
+  "inFlight": [],
+  "actions": [
+    { "kind": "dispatch", "task": "TASK-001", "seat": "developer", "mode": "resume", "round": 1 }
+  ]
+}

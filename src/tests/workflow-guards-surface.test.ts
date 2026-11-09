@@ -45,7 +45,8 @@ describe("the ledger's clock and open questions", () => {
 describe("the round cap", () => {
   it("keeps five rounds for the whole task, repairs included", () => {
     expect(implement()).toContain("Five rounds is the whole life of a task");
-    expect(implement()).toContain("R counting every round of the task");
+    // The round count of the resume steps moved into `kf next` (src/workflow/next; next-machine-routing.test.ts).
+    expect(implement()).toContain("continuing the task's round count");
     expect(loop()).toContain("continues that count");
   });
 
@@ -54,16 +55,13 @@ describe("the round cap", () => {
     expect(implement()).toContain("never parked to completion");
     expect(implement()).toContain("Five things stop you");
     expect(implement()).toContain("A task never reopened takes the breaker");
-    expect(implement()).toContain("the `cap reached` stop (Repairing after the loop)");
-    expect(implement()).toContain("never completes by parking");
+    // The resume steps and the completion check that restated the stop moved into `kf next`
+    // (src/workflow/next; next-machine-routing.test.ts, next-schedule.test.ts).
+    expect(implement()).toContain("takes the `cap reached` stop instead");
     expect(implement()).not.toContain("accepted by ruling");
     expect(implement()).toContain("gives the work a new task with its own five rounds");
-    expect(implement()).toContain("holds every new dispatch of the item");
-    expect(implement()).toContain("it parked them itself at its five-round cap");
-    expect(implement()).toContain("a failure it parked at the cap");
+    expect(implement()).toContain("dispatch nothing new for the item");
     expect(implement()).toContain("superseded by TASK-MMM");
-    expect(implement()).toContain("no later `complete` line of its task holds every new dispatch");
-    expect(implement()).toContain("A task never reopened whose open findings");
     expect(loop()).toContain("superseded by TASK-MMM");
     expect(implement()).toContain("superseded by contract");
     expect(loop()).toContain("superseded by contract");
@@ -90,11 +88,12 @@ describe("the test report's table cells", () => {
 });
 
 describe("one owner for the loop's rules", () => {
-  it("keeps cap, contention and resume in the skill, and only reasons in task-loop.md", () => {
+  it("keeps cap, contention and resume in kf next, and only reasons in task-loop.md", () => {
     const section = loop().slice(loop().indexOf("## Parallel developers"), loop().indexOf("## The fix loop"));
-    expect(section).toContain("`kf:implement` owns the rules");
+    expect(section).toContain("`kf next` owns the rules");
     expect(section).not.toContain("Ruling: developer cap");
-    expect(implement()).toContain("**The live cap.**");
+    expect(implement()).not.toContain("**The live cap.**");
+    expect(implement()).toContain("**The loop runs on `kf next`.**");
     expect(section).toContain("costs one re-run before it reaches the fix loop");
   });
 });

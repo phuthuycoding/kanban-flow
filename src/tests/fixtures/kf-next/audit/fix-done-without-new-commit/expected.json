@@ -1,0 +1,52 @@
+{
+  "behaviour": "a minimal fix that reports DONE with no new commit gets Commit missing, never a review or verify of the pre-fix commits",
+  "symptomToday": ["missing#0", "forbidden#0", "forbidden#1", "forbidden#2"],
+  "expect": [
+    {
+      "anyOf": [
+        {
+          "action": {
+            "kind": "decide",
+            "task": "TASK-001",
+            "rule": "Commit missing"
+          }
+        },
+        {
+          "action": {
+            "kind": "dispatch",
+            "task": "TASK-001",
+            "seat": "developer"
+          }
+        }
+      ]
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "write",
+        "task": "TASK-001",
+        "line": "TASK-001: review package aaa0000,bbb0001,bbb0002,bbb0003,bbb0004,bbb0005"
+      }
+    },
+    {
+      "action": {
+        "kind": "verify",
+        "task": "TASK-001"
+      }
+    },
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "code-reviewer"
+      }
+    },
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

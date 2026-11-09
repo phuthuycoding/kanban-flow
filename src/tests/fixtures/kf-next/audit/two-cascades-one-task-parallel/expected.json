@@ -1,0 +1,15 @@
+{
+  "behaviour": "two owed cascade re-reviews of one task are dispatched one at a time",
+  "symptomToday": ["tooMany#0"],
+  "expect": [],
+  "maxCount": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-002",
+        "seat": "code-reviewer"
+      },
+      "n": 1
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "behaviour": "a developer NEEDS_CONTEXT closed by a Ruling goes on as DONE, so with no commit it gets a Commit missing that a re-dispatch also closes",
+  "symptomToday": ["missing#0", "silent"],
+  "expect": [
+    {
+      "action": {
+        "kind": "decide",
+        "task": "TASK-001",
+        "rule": "Commit missing"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "decide",
+        "task": "TASK-001",
+        "rule": "Commit missing",
+        "closes": "Note TASK-001: commits <sha7>"
+      }
+    },
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "resume"
+      }
+    },
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

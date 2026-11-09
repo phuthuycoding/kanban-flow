@@ -10,6 +10,8 @@ import { cmdDoctor } from "./cli/commands/doctor.js";
 import { cmdTasks } from "./cli/commands/tasks.js";
 import { cmdLoopStats } from "./cli/commands/loop-stats.js";
 import { cmdVerify } from "./cli/commands/verify.js";
+import { cmdNext } from "./cli/commands/next.js";
+import { cmdRecord } from "./cli/commands/record.js";
 import { cmdContexts } from "./cli/commands/contexts.js";
 import { cmdIssues } from "./cli/commands/issues.js";
 import type { CmdResult } from "./cli/result.js";
@@ -113,6 +115,10 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdLoopStats(parsed, cwd);
     case "verify":
       return cmdVerify(parsed, cwd);
+    case "next":
+      return cmdNext(parsed, cwd);
+    case "record":
+      return cmdRecord(parsed, cwd);
     case "contexts":
       return cmdContexts(parsed, cwd);
     case "issues":

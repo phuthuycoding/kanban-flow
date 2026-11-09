@@ -1,0 +1,21 @@
+{
+  "behaviour": "a minimal fix whose verify passed is still reviewed before the task completes",
+  "symptomToday": ["forbidden#0", "oracle", "beside"],
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "code-reviewer"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

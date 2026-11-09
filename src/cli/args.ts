@@ -10,7 +10,7 @@ export interface ParsedArgs {
   options: Record<string, unknown>;
   /** Set when invoked through a canonical noun path (kf feature|bug <verb>); the dispatcher gates on it. */
   noun?: WorkItemKind;
-  /** Set by `kf verify` when its flags do not parse; cmdVerify reports it as bad input (exit 3). */
+  /** Set by `kf verify`, `kf loop-stats`, `kf next` and `kf record` when their flags do not parse; each reports it as bad input (exit 3). */
   parseError?: string;
 }
 
@@ -221,8 +221,27 @@ const COMMANDS: Record<string, CmdSpec> = {
       all: { type: "boolean" },
     },
   },
+  next: {
+    help: "Usage: kf next <feature> [--resume] [--json]  — print the task loop's actions due now (read-only: changes no file); --resume lists open seats and verifies for re-dispatch after lost context; --json prints { feature, n, inFlight, actions }. Exit 0 actions printed, 1 refused (a ledger line to repair, or a plan kf tasks refuses), 3 bad input",
+    allowPositionals: true,
+    options: {
+      resume: { type: "boolean" },
+      json: { type: "boolean" },
+    },
+  },
+  record: {
+    help: "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]  — append one stamped line to the item's task loop ledger (loop/progress.md) under the item lock. Events: dispatched, done, verify-started, verify-done, commits, waits, fix-round, cascade-owed, complete, line. Exit 0 written, 1 refused (file unchanged), 3 bad input",
+    allowPositionals: true,
+    options: {
+      model: { type: "string" },
+      round: { type: "string" },
+      cascade: { type: "string" },
+      status: { type: "string" },
+      exit: { type: "string" },
+    },
+  },
   verify: {
-    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
+    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage. On a bug, --task also takes a TASK-### from tasks.md, checked with no Files allowlist. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
     allowPositionals: true,
     options: {
       task: { type: "string" },
@@ -279,6 +298,8 @@ export function commandTree(): Record<string, CommandNode> {
   return COMMAND_TREE;
 }
 
+const OWN_EXIT_ONE = new Set(["verify", "loop-stats", "next", "record"]);
+
 export function parseArgsCli(argv: string[]): ParsedArgs {
   const res = resolveCommandPath(COMMAND_TREE, argv);
   const spec = res?.node.spec;
@@ -305,8 +326,8 @@ export function parseArgsCli(argv: string[]): ParsedArgs {
       strict: true,
     });
   } catch (err) {
-    // Exit 1 of `kf verify` and `kf loop-stats` has its own meaning, so their flag errors must not reach the global catch.
-    if ((node.dispatch === "verify" || node.dispatch === "loop-stats") && err instanceof Error) {
+    // Exit 1 of `kf verify`, `kf loop-stats`, `kf next` and `kf record` has its own meaning, so their flag errors must not reach the global catch.
+    if (OWN_EXIT_ONE.has(node.dispatch) && err instanceof Error) {
       return { command: node.dispatch, positionals: [], options: {}, parseError: err.message };
     }
     throw err;

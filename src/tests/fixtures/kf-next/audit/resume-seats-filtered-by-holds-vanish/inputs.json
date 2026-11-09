@@ -1,0 +1,7 @@
+{
+  "ceiling": {
+    "max": 1,
+    "source": "invalid-config",
+    "error": "harness.developers.max must be a positive integer"
+  }
+}

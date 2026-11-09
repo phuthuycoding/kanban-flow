@@ -1,0 +1,23 @@
+{
+  "behaviour": "a minimal-fix note at the Breaker of a never-reopened task names a fresh developer with no round",
+  "symptomToday": ["missing#0", "silent"],
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "developer",
+        "mode": "fresh",
+        "round": null
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

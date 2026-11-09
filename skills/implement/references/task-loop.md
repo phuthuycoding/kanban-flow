@@ -37,7 +37,7 @@ An inline developer seat has no dispatch and so no model to name: its `dispatche
 
 `<seat>` is one of `test-writer`, `developer`, `automation-writer`, `code-reviewer`. `verify done exit=<n>` is the exit code `kf verify` returned, never one from another command. `<STATUS>` is the seat's reported status; a code-reviewer's is `clean` or `findings`. `<model>` is the model the dispatch named. The commit field is the task's commit list in history order, `commits <a7>,<b7>,…`, never a range: the fix round line reads `TASK-NNN: fix round <R>/5 (<X> addressed, <Y> open — <one-liners>; commits <a7>,<b7>,…) @ <ts>` with the round's fix commits, and the complete line `TASK-NNN: complete (commits <a7>,<b7>,…, review clean) @ <ts>` or `… (<K> parked) @ <ts>` or `… superseded by TASK-MMM) @ <ts>` or `… superseded by contract) @ <ts>` with all of the task's commits. Travel counts rounds by the lines containing `fix round`, so no other line shape contains that phrase.
 
-Fields are a closed set in a fixed order: a `dispatched` line carries `model=`, then `round=` when it has one, then `cascade=` when it has one, and nothing else; a `done` line carries `status=<STATUS>` and nothing else — never `round=`, `commits=`, `lane=` or any other field, and nothing after the status word. Detail goes on its own `Note TASK-NNN: <detail>` line. Parallel work on one task is not allowed: split it into tasks. `<R>` is the round number, counted from 1: on a round seat, the task's own round R of the fix loop (a repair after a `reopened` note continues that count and stops for the human at the cap); on a cascade re-review, the round of TASK-MMM whose fix commit is `<sha7>`.
+Fields are a closed set in a fixed order: a `dispatched` line carries `model=`, then `round=` when it has one, then `cascade=` when it has one, and nothing else; a `done` line carries `status=<STATUS>` and nothing else — never `round=`, `commits=`, `lane=` or any other field, and nothing after the status word. Detail goes on its own `Note TASK-NNN: <detail>` line. Parallel work on one task is not allowed: split it into tasks. `<R>` is the round number, counted from 1: on a round seat, the task's own round R of the fix loop (a repair after a `reopened` note continues that count and stops for the human at the cap, apart from the one minimal fix past the cap); on a cascade re-review, the round of TASK-MMM whose fix commit is `<sha7>`.
 
 `fix queued` is a legacy shape: the loop no longer writes it — a fix round held by the cap writes `developer waits — <N> developers in flight` instead — but older ledgers carry it, and `kf loop-stats` still reads it.
 
@@ -61,11 +61,12 @@ Ruling: the empty commit list exits 3, not 1 — the requirement calls it bad in
 TASK-001: test hashes src/tests/verify.test.ts=72d245a130481dcd4de1129b37d039ebf1371023 @ 2026-11-01T20:42:30+07:00
 ```
 
-The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes, including the developer cap rulings, the verify rerun note and the `Note wave <w>: no step-up` line of `kf:implement` § The live cap, the stand-in note written right after a stand-in seat's dispatched line, the reopened note of a review repair and the no-subagent line:
+The other lines carry the same suffix and are not parsed for figures — rulings, test hashes, test disputes, deferred minors, parked findings, briefs, review packages, wave lines and notes, including the developer cap rulings, the verify rerun note and the `Note wave <w>: no step-up` line of the live cap `kf next` keeps, the stand-in note written right after a stand-in seat's dispatched line, the reopened note of a review repair and the no-subagent line:
 
 ```
 # Task loop ledger — <feature> — plan: <abs path>
 Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...> @ <ts>
+Scan: clean @ <ts>
 Ruling: <decision> — <why> — <cost if wrong> @ <ts>
 TASK-002: no test-writer — <why> @ <ts>
 TASK-001: test hashes <file>=<sha> … @ <ts>
@@ -76,6 +77,7 @@ TASK-001: unverified — <claim only a real run can answer> @ <ts>
 Note TASK-NNN: <seat> stand-in general-purpose @ <ts>
 Note TASK-NNN: developer seat inline @ <ts>
 Note TASK-NNN: cap reached — <failure> @ <ts>
+Note TASK-NNN: decided — minimal fix past the cap: <the change> @ <ts>
 TASK-NNN: brief written @ <ts>
 TASK-NNN: review package <sha7>,… @ <ts>
 wave <w>: parallel test-writers TASK-A, TASK-B — disjoint Files @ <ts>
@@ -86,7 +88,12 @@ Note wave <w>: no step-up — <reason> @ <ts>
 Note TASK-NNN: reopened — <testing|review|ci> <first 8 chars of the execution id> @ <ts>
 Note TASK-NNN: verify waits — <file> (TASK-MMM) @ <ts>
 TASK-NNN: implemented, test-writer seat: none, review seat: none @ <ts>
+Note TASK-NNN: commits <a7>,<b7> @ <ts>
+Note TASK-NNN: decided — <what> @ <ts>
+Note TASK-NNN: verify routed — TASK-MMM @ <ts>
 ```
+
+A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads the three last notes: the commits a developer made (`kf next` prints the note to write for any reported commit no ledger line names yet, before the review; a commit lands at the first ledger line that names it, a commits note or a review package, and cascades and verify waits are read from that position), the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
 
 A `reopened` note cancels the task's earlier `complete` line: wherever the loop asks whether a task is complete, only a `complete` line after its latest `reopened` note counts (`kf:implement` § 3.4). The `implemented` line of a session with no subagent tool counts as the task's `complete` line, on resume too.
 
@@ -98,16 +105,19 @@ When `.works/` is gitignored (the default `kf init` answer), the ledger travels 
 
 ## Parallel developers
 
-`kf:implement` owns the rules: § Order and parallelism, § The live cap, § Contention, § Resume the live cap and § Waiting developers. This section keeps only the reasons.
+`kf next` owns the rules — task order and overlaps, the live cap, contention, resume and the wait lines (`src/workflow/next/`) — and `kf:implement` carries out what it prints. This section keeps only the reasons.
 
 The cap is live because no fixed number fits every project: one probe here had 4 full suites in one worktree pass at about 1.8× the throughput of one, but a suite that shares a database or binds fixed ports breaks at 2, and a light one is held back at 4. It starts low because 2 is the smallest value that still runs anything in parallel, rises additively because one clean wave proves little, and halves on contention because the load that failed will fail again. A contention failure is told from a real one by one re-run, cheaper than a solo run of the whole suite; a real hang that prints `Test timed out` costs one re-run before it reaches the fix loop. Step-ups are decided in wave order, from the ledger alone, so two controllers reach the same N and a resumed one never re-decides against a different N. Freed seats go to fix rounds first because finishing a task closes it sooner than starting another.
 
-The two wait lines:
+The three wait lines:
 
 ```
 TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM)
+TASK-NNN: developer waits — Files overlap <mine> / <theirs> (TASK-MMM <seat> in flight)
 TASK-NNN: developer waits — <N> developers in flight
 ```
+
+A review has one lane per task: while a code-reviewer of the task is in flight, every other review it owes — its own or a cascade re-review — prints `wait TASK-NNN: code-reviewer of TASK-NNN in flight` and runs next, oldest first. That wait writes no ledger line: a `done` line carries no cascade field, so two open reviewers of one task could not be told apart.
 
 ## The fix loop
 

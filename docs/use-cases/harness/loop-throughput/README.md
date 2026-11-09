@@ -10,6 +10,8 @@ status: archived
 
 > **Partly superseded by `parallel-developers`:** the one-developer seat and the head/next two-task window no longer hold — up to 4 developers run under the dispatch conditions. Kept for history.
 
+> **Partly superseded by `kf-next`:** the scheduling rules this doc puts in the `kf:implement` skill text (dispatch order, the live developer cap, contention, resume, fix-round and cascade routing) are now computed by `kf next` and ledger lines are written through `kf record`; the skill no longer states them. The behaviour itself still holds. Kept for history.
+
 Every use case is its own file under `use-cases/`, named `UC-###-<slug>.md`. Do not write a combined narrative here.
 
 ## Use Case Files

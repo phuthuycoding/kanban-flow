@@ -2,6 +2,17 @@
 
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow SemVer; the `0.x` line is the TypeScript rewrite (the older `v1.x`/`v2.x` tags belong to the shell installer).
 
+## [Unreleased]
+
+### Added
+- **`kf next <feature> [--resume] [--json]`.** A read-only query that prints the task loop's actions due now — dispatch a seat, verify a task, write a ledger line, complete a task, wait, decide, stop, or finished — read from the ledger, the plan, the reports, the verify logs and the item branch's `git log`. `--resume` lists the seats and verifies left open for a re-run. It changes no file and starts no process. Exit 0, 1 refused (a ledger line to repair, or a plan `kf tasks` refuses), 3 bad input.
+- **`kf record <feature> <event> …`.** Appends one stamped line to the task loop ledger under the item lock. Events: `dispatched`, `done`, `verify-started`, `verify-done`, `commits`, `waits`, `fix-round`, `cascade-owed`, `complete`, `line`. It refuses an unknown event, or one the ledger contradicts, and writes nothing then. Exit 0, 1, 3.
+
+### Changed
+- **`/kf:implement` runs on `kf next` and `kf record`.** The scheduling rules — task order, the live developer cap, contention, resume, fix rounds, cascades and completion — moved out of the skill into `kf next`. The session still spawns every seat with `Agent()`, and the judgement calls stay in the skill under `## Decisions`. `tasks.md` lines now carry the task id (`- [ ] 1. TASK-001: …`), and a clean conflict scan is ledgered `Scan: clean`. `/kf:travel` resumes an item through `kf next --resume`. A commit counts from the first ledger line that names it: `kf next` prints the commits note to record for each reported commit before its review, and reads cascades and verify waits from the ledger, not from `git log` dates. The `kf record` calls it prints quote their free text for the shell. A task whose five rounds leave only the smallest change open gets one minimal fix past the cap instead of a stop.
+- **`kf next` runs on a state machine.** One state machine per task, folded once from the ledger, and an arbiter across tasks replace the rule-by-rule scheduler. Its liveness guard gives every open task an action, an In-flight entry or a wait that leads to one; a task left with none, or a decide that names no closing line, prints `stop TASK-NNN: kf next has no rule for TASK-NNN in <phase> / … — report this with the ledger`. At most one code-reviewer of a task is in flight: another owed review, its own or a cascade re-review, prints `wait TASK-NNN: code-reviewer of TASK-NNN in flight`, oldest first. No two file-writing seats run on overlapping Files at once, and the overlap waits never form a cycle. At the five-round cap the `Breaker` closes on a `parked` line plus a decided note in either order, and one minimal fix past the cap is owed from the Breaker or from the cap stop of a reopened task; the `fix round 5/5` line is named in the Breaker's closes or the cap stop's reason. The skill's `## Decisions` gains `Verify exit` and `Verify routed`.
+- **`kf verify --task` on a bug.** It accepts a `TASK-###` checkbox line of the bug's `tasks.md`, with no Files check.
+
 ## [0.15.1] - 2026-11-06
 
 ### Fixed

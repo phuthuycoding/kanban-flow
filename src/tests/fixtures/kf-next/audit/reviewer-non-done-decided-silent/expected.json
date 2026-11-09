@@ -1,0 +1,21 @@
+{
+  "behaviour": "a reviewer NEEDS_CONTEXT closed by a decided note is dispatched again",
+  "symptomToday": ["missing#0", "silent"],
+  "expect": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-001",
+        "seat": "code-reviewer"
+      }
+    }
+  ],
+  "forbid": [
+    {
+      "action": {
+        "kind": "complete",
+        "task": "TASK-001"
+      }
+    }
+  ]
+}

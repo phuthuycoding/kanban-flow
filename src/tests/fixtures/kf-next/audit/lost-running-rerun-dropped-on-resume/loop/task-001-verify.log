@@ -1,0 +1,3 @@
+## kf verify 2026-11-07T10:13:30+07:00 exit=1
+verify command failed (exit 1): npm test
+Error: listen EADDRINUSE: address already in use :::3000

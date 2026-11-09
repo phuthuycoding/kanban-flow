@@ -1,0 +1,8 @@
+== verify started commits=9a81234,e808897,4cca0c7,f47913c,d6d8213,5269055 2026-11-02T17:56:54+0700
+--commits is not in history order: 4cca0c7 is not an ancestor of f47913c.
+exit=3
+== verify started commits=9a81234,e808897,f47913c,4cca0c7,d6d8213,5269055 2026-11-02T17:57:22+0700
+Every changed file is inside TASK-005's Files.
+Running in a detached worktree at 5269055 (/private/var/folders/xz/v2rxttv91sl6fyyf4f68635m0000gn/T/kf-verify-3GxS3G)
+All 2 task verify command(s) passed.
+exit=0

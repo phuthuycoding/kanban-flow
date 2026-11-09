@@ -1,0 +1,23 @@
+{
+  "behaviour": "a cascade re-review waits while the task's own reviewer is in flight",
+  "symptomToday": ["missing#0", "tooMany#0"],
+  "expect": [
+    {
+      "action": {
+        "kind": "wait",
+        "task": "TASK-002",
+        "reason": "code-reviewer of TASK-002 in flight"
+      }
+    }
+  ],
+  "maxCount": [
+    {
+      "action": {
+        "kind": "dispatch",
+        "task": "TASK-002",
+        "seat": "code-reviewer"
+      },
+      "n": 0
+    }
+  ]
+}
