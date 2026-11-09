@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +10,10 @@ import { parseTaskGraph } from "./tasks.js";
 import type { PlannedTask } from "./tasks.js";
 import { pathAllowed } from "./allowlist.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
-import { addDetachedWorktree, removeWorktree, runGit } from "../shared/git.js";
+import { addDetachedWorktree, removeWorktree, runGit, trackedChanges } from "../shared/git.js";
 import { readProjectConfig } from "../project/config.js";
 import { readLoopInputs } from "./next/inputs.js";
+import type { StageRecord, StepOutcome } from "./stage-record.js";
 
 const OUTPUT_TAIL = 2000;
 const VERIFY_MAX_BUFFER = 64 * 1024 * 1024;
@@ -23,28 +25,59 @@ export interface VerifyResult {
   lines: string[];
 }
 
+export interface StepsResult {
+  steps: StepOutcome[];
+  /** stdout then stderr of every command that ran, in order. */
+  output: string;
+  /** The text `runVerify` returns: the first failure, or null when all pass. */
+  failure: string | null;
+}
+
 /**
- * Run the verify argv list in `cwd`, in order, without a shell; returns the first failure naming the command and
- * its exit code (followed by the output tail), or null when all pass.
+ * Run the verify argv list in `cwd`, in order, without a shell, stopping at the first failure; every configured
+ * command gets an outcome, those after the failure `not-run`.
  */
-export function runVerify(commands: string[][], cwd: string): string | null {
+export function runVerifySteps(commands: string[][], cwd: string): StepsResult {
+  const steps: StepOutcome[] = [];
+  let output = "";
+  let failure: string | null = null;
   for (const argv of commands) {
+    if (failure !== null) {
+      steps.push({ argv, outcome: "not-run" });
+      continue;
+    }
     // No timeout on purpose: the loop that calls kf verify owns the time budget, and a test command's own timeout still applies.
     const res = spawnSync(argv[0], argv.slice(1), {
       cwd, encoding: "utf8", maxBuffer: VERIFY_MAX_BUFFER, stdio: ["ignore", "pipe", "pipe"],
     });
     if (res.error) {
       const code = (res.error as NodeJS.ErrnoException).code;
-      return code === "ENOENT" ? `verify command not found: ${argv[0]}` : `verify command ${argv.join(" ")} could not finish: ${res.error.message}`;
+      failure = code === "ENOENT" ? `verify command not found: ${argv[0]}` : `verify command ${argv.join(" ")} could not finish: ${res.error.message}`;
+      steps.push({ argv, outcome: "not-started", error: failure });
+      continue;
     }
-    if (res.status !== 0) {
-      const how = res.status !== null ? `exit ${res.status}` : `signal ${res.signal}`;
-      const output = `${res.stdout ?? ""}${res.stderr ?? ""}`.trim();
-      const head = `verify command failed (${how}): ${argv.join(" ")}`;
-      return output ? `${head}\n${output.slice(-OUTPUT_TAIL)}` : head;
+    const ran = `${res.stdout ?? ""}${res.stderr ?? ""}`;
+    output += ran;
+    if (res.status === 0) {
+      steps.push({ argv, outcome: "exit", code: 0 });
+      continue;
     }
+    if (res.status !== null) steps.push({ argv, outcome: "exit", code: res.status });
+    else steps.push({ argv, outcome: "signal", signal: String(res.signal) });
+    const how = res.status !== null ? `exit ${res.status}` : `signal ${res.signal}`;
+    const head = `verify command failed (${how}): ${argv.join(" ")}`;
+    const trimmed = ran.trim();
+    failure = trimmed ? `${head}\n${trimmed.slice(-OUTPUT_TAIL)}` : head;
   }
-  return null;
+  return { steps, output, failure };
+}
+
+/**
+ * Run the verify argv list in `cwd`, in order, without a shell; returns the first failure naming the command and
+ * its exit code (followed by the output tail), or null when all pass.
+ */
+export function runVerify(commands: string[][], cwd: string): string | null {
+  return runVerifySteps(commands, cwd).failure;
 }
 
 /** The item's worktree when it has one, else the project root; the line says which. */
@@ -232,10 +265,33 @@ function runDetached(itemDir: string, sha: string, commands: string[][], lines: 
 }
 
 /** Run `harness.verify.stage` in the item's directory. */
-export function verifyStage(root: string, feature: Feature): VerifyResult {
+export function verifyStage(root: string, feature: Feature): VerifyResult & { record?: StageRecord } {
   const { dir, line } = itemDir(root, feature);
   if (!existsSync(dir)) return { code: 3, lines: [`The item worktree ${dir} does not exist.`] };
-  return runCommands(readProjectConfig(root).harness?.verify?.stage, dir, "stage", [line]);
+  const commands = readProjectConfig(root).harness?.verify?.stage;
+  if (!commands || commands.length === 0) return runCommands(commands, dir, "stage", [line]);
+
+  // HEAD and cleanliness are taken before the commands run: a command that edits a tracked file must not clean the record.
+  const head = runGit(dir, ["rev-parse", "HEAD"]);
+  const clean = head.code === 0 && trackedChanges(dir).length === 0;
+  const lines = [line];
+  const { steps, output, failure } = runVerifySteps(commands, dir);
+  if (failure !== null) lines.push(failure);
+  else lines.push(`All ${commands.length} stage verify command(s) passed.`);
+  const code = failure !== null ? 1 : 0;
+  if (head.code !== 0) {
+    lines.push(`No stage record: ${dir} has no HEAD commit to record.`);
+    return { code, lines };
+  }
+  const record: StageRecord = {
+    at: new Date().toISOString(),
+    sha: head.stdout.trim(),
+    clean,
+    commands: steps,
+    outputSha256: createHash("sha256").update(output).digest("hex"),
+    exit: code,
+  };
+  return { code, lines, record };
 }
 
 /** The log `kf verify` writes beside the ledger: the ledger's verify lines are checked against it. */

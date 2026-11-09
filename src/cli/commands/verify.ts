@@ -1,4 +1,7 @@
 import { appendVerifyLog, verifyStage, verifyTask, verifyTaskCommits } from "../../workflow/verify.js";
+import type { VerifyResult } from "../../workflow/verify.js";
+import { appendStageRecord } from "../../workflow/stage-record.js";
+import type { StageRecord } from "../../workflow/stage-record.js";
 import { ProjectConfigError } from "../../project/config.js";
 import { resolveItem } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -31,7 +34,7 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
 
   const item = await resolveItem(cwd, name);
   if (!item.ok) return { ...item.refusal, code: 3 };
-  let res;
+  let res: VerifyResult & { record?: StageRecord };
   try {
     if (task === undefined) res = verifyStage(item.root, item.item);
     else if (shas !== undefined) res = verifyTaskCommits(item.root, item.item, task, shas, atHead);
@@ -46,6 +49,13 @@ export async function cmdVerify(args: ParsedArgs, cwd: string): Promise<CmdResul
       appendVerifyLog(item.item.dir, task, res);
     } catch (err) {
       return { code: res.code, stdout: res.lines.join("\n"), stderr: `warning: could not write the verify log: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+  if (res.record) {
+    try {
+      await appendStageRecord(item.root, item.item, res.record);
+    } catch (err) {
+      return { code: res.code, stdout: res.lines.join("\n"), stderr: `warning: could not write the stage verify record: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
   return { code: res.code, stdout: res.lines.join("\n") };
