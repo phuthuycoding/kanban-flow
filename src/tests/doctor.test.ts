@@ -595,3 +595,108 @@ describe("kf doctor harness checks", () => {
     expect(runDoctor(root).findings.find((f) => f.area === lock)).toMatchObject({ level: "WARNING", action: `rm ${lock}` });
   });
 });
+
+describe("kf doctor on unknown config keys", () => {
+  const UNKNOWN = "unknown_config_key:";
+  const cfgPath = () => join(root, ".kf", "config.json");
+
+  /** Patches the config `kf init` wrote, keeping key order: existing keys first, then the extras in the order given. */
+  async function withKeys(extra: Record<string, unknown>): Promise<void> {
+    await project();
+    const cfg = JSON.parse(await readFile(cfgPath(), "utf8")) as Record<string, unknown>;
+    await writeFile(cfgPath(), JSON.stringify({ ...cfg, ...extra }, null, 2));
+  }
+  const unknownFindings = (r: string) => runDoctor(r).findings.filter((f) => f.message.startsWith(UNKNOWN));
+
+  it("hints the known key when an unknown key is its plural", async () => {
+    await withKeys({ worktree: { enabled: false }, worktrees: { enabled: false } });
+    const found = unknownFindings(root);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toEqual({
+      level: "WARNING",
+      area: ".kf/config.json",
+      message: 'unknown_config_key: "worktrees" is not a kf config key and is ignored.',
+      action: 'did you mean "worktree"? rename or remove it',
+    });
+  });
+
+  it("offers the keep-as-a-note action when no known key is near", async () => {
+    await withKeys({ notes: "scratch" });
+    const found = unknownFindings(root);
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe("WARNING");
+    expect(found[0].message).toContain('"notes"');
+    expect(found[0].action).toBe("remove it, or keep it as a note (kf ignores it)");
+  });
+
+  it("stays silent for a fresh config and for the legacy ship, stack and defaultContext keys", async () => {
+    await project();
+    expect(unknownFindings(root)).toEqual([]);
+
+    const cfg = JSON.parse(await readFile(cfgPath(), "utf8")) as Record<string, unknown>;
+    await writeFile(cfgPath(), JSON.stringify({
+      ...cfg, ship: { enabled: true }, stack: "node", stacks: ["node"], defaultContext: "app",
+    }, null, 2));
+    expect(unknownFindings(root)).toEqual([]);
+  });
+
+  it("reports nothing when the config is invalid JSON, shape-refused or missing", async () => {
+    await project();
+    await writeFile(cfgPath(), "{ not json");
+    let report = runDoctor(root);
+    expect(report.findings.filter((f) => f.message.startsWith(UNKNOWN))).toEqual([]);
+    expect(report.findings.some((f) => f.level === "ERROR" && f.message.startsWith("Cannot read the project config"))).toBe(true);
+
+    await writeFile(cfgPath(), JSON.stringify({ schema: "other", notes: "x" }));
+    report = runDoctor(root);
+    expect(report.findings.filter((f) => f.message.startsWith(UNKNOWN))).toEqual([]);
+    expect(report.findings.some((f) => f.area === ".kf/config.json" && f.level === "ERROR")).toBe(true);
+
+    await rm(cfgPath());
+    report = runDoctor(root);
+    expect(report.findings.filter((f) => f.message.startsWith(UNKNOWN))).toEqual([]);
+    expect(report.findings.some((f) => f.message === "No project config; defaults are in use.")).toBe(true);
+  });
+
+  it("warns per key in file order, hinting only near matches of non-legacy keys", async () => {
+    await withKeys({ foos: 1, Worktree: 1, context: 1, ships: 1 });
+    const found = unknownFindings(root);
+    expect(found.map((f) => f.message)).toEqual([
+      'unknown_config_key: "foos" is not a kf config key and is ignored.',
+      'unknown_config_key: "Worktree" is not a kf config key and is ignored.',
+      'unknown_config_key: "context" is not a kf config key and is ignored.',
+      'unknown_config_key: "ships" is not a kf config key and is ignored.',
+    ]);
+    const noHint = "remove it, or keep it as a note (kf ignores it)";
+    expect(found.map((f) => f.action)).toEqual([noHint, noHint, 'did you mean "contexts"? rename or remove it', noHint]);
+    expect(found.every((f) => f.level === "WARNING" && f.area === ".kf/config.json")).toBe(true);
+  });
+
+  it("lists the warning in text and --json output and still exits 0", async () => {
+    await withKeys({ worktrees: { enabled: false } });
+    const message = 'unknown_config_key: "worktrees" is not a kf config key and is ignored.';
+    const action = 'did you mean "worktree"? rename or remove it';
+
+    const text = await cmdDoctor(args("doctor"), root);
+    expect(text.code).toBe(0);
+    expect(text.stdout).toContain(`[WARNING] .kf/config.json: ${message}`);
+    expect(text.stdout).toContain(action);
+
+    const json = await cmdDoctor(args("doctor", [], { json: true }), root);
+    expect(json.code).toBe(0);
+    const parsed = JSON.parse(json.stdout) as { findings: { level: string; area: string; message: string; action?: string }[] };
+    expect(parsed.findings).toContainEqual({ level: "WARNING", area: ".kf/config.json", message, action });
+  });
+
+  it("leaves an unknown key in the file under --fix and still reports it afterwards", async () => {
+    await withKeys({ worktrees: { enabled: false }, stack: "node", stacks: ["node"] });
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true, json: true }), root);
+    expect(res.code).toBe(0);
+    const after = JSON.parse(await readFile(cfgPath(), "utf8")) as Record<string, unknown>;
+    expect(after, "the legacy stack was removed, so the file was rewritten").not.toHaveProperty("stack");
+    expect(after).toHaveProperty("worktrees");
+    const parsed = JSON.parse(res.stdout) as { findings: { message: string }[] };
+    expect(parsed.findings.some((f) => f.message.startsWith(UNKNOWN) && f.message.includes('"worktrees"'))).toBe(true);
+  });
+});
