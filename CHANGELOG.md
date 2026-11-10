@@ -4,6 +4,8 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-10
+
 ### Added
 - **`kf doctor` warns about unknown config keys.** A top-level key in `.kf/config.json` that kf does not read is reported as `unknown_config_key` (WARNING; the exit code is unchanged), with `did you mean "<key>"?` when adding or dropping a trailing `s` gives a key kf reads (`worktrees` → `worktree`). `kf doctor --fix` leaves the key in place (#131).
 - **Verify tiers.** `harness.verify.related` (one argv) makes `kf verify <feature> --task` append the task's changed files that still exist and run it after `harness.verify.task`, so a task runs only its related tests; every command run is printed as `Ran: <argv>`. `kf verify <feature> --wave <w>` runs `harness.verify.stage` once a wave's tasks are complete, in a detached worktree at HEAD, and appends a stage record with `wave: <w>` (log `loop/wave-<w>-verify.log`). `kf next` prints the wave verify, holds the next wave's developers until it passed at a commit containing every wave commit, and prints a `Wave verify` decide when it fails. `kf record` gains `wave-verify-started` and `wave-verify-done`; `kf loop-stats` reports wave verify minutes. The review gate reuses the last wave's record when it passed at HEAD on a clean tree.
@@ -17,6 +19,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ### Removed
 - **`testing_exit_code`.** `kf validate` no longer parses the exit codes typed into a testing report's `## Commands and Evidence` table; the stage record replaces it.
+
+### Fixed
+- **Skill wording aligned with the round cap (#139).** `/kf:implement` section 4 makes a stage-verify FAIL a counted fix round of the failing task (a capped task takes the breaker or the `cap reached` stop instead of a sixth round); its `superseded by contract` line applies when the re-approved contract no longer requires what failed; `/kf:plan` says what a re-plan of a stopped task must do; `/kf:travel` lists the `cap reached` stop among the `blocked` reasons.
 
 ## [0.16.0] - 2026-11-09
 

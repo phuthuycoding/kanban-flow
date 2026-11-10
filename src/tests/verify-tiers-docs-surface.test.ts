@@ -9,11 +9,11 @@ function read(rel: string): string {
   return readFileSync(resolve(ROOT, rel), "utf8");
 }
 
-/** The text of the `## [Unreleased]` section, up to the next release heading. */
+/** The text of the `## [0.17.0]` section, up to the next release heading. */
 function unreleased(changelog: string): string {
-  const start = changelog.indexOf("## [Unreleased]");
+  const start = changelog.indexOf("## [0.17.0]");
   if (start < 0) return "";
-  const rest = changelog.slice(start + "## [Unreleased]".length);
+  const rest = changelog.slice(start + "## [0.17.0]".length);
   const next = rest.search(/^## \[/m);
   return next < 0 ? rest : rest.slice(0, next);
 }
