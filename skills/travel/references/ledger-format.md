@@ -39,7 +39,7 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 | `queued` | approved for today, not started | travel |
 | `driving` | this travel session is running that item's phases in the item's worktree, seats working in the background; the item resumes from its `loop/progress.md` | `owner=travel` — no other session runs it |
 | `waiting-to-merge` | review PASS with the PR open; the note has the URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` | the human merges |
-| `blocked` | a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker); the note has the reason and the next command | `owner=travel`, until the human opens it in their own session — then `owner=human` (that session), until the human says it is done and travel sets it back to `owner=travel` |
+| `blocked` | a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker, a reopened task's `cap reached` stop); the note has the reason and the next command | `owner=travel`, until the human opens it in their own session — then `owner=human` (that session), until the human says it is done and travel sets it back to `owner=travel` |
 | `done` | kf reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`) | — |
 | `carry-over` | end-of-day rewrite of any line not `done`, `blocked` or `owner=human`; the note keeps why | tomorrow's plan |
 
