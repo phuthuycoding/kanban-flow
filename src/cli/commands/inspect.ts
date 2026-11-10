@@ -305,27 +305,49 @@ interface ProjectDocsResult {
   issues: DocsFinding[];
 }
 
+/** Errors the git helpers and the living-docs ref guard throw: plain Errors naming git or the refused ref. */
+function isGitFailure(err: unknown): err is Error {
+  return err instanceof Error && err.constructor === Error && /^(git |Refusing unsafe )/.test(err.message);
+}
+
 /**
- * The project-wide docs check of `kf validate --all` (FR-017): living-doc structure under every
- * docs/specs/<context>/, and the legacy features removed since the merge-base with the base ref.
- * A failed git lookup is an ERROR carrying git's message, never a pass.
+ * The project-wide docs check of `kf validate --all` (FR-017), always at the git top-level of
+ * `dir` so a .works/ below it and the CI path (no .works/) check the same tree: living-doc
+ * structure under every docs/specs/<context>/, and the legacy features removed since the
+ * merge-base with the base ref. Outside a git work tree only the structure rules run, with a
+ * WARNING; any other failed git lookup is an ERROR carrying git's message, never a pass.
+ * `contexts` are the declared contexts of the project config.
  */
-function checkProjectDocs(dir: string, baseOpt: string | undefined, strict: boolean): ProjectDocsResult {
-  const issues: DocsFinding[] = [...checkLivingDocTree(dir)];
-  const contexts = readProjectConfig(dir).contexts;
-  try {
-    const base = resolveDocsBase(dir, baseOpt);
-    if ("skipped" in base) {
-      issues.push({
-        severity: "WARNING", code: "docs_base_unresolved", file: "docs/specs",
-        message: `Legacy-removal check skipped: ${base.skipped}. Pass --base <ref> to run it`,
-      });
-    } else {
-      issues.push(...removedLegacyFindings(dir, base.mergeBase, contexts));
+function checkProjectDocs(dir: string, contexts: string[] | undefined, baseOpt: string | undefined, strict: boolean): ProjectDocsResult {
+  const issues: DocsFinding[] = [];
+  const top = runGit(dir, ["rev-parse", "--show-toplevel"]);
+  if (top.code !== 0 && /not a git repository/.test(top.stderr)) {
+    issues.push(...checkLivingDocTree(dir), {
+      severity: "WARNING", code: "docs_base_unresolved", file: "docs/specs",
+      message: `Legacy-removal check skipped: ${dir} is not inside a git work tree`,
+    });
+  } else if (top.code !== 0) {
+    issues.push(...checkLivingDocTree(dir), {
+      severity: "ERROR", code: "docs_git_failed", file: "docs/specs",
+      message: `git rev-parse --show-toplevel failed (exit ${top.code}) in ${dir}: ${top.stderr.trim()}`,
+    });
+  } else {
+    const repo = top.stdout.trim();
+    issues.push(...checkLivingDocTree(repo));
+    try {
+      const base = resolveDocsBase(repo, baseOpt);
+      if ("skipped" in base) {
+        issues.push({
+          severity: "WARNING", code: "docs_base_unresolved", file: "docs/specs",
+          message: `Legacy-removal check skipped: ${base.skipped}. Pass --base <ref> to run it`,
+        });
+      } else {
+        issues.push(...removedLegacyFindings(repo, base.mergeBase, contexts));
+      }
+    } catch (err) {
+      if (!isGitFailure(err)) throw err;
+      issues.push({ severity: "ERROR", code: "docs_git_failed", file: "docs/specs", message: err.message });
     }
-  } catch (err) {
-    if (!(err instanceof Error)) throw err;
-    issues.push({ severity: "ERROR", code: "docs_git_failed", file: "docs/specs", message: err.message });
   }
   const valid = !issues.some((i) => i.severity === "ERROR") && !(strict && issues.some((i) => i.severity === "WARNING"));
   return { feature: "(project)", stage: "-", valid, issues };
@@ -351,7 +373,8 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
     // CI runs `kf validate --all` on a checkout without .works/: only the docs check applies there.
     const top = all && !change ? runGit(cwd, ["rev-parse", "--show-toplevel"]) : null;
     if (!top || top.code !== 0) return { code: 1, stdout: root.err!, stderr: "no works" };
-    const project = checkProjectDocs(top.stdout.trim(), base, strict);
+    const repo = top.stdout.trim();
+    const project = checkProjectDocs(repo, readProjectConfig(repo).contexts, base, strict);
     const stdout = json ? JSON.stringify([project], null, 2) : renderProjectDocsText(project);
     return { code: project.valid ? 0 : 1, stdout, stderr: project.valid ? undefined : "validation failed" };
   }
@@ -391,7 +414,7 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
     }
   }
 
-  const project = all && !change ? checkProjectDocs(root.root, base, strict) : null;
+  const project = all && !change ? checkProjectDocs(root.root, readProjectConfig(root.root).contexts, base, strict) : null;
   const allValid = results.every((r) => r.valid) && (project?.valid ?? true);
   if (json) {
     const entries = [...results.map(validateToJson), ...(project ? [project] : [])];

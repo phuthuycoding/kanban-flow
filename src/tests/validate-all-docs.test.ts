@@ -245,3 +245,60 @@ describe("kf validate --all --json with work items", () => {
     expect(project?.issues.map((i) => i.code)).toContain("docs_index_dangling");
   });
 });
+
+describe("kf validate --all when .works/ is below the git top-level", () => {
+  it("runs the legacy-removal check at the git top-level from the project subdirectory", async () => {
+    rmSync(join(repo, ".kf"), { recursive: true, force: true });
+    write("pkg/.kf/config.json", JSON.stringify({ schema: "kanban-flow", created: "x", contexts: ["cli"], worktree: { enabled: false } }));
+    mkdirSync(join(repo, "pkg", ".works", "brainstorm"), { recursive: true });
+    write("docs/requirement/cli/foo.md", "# foo\n");
+    write("docs/specs/cli/README.md", "# cli\n");
+    commit("base with legacy foo");
+    sh("checkout", "-q", "-b", "feature");
+    rmSync(join(repo, "docs/requirement/cli/foo.md"));
+    commit("remove foo");
+
+    const res = await cmdValidate(args({ all: true, json: true, base: "main" }), join(repo, "pkg"));
+    const entries = JSON.parse(res.stdout) as Entry[];
+    const project = entries.find((e) => e.feature === "(project)");
+    expect(res.code).toBe(1);
+    expect(project?.issues.map((i) => i.code)).toContain("docs_legacy_unnamed");
+  });
+});
+
+describe("kf validate --all in a project that is not a git repository", () => {
+  let plain: string;
+
+  beforeEach(async () => {
+    plain = await realpath(await mkdtemp(join(tmpdir(), "kf-validate-nogit-")));
+    mkdirSync(join(plain, ".kf"), { recursive: true });
+    writeFileSync(join(plain, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", contexts: ["cli"], worktree: { enabled: false } }));
+    mkdirSync(join(plain, ".works", "brainstorm"), { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(plain, { recursive: true, force: true });
+  });
+
+  it("warns that the base is unresolved instead of failing on a git error, and exits 0", async () => {
+    const res = await cmdValidate(args({ all: true, json: true }), plain);
+    const entries = JSON.parse(res.stdout) as Entry[];
+    const codes = entries.flatMap((e) => e.issues.map((i) => i.code));
+    expect(codes).not.toContain("docs_git_failed");
+    expect(codes.filter((c) => c === "docs_base_unresolved")).toHaveLength(1);
+    expect(res.code).toBe(0);
+  });
+});
+
+describe("kf validate --change", () => {
+  it("adds no project entry and no docs finding even when docs/specs has a broken index", async () => {
+    await addWorkItem();
+    write("docs/specs/cli/README.md", "# cli\n\n- [gone](gone.md)\n");
+    commit("docs");
+
+    const res = await cmdValidate(args({ change: "wip", json: true, base: "main" }), repo);
+    const entries = JSON.parse(res.stdout) as Entry[];
+    expect(entries.map((e) => e.feature)).toEqual(["wip"]);
+    expect(entries.flatMap((e) => e.issues.map((i) => i.code)).filter((c) => c.startsWith("docs_"))).toEqual([]);
+  });
+});
