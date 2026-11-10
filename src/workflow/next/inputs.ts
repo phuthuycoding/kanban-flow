@@ -191,8 +191,9 @@ const sameArgv = (a: string[][], b: string[][]): boolean =>
  * commit the ledger names for the wave's tasks on the branch (`git merge-base --is-ancestor`). Records are appended at
  * an advancing head, so an older passing record cannot contain what the newest one lacks, and none is asked. A later
  * commit of a wave task therefore owes the wave verify again. A passing record taken on a dirty tree or with commands
- * other than the pinned `stageCommands` is not asked, as the review gate refuses it; a wave with no matched commits
- * is contained only by a passing record of its own wave run.
+ * other than the pinned `stageCommands` is not asked, as the review gate refuses it. A wave with no matched commits has
+ * nothing to contain, so the containment argument does not hold for it: it is covered by the newest passing record of
+ * its own wave run, and the records of other waves and plain runs are passed over rather than asked.
  */
 function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], reportCommits: Record<string, string[]>, gitLog: { sha: string; ts: number }[], stageCommands: string[][]): WaveRecord[] {
   const records = readStageRecords(feature);
@@ -212,8 +213,10 @@ function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], repo
         const r = records[i];
         if (r.wave === wave && r.exit !== 0) break;
         if (r.exit !== 0 || !r.clean || !sameArgv(r.commands.map((c) => c.argv), stageCommands)) continue;
-        // No commit to look for: only the wave's own run can release it, else the wave verify never clears.
-        if (commits.length === 0 ? r.wave === wave : commits.every((sha) => isAncestor(dir, sha, r.sha))) covers[i].push(wave);
+        // No commit to look for: only the wave's own run can release it, and a later run of another wave must not
+        // hide that run, else two such waves re-owe each other forever.
+        if (commits.length === 0 && r.wave !== wave) continue;
+        if (commits.length === 0 || commits.every((sha) => isAncestor(dir, sha, r.sha))) covers[i].push(wave);
         break;
       }
     }

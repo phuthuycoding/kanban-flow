@@ -670,6 +670,35 @@ describe("which passing stage records are trusted to verify a wave", () => {
     expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
   });
 
+  it("keeps a wave with no matched commits verified by its own run when a newer record of another wave or a plain run follows", () => {
+    for (const later of [{ sha: "", exit: 0 as const, wave: 2 }, { sha: "", exit: 0 as const }]) {
+      const repo = gitRepo();
+      writeFileSync(ledgerFile(repo), readFileSync(ledgerFile(repo), "utf8").replaceAll(repo.a.slice(0, 7), "abc1234").replaceAll(repo.b.slice(0, 7), "def5678"));
+      writeStageRecords(repo.item, [{ sha: repo.b, exit: 0, wave: 1 }, { ...later, sha: repo.b }]);
+
+      const { result } = nextAt(repo);
+
+      expect(waveOwed(result, 1), show(result)).toBe(false);
+      expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+    }
+  });
+
+  it("verifies two complete waves with no matched commits by their own runs, so neither re-owes the other", () => {
+    const repo = gitRepo();
+    const c = completeWithCommit(repo, "TASK-003", "c.ts");
+    appendLedger(repo, task004TestsReady);
+    const d = completeWithCommit(repo, "TASK-004", "d.ts");
+    let ledger = readFileSync(ledgerFile(repo), "utf8");
+    for (const [sha, fake] of [[repo.a, "abc1234"], [repo.b, "def5678"], [c, "0a1b2c3"], [d, "4d5e6f7"]] as const) ledger = ledger.replaceAll(sha.slice(0, 7), fake);
+    writeFileSync(ledgerFile(repo), ledger);
+    writeStageRecords(repo.item, [{ sha: d, exit: 0, wave: 1 }, { sha: d, exit: 0, wave: 2 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(false);
+    expect(waveOwed(result, 2), show(result)).toBe(false);
+  });
+
   it("skips a newer dirty passing record and verifies the wave by the older clean one", () => {
     const repo = gitRepo();
     writeStageRecords(repo.item, [{ sha: repo.b, exit: 0 }, { sha: repo.b, exit: 0, clean: false }]);

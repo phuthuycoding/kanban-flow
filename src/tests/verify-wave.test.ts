@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -230,6 +230,18 @@ describe("kf verify --wave", () => {
     expect(two.code).toBe(3);
     expect(item.records()).toHaveLength(1);
     expect(item.callLines()).toHaveLength(1);
+  });
+
+  it("exits 3 and warns when the run passed but its record cannot be written", async () => {
+    item = await makeItem({ kind: "feature", worktree: true });
+    await item.configure([["node", item.seesBadFileScript]]);
+    writeFileSync(join(item.itemDir(), "loop"), "not a directory");
+
+    const res = await item.verify({ wave: "1" });
+
+    expect(res.code).toBe(3);
+    expect(res.out).toContain("could not write the stage verify record");
+    expect(readFileSync(join(item.itemDir(), "loop"), "utf8")).toBe("not a directory");
   });
 
   it("records the project root HEAD for an item without a worktree", async () => {

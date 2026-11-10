@@ -13,9 +13,9 @@ export type StepOutcome =
 /** One `kf verify --stage` run that ran at least one command — written only by kf, read by the review gate and `kf status`. */
 export interface StageRecord {
   at: string;
-  /** Full HEAD sha of the directory the commands ran in (the item worktree, else the project root). */
+  /** Full HEAD sha of the directory the commands ran in (the item worktree, else the project root); for a wave run, the HEAD its temporary detached worktree checked out. */
   sha: string;
-  /** No tracked file had uncommitted changes when the run started; untracked files do not count. */
+  /** No tracked file had uncommitted changes when the run started; untracked files do not count. A wave run is always clean: it runs in a fresh detached worktree at `sha`. */
   clean: boolean;
   /** One outcome per configured argv, in config order. */
   commands: StepOutcome[];

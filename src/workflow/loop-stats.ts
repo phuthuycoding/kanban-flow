@@ -19,8 +19,8 @@ export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|
 
 /** Wave verify lines; kept out of LEDGER_SHAPES so the per-task grammar and its verify column stay as they are. */
 export const WAVE_SHAPES = {
-  waveVerifyStarted: /^wave (\d+): verify started$/,
-  waveVerifyDone: /^wave (\d+): verify done exit=(\d+)$/,
+  waveVerifyStarted: /^wave ([1-9]\d*): verify started$/,
+  waveVerifyDone: /^wave ([1-9]\d*): verify done exit=(\d+)$/,
 } as const;
 export type WaveShapeName = keyof typeof WAVE_SHAPES;
 

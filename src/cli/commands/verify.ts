@@ -113,7 +113,9 @@ async function runWave(cwd: string, name: string, wave: number): Promise<CmdResu
   try {
     await appendStageRecord(item.root, item.item, res.record);
   } catch (err) {
+    // kf next reads only the record, so a pass it cannot see would leave the wave owed: say so with exit 3.
     warnings.push(`warning: could not write the stage verify record: ${err instanceof Error ? err.message : String(err)}`);
+    return { code: 3, stdout: res.lines.join("\n"), stderr: warnings.join("\n") };
   }
   return warnings.length > 0 ? { code: res.code, stdout: res.lines.join("\n"), stderr: warnings.join("\n") } : { code: res.code, stdout: res.lines.join("\n") };
 }
