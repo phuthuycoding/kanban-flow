@@ -79,10 +79,7 @@ Add one row per task. Execution progress lives outside the approved plan: in the
 - Coverage target: >= {coverage_target}%
 
 ## Documentation Impact
-One line per entry, in one of three forms:
-- `docs/specs/{context}/<capability>.md` — a living doc this feature creates or updates (`docs/specs/{context}/README.md` for the index)
-- `consolidates: {context}/{feature}` — a legacy feature folded into a living doc
-- `none — <reason>` — no living doc changes
+<!-- One line per entry, in one of three forms: `docs/specs/{context}/<capability>.md` (a living doc this feature creates or updates; `docs/specs/{context}/README.md` for the index), `consolidates: {context}/{feature}` (a legacy feature folded into a living doc), or `none — <reason>` (no living doc changes). Replace the placeholder line; keep none of this guidance as an entry. -->
 - {documentation_impact}
 
 ## Definition of Done
