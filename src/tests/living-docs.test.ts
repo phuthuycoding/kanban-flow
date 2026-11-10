@@ -5,7 +5,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  LIVING_DOC_HEADINGS, checkLivingDocTree, removedLegacyFindings, resolveDocsBase, scanLegacyFeatures,
+  LIVING_DOC_HEADINGS, addedSpecsFiles, checkLivingDocTree, docsSpecsChanged, removedLegacyFindings, resolveDocsBase,
+  scanLegacyFeatures,
 } from "../workflow/living-docs.js";
 
 interface DocsFinding {
@@ -175,6 +176,20 @@ describe("checkLivingDocTree", () => {
     expect(unlisted[0].severity).toBe("ERROR");
     expect(`${unlisted[0].file} ${unlisted[0].message}`).toContain("y.md");
   });
+
+  it("refuses a capability named README in another letter case", async () => {
+    // The index name is reserved; on a case-insensitive filesystem a Readme.md capability is the index.
+    write("docs/specs/cli/Readme.md", livingDoc(FIVE_HEADINGS));
+
+    const findings: DocsFinding[] = await checkLivingDocTree(repo);
+
+    const reserved = withCode(findings, "docs_capability_reserved");
+    expect(reserved).toHaveLength(1);
+    expect(reserved[0].severity).toBe("ERROR");
+    expect(reserved[0].file).toMatch(/Readme\.md$/);
+    const otherForFile = findings.filter((f) => f.code !== "docs_capability_reserved" && f.file.endsWith("Readme.md"));
+    expect(otherForFile).toEqual([]);
+  });
 });
 
 describe("removedLegacyFindings", () => {
@@ -330,5 +345,75 @@ describe("resolveDocsBase", () => {
     baseThenBranch(() => write("a.txt", "a\n"));
 
     await expect((async () => resolveDocsBase(repo, "does-not-exist"))()).rejects.toThrow(/fatal/);
+  });
+});
+
+describe("docsSpecsChanged", () => {
+  it("is true when a commit since the merge-base changes a file under docs/specs", async () => {
+    const mergeBase = baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+    write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS, "- Changed the capability (#2)"));
+    commit("update living doc");
+
+    expect(await docsSpecsChanged(repo, mergeBase)).toBe(true);
+  });
+
+  it("is false when the commits since the merge-base touch nothing under docs/specs", async () => {
+    const mergeBase = baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+    write("src.txt", "code\n");
+    commit("code only");
+
+    expect(await docsSpecsChanged(repo, mergeBase)).toBe(false);
+  });
+
+  it("ignores an uncommitted change under docs/specs", async () => {
+    const mergeBase = baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+    write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS, "- Not committed (#3)"));
+
+    expect(await docsSpecsChanged(repo, mergeBase)).toBe(false);
+  });
+
+  it("throws with git's error when the merge-base is not a commit", async () => {
+    baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+
+    await expect((async () => docsSpecsChanged(repo, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))())
+      .rejects.toThrow(/fatal/);
+  });
+});
+
+describe("addedSpecsFiles", () => {
+  it("lists a file added under docs/specs since the merge-base", async () => {
+    const mergeBase = baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+    write("docs/specs/cli/new.md", livingDoc(FIVE_HEADINGS));
+    write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS, "- Changed (#2)"));
+    write("notes/outside.md", "# not a spec\n");
+    commit("add a capability");
+
+    const added = await addedSpecsFiles(repo, mergeBase);
+
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatch(/docs\/specs\/cli\/new\.md$/);
+  });
+
+  it("does not list a renamed file", async () => {
+    const mergeBase = baseThenBranch(() => write("docs/specs/cli/old.md", livingDoc(FIVE_HEADINGS)));
+    sh(repo, "mv", "docs/specs/cli/old.md", "docs/specs/cli/renamed.md");
+    commit("rename a capability");
+
+    expect(await addedSpecsFiles(repo, mergeBase)).toEqual([]);
+  });
+
+  it("ignores a file that is not committed", async () => {
+    const mergeBase = baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+    write("docs/specs/cli/new.md", livingDoc(FIVE_HEADINGS));
+    sh(repo, "add", "-A");
+
+    expect(await addedSpecsFiles(repo, mergeBase)).toEqual([]);
+  });
+
+  it("throws with git's error when the merge-base is not a commit", async () => {
+    baseThenBranch(() => write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS)));
+
+    await expect((async () => addedSpecsFiles(repo, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))())
+      .rejects.toThrow(/fatal/);
   });
 });
