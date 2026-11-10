@@ -530,6 +530,8 @@ interface StageRec {
   sha: string;
   exit: 0 | 1;
   wave?: number;
+  clean?: boolean;
+  argv?: string[];
 }
 
 /** Writes loop/stage-verify.jsonl in the given file order, each record a minute after the one before it. */
@@ -538,8 +540,8 @@ function writeStageRecords(item: string, recs: StageRec[]): void {
     JSON.stringify({
       at: new Date(Date.parse("2026-11-07T10:31:00+07:00") + i * 60_000).toISOString(),
       sha: r.sha,
-      clean: true,
-      commands: [{ argv: STAGE[0], outcome: "exit", code: r.exit }],
+      clean: r.clean ?? true,
+      commands: [{ argv: r.argv ?? STAGE[0], outcome: "exit", code: r.exit }],
       outputSha256: "0".repeat(64),
       exit: r.exit,
       ...(r.wave !== undefined ? { wave: r.wave } : {}),
@@ -621,6 +623,40 @@ describe("which stage records verify a wave", () => {
 
     expect(waveOwed(result, 1), show(result)).toBe(false);
     expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+  });
+});
+
+describe("which passing stage records are trusted to verify a wave", () => {
+  it("does not verify a wave by a passing record taken on a dirty tree", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0, clean: false }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(true);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
+  });
+
+  it("does not verify a wave by a passing record whose commands differ from the pinned stage commands", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0, argv: ["node", "-e", "process.exit(0) // other"] }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(true);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
+  });
+
+  it("does not verify a complete wave none of whose commits the git log has, whatever passing record exists", () => {
+    const repo = gitRepo();
+    // The commits notes name shas the branch does not have, so the wave has no matched commits.
+    writeFileSync(ledgerFile(repo), readFileSync(ledgerFile(repo), "utf8").replaceAll(repo.a.slice(0, 7), "abc1234").replaceAll(repo.b.slice(0, 7), "def5678"));
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(true);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
   });
 });
 
