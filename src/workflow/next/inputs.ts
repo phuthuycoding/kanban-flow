@@ -192,7 +192,7 @@ const sameArgv = (a: string[][], b: string[][]): boolean =>
  * an advancing head, so an older passing record cannot contain what the newest one lacks, and none is asked. A later
  * commit of a wave task therefore owes the wave verify again. A passing record taken on a dirty tree or with commands
  * other than the pinned `stageCommands` is not asked, as the review gate refuses it; a wave with no matched commits
- * is contained by no record.
+ * is contained only by a passing record of its own wave run.
  */
 function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], reportCommits: Record<string, string[]>, gitLog: { sha: string; ts: number }[], stageCommands: string[][]): WaveRecord[] {
   const records = readStageRecords(feature);
@@ -208,12 +208,12 @@ function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], repo
     const state = ledger.state;
     for (const wave of [...new Set(tasks.map((t) => t.wave))]) {
       const commits = tasks.filter((t) => t.wave === wave).flatMap((t) => matchGitLog(taskCommits(state, t.id, reportCommits[t.id], gitLog), gitLog).kept);
-      if (commits.length === 0) continue;
       for (let i = records.length - 1; i >= 0; i--) {
         const r = records[i];
         if (r.wave === wave && r.exit !== 0) break;
         if (r.exit !== 0 || !r.clean || !sameArgv(r.commands.map((c) => c.argv), stageCommands)) continue;
-        if (commits.every((sha) => isAncestor(dir, sha, r.sha))) covers[i].push(wave);
+        // No commit to look for: only the wave's own run can release it, else the wave verify never clears.
+        if (commits.length === 0 ? r.wave === wave : commits.every((sha) => isAncestor(dir, sha, r.sha))) covers[i].push(wave);
         break;
       }
     }

@@ -647,7 +647,7 @@ describe("which passing stage records are trusted to verify a wave", () => {
     expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
   });
 
-  it("does not verify a complete wave none of whose commits the git log has, whatever passing record exists", () => {
+  it("does not verify a complete wave none of whose commits the git log has by a plain stage record", () => {
     const repo = gitRepo();
     // The commits notes name shas the branch does not have, so the wave has no matched commits.
     writeFileSync(ledgerFile(repo), readFileSync(ledgerFile(repo), "utf8").replaceAll(repo.a.slice(0, 7), "abc1234").replaceAll(repo.b.slice(0, 7), "def5678"));
@@ -657,6 +657,27 @@ describe("which passing stage records are trusted to verify a wave", () => {
 
     expect(waveOwed(result, 1), show(result)).toBe(true);
     expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
+  });
+
+  it("verifies a complete wave with no matched commits by a passing record of its own wave run", () => {
+    const repo = gitRepo();
+    writeFileSync(ledgerFile(repo), readFileSync(ledgerFile(repo), "utf8").replaceAll(repo.a.slice(0, 7), "abc1234").replaceAll(repo.b.slice(0, 7), "def5678"));
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0, wave: 1 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(false);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+  });
+
+  it("skips a newer dirty passing record and verifies the wave by the older clean one", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0 }, { sha: repo.b, exit: 0, clean: false }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(false);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
   });
 });
 
