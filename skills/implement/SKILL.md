@@ -193,7 +193,7 @@ The task's latest verify exited outside 0–3. Read its log `<item>/loop/task-NN
 
 `decide (Wave verify): wave <w> failed` — wave `<w>`'s verify exited 1: the full suite failed on the wave's head, which no task's own verify ran. Read `<item>/loop/wave-<w>-verify.log` and find the task whose change broke it: reopen that task with `Note TASK-NNN: reopened — wave <w>` (it runs a fix round like a review reopen, and after its new `complete` the wave owes a new verify), or rule with `Note wave <w>: decided — <what>` when the failure is no task's (a flaky test, the environment), which owes a new run. Later-wave developers stay held meanwhile. Closes with `Note TASK-NNN: reopened — wave <w>` or `Note wave <w>: decided — <what>`.
 
-`decide (Wave verify exit 3)` — the call was wrong or kf could not run it, as Verify exit 3. Closes with a new `wave <w>: verify started` or `Note wave <w>: decided — <what>`.
+`decide (Wave verify exit 3)` — the call was wrong or kf could not run it, as Verify exit 3, or the run passed but its stage record could not be written (read the stderr warning and fix `loop/` before the re-run). Closes with a new `wave <w>: verify started` or `Note wave <w>: decided — <what>`.
 
 ### Verify routed
 

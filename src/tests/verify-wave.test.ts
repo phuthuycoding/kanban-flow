@@ -244,6 +244,17 @@ describe("kf verify --wave", () => {
     expect(readFileSync(join(item.itemDir(), "loop"), "utf8")).toBe("not a directory");
   });
 
+  it("keeps exit 1 and warns when the run failed and its record cannot be written", async () => {
+    item = await makeItem({ kind: "feature", worktree: true });
+    await item.configure([["node", item.failScript]]);
+    writeFileSync(join(item.itemDir(), "loop"), "not a directory");
+
+    const res = await item.verify({ wave: "1" });
+
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("could not write the stage verify record");
+  });
+
   it("records the project root HEAD for an item without a worktree", async () => {
     item = await makeItem({ kind: "feature", worktree: false });
     await item.configure([["node", item.seesBadFileScript]]);

@@ -8,7 +8,8 @@ type WaveRun = { kind: "none" } | { kind: "running" } | { kind: "done"; exit: nu
 
 /**
  * The wave's verify read from the ledger; with no run open and no decide owed, it passed when a passing stage record
- * (of any wave, or a plain stage run) newer than the latest failing record of this wave contains every commit of it.
+ * (of any wave, or a plain stage run) newer than the latest failing record of this wave contains every commit of it; a
+ * wave with no matched commits passes only on its own wave run (readWaveRecords).
  */
 function waveVerify(state: LedgerState, inputs: LoopInputs, wave: number): WaveVerify {
   let run: WaveRun = { kind: "none" };
