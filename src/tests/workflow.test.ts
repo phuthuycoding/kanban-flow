@@ -167,8 +167,8 @@ describe("requirement and approval gates", () => {
     expect(feature().stage).toBe("done");
     expect(validateFeature(feature()).valid).toBe(true);
     expect(await readFile(canonical, "utf8")).toBe("Existing feature documentation");
-    expect(await readdir(join(root, "docs", "use-cases"))).toEqual([]);
-    expect(await readdir(join(root, "docs", "testplan"))).toEqual([]);
+    expect(await readdir(join(root, "docs"))).not.toContain("use-cases");
+    expect(await readdir(join(root, "docs"))).not.toContain("testplan");
   });
 
   it("invalidates bug approval when the triage contract changes", async () => {

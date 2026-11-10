@@ -184,12 +184,14 @@ describe("install/uninstall (project scope)", () => {
     expect(existsSync(join(dir, ".claude", "agents"))).toBe(false);
   });
 
-  it("uninstall --purge --force removes skills plus .works/, .kf/ and kanban doc dirs", async () => {
+  it("uninstall --purge --force removes skills plus .works/ and .kf/ and leaves every docs dir", async () => {
     await mkdir(join(dir, ".works"), { recursive: true });
     await cmdInstall(["codex"], { cwd: dir, scope: "project" });
     await mkdir(join(dir, ".works", "done", "x"), { recursive: true });
     await mkdir(join(dir, ".kf", "review", "rules"), { recursive: true });
     await mkdir(join(dir, "docs", "requirement"), { recursive: true });
+    await mkdir(join(dir, "docs", "specs"), { recursive: true });
+    await writeFile(join(dir, "docs", "specs", "README.md"), "# Specs\n");
     await mkdir(join(dir, "docs", "notes"), { recursive: true });
 
     const res = await cmdUninstall(["codex"], { cwd: dir, scope: "project", purge: true, force: true });
@@ -197,7 +199,8 @@ describe("install/uninstall (project scope)", () => {
     expect(res.stdout).toContain("Purged project data");
     expect(existsSync(join(dir, ".works"))).toBe(false);
     expect(existsSync(join(dir, ".kf"))).toBe(false);
-    expect(existsSync(join(dir, "docs", "requirement"))).toBe(false);
+    expect(existsSync(join(dir, "docs", "requirement"))).toBe(true);
+    expect(existsSync(join(dir, "docs", "specs", "README.md"))).toBe(true);
     expect(existsSync(join(dir, "docs", "notes"))).toBe(true);
     expect(existsSync(join(dir, ".agents", "skills", copyName("flow")))).toBe(false);
   });

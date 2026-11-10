@@ -141,6 +141,14 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     });
   }
 
+  const workflows = join(root, ".github", "workflows");
+  const hasDocsCi = existsSync(workflows) && readdirSync(workflows).some((f) => /\.ya?ml$/.test(f) && readFileSync(join(workflows, f), "utf8").includes("validate --all --strict --base"));
+  items.push({
+    done: hasDocsCi,
+    label: "CI",
+    action: "add a pull_request step (fetch-depth 0) running: kf validate --all --strict --base origin/<base_ref>, so a change without its living-doc update fails",
+  });
+
   items.push({
     done: existsSync(join(root, "AGENTS.md")) || existsSync(join(root, "CLAUDE.md")),
     label: "AGENTS.md (build/test/lint commands, conventions) at root",
@@ -216,11 +224,11 @@ what blocks the next move; kf stage refuses the move while a gate fails.
 Commands the agent will use (run \`kf help <command>\` for every option):
 ${commands}
 
-Skills (10) and agents (7): Claude Code gets them through the kf plugin (\`kf install\` runs
+Skills (11) and agents (7): Claude Code gets them through the kf plugin (\`kf install\` runs
 \`claude plugin marketplace add\` and \`claude plugin install kf@kanban-flow\`, or inside Claude Code
 \`/plugin marketplace add <package root>\` then \`/plugin install kf@kanban-flow\`). Start with \`/kf:flow\`;
 the phase skills are /kf:brainstorm, /kf:plan, /kf:implement, /kf:test, /kf:review, /kf:archive,
-/kf:bug, /kf:spike and /kf:travel. Other runtimes get kf-<name> skill copies (kf-flow, kf-plan, ...).
+/kf:bug, /kf:spike, /kf:travel and /kf:docs. Other runtimes get kf-<name> skill copies (kf-flow, kf-plan, ...).
 Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
 with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
 Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;

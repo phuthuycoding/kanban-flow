@@ -370,13 +370,10 @@ export function findFeature(root: string, name: string): Feature | null {
   return matches[0] ?? null;
 }
 
-/** Ensure the workflow folders and canonical documentation roots exist under root. */
+/** Ensure the workflow stage folders exist under root. */
 export function ensureWorksStructure(root: string): void {
   for (const stage of STAGES) {
     mkdirSync(join(root, ".works", stage), { recursive: true });
-  }
-  for (const docsDir of ["requirement", "use-cases", "testplan"]) {
-    mkdirSync(join(root, "docs", docsDir), { recursive: true });
   }
 }
 

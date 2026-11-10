@@ -2,7 +2,7 @@
 
 kanban-flow is driven by an agent, so setting a project up means teaching the agent, not only creating directories. Three pieces do that:
 
-- `kf init` installs the 10 skills and the 7 agents (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher`): for Claude Code through the `kf` plugin (`/plugin marketplace add`, `/plugin install kf@kanban-flow`; commands `/kf:flow`, `/kf:plan`, ...), for the other runtimes as `kf-<name>` copies in the agent's skills dir (`--agent` picks which, `claude` is the default; `.agents/skills` for `codex`), and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
+- `kf init` installs the 11 skills and the 7 agents (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher`): for Claude Code through the `kf` plugin (`/plugin marketplace add`, `/plugin install kf@kanban-flow`; commands `/kf:flow`, `/kf:plan`, ...), for the other runtimes as `kf-<name>` copies in the agent's skills dir (`--agent` picks which, `claude` is the default; `.agents/skills` for `codex`), and seeds `AGENTS.md` when neither `AGENTS.md` nor `CLAUDE.md` exists.
 - The seeded `AGENTS.md` tells the agent the build, test and lint commands and the kanban conventions: the three human gates, `.works/` discipline, the `--force` policy. It is a starting point — edit it, because the agent reads it on every session.
 - `kf autoconfig` prints the briefing described below. Run it and hand the output to the agent — or tell the agent to run it, because it can work through the checklist itself.
 
@@ -16,7 +16,7 @@ each question in turn:
 - **Stacks** — confirms the detected list, or asks for one when nothing was detected.
 - **Default reviewer** — the name `kf approve` records; defaults to the git user.
 - **GitHub repository** — `owner/name` or a URL for `kf issues` and the `KFW_REPOSITORY` hook variable; defaults to the detected `origin` remote, and `none` leaves the project unlinked.
-- **Agents** — which agent CLIs get the 10 skills installed (and the 7 agent definitions: through the `kf` plugin for Claude Code).
+- **Agents** — which agent CLIs get the 11 skills installed (and the 7 agent definitions: through the `kf` plugin for Claude Code).
 - **GitHub sync hooks** — offered only when a repository is linked; yes copies the generic pack into `.kf/hooks/` (see [cli-reference](./cli-reference.md#the-hook-pack-and-the-project-board)); the catalog of issue types the pack can assign is GitHub's, see [GitHub sync: issue types](#github-sync-issue-types).
 - **`.gitignore`** — whether to add `.works/`; asked only when `.git` exists and the entry is missing.
 - **Demo feature** — whether to seed one to show the structure.

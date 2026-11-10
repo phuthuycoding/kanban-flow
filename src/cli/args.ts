@@ -36,7 +36,7 @@ type OptDef = {
 
 const COMMANDS: Record<string, CmdSpec> = {
   init: {
-    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs the 10 skills and 7 agents (Claude Code through the kf plugin, other runtimes as kf-<name> copies under ~/.<agent>/skills; the setup question or skills.scope in .kf/config.json picks project instead); --minimal skips the questions, not the scaffolding (still writes .kf config, skills and AGENTS.md; only the template/hook/rule files are left out)",
+    help: "Usage: kf init [path] [--defaults] [--minimal] [--context <ctx>] [--agent <id> ...]  — onboarding: asks setup questions on a TTY (defaults when non-TTY or --defaults), seeds .kf config + installs the 11 skills and 7 agents (Claude Code through the kf plugin, other runtimes as kf-<name> copies under ~/.<agent>/skills; the setup question or skills.scope in .kf/config.json picks project instead); --minimal skips the questions, not the scaffolding (still writes .kf config, skills and AGENTS.md; only the template/hook/rule files are left out)",
     allowPositionals: true,
     options: {
       context: { type: "string", short: "c" },
@@ -174,7 +174,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   install: {
-    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 10 skills (flow, brainstorm, plan, implement, test, review, archive, bug, spike, travel) plus the 7 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer, researcher). Claude Code gets the 10 skills and 7 agents through the kf plugin (/kf:<name> commands, kf:<agent> agents); other runtimes get kf-<name> skill copies in their skills dir (.agents/skills for codex) and the agents dir of runtimes that have one. Scope defaults to skills.scope in .kf/config.json, then global (plugin user scope; copies under ~/.<agent>/skills); project installs the plugin at project scope and copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
+    help: "Usage: kf install [--agent <id> ...] [--scope global|project] [--global|--project]  — install the 11 skills (flow, brainstorm, plan, implement, test, review, archive, bug, spike, travel, docs) plus the 7 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer, researcher). Claude Code gets the 11 skills and 7 agents through the kf plugin (/kf:<name> commands, kf:<agent> agents); other runtimes get kf-<name> skill copies in their skills dir (.agents/skills for codex) and the agents dir of runtimes that have one. Scope defaults to skills.scope in .kf/config.json, then global (plugin user scope; copies under ~/.<agent>/skills); project installs the plugin at project scope and copies into {root}/.<agent>/skills. Global also removes the project's copies unless it declared skills.scope: \"project\". Agents: claude, codex, gemini, kiro, cursor, opencode, devin",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },
@@ -183,7 +183,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   uninstall: {
-    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 10 skills and 7 agents at the given scope: the kf plugin for Claude Code, the kf-<name> copies for other runtimes, and the 7 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer, researcher) from the agents dir (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/, .kf/ and kanban doc dirs (asks first; --force skips the prompt)",
+    help: "Usage: kf uninstall [--agent <id> ...] [--scope global|project] [--global|--project] [--purge] [--force]  — remove the 11 skills and 7 agents at the given scope: the kf plugin for Claude Code, the kf-<name> copies for other runtimes, and the 7 kanban agents (code-reviewer, scout, spec-reviewer, developer, test-writer, automation-writer, researcher) from the agents dir (default agent: claude; default scope: skills.scope in .kf/config.json, then global). --purge also deletes .works/ and .kf/ (docs are never deleted) (asks first; --force skips the prompt)",
     options: {
       agent: { type: "string", multiple: true },
       scope: { type: "string" },

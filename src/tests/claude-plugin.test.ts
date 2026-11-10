@@ -396,7 +396,7 @@ describe("kf init with an unusable claude", () => {
     expect(res.stdout).toContain("/plugin install");
     expect(existsSync(join(dir, ".works"))).toBe(true);
     expect(existsSync(join(dir, ".kf", "config.json"))).toBe(true);
-    expect(existsSync(join(dir, "docs", "requirement"))).toBe(true);
+    expect(existsSync(join(dir, "docs", "specs"))).toBe(true);
   });
 });
 
