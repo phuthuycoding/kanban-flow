@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { ensureWorksStructure, findFeature, readFeatureMeta, withDocsLanded, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
@@ -112,7 +113,7 @@ afterEach(async () => {
 
 async function writeReport(name: string, id: "testing-result" | "review-report", status: string, landing = "pr"): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: ${status}\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? `ci: green\nlanding: ${landing}\n` : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: ${status}\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? `ci: green\nlanding: ${landing}\n${REVIEW_DOCS_NONE}` : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function approvedItem(name: string): Promise<void> {
@@ -120,7 +121,7 @@ async function approvedItem(name: string): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), "# Contract\nUC-001: Create a task");
+    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Create a task") : "# Contract\nUC-001: Create a task");
   }
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
@@ -262,7 +263,7 @@ describe("auto-close on merge", () => {
     await grantStageWaiver(root, "demo");
     expect((await cmdStage(args("stage", ["demo", "review"]), root)).code).toBe(0);
     await writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
-      `---\nstatus: PASS\nexecution: ${stale}\nci: green\nlanding: pr\n---\n# Evidence\nVerified.\n`);
+      `---\nstatus: PASS\nexecution: ${stale}\nci: green\nlanding: pr\n${REVIEW_DOCS_NONE}---\n# Evidence\nVerified.\n`);
 
     const staged = await cmdStage(args("stage", ["demo", "done"]), root);
     expect(staged.code).toBe(1);

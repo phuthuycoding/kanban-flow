@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { ensureWorksStructure, findFeature } from "../workflow/features.js";
 import { ARTIFACTS, STAGES, TRANSITIONS, STAGE_GATES, STAGE_INDEX } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { readProjectConfig } from "../project/config.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
@@ -66,7 +67,7 @@ async function shipReadyItem(name = "demo"): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), SPEC);
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), "# Contract\nUC-001: Ship it");
+    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Ship it") : "# Contract\nUC-001: Ship it");
   }
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it");
@@ -76,7 +77,7 @@ async function shipReadyItem(name = "demo"): Promise<void> {
   const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |\n";
   const report = async (id: "testing-result" | "review-report") =>
     writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+      `---\nstatus: PASS\nexecution: ${feature(name).meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
   await report("testing-result");
   await grantStageWaiver(root, name);
   expect((await cmdStage(args("stage", [name, "review"]), root)).code).toBe(0);

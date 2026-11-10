@@ -6,6 +6,7 @@ import { splitFrontmatter } from "../shared/frontmatter.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
 import { checkReviewDelivery } from "./validate-reports.js";
+import { checkReviewDocsKeys } from "./validate-docs.js";
 import type { Feature } from "./features.js";
 
 /**
@@ -62,7 +63,8 @@ export function checkDirectionGate(feature: Feature, to: Stage, legacyPrMerged =
         `review-report status is ${status ?? "missing"}; only PASS may enter ${to} (FAIL/REJECT loop to implementation)`));
     }
     if (to === "done" && status === "PASS") {
-      issues.push(...checkReviewDelivery(feature, splitFrontmatter(readFileSync(join(feature.dir, file), "utf8")).fm, legacyPrMerged));
+      const { fm } = splitFrontmatter(readFileSync(join(feature.dir, file), "utf8"));
+      issues.push(...checkReviewDelivery(feature, fm, legacyPrMerged), ...checkReviewDocsKeys(feature, fm));
     }
     if (status === "REQUIREMENT_BUG") {
       issues.push(finding(feature, "ERROR", file, "requirement_bug_stop",

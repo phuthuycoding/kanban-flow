@@ -15,6 +15,7 @@ import { cmdArchive } from "../cli/commands/archive.js";
 import { validateFeature, checkDirectionGate } from "../workflow/validate.js";
 import { computeStatus, renderStatusText } from "../workflow/status.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { bootstrapDefaults } from "../project/bootstrap.js";
 import { readProjectConfig } from "../project/config.js";
 import { resolveTemplate, resolveRule } from "../shared/paths.js";
@@ -32,7 +33,7 @@ async function planning(): Promise<void> {
   await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature().dir, ARTIFACTS[id].file), "# Contract\nUC-001: Create a task");
+    await writeFile(join(feature().dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Create a task") : "# Contract\nUC-001: Create a task");
   }
   await mkdir(join(feature().dir, "use-cases"), { recursive: true });
   await writeFile(join(feature().dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
@@ -47,7 +48,7 @@ async function implementation(): Promise<void> {
 const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
 
 async function report(id: "testing-result" | "review-report", status = "PASS", execution = feature().meta?.executionId): Promise<void> {
-  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function review(): Promise<void> {
@@ -290,7 +291,7 @@ describe("requirement and approval gates", () => {
 
   it("checks approval throughout autonomous execution and supports returning to planning", async () => {
     await implementation();
-    await writeFile(join(feature().dir, ARTIFACTS["implementation-plan"].file), "# Changed contract\nNew scope");
+    await writeFile(join(feature().dir, ARTIFACTS["implementation-plan"].file), withDocsImpact("# Changed contract\nNew scope"));
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(1);
     expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
     expect(feature().meta?.approval?.status).toBe("pending");
@@ -593,7 +594,7 @@ describe("CLI output and persisted data", () => {
 
 describe("review → done delivery gate", () => {
   const reviewReport = (fm: string) => writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
-    `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${fm}\n---\n# Review\nReviewed.\n`);
+    `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${fm}\n${REVIEW_DOCS_NONE}---\n# Review\nReviewed.\n`);
   const gateCodes = () => checkDirectionGate(feature(), "done").map((i) => i.code);
   const recordPr = () => writeFeatureMeta(feature().dir, { ...readFeatureMeta(feature().dir)!, pr: "https://github.com/acme/app/pull/7" });
 

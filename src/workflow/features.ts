@@ -12,6 +12,8 @@ export interface Approval {
   by?: string;
   at?: string;
   contractHash?: string;
+  /** Set by `kf approve` from the living-docs release on; items approved earlier carry no marker and skip the docs rules. */
+  livingDocs?: true;
 }
 
 /** One deliberate gate/hook bypass (`--force` / `--skip-hooks`), appended by the CLI and never removed by it. */
@@ -198,7 +200,8 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.executionId !== undefined && typeof meta.executionId !== "string")
     || (meta.approval !== undefined && (!meta.approval
       || !["pending", "approved"].includes(meta.approval.status)
-      || (meta.approval.contractHash !== undefined && typeof meta.approval.contractHash !== "string")))
+      || (meta.approval.contractHash !== undefined && typeof meta.approval.contractHash !== "string")
+      || (meta.approval.livingDocs !== undefined && meta.approval.livingDocs !== true)))
     || (meta.bypasses !== undefined && (!Array.isArray(meta.bypasses) || !meta.bypasses.every(isBypass)))
     || (meta.status !== undefined && meta.status !== "archived" && meta.status !== "cancelled")
     || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))

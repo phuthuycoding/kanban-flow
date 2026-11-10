@@ -14,6 +14,7 @@ import { ensureWorksStructure, findFeature, listFeatures, readFeatureMeta, write
 import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
+import { REVIEW_DOCS_NONE } from "./helpers/contract.js";
 
 const statusAll = (options: Record<string, unknown> = {}): ParsedArgs => ({ command: "status", positionals: [], options: { all: true, ...options } });
 const syncArgs: ParsedArgs = { command: "sync", positionals: [], options: {} };
@@ -42,11 +43,11 @@ const works = (...p: string[]) => join(root, ".works", ...p);
 const folders = (stage: string) => (existsSync(works(stage)) ? readdirSync(works(stage)).sort() : []);
 const migrationLines = (out: string) => out.split("\n").filter((l) => l.includes("migrated") || l.includes("left in"));
 
-/** A PASS report as the previous release wrote it: status and execution only, no ci or landing. */
+/** A PASS report as the previous release wrote it: status and execution, no ci or landing; a review report also waives the living docs, since the item is approved on this version. */
 async function report(name: string, id: "testing-result" | "review-report"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** A bug driven to a review PASS with a recorded PR, then parked in `.works/shipping` as an earlier release left it. */

@@ -10,6 +10,7 @@ import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdArchive } from "../cli/commands/archive.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
 
@@ -48,14 +49,14 @@ const docs = {
 };
 
 async function report(id: "testing-result" | "review-report"): Promise<void> {
-  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function archived(uc = ucFile, beforeArchive?: () => void): Promise<void> {
   expect((await cmdNew(args("new", ["demo"], { context: "app" }), root)).code).toBe(0);
   await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
-  await writeFile(join(feature().dir, ARTIFACTS["implementation-plan"].file), "# Contract\nUC-001: Create a task");
+  await writeFile(join(feature().dir, ARTIFACTS["implementation-plan"].file), withDocsImpact("# Contract\nUC-001: Create a task"));
   await writeFile(join(feature().dir, ARTIFACTS["use-case-specification"].file), ucIndex);
   await writeFile(join(feature().dir, ARTIFACTS["use-case-diagram"].file), diagram);
   await mkdir(join(feature().dir, "use-cases"), { recursive: true });

@@ -7,6 +7,7 @@ import { runGit } from "../shared/git.js";
 import { countTasks } from "./status.js";
 import { finding, type Finding } from "./findings.js";
 import type { Feature } from "./features.js";
+import { checkReviewDocsGit, checkReviewDocsKeys } from "./validate-docs.js";
 
 const TEST_RESULTS = /^(PASS|FAIL|REJECT|BLOCKED)$/;
 const REVIEW_RESULTS = /^(PASS|FAIL|REJECT|REQUIREMENT_BUG)$/;
@@ -129,7 +130,10 @@ export function checkReviewReport(feature: Feature): Finding[] {
   }
   // Only while in review: items archived before `ci:`/`landing:` existed carry reports without
   // them, and the review → done gate (checkDirectionGate) enforces the same rule at close.
-  if (feature.stage === "review") issues.push(...checkReviewDelivery(feature, fm, false), ...checkReviewedCommit(feature, fm));
+  if (feature.stage === "review") {
+    issues.push(...checkReviewDelivery(feature, fm, false), ...checkReviewedCommit(feature, fm),
+      ...checkReviewDocsKeys(feature, fm), ...checkReviewDocsGit(feature, fm));
+  }
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
       `Review ${status.toUpperCase()}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));

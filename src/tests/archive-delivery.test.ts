@@ -17,6 +17,7 @@ import { computeStatus, renderStatusText } from "../workflow/status.js";
 import { readProjectConfig } from "../project/config.js";
 import { runHook } from "../integrations/hooks.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
@@ -68,7 +69,7 @@ const feature = (name = "shipit") => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report", status = "PASS"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** Drive a feature work item to a review-stage PASS state, ready to archive. */
@@ -77,7 +78,7 @@ async function reviewStage(name = "shipit"): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), "# Contract\nUC-001: Ship it");
+    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Ship it") : "# Contract\nUC-001: Ship it");
   }
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it\nUser ships.");
@@ -327,7 +328,7 @@ describe("a review report written before ci/landing existed", () => {
   it("closes on its merged PR with a single gh lookup", async () => {
     await reviewStage();
     const execution = readFeatureMeta(feature().dir)!.executionId;
-    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n`);
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n${REVIEW_DOCS_NONE}---\n# Evidence\nVerified.\n`);
     await link("shipit", { pr: PR });
 
     const res = await cmdArchive(args("archive", ["shipit"]), root);
@@ -340,7 +341,7 @@ describe("a review report written before ci/landing existed", () => {
   it("still refuses when its PR is not merged", async () => {
     await reviewStage();
     const execution = readFeatureMeta(feature().dir)!.executionId;
-    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n`);
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n${REVIEW_DOCS_NONE}---\n# Evidence\nVerified.\n`);
     await link("shipit", { pr: PR });
     process.env.GH_PR_STATE = "OPEN";
 

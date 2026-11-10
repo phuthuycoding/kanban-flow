@@ -9,6 +9,7 @@ import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
 
@@ -31,7 +32,7 @@ const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evi
 async function report(id: "testing-result" | "review-report"): Promise<void> {
   const dir = findFeature(root, "shipped")!.dir;
   await writeFile(join(dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${readFeatureMeta(dir)!.executionId}\n${id === "review-report" ? "ci: none\nlanding: pr\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${readFeatureMeta(dir)!.executionId}\n${id === "review-report" ? "ci: none\nlanding: pr\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /**
@@ -44,7 +45,7 @@ async function shippedItemWhoseCloseThrows(): Promise<string> {
   await writeFile(join(dir(), ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", ["shipped", "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(dir(), ARTIFACTS[id].file), "# Contract\nUC-001: Ship it");
+    await writeFile(join(dir(), ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Ship it") : "# Contract\nUC-001: Ship it");
   }
   await mkdir(join(dir(), "use-cases"), { recursive: true });
   await writeFile(join(dir(), "use-cases", "UC-001.md"), "# UC-001 Ship it\nUser ships.");
