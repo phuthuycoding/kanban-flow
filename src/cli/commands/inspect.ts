@@ -13,7 +13,8 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed, revParse, type LandedRun } from "../../shared/git.js";
+import { branchPushed, revParse, runGit, type LandedRun } from "../../shared/git.js";
+import { checkLivingDocTree, removedLegacyFindings, resolveDocsBase, type DocsFinding } from "../../workflow/living-docs.js";
 import { docsLandedProof } from "../../workflow/canonical-docs.js";
 import { LockTimeoutError } from "../../shared/lock.js";
 import { closeDetails } from "./archive.js";
@@ -297,13 +298,63 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
   return { entries: out, warnings };
 }
 
+interface ProjectDocsResult {
+  feature: "(project)";
+  stage: "-";
+  valid: boolean;
+  issues: DocsFinding[];
+}
+
+/**
+ * The project-wide docs check of `kf validate --all` (FR-017): living-doc structure under every
+ * docs/specs/<context>/, and the legacy features removed since the merge-base with the base ref.
+ * A failed git lookup is an ERROR carrying git's message, never a pass.
+ */
+function checkProjectDocs(dir: string, baseOpt: string | undefined, strict: boolean): ProjectDocsResult {
+  const issues: DocsFinding[] = [...checkLivingDocTree(dir)];
+  const contexts = readProjectConfig(dir).contexts;
+  try {
+    const base = resolveDocsBase(dir, baseOpt);
+    if ("skipped" in base) {
+      issues.push({
+        severity: "WARNING", code: "docs_base_unresolved", file: "docs/specs",
+        message: `Legacy-removal check skipped: ${base.skipped}. Pass --base <ref> to run it`,
+      });
+    } else {
+      issues.push(...removedLegacyFindings(dir, base.mergeBase, contexts));
+    }
+  } catch (err) {
+    if (!(err instanceof Error)) throw err;
+    issues.push({ severity: "ERROR", code: "docs_git_failed", file: "docs/specs", message: err.message });
+  }
+  const valid = !issues.some((i) => i.severity === "ERROR") && !(strict && issues.some((i) => i.severity === "WARNING"));
+  return { feature: "(project)", stage: "-", valid, issues };
+}
+
+function renderProjectDocsText(r: ProjectDocsResult): string {
+  if (r.issues.length === 0) return `✓ ${r.feature} — valid`;
+  return [
+    `✗ ${r.feature} — ${r.valid ? "warnings" : "invalid"}`,
+    ...r.issues.map((i) => `  [${i.severity}] ${i.file}: ${i.message} (${i.code})`),
+  ].join("\n");
+}
+
 export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdResult> {
-  const root = await findRoot(cwd);
-  if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
   const json = Boolean(args.options.json);
   const strict = Boolean(args.options.strict);
   const all = Boolean(args.options.all);
   const change = typeof args.options.change === "string" ? args.options.change : null;
+  const base = typeof args.options.base === "string" ? args.options.base : undefined;
+
+  const root = await findRoot(cwd);
+  if (!root.ok) {
+    // CI runs `kf validate --all` on a checkout without .works/: only the docs check applies there.
+    const top = all && !change ? runGit(cwd, ["rev-parse", "--show-toplevel"]) : null;
+    if (!top || top.code !== 0) return { code: 1, stdout: root.err!, stderr: "no works" };
+    const project = checkProjectDocs(top.stdout.trim(), base, strict);
+    const stdout = json ? JSON.stringify([project], null, 2) : renderProjectDocsText(project);
+    return { code: project.valid ? 0 : 1, stdout, stderr: project.valid ? undefined : "validation failed" };
+  }
 
   if (!change && !all) {
     return { code: 1, stdout: 'Missing required option --change <feature> (or --all).', stderr: "missing --change" };
@@ -340,11 +391,13 @@ export async function cmdValidate(args: ParsedArgs, cwd: string): Promise<CmdRes
     }
   }
 
-  const allValid = results.every((r) => r.valid);
+  const project = all && !change ? checkProjectDocs(root.root, base, strict) : null;
+  const allValid = results.every((r) => r.valid) && (project?.valid ?? true);
   if (json) {
-    return { code: allValid ? 0 : 1, stdout: JSON.stringify(results.map(validateToJson), null, 2), stderr: allValid ? undefined : "validation failed" };
+    const entries = [...results.map(validateToJson), ...(project ? [project] : [])];
+    return { code: allValid ? 0 : 1, stdout: JSON.stringify(entries, null, 2), stderr: allValid ? undefined : "validation failed" };
   }
-  const blocks = results.map(renderValidateText);
+  const blocks = [...results.map(renderValidateText), ...(project ? [renderProjectDocsText(project)] : [])];
   const codes = blocks.join("\n") + `\nTotals: ${results.filter((r) => r.valid).length} passed, ${results.filter((r) => !r.valid).length} failed (${results.length} items)`;
   return { code: allValid ? 0 : 1, stdout: codes, stderr: allValid ? undefined : "validation failed" };
 }

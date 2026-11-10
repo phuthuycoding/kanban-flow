@@ -102,7 +102,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   instruct: {
-    help: "Usage: kf instruct <artifact|use-case> [--change <feature>] [--id UC-###]  — print the template, current execution id and exact output path (--id also accepts UC-###-<slug>)",
+    help: "Usage: kf instruct <artifact|use-case|living-doc|living-doc-index> [--change <feature>] [--id UC-###]  — print the template, current execution id and exact output path (--id also accepts UC-###-<slug>)",
     allowPositionals: true,
     options: {
       change: { type: "string" },
@@ -117,10 +117,11 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   validate: {
-    help: "Usage: kf validate [--change <feature>] [--all] [--strict] [--json]  — report gate, traceability, secret and bypass issues (exit 1 on failure)",
+    help: "Usage: kf validate [--change <feature>] [--all] [--base <ref>] [--strict] [--json]  — report gate, traceability, secret and bypass issues (exit 1 on failure); --all also checks the docs/specs/ living docs and the legacy docs removed since the merge-base with --base (default origin/HEAD), and runs that docs check alone from the git top-level when there is no .works/",
     options: {
       change: { type: "string" },
       all: { type: "boolean", short: "a" },
+      base: { type: "string" },
       strict: { type: "boolean" },
       json: { type: "boolean" },
     },
