@@ -32,7 +32,7 @@ const waveDecide = (a: Action): a is Extract<Action, { kind: "decide" }> => a.ki
  * a wait naming another task, a cap wait while a developer is in flight or dispatched, an incomplete dependency,
  * an earlier incomplete overlapping task, and — for a task with no ledger line yet — any running test-writer. A hold
  * on a complete wave's verify is witnessed by that wave's decide, a printed verify of it or a lower wave, or any wave
- * verify in flight.
+ * verify in flight or re-issued under `--resume` (a printed verify of a wave the ledger shows running).
  * A task-less stop or decide witnesses every task, but for a wave's decide: dispatching goes on beside it. Edges are
  * resolved as a least fixed point, so a wait cycle that reaches no action or In-flight entry stays silent.
  */
@@ -64,9 +64,15 @@ export function checkLiveness(result: NextResult, state: LedgerState, inputs: Lo
   const rank = new Map(inputs.tasks.map((t, i) => [t.id, i]));
   const byId = new Map(inputs.tasks.map((t) => [t.id, t]));
   // Only the lowest owed wave's verify is printed and none while one runs, so a lower wave's verify or any run in flight
-  // witnesses a held wave too.
+  // witnesses a held wave too. Under `--resume` a running wave's verify is re-issued as a printed verify, not listed in
+  // flight, so that printed verify witnesses every held wave as the run in flight would.
+  const waveRunning = (wave: number): boolean => {
+    const last = state.events.filter((e) => (e.type === "waveVerifyStarted" || e.type === "waveVerifyDone") && e.wave === wave).at(-1);
+    return last?.type === "waveVerifyStarted";
+  };
   const waveWitnessed = (wave: number): boolean =>
     (result.waveRuns ?? []).length > 0 ||
+    result.actions.some((a) => a.kind === "verify-wave" && waveRunning(a.wave)) ||
     result.actions.some((a) => (a.kind === "verify-wave" && a.wave <= wave) || (waveDecide(a) && a.reason.startsWith(`wave ${wave} `)));
 
   const edges = new Map<string, string[]>();

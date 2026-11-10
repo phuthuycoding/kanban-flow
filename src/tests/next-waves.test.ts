@@ -549,12 +549,12 @@ function writeStageRecords(item: string, recs: StageRec[]): void {
 }
 
 /** What kf next schedules for the repository, through the real readers and the scheduler. */
-function nextAt(repo: GitRepo): { result: NextResult; state: LedgerState; inputs: LoopInputs } {
+function nextAt(repo: GitRepo, resume = false): { result: NextResult; state: LedgerState; inputs: LoopInputs } {
   const feature: Feature = { name: "demo", context: "app", stage: "implementation", dir: repo.item, folder: ITEM_FOLDER, meta: META };
   const read = readLoopInputs(repo.root, feature);
   if (!read.ok) throw new Error(`inputs refused: ${read.reason}`);
   const state = ledgerState(readFileSync(join(repo.item, "loop", "progress.md"), "utf8"));
-  return { result: schedule(state, read.inputs, { resume: false }), state, inputs: read.inputs };
+  return { result: schedule(state, read.inputs, { resume }), state, inputs: read.inputs };
 }
 
 const ledgerFile = (repo: GitRepo): string => join(repo.item, "loop", "progress.md");
@@ -697,6 +697,39 @@ describe("which owed wave verify kf next prints", () => {
     const { result } = nextAt(repo);
 
     expect(result.actions.some((a) => a.kind === "verify-wave" && a.wave === 2), show(result)).toBe(false);
+  });
+});
+
+describe("a hold on an owed wave below a wave whose verify is running", () => {
+  /** Wave 1 failed and reopened TASK-001, wave 2 completed and its verify started, TASK-001 completed again (wave 1 owed), then review reopened TASK-003. */
+  function heldBelowRunning(): GitRepo {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 1, wave: 1 }]);
+    appendLedger(repo, ["wave 1: verify started", "wave 1: verify done exit=1", "Note TASK-001: reopened — wave 1", ...task001Refixed.slice(1)]);
+    completeWithCommit(repo, "TASK-003", "c.ts");
+    appendLedger(repo, task004TestsReady);
+    completeWithCommit(repo, "TASK-004", "d.ts");
+    appendLedger(repo, ["wave 2: verify started", "Note TASK-003: reopened — review 1a2b3c4d"]);
+    return repo;
+  }
+
+  const noRuleStops = (r: NextResult): Action[] => r.actions.filter((a) => a.kind === "stop" && /no rule/.test(a.reason));
+
+  it("is witnessed by the resumed wave run under --resume: no no-rule stop and nothing silent", () => {
+    const { result, state, inputs } = nextAt(heldBelowRunning(), true);
+
+    expect(noRuleStops(result), show(result)).toEqual([]);
+    expect(result.actions, show(result)).toContainEqual({ kind: "verify-wave", wave: 2, command: "kf verify demo --wave 2" });
+    expect(result.actions, show(result)).toContainEqual({ kind: "wait", task: "TASK-003", reason: "wave 1 verify" });
+    expect(checkLiveness(result, state, inputs), show(result)).toEqual({ silent: [], emptyCloses: [] });
+  });
+
+  it("is witnessed by the wave run in flight without --resume", () => {
+    const { result, state, inputs } = nextAt(heldBelowRunning());
+
+    expect(result.waveRuns, show(result)).toEqual([2]);
+    expect(noRuleStops(result), show(result)).toEqual([]);
+    expect(checkLiveness(result, state, inputs), show(result)).toEqual({ silent: [], emptyCloses: [] });
   });
 });
 
