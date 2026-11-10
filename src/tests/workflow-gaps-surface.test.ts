@@ -10,8 +10,10 @@ describe("skill passages agree with the loop's round cap and superseded rules", 
   it("implement routes a failing stage verify through a counted fix round", () => {
     const text = read("skills", "implement", "SKILL.md");
     expect(text).not.toContain("- FAIL → the failing task's developer fixes, re-run.");
+    // The one minimal fix past the cap (3.4) is a developer run, so the line must not forbid another developer run.
+    expect(text).not.toContain("instead of another developer run");
     expect(text).toContain(
-      "- FAIL → a fix round of the failing task (3.4), counted against its five rounds — a task at its cap takes the breaker or the `cap reached` stop instead of another developer run; then re-run.",
+      "- FAIL → a fix round of the failing task (3.4), counted against its five rounds — a task at its cap takes the breaker or the `cap reached` stop (3.4) instead of a sixth round; then re-run.",
     );
   });
 
