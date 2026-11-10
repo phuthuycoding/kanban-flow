@@ -72,5 +72,7 @@ Use `N/A` with a reason when no related feature can be identified.
 |---|---|---|
 | {docs_update_needed} | {affected_docs} | {docs_update_reason} |
 
+Name the existing living doc under `docs/specs/{context}/` whose behaviour the fix corrects; a bug fix updates a living doc and does not create a new one.
+
 ## Open Questions
 - {open_question}

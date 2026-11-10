@@ -17,6 +17,7 @@ export async function cmdInstruct(args: ParsedArgs, cwd: string): Promise<CmdRes
     const known = Object.values(ARTIFACTS).map((a) => a.id).join(", ");
     return { code: 1, stdout: `Missing artifact. Usage: kf instruct <artifact|use-case> --change <feature>\nArtifacts: ${known}, use-case`, stderr: "missing artifact" };
   }
+  if (artifact === "living-doc" || artifact === "living-doc-index") return instructLivingDoc(artifact, change, args.options.json === true, cwd);
   const def = Object.values(ARTIFACTS).find((a) => a.id === artifact);
   if (!def && !useCase) {
     const known = Object.values(ARTIFACTS).map((a) => a.id).join(", ");
@@ -78,6 +79,26 @@ export async function cmdInstruct(args: ParsedArgs, cwd: string): Promise<CmdRes
   lines.push("");
   lines.push("--- template ---");
   lines.push(tpl);
+  return { code: 0, stdout: lines.join("\n") };
+}
+
+// Living docs are project docs, not work item artifacts: they are not in ARTIFACTS,
+// so no item is ever required to carry one and --change only fills the context.
+async function instructLivingDoc(artifact: "living-doc" | "living-doc-index", change: string | null, json: boolean, cwd: string): Promise<CmdResult> {
+  const root = findWorksRoot(cwd) ?? cwd;
+  const feature = change ? findFeature(root, change) : null;
+  if (change && !feature) return { code: 1, stdout: `Unknown feature '${change}'.`, stderr: "unknown feature" };
+  const templateName = `${artifact}.md`;
+  const tpl = await readTemplate(root, templateName);
+  if (!tpl) return { code: 1, stdout: `Template '${templateName}' not found anywhere (project → ~/.kf → package).`, stderr: "no template" };
+  const target = `docs/specs/${feature?.context ?? "<context>"}/${artifact === "living-doc" ? "<capability>" : "README"}.md`;
+  const resolved = resolveTemplate(cwd, templateName);
+  if (json) {
+    return { code: 0, stdout: JSON.stringify({ artifact, outputPath: target, templatePath: resolved?.path, template: tpl }, null, 2) };
+  }
+  const lines = [`<artifact id="${artifact}">`, "", `Write to: ${target}`, `Template (${resolved?.source ?? "?"}): ${resolved?.path}`, ""];
+  if (change) lines.push(`Feature: ${change}`, "");
+  lines.push("--- template ---", tpl);
   return { code: 0, stdout: lines.join("\n") };
 }
 

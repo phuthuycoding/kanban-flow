@@ -53,17 +53,11 @@ status: DONE
 
 ## Documentation Updated
 
-| Document | Update / purpose | Delivery |
+| Document | Update / purpose | Status |
 |---|---|---|
-| `docs/requirement/{context}/{feature_name}.md` | Confirmed requirement | CLI copies on archive |
-| `docs/use-cases/{context}/{feature_name}/README.md` | UC index and coverage | CLI copies on archive |
-| `docs/use-cases/{context}/{feature_name}/UC-###.md` | Individual UC narratives | CLI copies on archive |
-| `docs/use-cases/{context}/{feature_name}/diagram.md` | Actor/use-case diagram | CLI copies on archive |
-| `docs/testplan/{context}/{feature_name}.md` | Test contract | CLI copies on archive |
-| `docs/testplan/{context}/{feature_name}-result.md` | Current execution evidence | CLI copies on archive |
 | {other_document} | {documentation_updated} | {documentation_status} |
 
-Replace the UC wildcard row with the actual files. Record `N/A` with a reason if no other documents need updates.
+Record `N/A` with a reason if no other documents need updates.
 
 ## Docs Reconciled
 
@@ -71,7 +65,7 @@ Replace the UC wildcard row with the actual files. Record `N/A` with a reason if
 |---|---|---|
 | {reconciled_document} | {reconciled_change} | {reconciled_action} |
 
-Earlier canonical docs and `docs/workflow/*` that this feature changes: banner `Superseded by {feature_name}` or updated text. Write `None — <reason>` instead of the table when no existing doc describes the changed behavior.
+List each living doc created or updated under `docs/specs/{context}/` and each legacy feature consolidated into one (its requirement, use-case and testplan files removed). Write `None — <reason>` instead of the table when no living doc or legacy feature is affected.
 
 ## Known Limitations
 - {known_limitation}
