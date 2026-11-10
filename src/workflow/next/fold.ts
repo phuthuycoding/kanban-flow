@@ -3,6 +3,7 @@ import { JUDGEMENTS, isSuperseded } from "./judgements.js";
 import { matchGitLog, sameSha, taskCommits } from "./ledger-state.js";
 import { reviewStep } from "./review-region.js";
 import { routable, verifyStep } from "./verify-region.js";
+import { foldWaves } from "./waves.js";
 import type {
   Cap,
   DecisionRegion,
@@ -414,6 +415,7 @@ const NOOP_ROW = {
   fixRound: "noop", cascadeOwed: "noop", complete: "noop", implemented: "noop", noTestWriter: "noop", testHashes: "noop",
   reviewPackage: "noop", commits: "noop", decided: "noop", verifyRouted: "noop", verifyWaits: "noop", verifyRerun: "noop",
   reopened: onReopened, capReached: "noop", inline: "noop", parked: "noop", capRuling: "noop", noStepUp: "noop", scan: "noop",
+  waveVerifyStarted: "noop", waveVerifyDone: "noop", waveDecided: "noop",
   other: "noop", cascadeLanded: "noop", routeAnswered: "noop", routedIn: "noop", watchReleased: "noop", ruling: "noop",
 } satisfies RegionRow;
 
@@ -609,6 +611,8 @@ export function foldWorld(state: LedgerState, inputs: LoopInputs, cap: Cap): Wor
       return [{ task: t.id, line: slot.line, ...(slot.round !== undefined ? { round: slot.round } : {}) }];
     })
     .sort((a, b) => a.line - b.line);
+  const waves = foldWaves(state, inputs, world.tasks);
+  if (waves !== undefined) world.waves = waves;
   return world;
 }
 

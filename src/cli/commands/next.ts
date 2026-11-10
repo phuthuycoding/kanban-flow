@@ -31,6 +31,8 @@ function actionLines(a: Action): string[] {
       return [`decide${a.task ? ` ${a.task}` : ""} (${a.rule}): ${a.reason} — closes with ${a.closes}`];
     case "stop":
       return [`stop${a.task ? ` ${a.task}` : ""}: ${a.reason}`];
+    case "verify-wave":
+      return [`verify wave ${a.wave}: ${a.command}`];
     case "finished":
       return ["finished"];
   }
@@ -40,7 +42,8 @@ function render(result: NextResult): string {
   const lines = result.actions.flatMap(actionLines);
   lines.push("In flight:");
   for (const f of result.inFlight) lines.push(`  ${f.task} ${f.seat}${f.hint ? ` — ${f.hint}` : ""}`);
-  if (result.inFlight.length === 0) lines.push("  none");
+  for (const w of result.waveRuns ?? []) lines.push(`  wave ${w} verify`);
+  if (result.inFlight.length === 0 && (result.waveRuns ?? []).length === 0) lines.push("  none");
   return lines.join("\n");
 }
 

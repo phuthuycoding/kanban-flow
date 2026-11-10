@@ -664,9 +664,9 @@ describe("kf verify --commits documentation", () => {
 });
 
 describe("this repository's verify configuration", () => {
-  it("runs typecheck then the test suite for a task", () => {
+  it("runs only typecheck as the task command, leaving the suite to the related tier", () => {
     const config = JSON.parse(readFileSync(join(PKG_ROOT, ".kf", "config.json"), "utf8"));
-    expect(config.harness.verify.task).toEqual([["npm", "run", "typecheck"], ["npm", "test"]]);
+    expect(config.harness.verify.task).toEqual([["npm", "run", "typecheck"]]);
   });
 });
 
@@ -849,5 +849,72 @@ describe("kf verify --stage record", () => {
       expect(res.code).toBe(3);
       expect(existsSync(recordFile())).toBe(false);
     });
+  });
+});
+
+describe("gate reuse", () => {
+  let scratch: string;
+  let root: string;
+  let marker: string;
+  const markerCmd = (): string[] => ["node", "-e", `require('fs').appendFileSync(${JSON.stringify(marker)},'x')`];
+
+  const must = (res: { code: number; stdout: string }, what: string): void => {
+    if (res.code !== 0) throw new Error(`${what} failed: ${res.stdout}`);
+  };
+
+  beforeEach(async () => {
+    scratch = realpathSync(await mkdtemp(join(tmpdir(), "kf-reuse-")));
+    root = join(scratch, "repo");
+    marker = join(scratch, "marker");
+    await mkdir(root, { recursive: true });
+    gitIn(root, "init", "-q");
+    gitIn(root, "config", "user.email", "t@t");
+    gitIn(root, "config", "user.name", "t");
+    await writeFile(join(root, ".gitignore"), ".works/\n");
+    await writeFile(join(root, "tracked.txt"), "one");
+    gitIn(root, "add", "-A");
+    gitIn(root, "commit", "-qm", "init");
+    ensureWorksStructure(root);
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+      schema: "kanban-flow", created: "20260919_1200", defaultContext: "app",
+      worktree: { enabled: false },
+      harness: {
+        main: "lead",
+        roles: { lead: { runner: "claude" } },
+        runners: { claude: { start: ["claude", "{prompt}"] } },
+        verify: { stage: [markerCmd()] },
+      },
+    }));
+  });
+
+  afterEach(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it("moves an item in testing to review on a passing wave record at HEAD without running the pinned stage command", async () => {
+    const feature = () => findFeature(root, "f")!;
+    must(await cmdNew(args("new", ["f"], { context: "app", type: "bug" }), root), "kf new");
+    await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file),
+      "---\nstatus: confirmed\nkind: bug\n---\n# Bug Report\nReproduce: submit twice. Actual: duplicate task. Expected: one task. Severity: medium. Regression: repeat-submit unit test. Docs: unchanged behavior.");
+    must(await cmdStage(args("stage", ["f", "planning"]), root), "stage planning");
+    must(await cmdApprove(args("approve", ["f"], { backlog: true }), root), "approve");
+    must(await cmdStage(args("stage", ["f", "implementation"]), root), "stage implementation");
+    must(await cmdStage(args("stage", ["f", "testing"]), root), "stage testing");
+    await writeFile(join(feature().dir, ARTIFACTS["testing-result"].file),
+      `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n---\n# Evidence\nVerified current implementation.\n## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n`);
+    await mkdir(join(feature().dir, "loop"), { recursive: true });
+    const record = {
+      at: new Date().toISOString(), sha: gitIn(root, "rev-parse", "HEAD"), clean: true, wave: 1,
+      commands: [{ argv: markerCmd(), outcome: "exit", code: 0 }],
+      outputSha256: "0".repeat(64), exit: 0,
+    };
+    await writeFile(join(feature().dir, "loop", "stage-verify.jsonl"), `${JSON.stringify(record)}\n`);
+
+    const res = await cmdStage(args("stage", ["f", "review"]), root);
+
+    expect(res.code, res.stdout).toBe(0);
+    expect(findFeature(root, "f")?.stage).toBe("review");
+    expect(existsSync(marker)).toBe(false);
   });
 });

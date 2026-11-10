@@ -2,13 +2,16 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readDeveloperCeiling } from "../../cli/commands/tasks.js";
+import { ProjectConfigError, readProjectConfig } from "../../project/config.js";
 import { parseMarkdownTable, readMarkdownSection, splitFrontmatter } from "../../shared/frontmatter.js";
-import { runGit } from "../../shared/git.js";
+import { isAncestor, runGit } from "../../shared/git.js";
 import type { Feature } from "../features.js";
 import { ARTIFACTS } from "../schema.js";
+import { readStageRecords } from "../stage-record.js";
 import { checkTaskGraph, taskView } from "../tasks.js";
 import { verifyLogPath } from "../verify.js";
-import type { InputsRead, LoopInputs, LoopTask, TestType, VerifyRun } from "./types.js";
+import { matchGitLog, readLedgerState, taskCommits } from "./ledger-state.js";
+import type { InputsRead, LoopInputs, LoopTask, TestType, VerifyRun, WaveRecord } from "./types.js";
 
 const TEST_TYPE_ORDER: TestType[] = ["Unit", "Integration", "UI", "E2E"];
 const SHA = /\b[0-9a-f]{7,40}\b/;
@@ -165,6 +168,69 @@ function readGitLog(root: string, feature: Feature): { sha: string; ts: number }
     .reverse();
 }
 
+/**
+ * `harness.verify.stage`. An invalid config reads as none: its error is already the Invalid ceiling decide that
+ * `readDeveloperCeiling` reports, which holds every dispatch until a human rules on it.
+ */
+function readStageCommands(root: string): string[][] {
+  try {
+    return readProjectConfig(root).harness?.verify?.stage ?? [];
+  } catch (err) {
+    if (!(err instanceof ProjectConfigError)) throw err;
+    return [];
+  }
+}
+
+// The same argv comparison as the review gate's in stage-evidence.ts, which does not export it.
+const sameArgv = (a: string[][], b: string[][]): boolean =>
+  a.length === b.length && a.every((argv, i) => argv.length === b[i].length && argv.every((x, j) => x === b[i][j]));
+
+/**
+ * The item's stage records, wave runs and plain stage runs alike, in file order. For each plan wave only the newest
+ * passing record after the wave's latest failing wave record is asked: `covers` marks it when its sha contains every
+ * commit the ledger names for the wave's tasks on the branch (`git merge-base --is-ancestor`). Records are appended at
+ * an advancing head, so an older passing record cannot contain what the newest one lacks, and none is asked. A later
+ * commit of a wave task therefore owes the wave verify again. A passing record taken on a dirty tree or with commands
+ * other than the pinned `stageCommands` is not asked, as the review gate refuses it. A wave with no matched commits has
+ * nothing to contain, so the containment argument does not hold for it: it is covered by the newest passing record of
+ * its own wave run, and the records of other waves and plain runs are passed over rather than asked.
+ */
+function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], reportCommits: Record<string, string[]>, gitLog: { sha: string; ts: number }[], stageCommands: string[][]): WaveRecord[] {
+  const records = readStageRecords(feature);
+  if (records.length === 0) return [];
+  const ledgerPath = join(feature.dir, "loop", "progress.md");
+  const ledger = readLedgerState(existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf8") : "");
+  // The directory the item's commits live in, as readGitLog resolves it.
+  const wt = feature.meta?.worktree;
+  const dir = wt?.path !== undefined && existsSync(wt.path) ? wt.path : root;
+  const covers: number[][] = records.map(() => []);
+  // kf next refuses a ledger it cannot read before it schedules, so no record is taken as containing a wave then.
+  if (ledger.ok) {
+    const state = ledger.state;
+    for (const wave of [...new Set(tasks.map((t) => t.wave))]) {
+      const commits = tasks.filter((t) => t.wave === wave).flatMap((t) => matchGitLog(taskCommits(state, t.id, reportCommits[t.id], gitLog), gitLog).kept);
+      for (let i = records.length - 1; i >= 0; i--) {
+        const r = records[i];
+        if (r.wave === wave && r.exit !== 0) break;
+        if (r.exit !== 0 || !r.clean || !sameArgv(r.commands.map((c) => c.argv), stageCommands)) continue;
+        // No commit to look for: only the wave's own run can release it, and a later run of another wave must not
+        // hide that run, else two such waves re-owe each other forever.
+        if (commits.length === 0 && r.wave !== wave) continue;
+        if (commits.length === 0 || commits.every((sha) => isAncestor(dir, sha, r.sha))) covers[i].push(wave);
+        break;
+      }
+    }
+  }
+  return records.map((r, i) => ({
+    ...(r.wave !== undefined ? { wave: r.wave } : {}),
+    sha: r.sha,
+    exit: r.exit,
+    at: r.at,
+    contains: r.wave !== undefined && covers[i].includes(r.wave),
+    ...(covers[i].length > 0 ? { covers: covers[i].sort((a, b) => a - b) } : {}),
+  }));
+}
+
 export function readLoopInputs(root: string, feature: Feature): InputsRead {
   const kind = feature.meta?.kind === "bug" ? "bug" : "feature";
 
@@ -228,5 +294,10 @@ export function readLoopInputs(root: string, feature: Feature): InputsRead {
     verifyRuns,
     gitLog,
   };
+  const stageCommands = readStageCommands(root);
+  if (stageCommands.length > 0) {
+    inputs.stageCommands = stageCommands;
+    inputs.waveRecords = readWaveRecords(root, feature, tasks, reportCommits, gitLog, stageCommands);
+  }
   return { ok: true, inputs };
 }

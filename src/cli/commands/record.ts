@@ -4,7 +4,7 @@ import { recordEvent } from "../../workflow/next/record.js";
 import { resolveItem } from "./helpers.js";
 
 const USAGE =
-  "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]";
+  "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]  (events include wave-verify-started <w>, wave-verify-done <w> --exit <n>)";
 
 const badInput = (reason: string): CmdResult => ({ code: 3, stdout: `${reason}\n${USAGE}`, stderr: "bad input" });
 

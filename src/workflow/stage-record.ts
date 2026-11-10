@@ -13,15 +13,17 @@ export type StepOutcome =
 /** One `kf verify --stage` run that ran at least one command — written only by kf, read by the review gate and `kf status`. */
 export interface StageRecord {
   at: string;
-  /** Full HEAD sha of the directory the commands ran in (the item worktree, else the project root). */
+  /** Full HEAD sha of the directory the commands ran in (the item worktree, else the project root); for a wave run, the HEAD its temporary detached worktree checked out. */
   sha: string;
-  /** No tracked file had uncommitted changes when the run started; untracked files do not count. */
+  /** No tracked file had uncommitted changes when the run started; untracked files do not count. A wave run is always clean: it runs in a fresh detached worktree at `sha`. */
   clean: boolean;
   /** One outcome per configured argv, in config order. */
   commands: StepOutcome[];
   /** sha256 of the stdout and stderr of every command that ran, in order. */
   outputSha256: string;
   exit: 0 | 1;
+  /** The plan wave whose full suite this run was (`kf verify --wave`); absent on a `--stage` run. */
+  wave?: number;
 }
 
 // Not `task-NNN-verify.log`: `kf next` and `kf loop-stats` read loop/ files by that name, and a stage run is no task's.
@@ -37,6 +39,25 @@ export async function appendStageRecord(root: string, feature: Feature, record: 
     mkdirSync(join(feature.dir, "loop"), { recursive: true });
     appendFileSync(stageRecordPath(feature.dir), `${JSON.stringify(record)}\n`);
   });
+}
+
+/** Every readable record of the item, in file order; an unreadable line is skipped (the gate reads only the latest). */
+export function readStageRecords(feature: Feature): StageRecord[] {
+  const path = stageRecordPath(feature.dir);
+  if (!existsSync(path)) return [];
+  const records: StageRecord[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (line.trim() === "") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      // An unreadable line is a record no reader can use: readLatestStageRecord reports it when it is the last one.
+      continue;
+    }
+    if (isStageRecord(parsed)) records.push(parsed);
+  }
+  return records;
 }
 
 export type LatestStageRecord = { kind: "none" } | { kind: "invalid"; reason: string } | { kind: "record"; record: StageRecord };
@@ -61,7 +82,8 @@ function isStageRecord(v: unknown): v is StageRecord {
   const r = v as Record<string, unknown>;
   return typeof r.at === "string" && typeof r.sha === "string" && /^[0-9a-f]{40}$/.test(r.sha)
     && typeof r.clean === "boolean" && Array.isArray(r.commands) && r.commands.every(isStepOutcome)
-    && typeof r.outputSha256 === "string" && (r.exit === 0 || r.exit === 1);
+    && typeof r.outputSha256 === "string" && (r.exit === 0 || r.exit === 1)
+    && (r.wave === undefined || (typeof r.wave === "number" && Number.isInteger(r.wave) && r.wave >= 1));
 }
 
 /**

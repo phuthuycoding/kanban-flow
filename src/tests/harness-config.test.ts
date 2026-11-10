@@ -46,6 +46,26 @@ describe("validateHarness reads verify only", () => {
     }
   });
 
+  it("loads a related argv next to task and stage", () => {
+    const verify = { task: [["npm", "test"]], related: ["npx", "vitest", "related", "--run"] };
+    expect(validateHarness({ verify }, "f").verify).toEqual(verify);
+    const only = { related: ["npx", "vitest", "related", "--run"] };
+    expect(validateHarness({ verify: only }, "f").verify).toEqual(only);
+  });
+
+  it("rejects an invalid related argv naming harness.verify.related", () => {
+    const cases: unknown[] = [[], "x", [["a"]], [""], ["-x"], ["a", "{f}"]];
+    for (const related of cases) {
+      const call = () => validateHarness({ verify: { related } }, "f");
+      expect(call, JSON.stringify(related)).toThrow("harness.verify.related");
+      expect(call, JSON.stringify(related)).toThrow("Invalid project config");
+    }
+  });
+
+  it("names related in the message for a verify value that is not an object", () => {
+    expect(() => validateHarness({ verify: "x" }, "f")).toThrow("{ task?, stage?, related? }");
+  });
+
   it("rejects a harness value that is not an object", () => {
     for (const value of ["x", 5, null, []]) {
       expect(() => validateHarness(value, "f"), JSON.stringify(value)).toThrow("Invalid project config");

@@ -1,6 +1,7 @@
 import { firstOverlap } from "../allowlist.js";
 import { shellQuote } from "./record.js";
 import type { Action, Arbitration, InFlight, Intent, LoopTask, NextOptions, Seat, TaskState, WaitBlocker, World } from "./types.js";
+import { waveHold } from "./waves.js";
 
 // Cross-task arbitration: resume, holds by origin, dependencies, overlaps and the test-writer window, the live cap
 // over the developer pool, contention, the reviewer lane, then dedupe and rank. Each intent maps to exactly one
@@ -15,7 +16,7 @@ type GuardHold = { kind: "guard"; action: Stop };
 
 // Developers first, as `kf:implement` lists the ready seats: developers under the cap, test-writers, then reviewers.
 const SEAT_ORDER: Seat[] = ["developer", "test-writer", "automation-writer", "code-reviewer"];
-const KIND_ORDER: Action["kind"][] = ["stop", "decide", "write", "verify", "dispatch", "complete", "wait", "finished"];
+const KIND_ORDER: Action["kind"][] = ["stop", "decide", "write", "verify", "verify-wave", "dispatch", "complete", "wait", "finished"];
 const TEST_WRITER_WINDOW = 4;
 const UNKNOWN = "Files unknown";
 
@@ -227,6 +228,11 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
       wait(i.action, i.blockedBy);
       continue;
     }
+    // A wave's verify or decide holds no dispatch item-wide: the wave hold below holds later-wave developers only.
+    if (i.kind === "wave") {
+      emit(i.action);
+      continue;
+    }
     const a = i.action;
     if (i.origin === "resume") {
       if (a.kind === "dispatch") {
@@ -350,6 +356,12 @@ export function arbitrate(world: World, intents: Intent[], opts: NextOptions, gu
         wait({ kind: "wait", task: d.task, reason: `earlier overlapping ${overlap.other.id} incomplete` }, { kind: "task", task: overlap.other.id });
         continue;
       }
+    }
+    // FR-004: a developer of a later wave waits until every earlier wave is complete and verified.
+    const wave = waveHold(world, d.task);
+    if (wave !== null) {
+      wait({ kind: "wait", task: d.task, reason: wave.reason }, wave.blockedBy);
+      continue;
     }
     if (d.inline === true) {
       emit(d);

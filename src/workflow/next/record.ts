@@ -5,13 +5,13 @@ import type { Feature } from "../features.js";
 import { LEDGER_SHAPES } from "../loop-stats.js";
 import { LockTimeoutError, withLock } from "../../shared/lock.js";
 import { ARTIFACTS } from "../schema.js";
-import { completedTaskIds, openSeats, openVerifies, readLedgerState } from "./ledger-state.js";
+import { completedTaskIds, openSeats, openVerifies, openWaveVerifies, readLedgerState } from "./ledger-state.js";
 
 export type RecordEvent = { event: string; args: string[]; model?: string; round?: string; cascade?: string; status?: string; exit?: string };
 
 type Built = { ok: true; line: string } | { ok: false; code: 1 | 3; reason: string };
 
-const EVENTS = ["dispatched", "done", "verify-started", "verify-done", "commits", "waits", "fix-round", "cascade-owed", "complete", "line"];
+const EVENTS = ["dispatched", "done", "verify-started", "verify-done", "commits", "waits", "fix-round", "cascade-owed", "complete", "wave-verify-started", "wave-verify-done", "line"];
 const SEATS = ["test-writer", "developer", "automation-writer", "code-reviewer"];
 const TASK_ID = /^TASK-\d+$/;
 const SHA = /^[0-9a-f]{7,40}$/;
@@ -64,6 +64,11 @@ function integer(value: string, what: string, min: number, max = Infinity): stri
   return n >= min && n <= max ? String(n) : bad(`${what} ${value} is out of range (${min}–${max === Infinity ? "∞" : max}).`);
 }
 
+function waveNumber(value: string | undefined, event: string): string | Built {
+  if (value === undefined) return bad(`${event}: missing <wave>.`);
+  return integer(value, `${event}: wave`, 1);
+}
+
 function freeText(tokens: string[], event: string): string | Built {
   const joined = tokens.join(" ");
   if (joined.trim() === "") return bad(`${event}: the text is empty.`);
@@ -79,7 +84,7 @@ function expectArgs(e: RecordEvent, n: number): Built | null {
 }
 
 /** The ledger body an event stands for (no stamp), or a bad-usage result. */
-function body(e: RecordEvent): { body: string; task?: string; seat?: string; text?: string } | Built {
+function body(e: RecordEvent): { body: string; task?: string; seat?: string; text?: string; wave?: number } | Built {
   const [a0, a1, a2] = e.args;
   switch (e.event) {
     case "dispatched": {
@@ -116,6 +121,18 @@ function body(e: RecordEvent): { body: string; task?: string; seat?: string; tex
       if (e.exit === undefined) return bad("verify-done: missing --exit <n>.");
       const x = integer(e.exit, "--exit", 0); if (isBuilt(x)) return x;
       return { body: `${t}: verify done exit=${x}`, task: t };
+    }
+    case "wave-verify-started": {
+      const w = waveNumber(a0, e.event); if (isBuilt(w)) return w;
+      const extra = expectArgs(e, 1); if (extra) return extra;
+      return { body: `wave ${w}: verify started`, wave: Number(w) };
+    }
+    case "wave-verify-done": {
+      const w = waveNumber(a0, e.event); if (isBuilt(w)) return w;
+      const extra = expectArgs(e, 1); if (extra) return extra;
+      if (e.exit === undefined) return bad("wave-verify-done: missing --exit <n>.");
+      const x = integer(e.exit, "--exit", 0); if (isBuilt(x)) return x;
+      return { body: `wave ${w}: verify done exit=${x}`, wave: Number(w) };
     }
     case "commits": {
       const t = task(a0, e.event); if (isBuilt(t)) return t;
@@ -176,6 +193,9 @@ export function buildLine(ledgerText: string | null, e: RecordEvent): Built {
   if (e.event === "verify-done" && !openVerifies(state).some((v) => v.task === built.task)) {
     return refuse(`No open 'verify started' of ${built.task}: nothing to answer.`);
   }
+  if (e.event === "wave-verify-done" && !openWaveVerifies(state).has(built.wave!)) {
+    return refuse(`No open 'wave ${built.wave}: verify started': nothing to answer.`);
+  }
   if (e.event === "waits") {
     const own = state.events.filter((ev) => "task" in ev && ev.task === built.task);
     const last = own.filter((ev) => ev.type === "developerWaits").pop();
@@ -190,6 +210,9 @@ export function buildLine(ledgerText: string | null, e: RecordEvent): Built {
   if (e.event === "line") {
     if (Object.values(LEDGER_SHAPES).some((re) => re.test(built.body))) {
       return refuse("This line is one of the nine ledger shapes: use the dedicated event instead of 'line'.");
+    }
+    if (/^wave \d+: verify\b/.test(built.body)) {
+      return refuse("This line is a wave verify line: use wave-verify-started or wave-verify-done instead of 'line'.");
     }
     if (!FREE_LINE.test(built.body)) {
       return refuse("This line is not one of the recordable kinds (Ruling:, Note, Scan:, wave <n>:, or TASK-NNN: test hashes | test dispute | no test-writer — | parked — | minor (deferred): | unverified — | brief written | review package | implemented, …).");

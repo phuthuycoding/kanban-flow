@@ -46,6 +46,8 @@ export type Action =
       closes: string;
     }
   | { kind: "stop"; task?: string; reason: string }
+  /** The full suite once on a complete wave's head, before any later-wave developer: `kf verify <f> --wave <w>`. */
+  | { kind: "verify-wave"; wave: number; command: string }
   | { kind: "finished" };
 
 export type ActionKind = Action["kind"];
@@ -63,6 +65,8 @@ export interface NextResult {
   feature: string;
   n: number;
   inFlight: InFlight[];
+  /** The waves whose verify is running (a start with no done): listed in flight as `wave <w> verify`. */
+  waveRuns?: number[];
   actions: Action[];
 }
 
@@ -118,8 +122,14 @@ export type LedgerEvent = EventBase &
     | { type: "verifyWaits"; task: string; file: string; otherTask: string }
     /** `Note TASK-NNN: verify rerun — contention <signature>` */
     | { type: "verifyRerun"; task: string; signature: string }
-    /** `Note TASK-NNN: reopened — <testing|review|ci> <exec8>` */
-    | { type: "reopened"; task: string; source: string; execution: string }
+    /** `Note TASK-NNN: reopened — <testing|review|ci> <exec8>`, or `reopened — wave <w>` (source `wave`, no execution) */
+    | { type: "reopened"; task: string; source: string; execution: string; wave?: number }
+    /** `wave <w>: verify started` */
+    | { type: "waveVerifyStarted"; wave: number }
+    /** `wave <w>: verify done exit=<n>` */
+    | { type: "waveVerifyDone"; wave: number; exit: number }
+    /** `Note wave <w>: decided — <what>` */
+    | { type: "waveDecided"; wave: number; text: string }
     /** `Note TASK-NNN: cap reached — <failure>` */
     | { type: "capReached"; task: string; failure: string }
     /** `Note TASK-NNN: developer seat inline` */
@@ -194,6 +204,25 @@ export interface LoopInputs {
   verifyRuns: Record<string, VerifyRun[]>;
   /** Commits of the item's branch since the baseline, oldest first, with committer time. */
   gitLog: { sha: string; ts: number }[];
+  /** `harness.verify.stage`; absent or empty: no wave tier. */
+  stageCommands?: string[][];
+  /** The wave records of `loop/stage-verify.jsonl`, in file order. */
+  waveRecords?: WaveRecord[];
+}
+
+/** A stage record: a `kf verify --wave` run (`wave` set) or a plain `kf verify --stage` run. */
+export interface WaveRecord {
+  wave?: number;
+  sha: string;
+  exit: number;
+  at: string;
+  /** `sha` contains every commit the ledger names for the tasks of the record's own `wave` (resolved as `covers` is). */
+  contains: boolean;
+  /**
+   * The plan waves whose every commit `sha` contains. Resolved only where it decides a wave: for a wave, the newest
+   * passing record after its latest failing wave record that contains it.
+   */
+  covers?: number[];
 }
 
 /** Plan-level refusal from the input reader (bad graph, empty plan, bug `tasks.md` with no ids). */
@@ -471,6 +500,24 @@ export interface World {
   wavesNamed?: Set<number>;
   /** The signature of each task's latest `verify rerun` note. */
   rerunSignature?: Map<string, string>;
+  /** Each plan wave in ascending order; set only when `harness.verify.stage` is pinned (the wave tier). */
+  waves?: WaveState[];
+}
+
+/** Where a wave's verify stands: owed, running, failed with its decide open, or passed at a sha containing the wave. */
+export type WaveVerify = { kind: "owed" } | { kind: "running" } | { kind: "failed"; exit: number } | { kind: "passed" };
+
+export interface WaveState {
+  wave: number;
+  /**
+   * The wave's first task, in plan order, that is not complete, else the first task, in plan order, a
+   * `reopened — wave <w>` note named since the wave's latest verify start that is not complete; absent once both are
+   * complete.
+   */
+  incomplete?: string;
+  /** The tasks whose latest reopen is `Note TASK-NNN: reopened — wave <w>` of this wave. */
+  reopened: string[];
+  verify: WaveVerify;
 }
 
 /**
@@ -606,6 +653,8 @@ export type WaitBlocker =
   | { kind: "pool" }
   | { kind: "verify"; task: string }
   | { kind: "reviewer"; task: string }
+  /** A complete earlier wave not verified yet. */
+  | { kind: "wave"; wave: number }
   /** An open decide or stop holds the wait: `judgement` names its kind, or `stop` for any stop; `task` is set for a task's. */
   | { kind: "hold"; judgement: JudgementKind | "stop"; task?: string };
 
@@ -623,6 +672,8 @@ export type Intent = IntentBase &
     | { kind: "judge"; judgement: JudgementKind; action: Extract<Action, { kind: "decide" | "stop" }> }
     | { kind: "inFlight"; entry: InFlight }
     | { kind: "wait"; action: Extract<Action, { kind: "wait" }>; blockedBy: WaitBlocker }
+    /** The wave tier's verify or its decide: no task's, and holding no dispatch item-wide. */
+    | { kind: "wave"; wave: number; action: Extract<Action, { kind: "verify-wave" | "decide" }> }
   );
 
 export type IntentKind = Intent["kind"];

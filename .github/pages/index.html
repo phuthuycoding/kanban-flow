@@ -177,10 +177,14 @@
              ports and routes are still allocated and JSON outputs still carry <code>domain</code>.</p>
           <p class="quiet" style="margin-top:14px">After each task commit, <code>kf verify</code>
              decides the mechanical part, not the developer's report: it checks the files the task
-             changed against the allowlist (<code>--commits</code> for the pipelined loop) and runs the verify commands you pinned in config;
+             changed against the allowlist (<code>--commits</code> for the pipelined loop) and runs the verify commands you pinned in config,
+             plus <code>harness.verify.related</code> with the task's changed files appended, so a task runs only its related tests.
+             Once a wave's tasks are complete, <code>kf verify user-login --wave 1</code> runs the full suite on the wave's head;
+             the next wave's developers wait until that wave verify passed;
              <code>kf loop-stats</code> measures where the loop's time went. Before review, <code>kf verify --stage</code>
              records its run at the item's HEAD, and <code>kf stage review</code> moves only on a passing record
-             (or a waiver the human gives when no stage commands are pinned) — never on the report's word. The
+             (or a waiver the human gives when no stage commands are pinned) — never on the report's word. The review gate
+             reuses the last wave's record when it passed at HEAD, so <code>--stage</code> runs only when <code>kf status</code> does not show PASS at HEAD. The
              work stops when a review PASS waits for its merge, or earlier with a named reason.
              The commands <code>kf drive</code>, <code>kf run</code>, <code>kf runs</code>, <code>kf harness</code> were removed.</p>
         </div>
@@ -229,6 +233,7 @@ kf new user-login --context auth    <span class="c"># opens Phase 1 in brainstor
 kf status --change user-login       <span class="c"># the checklist, and what is blocking</span>
 kf next user-login                  <span class="c"># after approval: what the task loop does now</span>
 kf record user-login dispatched TASK-001 developer --model sonnet  <span class="c"># one stamped ledger line</span>
+kf verify user-login --wave 1       <span class="c"># a complete wave's full suite; the next wave's developers wait for it</span>
 kf verify user-login --stage        <span class="c"># records the run at HEAD; kf stage review reads that record</span>
 kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
       <div class="cta" style="margin-top:26px">

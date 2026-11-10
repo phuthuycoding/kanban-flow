@@ -86,6 +86,10 @@ wave <w>: sequential TASK-A, TASK-B — Files unknown @ <ts>
 Note TASK-NNN: verify rerun — contention <signature> @ <ts>
 Note wave <w>: no step-up — <reason> @ <ts>
 Note TASK-NNN: reopened — <testing|review|ci> <first 8 chars of the execution id> @ <ts>
+wave <w>: verify started @ <ts>
+wave <w>: verify done exit=<n> @ <ts>
+Note TASK-NNN: reopened — wave <w> @ <ts>
+Note wave <w>: decided — <what> @ <ts>
 Note TASK-NNN: verify waits — <file> (TASK-MMM) @ <ts>
 TASK-NNN: implemented, test-writer seat: none, review seat: none @ <ts>
 Note TASK-NNN: commits <a7>,<b7> @ <ts>
@@ -96,6 +100,8 @@ Note TASK-NNN: verify routed — TASK-MMM @ <ts>
 A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads the three last notes: the commits a developer made (`kf next` prints the note to write for any reported commit no ledger line names yet, before the review; a commit lands at the first ledger line that names it, a commits note or a review package, and cascades and verify waits are read from that position), the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
 
 A `reopened` note cancels the task's earlier `complete` line: wherever the loop asks whether a task is complete, only a `complete` line after its latest `reopened` note counts (`kf:implement` § 3.4). The `implemented` line of a session with no subagent tool counts as the task's `complete` line, on resume too.
+
+The four wave verify lines are written by `kf record <f> wave-verify-started <w>`, `kf record <f> wave-verify-done <w> --exit <n>` and, for the two notes, `kf record <f> line -- "…"`; `kf record … line` refuses a `wave <w>: verify …` text. `reopened — wave <w>` is the reopen source of a failed wave verify: it reopens the task like a review reopen, with no execution id. Why waves: a task's verify runs only typecheck and the tests related to its own files, so coupling across tasks first meets the full suite at its wave's end — once per wave instead of once per task, and before a later wave builds on a broken head.
 
 In an inline wave (`Execution: wave <w> inline` in the plan) the controller fills the developer seat and keeps the `developer dispatched` … `developer done` pair, with the inline note right after the dispatched line.
 

@@ -213,7 +213,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   "loop-stats": {
-    help: "Usage: kf loop-stats <feature> [--json] [--record] | kf loop-stats --all [--json]  — measure a task loop from its ledger (loop/progress.md); --record writes the row to .works/loop-metrics.md, --all summarises the history. Exit 0 report, 1 no ledger / untimed / refused, 3 bad input",
+    help: "Usage: kf loop-stats <feature> [--json] [--record] | kf loop-stats --all [--json]  — measure a task loop from its ledger (loop/progress.md), wave verify runs included as their own line (wave verify); --record writes the row to .works/loop-metrics.md, --all summarises the history. Exit 0 report, 1 no ledger / untimed / refused, 3 bad input",
     allowPositionals: true,
     options: {
       json: { type: "boolean" },
@@ -222,7 +222,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   next: {
-    help: "Usage: kf next <feature> [--resume] [--json]  — print the task loop's actions due now (read-only: changes no file); --resume lists open seats and verifies for re-dispatch after lost context; --json prints { feature, n, inFlight, actions }. Exit 0 actions printed, 1 refused (a ledger line to repair, or a plan kf tasks refuses), 3 bad input",
+    help: "Usage: kf next <feature> [--resume] [--json]  — print the task loop's actions due now (read-only: changes no file); --resume lists open seats, verifies and wave verifies for re-dispatch after lost context; --json prints { feature, n, inFlight, waveRuns?, actions }, where waveRuns lists the waves whose verify is running and a verify-wave action ({ kind, wave, command }) owes kf verify <feature> --wave <w> when harness.verify.stage is pinned. Exit 0 actions printed, 1 refused (a ledger line to repair, or a plan kf tasks refuses), 3 bad input",
     allowPositionals: true,
     options: {
       resume: { type: "boolean" },
@@ -230,7 +230,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   record: {
-    help: "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]  — append one stamped line to the item's task loop ledger (loop/progress.md) under the item lock. Events: dispatched, done, verify-started, verify-done, commits, waits, fix-round, cascade-owed, complete, line. Exit 0 written, 1 refused (file unchanged), 3 bad input",
+    help: "Usage: kf record <feature> <event> [args…] [--model <m>] [--round <R>] [--cascade <sha>] [--status <S>] [--exit <n>] [-- <text>]  — append one stamped line to the item's task loop ledger (loop/progress.md) under the item lock. Events: dispatched, done, verify-started, verify-done, commits, waits, fix-round, cascade-owed, complete, wave-verify-started <w>, wave-verify-done <w> --exit <n>, line. Exit 0 written, 1 refused (file unchanged), 3 bad input",
     allowPositionals: true,
     options: {
       model: { type: "string" },
@@ -241,7 +241,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   verify: {
-    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage [--waive \"<reason>\"]  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage and record the run (sha, clean tree, each command's outcome, output hash) in the item's loop/stage-verify.jsonl. --stage --waive records the human's reason to enter review in a project with no harness.verify.stage (refused while stage commands are pinned). On a bug, --task also takes a TASK-### from tasks.md, checked with no Files allowlist. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
+    help: "Usage: kf verify <feature> --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | kf verify <feature> --stage [--waive \"<reason>\"] | kf verify <feature> --wave <w>  — check a task's commits (<sha>..HEAD, or exactly the listed commits) against its plan Files and run harness.verify.task, then harness.verify.related with the task's changed files appended (in the item worktree for --base, in a temporary detached worktree at the newest listed commit for --commits, or at HEAD with --at-head), or run harness.verify.stage and record the run (sha, clean tree, each command's outcome, output hash) in the item's loop/stage-verify.jsonl. --wave runs harness.verify.stage once for a plan wave, in a temporary detached worktree at the item's HEAD, and records it as a stage record tagged with the wave (log: loop/wave-<w>-verify.log). --stage --waive records the human's reason to enter review in a project with no harness.verify.stage (refused while stage commands are pinned). On a bug, --task also takes a TASK-### from tasks.md, checked with no Files allowlist. Exit 0 pass, 1 a verify command failed, 2 a file outside the task's Files, 3 bad input or could not run (runs nothing)",
     allowPositionals: true,
     options: {
       task: { type: "string" },
@@ -250,6 +250,7 @@ const COMMANDS: Record<string, CmdSpec> = {
       "at-head": { type: "boolean" },
       stage: { type: "boolean" },
       waive: { type: "string" },
+      wave: { type: "string" },
     },
   },
   worktree: {

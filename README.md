@@ -217,11 +217,11 @@ the agents inside them and runs the mechanical checks through `kf verify`; kf
 spawns no worker process and keeps no run state. In the task loop, `kf next`
 prints what is due and `kf record` writes the ledger.
 The commands `kf drive`, `kf run`, `kf runs` and `kf harness` were removed, together with the
-role, runner and stage configuration behind them. The only `harness` keys left are the two verify lists and the developer ceiling:
+role, runner and stage configuration behind them. The only `harness` keys left are the verify settings (`task`, `related`, `stage`) and the developer ceiling:
 
 ```json
 "harness": {
-  "verify": { "task": [["npm", "run", "typecheck"]], "stage": [["npm", "run", "build"], ["npm", "test"]] },
+  "verify": { "task": [["npm", "run", "typecheck"]], "related": ["npx", "vitest", "related", "--run"], "stage": [["npm", "run", "build"], ["npm", "test"]] },
   "developers": { "max": 6 }
 }
 ```
@@ -237,6 +237,7 @@ kf next user-login [--resume] [--json]                # the task loop's actions 
 kf record user-login dispatched TASK-001 developer --model sonnet  # appends one stamped ledger line under the item lock
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
 kf verify user-login --task TASK-002 --commits <sha>[,<sha>…] [--at-head]  # exactly those commits, in a detached worktree at the newest, or at HEAD (pipelined loop)
+kf verify user-login --wave 1                         # a complete wave's full suite (harness.verify.stage) in a detached worktree at HEAD; recorded like --stage
 kf loop-stats user-login --record                     # where the loop's time went; writes (replacing any earlier) the item's row in .works/loop-metrics.md
 kf verify user-login --stage                          # runs harness.verify.stage, records the run in loop/stage-verify.jsonl
 kf verify user-login --stage --waive "no suite yet"   # no harness.verify.stage pinned: the human's reason to enter review
@@ -279,12 +280,21 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
 
 - Per task: a `test-writer`, a `developer`, then `kf verify --task` and a
   `code-reviewer` on the task's diff. The exit code of `kf verify`, not the
-  developer's report, decides the task passed its mechanical checks.
+  developer's report, decides the task passed its mechanical checks. With
+  `harness.verify.related` set (one argv, e.g. `["npx","vitest","related","--run"]`),
+  `kf verify --task` appends the task's changed files to it, so a task runs only
+  the tests related to what it touched.
+- Per wave: once a wave's tasks are all complete, `kf next` prints
+  `kf verify <feature> --wave <w>`, which runs the full `harness.verify.stage`
+  suite once on the wave's head. The next wave's developers wait until that
+  wave verify passed; test-writers are not held.
 - Before review, `kf verify --stage` runs the commands you pinned in
   `harness.verify.stage` and records the run: the HEAD sha, whether the tracked
   tree was clean, each command's outcome and a hash of the output. `kf stage
   <f> review` moves only on a passing record at HEAD, with the commands pinned
-  now, and never re-runs them. A project with no `harness.verify.stage` enters
+  now, and never re-runs them. The review gate reuses the last wave's record when
+  it passed at HEAD on a clean tree, so `--stage` runs only when `kf status` does
+  not already show PASS at HEAD. A project with no `harness.verify.stage` enters
   review on a waiver the human gives (`--waive "<reason>"`), shown by `kf status`
   and in the review report. The testing report's Commands table describes the
   run; it is no longer what the gate reads.

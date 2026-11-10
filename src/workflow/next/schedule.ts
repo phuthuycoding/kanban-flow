@@ -4,6 +4,7 @@ import { foldWorld } from "./fold.js";
 import { intentsFor, itemIntents } from "./intents.js";
 import { checkLiveness, emptyClosesGuard } from "./liveness.js";
 import type { Action, LedgerState, LoopInputs, NextResult, TaskState, World } from "./types.js";
+import { waveRunsInFlight } from "./waves.js";
 
 type Stop = Extract<Action, { kind: "stop" }>;
 
@@ -52,6 +53,8 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
   const world = foldWorld(state, inputs, cap);
   if (opts.resume) markLost(world);
   const intents = [...itemIntents(world, opts), ...[...world.tasks.values()].flatMap((t) => intentsFor(t, world))];
+  const waveRuns = waveRunsInFlight(world, opts);
+  const runs = waveRuns.length > 0 ? { waveRuns } : {};
 
   // The guard's stops hold like any stop, so arbitration runs again with them until no further task is unplaced.
   const unplaced = new Set<string>();
@@ -64,17 +67,17 @@ export function schedule(state: LedgerState, inputs: LoopInputs, opts: { resume:
     const actions = arbitration.actions.filter((a) => !(a.kind === "wait" && quiet.has(a)));
 
     const allComplete = [...world.tasks.values()].every((t) => t.phase.kind === "complete");
-    if (guard.length === 0 && allComplete && actions.length === 0 && inFlight.length === 0) {
+    if (guard.length === 0 && allComplete && actions.length === 0 && inFlight.length === 0 && waveRuns.length === 0) {
       return { feature: inputs.feature, n: cap.n, inFlight, actions: [{ kind: "finished" }] };
     }
 
     // A quiet wait is not printed but still witnesses its task: the check reads the full wait set.
-    const live = checkLiveness({ feature: inputs.feature, n: cap.n, inFlight, actions: arbitration.actions }, state, inputs);
+    const live = checkLiveness({ feature: inputs.feature, n: cap.n, inFlight, ...runs, actions: arbitration.actions }, state, inputs);
     const empty = emptyClosesGuard(live.emptyCloses);
     const before = unplaced.size;
     const itemBefore: boolean = itemGuard;
     for (const task of [...arbitration.unplaced, ...live.silent, ...empty.tasks]) unplaced.add(task);
     itemGuard = itemGuard || empty.item;
-    if (unplaced.size === before && itemGuard === itemBefore) return { feature: inputs.feature, n: cap.n, inFlight, actions };
+    if (unplaced.size === before && itemGuard === itemBefore) return { feature: inputs.feature, n: cap.n, inFlight, ...runs, actions };
   }
 }

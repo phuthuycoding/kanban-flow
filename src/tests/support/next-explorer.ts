@@ -65,12 +65,37 @@ export const PLANS: Record<string, (ceiling: number) => LoopInputs> = {
   "P6 bug": (c) => inputsOf([planTask(T1)], c, { kind: "bug", level: "unit" }),
 };
 
+const WAVE_STAGE = [["npm", "test"]];
+
+/**
+ * Two-wave plans with `harness.verify.stage` pinned, so the wave verify and its barrier are live. Kept apart from
+ * PLANS, whose stage commands stay absent and whose exploration is unchanged by the wave tier.
+ */
+export const WAVE_PLANS: Record<string, (ceiling: number) => LoopInputs> = {
+  "W1 dependent pair with a wave verify": (c) => inputsOf([planTask(T1), planTask(T2, { dependencies: [T1], wave: 2 })], c, { stageCommands: WAVE_STAGE }),
+  "W2 overlapping waves with a wave verify": (c) =>
+    inputsOf(
+      [
+        planTask(T1, { files: ["src/shared.ts", "src/task-001.ts"], overlaps: [T2] }),
+        planTask(T2, { files: ["src/shared.ts", "src/task-002.ts"], overlaps: [T1], wave: 2 }),
+      ],
+      c,
+      { stageCommands: WAVE_STAGE },
+    ),
+};
+
 // ---------------------------------------------------------------------------
 // Explored states: ledger lines with the inputs each line brought with it
 // ---------------------------------------------------------------------------
 
-/** What a line brings outside the ledger: a commit on the branch and in the task's report, or a verify-log block. */
-export type Mutation = { kind: "commit"; task: string; sha: string } | { kind: "verifyRun"; task: string; exit: number; text: string };
+/**
+ * What a line brings outside the ledger: a commit on the branch and in the task's report, a verify-log block, or the
+ * stage record a wave verify appends.
+ */
+export type Mutation =
+  | { kind: "commit"; task: string; sha: string }
+  | { kind: "verifyRun"; task: string; exit: number; text: string }
+  | { kind: "waveRun"; wave: number; exit: number };
 
 export interface Step {
   /** The `kf record` call the line came from. */
@@ -96,6 +121,8 @@ export function inputsFor(base: LoopInputs, steps: Step[]): LoopInputs {
   const gitLog: { sha: string; ts: number }[] = [];
   const reportCommits: Record<string, string[]> = {};
   const verifyRuns: Record<string, VerifyRun[]> = {};
+  const waveRecords: NonNullable<LoopInputs["waveRecords"]> = [];
+  const waveOf = (task: string): number | undefined => base.tasks.find((t) => t.id === task)?.wave;
   steps.forEach((s, i) => {
     const m = s.mutation;
     if (m === undefined) return;
@@ -103,11 +130,18 @@ export function inputsFor(base: LoopInputs, steps: Step[]): LoopInputs {
     if (m.kind === "commit") {
       gitLog.push({ sha: m.sha, ts });
       (reportCommits[m.task] ??= []).push(m.sha.slice(0, 7));
-    } else {
+    } else if (m.kind === "verifyRun") {
       (verifyRuns[m.task] ??= []).push({ ts, exit: m.exit, text: m.text });
+    } else {
+      // The run's sha is the branch head when it ran; history is linear, so it contains every wave commit made
+      // before it and none made after it.
+      const head = gitLog.at(-1)?.sha ?? "0".repeat(40);
+      const later = steps.slice(i + 1).some((x) => x.mutation?.kind === "commit" && waveOf(x.mutation.task) === m.wave);
+      waveRecords.push({ wave: m.wave, sha: head, exit: m.exit, at: new Date(ts).toISOString(), contains: !later });
     }
   });
-  return { ...base, gitLog, reportCommits, verifyRuns };
+  // Only a plan with stage commands carries wave records, so the other plans' inputs stay exactly as before.
+  return { ...base, gitLog, reportCommits, verifyRuns, ...((base.stageCommands?.length ?? 0) > 0 ? { waveRecords } : {}) };
 }
 
 function parse(text: string): LedgerState {
@@ -188,7 +222,11 @@ export function evaluate(base: LoopInputs, steps: Step[]): Evaluated {
   const inputs = inputsFor(base, steps);
   const world = foldWorld(state, inputs, liveCap(state, inputs));
   // The canonical key also carries what the World reads from the inputs outside the ledger.
-  const outside = JSON.stringify({ commits: inputs.gitLog.map((g) => g.sha), runs: Object.entries(inputs.verifyRuns).map(([t, r]) => [t, r.map((x) => [x.exit, x.text])]) });
+  const outside = JSON.stringify({
+    commits: inputs.gitLog.map((g) => g.sha),
+    runs: Object.entries(inputs.verifyRuns).map(([t, r]) => [t, r.map((x) => [x.exit, x.text])]),
+    ...(inputs.waveRecords !== undefined ? { waves: inputs.waveRecords.map((w) => [w.wave, w.exit, w.contains]) } : {}),
+  });
   let plain: NextResult | undefined;
   let resumed: NextResult | undefined;
   let exact: string | undefined;
@@ -302,12 +340,33 @@ function closeCall(template: string, task: string | undefined, ev: Evaluated, st
     return { event: { event: "commits", args: [m[1], sha.slice(0, 7)] }, mutation: { kind: "commit", task: m[1], sha } };
   }
   if ((m = /^(TASK-\d+): verify started$/.exec(template))) return { event: { event: "verify-started", args: [m[1]] } };
+  if ((m = /^wave (\d+): verify started$/.exec(template))) return { event: { event: "wave-verify-started", args: [m[1]] } };
   if ((m = /^(TASK-\d+): complete \((.+)\)$/.exec(template))) return { event: { event: "complete", args: [m[1], ...words(fill(m[2], m[1]))] } };
   if ((m = /^(TASK-\d+): developer done status=(\S+)$/.exec(template))) return { event: { event: "done", args: [m[1], "developer"], status: m[2] } };
   if (/^Scan: …$/.test(template)) return { event: line("Scan: clean") };
   if (template.startsWith("Ruling: … ")) return { event: line(`Ruling: explorer — ${template.slice("Ruling: … ".length)}`) };
   if (/^(?:Ruling: |Note |TASK-\d+: parked — )/.test(template)) return { event: line(fill(template, task)) };
   return null;
+}
+
+/**
+ * A close template that leaves the task to the session (`Note TASK-NNN: reopened — wave <w>`) stands for one line per
+ * task of that wave; any other template is itself.
+ */
+function concreteTemplates(template: string, plan: LoopTask[]): string[] {
+  const m = /^Note TASK-NNN: reopened — wave (\d+)$/.exec(template);
+  if (m === null) return [template];
+  return plan.filter((p) => p.wave === Number(m[1])).map((p) => `Note ${p.id}: reopened — wave ${m[1]}`);
+}
+
+/** The waves whose latest `wave <w>: verify started` no `wave <w>: verify done` followed: a wave verify in flight. */
+export function openWaveRuns(state: LedgerState): number[] {
+  const open = new Set<number>();
+  for (const e of state.events) {
+    if (e.type === "waveVerifyStarted") open.add(e.wave);
+    else if (e.type === "waveVerifyDone") open.delete(e.wave);
+  }
+  return [...open].sort((a, b) => a - b);
 }
 
 /** The alternatives of a decide's closes: each a conjunction of template lines, plus the ruled fix round 5/5 rider. */
@@ -406,7 +465,7 @@ function optionsOf(a: Action, ev: Evaluated, steps: Step[]): Call[][] {
       const options: Call[][] = [];
       const riderDue = rider !== null && !steps.some((s) => s.event.event === "fix-round" && s.event.args[0] === a.task && s.event.args[1] === "5");
       for (const alt of alternatives) {
-        for (const template of alt) {
+        for (const template of alt.flatMap((x) => concreteTemplates(x, ev.inputs.tasks))) {
           const call = closeCall(template, a.task, ev, steps);
           if (call === null || writtenSince(steps, a.task, call.event)) continue;
           // Ruled: at the cap the session writes the round's fix round 5/5 line with the line that closes the decide.
@@ -424,6 +483,8 @@ function optionsOf(a: Action, ev: Evaluated, steps: Step[]): Call[][] {
         const call = closeCall(c, a.task, ev, steps);
         return call === null ? [] : [[{ ...call, speculative: true }]];
       });
+    case "verify-wave":
+      return [[{ event: { event: "wave-verify-started", args: [String(a.wave)] } }]];
     case "wait":
     case "finished":
       return [];
@@ -507,8 +568,18 @@ export function movesOf(ev: Evaluated, steps: Step[], plan: LoopTask[], faults: 
     }
   }
 
+  // Answer a wave verify in flight, when nothing is printed to do: it passes, fails, or exits 3 with no record.
+  if (printed.length === 0) {
+    for (const w of openWaveRuns(ev.state)) {
+      for (const exit of [0, 1, 3]) {
+        const mutation: Mutation | undefined = exit === 3 ? undefined : { kind: "waveRun", wave: w, exit };
+        add({ calls: [{ event: { event: "wave-verify-done", args: [String(w)], exit: String(exit) }, ...(mutation ? { mutation } : {}) }], label: `wave ${w} verify exit ${exit}`, fault: exit !== 0 });
+      }
+    }
+  }
+
   // A lost session: what `kf next --resume` prints, carried out instead.
-  if (ev.plain.inFlight.length > 0) for (const m of batchesOf(ev.resumed, ev, steps, true, "resume: ")) add(m);
+  if (ev.plain.inFlight.length > 0 || openWaveRuns(ev.state).length > 0) for (const m of batchesOf(ev.resumed, ev, steps, true, "resume: ")) add(m);
 
   // A reopen of a complete task, once per task.
   for (const p of plan) {
@@ -576,6 +647,15 @@ function holdsOn(reason: string, result: NextResult): boolean {
   return m !== null && result.actions.some((a) => a.kind === "stop" && a.task === m[1]);
 }
 
+function waveWitnessed(wave: number, result: NextResult, state: LedgerState): boolean {
+  if (openWaveRuns(state).includes(wave)) return true;
+  return result.actions.some(
+    (a) =>
+      ((a.kind as string) === "verify-wave" && (a as { wave?: number }).wave === wave) ||
+      (a.kind === "decide" && a.rule.startsWith("Wave verify") && a.reason.startsWith(`wave ${wave} `)),
+  );
+}
+
 /** LIVE (a)–(g) and the oracle on one printed result, read from the ledger, the plan and the result alone. */
 export function checkResult(ev: Evaluated, resume: boolean): Violation[] {
   const result = resume ? ev.resumed : ev.plain;
@@ -615,6 +695,9 @@ export function checkResult(ev: Evaluated, resume: boolean): Violation[] {
           witnessed.add(t.id);
           continue;
         }
+        // A hold on a complete wave's verify is witnessed by that wave's printed verify, its run in flight, or its decide.
+        const wave = /^wave (\d+) verify$/.exec(a.reason);
+        if (wave !== null && waveWitnessed(Number(wave[1]), result, state)) witnessed.add(t.id);
         for (const m of a.reason.matchAll(TASK_ID)) if (m[0] !== t.id) targets.push(m[0]);
         if (CAP_WAIT.test(a.reason) && developersBusy) witnessed.add(t.id);
       }
@@ -661,7 +744,7 @@ export function checkResult(ev: Evaluated, resume: boolean): Violation[] {
       continue;
     }
     for (const alt of parseCloses(a.closes).alternatives) {
-      for (const template of alt) if (closeCall(template, a.task, ev, []) === null) v("(d)", `decide ${a.rule} names a close the session cannot write: ${template}`, a.task);
+      for (const template of alt.flatMap((x) => concreteTemplates(x, inputs.tasks))) if (closeCall(template, a.task, ev, []) === null) v("(d)", `decide ${a.rule} names a close the session cannot write: ${template}`, a.task);
     }
   }
 
@@ -759,7 +842,7 @@ function happyMove(ev: Evaluated, steps: Step[], verdict: (task: string) => stri
   for (const a of ev.plain.actions) {
     if (a.kind === "decide") {
       const { alternatives, rider } = parseCloses(a.closes);
-      const first = alternatives[0];
+      const first = alternatives[0].flatMap((x) => concreteTemplates(x, ev.inputs.tasks));
       const done = (template: string): boolean => steps.some((s) => s.body === fill(template, a.task));
       const template = first.find((x) => !done(x)) ?? first[0];
       const call = closeCall(template, a.task, ev, steps);
@@ -792,6 +875,9 @@ function happyMove(ev: Evaluated, steps: Step[], verdict: (task: string) => stri
     const status = f.seat === "code-reviewer" ? verdict(f.task) : "DONE";
     const mutation: Mutation | undefined = f.seat === "developer" ? { kind: "commit", task: f.task, sha: newSha(steps, f.task) } : undefined;
     return { calls: [{ event: { event: "done", args: [f.task, f.seat], status }, ...(mutation ? { mutation } : {}) }], label: `happy ${f.seat} ${f.task}`, fault: false };
+  }
+  for (const w of openWaveRuns(ev.state)) {
+    return { calls: [{ event: { event: "wave-verify-done", args: [String(w)], exit: "0" }, mutation: { kind: "waveRun", wave: w, exit: 0 } }], label: `happy wave ${w} verify`, fault: false };
   }
   return null;
 }
@@ -898,6 +984,9 @@ export const COVERAGE: Record<string, (ev: Evaluated) => boolean> = {
   "overlap wait printed": (ev) => printedRule(ev, (a) => a.kind === "wait" && a.reason.startsWith("Files overlap")) || printedRule(ev, (a) => a.kind === "write" && /developer waits — Files overlap/.test(a.line)),
   "resume re-issues a seat": (ev) => ev.plain.inFlight.length > 0 && ev.resumed.actions.some((a) => a.kind === "dispatch"),
   "reopened": (ev) => ev.state.events.some((e) => e.type === "reopened"),
+  "wave verify printed": (ev) => printedRule(ev, (a) => (a.kind as string) === "verify-wave"),
+  "wave wait printed": (ev) => printedRule(ev, (a) => a.kind === "wait" && /^wave \d+ verify/.test(a.reason)),
+  "wave decide printed": (ev) => printedRule(ev, (a) => a.kind === "decide" && a.rule.startsWith("Wave verify")),
 };
 
 /** A violation's identity: its clause, task and detail with shas and numbers masked; plain and resumed copies are one. */
@@ -1096,6 +1185,8 @@ export function render(result: NextResult): string[] {
           return `decide ${a.task ?? ""} ${a.rule}: ${a.reason} | closes: ${a.closes}`;
         case "stop":
           return `stop ${a.task ?? ""}: ${a.reason}`;
+        case "verify-wave":
+          return `verify wave ${a.wave}: ${a.command}`;
         case "finished":
           return "finished";
       }
