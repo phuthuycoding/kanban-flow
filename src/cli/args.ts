@@ -222,7 +222,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   next: {
-    help: "Usage: kf next <feature> [--resume] [--json]  — print the task loop's actions due now (read-only: changes no file); --resume lists open seats and verifies for re-dispatch after lost context; --json prints { feature, n, inFlight, actions }. Exit 0 actions printed, 1 refused (a ledger line to repair, or a plan kf tasks refuses), 3 bad input",
+    help: "Usage: kf next <feature> [--resume] [--json]  — print the task loop's actions due now (read-only: changes no file); --resume lists open seats, verifies and wave verifies for re-dispatch after lost context; --json prints { feature, n, inFlight, waveRuns?, actions }, where waveRuns lists the waves whose verify is running and a verify-wave action ({ kind, wave, command }) owes kf verify <feature> --wave <w> when harness.verify.stage is pinned. Exit 0 actions printed, 1 refused (a ledger line to repair, or a plan kf tasks refuses), 3 bad input",
     allowPositionals: true,
     options: {
       resume: { type: "boolean" },

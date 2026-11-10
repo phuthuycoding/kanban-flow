@@ -210,14 +210,19 @@ export interface LoopInputs {
   waveRecords?: WaveRecord[];
 }
 
-/** A `kf verify --wave` stage record. */
+/** A stage record: a `kf verify --wave` run (`wave` set) or a plain `kf verify --stage` run. */
 export interface WaveRecord {
-  wave: number;
+  wave?: number;
   sha: string;
   exit: number;
   at: string;
-  /** Every commit the ledger names for the wave's tasks is an ancestor of `sha`. */
+  /** `sha` contains every commit the ledger names for the tasks of the record's own `wave` (resolved as `covers` is). */
   contains: boolean;
+  /**
+   * The plan waves whose every commit `sha` contains. Resolved only where it decides a wave: for a wave, the newest
+   * passing record after its latest failing wave record that contains it.
+   */
+  covers?: number[];
 }
 
 /** Plan-level refusal from the input reader (bad graph, empty plan, bug `tasks.md` with no ids). */
@@ -504,8 +509,13 @@ export type WaveVerify = { kind: "owed" } | { kind: "running" } | { kind: "faile
 
 export interface WaveState {
   wave: number;
-  /** The wave's first task, in plan order, that is not complete; absent once the wave is complete. */
+  /**
+   * The wave's first task, in plan order, that is not complete, else the first task this wave's verify reopened
+   * (`reopened — wave <w>`) that is not complete; absent once both are complete.
+   */
   incomplete?: string;
+  /** The tasks whose latest reopen is `Note TASK-NNN: reopened — wave <w>` of this wave. */
+  reopened: string[];
   verify: WaveVerify;
 }
 

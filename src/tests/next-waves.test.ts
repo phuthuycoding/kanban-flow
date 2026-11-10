@@ -13,6 +13,7 @@ import type { Action, LedgerState, LoopInputs, NextResult } from "../workflow/ne
 import { ensureWorksStructure } from "../workflow/features.js";
 import type { Feature } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
+import { commandHelp } from "../cli/args.js";
 import { WAVE_PLANS, explore } from "./support/next-explorer.js";
 import type { ExploreOptions } from "./support/next-explorer.js";
 
@@ -518,5 +519,150 @@ describe("kf next on a repository with stage commands pinned", () => {
     expect(lines.some((l) => l.startsWith("dispatch developer TASK-004")), after.stdout).toBe(false);
     const flight = lines.slice(lines.indexOf("In flight:") + 1);
     expect(lines.includes("In flight:") && flight.some((l) => l.includes("TASK-003") && l.includes("developer")), after.stdout).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Which stage records verify a wave, and which reopened tasks hold it
+// ---------------------------------------------------------------------------
+
+interface StageRec {
+  sha: string;
+  exit: 0 | 1;
+  wave?: number;
+}
+
+/** Writes loop/stage-verify.jsonl in the given file order, each record a minute after the one before it. */
+function writeStageRecords(item: string, recs: StageRec[]): void {
+  const lines = recs.map((r, i) =>
+    JSON.stringify({
+      at: new Date(Date.parse("2026-11-07T10:31:00+07:00") + i * 60_000).toISOString(),
+      sha: r.sha,
+      clean: true,
+      commands: [{ argv: STAGE[0], outcome: "exit", code: r.exit }],
+      outputSha256: "0".repeat(64),
+      exit: r.exit,
+      ...(r.wave !== undefined ? { wave: r.wave } : {}),
+    }),
+  );
+  writeFileSync(join(item, "loop", "stage-verify.jsonl"), `${lines.join("\n")}\n`);
+}
+
+/** What kf next schedules for the repository, through the real readers and the scheduler. */
+function nextAt(repo: GitRepo): { result: NextResult; state: LedgerState; inputs: LoopInputs } {
+  const feature: Feature = { name: "demo", context: "app", stage: "implementation", dir: repo.item, folder: ITEM_FOLDER, meta: META };
+  const read = readLoopInputs(repo.root, feature);
+  if (!read.ok) throw new Error(`inputs refused: ${read.reason}`);
+  const state = ledgerState(readFileSync(join(repo.item, "loop", "progress.md"), "utf8"));
+  return { result: schedule(state, read.inputs, { resume: false }), state, inputs: read.inputs };
+}
+
+const ledgerFile = (repo: GitRepo): string => join(repo.item, "loop", "progress.md");
+const appendLedger = (repo: GitRepo, bodies: string[]): void => writeFileSync(ledgerFile(repo), appended(readFileSync(ledgerFile(repo), "utf8"), bodies));
+const waveOwed = (r: NextResult, wave: number): boolean => r.actions.some((a) => a.kind === "verify-wave" && a.wave === wave);
+
+/** A developer dispatch, a real commit just after it, and the lines that complete the task on that commit. Returns the commit. */
+function completeWithCommit(repo: GitRepo, task: string, file: string): string {
+  stampAt = Math.max(stampAt, LAST_BASE_STAMP);
+  appendLedger(repo, [`${task}: developer dispatched model=sonnet`]);
+  const sha = commitAt(repo.root, file, `${task}: work`, new Date(stampAt + 30_000).toISOString());
+  const s7 = sha.slice(0, 7);
+  appendLedger(repo, [
+    `${task}: developer done status=DONE`,
+    `Note ${task}: commits ${s7}`,
+    `${task}: review package ${s7}`,
+    `${task}: verify started`,
+    `${task}: code-reviewer dispatched model=sonnet`,
+    `${task}: verify done exit=0`,
+    `${task}: code-reviewer done status=clean`,
+    `${task}: complete (commits ${s7}, review clean)`,
+  ]);
+  return sha;
+}
+
+describe("which stage records verify a wave", () => {
+  it("treats wave 1 as verified by a passing plain stage record that contains every commit of the wave", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(false);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+    expect(result.actions.some(isWaveWait), show(result)).toBe(false);
+  });
+
+  it("treats wave 1 as verified by a passing record tagged another wave that contains every commit of wave 1", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0, wave: 2 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(false);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+  });
+
+  it("owes wave 1 when a failing record tagged wave 1 is newer than the passing record that covers it", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 0 }, { sha: repo.b, exit: 1, wave: 1 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(true);
+    expect(result.actions, show(result)).toContainEqual({ kind: "wait", task: "TASK-003", reason: "wave 1 verify" });
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(false);
+  });
+
+  it("verifies wave 1 again when a passing record is newer than the failing record tagged wave 1", () => {
+    const repo = gitRepo();
+    writeStageRecords(repo.item, [{ sha: repo.b, exit: 1, wave: 1 }, { sha: repo.b, exit: 0 }]);
+
+    const { result } = nextAt(repo);
+
+    expect(waveOwed(result, 1), show(result)).toBe(false);
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+  });
+});
+
+describe("a task reopened by a failed wave verify", () => {
+  it("gets its fix-round developer even when it belongs to a later wave whose commit the failed run contained, and the liveness guard stays quiet", () => {
+    const repo = gitRepo();
+    const c = completeWithCommit(repo, "TASK-003", "c.ts");
+    writeStageRecords(repo.item, [{ sha: c, exit: 1, wave: 1 }]);
+    appendLedger(repo, ["wave 1: verify started", "wave 1: verify done exit=1", "Note TASK-003: reopened — wave 1"]);
+
+    const { result, state, inputs } = nextAt(repo);
+
+    expect(developerDispatch(result, "TASK-003"), show(result)).toBe(true);
+    expect(result.actions.some((a) => a.kind === "wait" && a.task === "TASK-003"), show(result)).toBe(false);
+    expect(checkLiveness(result, state, inputs), show(result)).toEqual({ silent: [], emptyCloses: [] });
+  });
+
+  it("does not owe wave 2's verify while the wave-1 task it reopened is open, and owes it once that task is complete again", () => {
+    const repo = gitRepo();
+    completeWithCommit(repo, "TASK-003", "c.ts");
+    appendLedger(repo, task004TestsReady);
+    const d = completeWithCommit(repo, "TASK-004", "d.ts");
+    writeStageRecords(repo.item, [{ sha: d, exit: 1, wave: 2 }]);
+    appendLedger(repo, ["wave 2: verify started", "wave 2: verify done exit=1", "Note TASK-001: reopened — wave 2"]);
+
+    const open = nextAt(repo).result;
+
+    expect(waveOwed(open, 2), show(open)).toBe(false);
+
+    // TASK-001's fix round, without the first line of task001Refixed (its own review reopen).
+    appendLedger(repo, task001Refixed.slice(1));
+    const done = nextAt(repo).result;
+
+    expect(waveOwed(done, 2), show(done)).toBe(true);
+  });
+});
+
+describe("kf next help", () => {
+  it("names the wave runs it lists in flight and the verify-wave action", () => {
+    const help = commandHelp("next");
+
+    expect(help).toContain("waveRuns");
+    expect(help).toContain("verify-wave");
   });
 });

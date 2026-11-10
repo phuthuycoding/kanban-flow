@@ -6,7 +6,10 @@ import type { Intent, LedgerState, LoopInputs, NextOptions, TaskState, WaitBlock
 
 type WaveRun = { kind: "none" } | { kind: "running" } | { kind: "done"; exit: number; closed: boolean };
 
-/** The wave's verify read from the ledger, then from its latest record when no run is open and no decide owed. */
+/**
+ * The wave's verify read from the ledger; with no run open and no decide owed, it passed when a passing stage record
+ * (of any wave, or a plain stage run) newer than the latest failing record of this wave contains every commit of it.
+ */
 function waveVerify(state: LedgerState, inputs: LoopInputs, wave: number): WaveVerify {
   let run: WaveRun = { kind: "none" };
   for (const e of state.events) {
@@ -18,17 +21,37 @@ function waveVerify(state: LedgerState, inputs: LoopInputs, wave: number): WaveV
   }
   if (run.kind === "running") return { kind: "running" };
   if (run.kind === "done" && run.exit !== 0 && !run.closed) return { kind: "failed", exit: run.exit };
-  const latest = (inputs.waveRecords ?? []).filter((r) => r.wave === wave).at(-1);
-  return latest !== undefined && latest.exit === 0 && latest.contains ? { kind: "passed" } : { kind: "owed" };
+  const records = inputs.waveRecords ?? [];
+  let lastFailure = -1;
+  records.forEach((r, i) => {
+    if (r.wave === wave && r.exit !== 0) lastFailure = i;
+  });
+  const passed = records.some((r, i) => i > lastFailure && r.exit === 0 && ((r.wave === wave && r.contains) || (r.covers ?? []).includes(wave)));
+  return passed ? { kind: "passed" } : { kind: "owed" };
+}
+
+/** Each task whose latest reopen is a wave verify's (`reopened — wave <w>`), with that wave. */
+function reopenedByWave(state: LedgerState): Map<string, number> {
+  const by = new Map<string, number>();
+  for (const e of state.events) {
+    if (e.type !== "reopened") continue;
+    if (e.source === "wave" && e.wave !== undefined) by.set(e.task, e.wave);
+    else by.delete(e.task);
+  }
+  return by;
 }
 
 /** Every plan wave in ascending order, or undefined when no stage commands are pinned (no wave tier). */
 export function foldWaves(state: LedgerState, inputs: LoopInputs, tasks: Map<string, TaskState>): WaveState[] | undefined {
   if ((inputs.stageCommands?.length ?? 0) === 0) return undefined;
   const waves = [...new Set(inputs.tasks.map((t) => t.wave))].sort((a, b) => a - b);
+  const byWave = reopenedByWave(state);
+  const open = (id: string): boolean => tasks.get(id)?.phase.kind !== "complete";
   return waves.map((wave) => {
-    const incomplete = inputs.tasks.find((t) => t.wave === wave && tasks.get(t.id)?.phase.kind !== "complete")?.id;
-    return { wave, ...(incomplete !== undefined ? { incomplete } : {}), verify: waveVerify(state, inputs, wave) };
+    const reopened = inputs.tasks.filter((t) => byWave.get(t.id) === wave).map((t) => t.id);
+    // The wave verify is owed again only once every task it reopened is complete again, whatever wave it is of.
+    const incomplete = inputs.tasks.find((t) => t.wave === wave && open(t.id))?.id ?? reopened.find(open);
+    return { wave, ...(incomplete !== undefined ? { incomplete } : {}), reopened, verify: waveVerify(state, inputs, wave) };
   });
 }
 
@@ -42,13 +65,15 @@ function awaitedBy(world: World, wave: number, task: string): boolean {
 
 /**
  * The hold on a developer of `task`: the first earlier wave that is incomplete or not verified. An incomplete wave a
- * failure routed to `task`, or a verify waiting for it, does not hold it: holding it would deadlock the two.
+ * failure routed to `task`, or a verify waiting for it, does not hold it, nor does a wave whose verify reopened `task`:
+ * holding it would deadlock the two.
  */
 export function waveHold(world: World, task: string): { reason: string; blockedBy: WaitBlocker } | null {
   const wave = world.inputs.tasks.find((t) => t.id === task)?.wave;
   if (world.waves === undefined || wave === undefined) return null;
   for (const w of world.waves) {
     if (w.wave >= wave) break;
+    if (w.reopened.includes(task)) continue;
     if (w.incomplete !== undefined && awaitedBy(world, w.wave, task)) continue;
     // Naming the incomplete task gives the hold the TASK edge that witnesses it.
     if (w.incomplete !== undefined) return { reason: `wave ${w.wave} verify — ${w.incomplete} incomplete`, blockedBy: { kind: "task", task: w.incomplete } };
