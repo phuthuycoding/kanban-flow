@@ -19,6 +19,8 @@ kf status --change {feature_name}   # must show stage = planning
 
 If approval is already valid, keep the contract unchanged and go to section 4: `kf approve` re-runs the move. If the approval is changed or pending, finish the applicable contract and obtain fresh human approval.
 
+A task stopped at `cap reached` (kf:implement, Repairing after the loop) returns here: the re-approved contract gives the work a new task with its own five rounds, or no longer requires what failed, and the session that resumes ledgers `superseded by TASK-MMM` or `superseded by contract`.
+
 Read work item kind from `kf status --change {feature_name} --json`. For `kind: bug`, use the confirmed bug report as the contract: reproduction, expected fix, scope, regression strategy and docs impact. Skip section 2 (a bug runs no scout and no spec-reviewer); present this concise contract and run approval in sections 3 and 4, leaving out what only a feature has: the `kf tasks --graph` block, the `Execution:` lines, the developer cap, the research choices and the plan's Definition of Done. Do not create feature planning artifacts for a bug. If the request introduces behavior beyond correcting the defect, explain the scope change and follow the user's decision before creating a related feature.
 
 ## 2. Write the four plan artifacts (in order)

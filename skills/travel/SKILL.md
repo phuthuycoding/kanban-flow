@@ -81,7 +81,7 @@ Each **tick**:
 ### Line states
 
 - `driving` — this travel session is running that item's phases (implementation, testing or review), with a seat possibly working in the background; the note carries `owner=travel`.
-- `blocked` — a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker): the line carries the reason, the next command and its owner (§5), and goes to Needs you. It returns to `queued` only when the human says the fix is done.
+- `blocked` — a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker, a reopened task's `cap reached` stop): the line carries the reason, the next command and its owner (§5), and goes to Needs you. It returns to `queued` only when the human says the fix is done.
 - `waiting-to-merge` — review PASS with the PR open: the line carries the PR URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` (§6 needs them after the worktree is gone). The human merges.
 - `done` — `kf status --all --json` reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`): measure at once (§6).
 
