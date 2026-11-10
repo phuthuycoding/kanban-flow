@@ -59,6 +59,7 @@ Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
 
 - `statusmap_legacy` — `project.statusMap` still uses the `dones` or `shipping` keys; `kf doctor --fix` renames `dones` to `done` and drops `shipping`.
 - A warning that the `ship` block in `.kf/config.json` is ignored (`kf ship` is deprecated); delete the block.
+- `unknown_config_key` — a top-level key in `.kf/config.json` that kf does not read (a typo such as `worktrees` for `worktree` turns the setting off silently); the action names the likely key. Rename or remove it by hand; `kf doctor --fix` leaves it.
 - `harness_legacy_key` — a removed `harness` key (`main`, `roles`, `stages`, `runners`, `parallel`, `retries`, `maxLoops`, `budget`) is still in `.kf/config.json`; `kf doctor --fix` removes it and keeps `harness.verify`. `meta_legacy_run_state` — an item's `.kfw.json` still holds `drive`, `runs`, `sessions` or `tasks`; `--fix` strips them.
 - A `.kf/hooks/dones.sh` or an orphaned `shipping.sh`. `kf doctor --fix` renames `dones.sh` to `done.sh` when `done.sh` is missing, keeping its content; delete `shipping.sh` by hand. When `done.sh` already exists, port any local edits from `dones.sh` into it and delete `dones.sh`.
 - Missing hook-pack files, only in a project that uses the pack (`.kf/hooks/lib-github.sh` is present or a stage hook sources it): `kf doctor --fix` restores them from the package and never overwrites a hook the project edited.
