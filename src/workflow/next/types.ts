@@ -510,8 +510,9 @@ export type WaveVerify = { kind: "owed" } | { kind: "running" } | { kind: "faile
 export interface WaveState {
   wave: number;
   /**
-   * The wave's first task, in plan order, that is not complete, else the first task this wave's verify reopened
-   * (`reopened — wave <w>`) that is not complete; absent once both are complete.
+   * The wave's first task, in plan order, that is not complete, else the first task, in plan order, a
+   * `reopened — wave <w>` note named since the wave's latest verify start that is not complete; absent once both are
+   * complete.
    */
   incomplete?: string;
   /** The tasks whose latest reopen is `Note TASK-NNN: reopened — wave <w>` of this wave. */

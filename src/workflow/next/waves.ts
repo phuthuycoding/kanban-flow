@@ -41,6 +41,16 @@ function reopenedByWave(state: LedgerState): Map<string, number> {
   return by;
 }
 
+/** The tasks a `reopened — wave <w>` note named since the wave's latest verify start: the reopens of its latest run. */
+function reopenedSinceRun(state: LedgerState, wave: number): Set<string> {
+  const named = new Set<string>();
+  for (const e of state.events) {
+    if (e.type === "waveVerifyStarted" && e.wave === wave) named.clear();
+    else if (e.type === "reopened" && e.source === "wave" && e.wave === wave) named.add(e.task);
+  }
+  return named;
+}
+
 /** Every plan wave in ascending order, or undefined when no stage commands are pinned (no wave tier). */
 export function foldWaves(state: LedgerState, inputs: LoopInputs, tasks: Map<string, TaskState>): WaveState[] | undefined {
   if ((inputs.stageCommands?.length ?? 0) === 0) return undefined;
@@ -49,8 +59,10 @@ export function foldWaves(state: LedgerState, inputs: LoopInputs, tasks: Map<str
   const open = (id: string): boolean => tasks.get(id)?.phase.kind !== "complete";
   return waves.map((wave) => {
     const reopened = inputs.tasks.filter((t) => byWave.get(t.id) === wave).map((t) => t.id);
-    // The wave verify is owed again only once every task it reopened is complete again, whatever wave it is of.
-    const incomplete = inputs.tasks.find((t) => t.wave === wave && open(t.id))?.id ?? reopened.find(open);
+    // The wave verify is owed again only once every task its latest run reopened is complete again, whatever wave it
+    // is of and whichever wave reopened it since.
+    const since = reopenedSinceRun(state, wave);
+    const incomplete = inputs.tasks.find((t) => t.wave === wave && open(t.id))?.id ?? inputs.tasks.find((t) => since.has(t.id) && open(t.id))?.id;
     return { wave, ...(incomplete !== undefined ? { incomplete } : {}), reopened, verify: waveVerify(state, inputs, wave) };
   });
 }
@@ -82,14 +94,21 @@ export function waveHold(world: World, task: string): { reason: string; blockedB
   return null;
 }
 
-/** The wave verifies owed (or lost, under `--resume`) and the decides of failed wave runs. */
+/**
+ * The wave verifies owed (or lost, under `--resume`) and the decides of failed wave runs. One full suite at a time:
+ * only the lowest owed complete wave's verify is printed, and none while a wave verify runs, since the next run at the
+ * same head can verify every wave it contains.
+ */
 export function waveIntents(world: World, opts: NextOptions): Intent[] {
   const f = world.inputs.feature;
   const intents: Intent[] = [];
-  for (const w of world.waves ?? []) {
+  const waves = world.waves ?? [];
+  const running = waves.some((w) => w.verify.kind === "running");
+  const owed = running ? undefined : waves.find((w) => w.verify.kind === "owed" && w.incomplete === undefined);
+  for (const w of waves) {
     const verify = { kind: "verify-wave" as const, wave: w.wave, command: `kf verify ${f} --wave ${w.wave}` };
     const v = w.verify;
-    if (v.kind === "owed" && w.incomplete === undefined) {
+    if (w === owed) {
       intents.push({ kind: "wave", wave: w.wave, origin: "progress", closes: ["waveVerifyStarted"], action: verify });
     } else if (v.kind === "running" && opts.resume) {
       intents.push({ kind: "wave", wave: w.wave, origin: "resume", closes: ["waveVerifyStarted", "waveVerifyDone"], action: verify });

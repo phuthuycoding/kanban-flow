@@ -652,9 +652,51 @@ describe("a task reopened by a failed wave verify", () => {
 
     // TASK-001's fix round, without the first line of task001Refixed (its own review reopen).
     appendLedger(repo, task001Refixed.slice(1));
+    // Wave 1 is verified at its own commits, so only wave 2 is owed and it is the lowest owed wave that prints.
+    writeStageRecords(repo.item, [{ sha: d, exit: 1, wave: 2 }, { sha: repo.b, exit: 0, wave: 1 }]);
     const done = nextAt(repo).result;
 
     expect(waveOwed(done, 2), show(done)).toBe(true);
+  });
+});
+
+describe("which owed wave verify kf next prints", () => {
+  /** Waves 1 and 2 complete; wave 2's verify failed and its reopen of TASK-001 is fixed, so both waves are owed at one HEAD. */
+  function bothOwed(): GitRepo {
+    const repo = gitRepo();
+    completeWithCommit(repo, "TASK-003", "c.ts");
+    appendLedger(repo, task004TestsReady);
+    const d = completeWithCommit(repo, "TASK-004", "d.ts");
+    writeStageRecords(repo.item, [{ sha: d, exit: 1, wave: 2 }]);
+    appendLedger(repo, ["wave 2: verify started", "wave 2: verify done exit=1", "Note TASK-001: reopened — wave 2", ...task001Refixed.slice(1)]);
+    return repo;
+  }
+
+  it("prints a verify for the lowest owed wave only", () => {
+    const { result } = nextAt(bothOwed());
+
+    const waves = result.actions.flatMap((a) => (a.kind === "verify-wave" ? [a.wave] : []));
+    expect(waves, show(result)).toEqual([1]);
+  });
+
+  it("prints no wave verify while another wave's verify is running", () => {
+    const repo = bothOwed();
+    appendLedger(repo, ["wave 1: verify started"]);
+
+    const { result } = nextAt(repo);
+
+    expect(result.actions.some(isWaveAction), show(result)).toBe(false);
+  });
+
+  it("does not owe wave 2's verify while a task a later wave-1 failure reopened is open, even after wave 2 reopened and fixed it earlier", () => {
+    const repo = bothOwed();
+    const head = gitIn(repo.root, "rev-parse", "HEAD");
+    writeStageRecords(repo.item, [{ sha: head, exit: 1, wave: 2 }, { sha: head, exit: 1, wave: 1 }]);
+    appendLedger(repo, ["wave 1: verify started", "wave 1: verify done exit=1", "Note TASK-001: reopened — wave 1"]);
+
+    const { result } = nextAt(repo);
+
+    expect(result.actions.some((a) => a.kind === "verify-wave" && a.wave === 2), show(result)).toBe(false);
   });
 });
 

@@ -182,10 +182,11 @@ function readStageCommands(root: string): string[][] {
 }
 
 /**
- * The item's stage records, wave runs and plain stage runs alike, in file order. For each plan wave, `covers` marks the
- * newest passing record after the wave's latest failing wave record whose sha contains every commit the ledger names
- * for the wave's tasks on the branch (`git merge-base --is-ancestor`); older records are not asked, as the newest one
- * decides. A later commit of a wave task therefore owes the wave verify again.
+ * The item's stage records, wave runs and plain stage runs alike, in file order. For each plan wave only the newest
+ * passing record after the wave's latest failing wave record is asked: `covers` marks it when its sha contains every
+ * commit the ledger names for the wave's tasks on the branch (`git merge-base --is-ancestor`). Records are appended at
+ * an advancing head, so an older passing record cannot contain what the newest one lacks, and none is asked. A later
+ * commit of a wave task therefore owes the wave verify again.
  */
 function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], reportCommits: Record<string, string[]>, gitLog: { sha: string; ts: number }[]): WaveRecord[] {
   const records = readStageRecords(feature);
@@ -205,10 +206,8 @@ function readWaveRecords(root: string, feature: Feature, tasks: LoopTask[], repo
         const r = records[i];
         if (r.wave === wave && r.exit !== 0) break;
         if (r.exit !== 0) continue;
-        if (commits.every((sha) => isAncestor(dir, sha, r.sha))) {
-          covers[i].push(wave);
-          break;
-        }
+        if (commits.every((sha) => isAncestor(dir, sha, r.sha))) covers[i].push(wave);
+        break;
       }
     }
   }
