@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS } from "./schema.js";
 import type { Feature } from "./features.js";
-import { parseTaskGraph } from "./tasks.js";
+import { parseTaskGraph, taskView } from "./tasks.js";
 import type { PlannedTask } from "./tasks.js";
 import { pathAllowed } from "./allowlist.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
@@ -87,12 +87,13 @@ function itemDir(root: string, feature: Feature): { dir: string; line: string } 
   return { dir: root, line: "no worktree — running in the project root" };
 }
 
-function runCommands(commands: string[][] | undefined, dir: string, what: "task" | "stage", lines: string[]): VerifyResult {
+function runCommands(commands: string[][] | undefined, dir: string, what: "task" | "stage", lines: string[], named = false): VerifyResult {
   if (!commands || commands.length === 0) {
     lines.push(`No ${what} verify configured (harness.verify.${what}).`);
     return { code: 0, lines };
   }
-  const failure = runVerify(commands, dir);
+  const { steps, failure } = runVerifySteps(commands, dir);
+  if (named) for (const step of steps) if (step.outcome === "exit" || step.outcome === "signal") lines.push(`Ran: ${step.argv.join(" ")}`);
   if (failure !== null) {
     lines.push(failure);
     return { code: 1, lines };
@@ -102,6 +103,47 @@ function runCommands(commands: string[][] | undefined, dir: string, what: "task"
 }
 
 const bad = (reason: string): VerifyResult => ({ code: 3, lines: [reason] });
+
+/** The related-tests argv: the pinned command with the files appended as argv elements, never joined into a shell string. */
+export function relatedArgv(related: string[], files: string[]): string[] {
+  return [...related, ...files];
+}
+
+/**
+ * The files a task changed, repo-relative and sorted: `base..HEAD`, or the union of each listed commit against its
+ * parent. Deleted files are dropped and a rename gives its new path, because these are the files a test can still load.
+ */
+export function taskChangedFiles(dir: string, range: { base: string } | { commits: string[] }): string[] {
+  const diffs = "base" in range ? [[`${range.base}..HEAD`]] : range.commits.map((sha) => [`${sha}^`, sha]);
+  const files = new Set<string>();
+  for (const spec of diffs) {
+    const diff = runGit(dir, ["diff", "--name-only", "-z", "--diff-filter=d", "-M", ...spec]);
+    if (diff.code !== 0) throw new Error(`git diff --name-only ${spec.join(" ")} failed in ${dir}: ${diff.stderr.trim()}`);
+    for (const f of diff.stdout.split("\0")) if (f !== "") files.add(f);
+  }
+  return [...files].sort();
+}
+
+/** Pinned `harness.verify.related`, or null when the project has none (the task tier then runs exactly as before). */
+function pinnedRelated(root: string): string[] | null {
+  const related = readProjectConfig(root).harness?.verify?.related;
+  return related && related.length > 0 ? related : null;
+}
+
+/**
+ * The task tier: `harness.verify.task` in order, then the related command with the task's changed files that exist in
+ * `dir` appended. Every command that ran is named on a `Ran:` line. `changed` is read only here, so a project with no
+ * related command never runs the extra diff.
+ */
+function runTaskTier(root: string, dir: string, sha: string, changed: () => string[], lines: string[]): VerifyResult {
+  const commands = [...(readProjectConfig(root).harness?.verify?.task ?? [])];
+  const related = pinnedRelated(root);
+  if (related === null) return runCommands(commands, dir, "task", lines);
+  const existing = changed().filter((f) => existsSync(join(dir, f)));
+  if (existing.length > 0) commands.push(relatedArgv(related, existing));
+  else lines.push(`No related tests: the task changed no file that exists at ${sha.slice(0, 7)}.`);
+  return runCommands(commands, dir, "task", lines, true);
+}
 
 /** A bug has no plan: its tasks are the TASK-### checkbox lines of tasks.md, with Files unknown. */
 function bugTaskAndDir(root: string, feature: Feature, taskId: string): { task: PlannedTask; dir: string; line: string } | VerifyResult {
@@ -161,7 +203,10 @@ export function verifyTask(root: string, feature: Feature, taskId: string, base:
     const outside = checkFiles(task, diff.stdout.split("\0").filter((f) => f !== ""), lines);
     if (outside) return outside;
   }
-  return runCommands(readProjectConfig(root).harness?.verify?.task, dir, "task", lines);
+  if (pinnedRelated(root) === null) return runCommands(readProjectConfig(root).harness?.verify?.task, dir, "task", lines);
+  const head = runGit(dir, ["rev-parse", "HEAD"]);
+  if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
+  return runTaskTier(root, dir, head.stdout.trim(), () => taskChangedFiles(dir, { base }), lines);
 }
 
 /**
@@ -213,16 +258,48 @@ export function verifyTaskCommits(root: string, feature: Feature, taskId: string
     if (outside) return outside;
   }
 
-  const commands = readProjectConfig(root).harness?.verify?.task;
-  if (!commands || commands.length === 0) return runCommands(commands, dir, "task", lines);
-  if (!atHead) return runDetached(dir, resolved[resolved.length - 1], commands, lines);
+  const taskCommands = readProjectConfig(root).harness?.verify?.task;
+  if ((taskCommands ?? []).length === 0 && pinnedRelated(root) === null) return runCommands(taskCommands, dir, "task", lines);
+  const changed = (): string[] => taskChangedFiles(dir, { commits: resolved });
+  const tier = (path: string, sha: string): VerifyResult => runTaskTier(root, path, sha, changed, lines);
+  if (!atHead) {
+    const sha = resolved[resolved.length - 1];
+    return runDetached(dir, sha, `Running in a detached worktree at ${sha.slice(0, 7)}`, lines, (path) => tier(path, sha));
+  }
   const head = runGit(dir, ["rev-parse", "HEAD"]);
   if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
-  return runDetached(dir, head.stdout.trim(), commands, lines);
+  const sha = head.stdout.trim();
+  return runDetached(dir, sha, `Running in a detached worktree at ${sha.slice(0, 7)}`, lines, (path) => tier(path, sha));
 }
 
-/** Run the task commands in a temporary detached worktree of `itemDir` at `sha`, removing it on every exit path. */
-function runDetached(itemDir: string, sha: string, commands: string[][], lines: string[]): VerifyResult {
+/**
+ * The wave tier: `harness.verify.stage` once for a plan wave, in a temporary detached worktree at the HEAD of the
+ * item's directory, so files written ahead for later waves (uncommitted tests) never reach the run. The run is a stage
+ * record tagged with the wave; the review gate reads it like any other.
+ */
+export function verifyWave(root: string, feature: Feature, wave: number): VerifyResult & { record?: StageRecord } {
+  const waves = feature.meta?.kind === "bug" ? new Set([1]) : new Set(taskView(feature).map((r) => r.wave));
+  if (!waves.has(wave)) return bad(`Wave ${wave} has no task in the plan of '${feature.name}'.`);
+  const { dir } = itemDir(root, feature);
+  if (!existsSync(dir)) return bad(`The item worktree ${dir} does not exist.`);
+  const commands = readProjectConfig(root).harness?.verify?.stage;
+  if (!commands || commands.length === 0) return runCommands(commands, dir, "stage", []);
+  const head = runGit(dir, ["rev-parse", "HEAD"]);
+  if (head.code !== 0) return bad(`git rev-parse HEAD failed in ${dir}: ${head.stderr.trim()}`);
+  const sha = head.stdout.trim();
+  let record: StageRecord | undefined;
+  const result = runDetached(dir, sha, `Running wave ${wave} verify in a detached worktree at ${sha.slice(0, 7)}`, [], (path, lines) => {
+    const { steps, output, failure } = runVerifySteps(commands, path);
+    const code = failure !== null ? 1 : 0;
+    lines.push(failure ?? `All ${commands.length} stage verify command(s) passed.`);
+    record = { at: new Date().toISOString(), sha, clean: true, commands: steps, outputSha256: createHash("sha256").update(output).digest("hex"), exit: code, wave };
+    return { code, lines };
+  });
+  return record ? { ...result, record } : result;
+}
+
+/** Run `run` in a temporary detached worktree of `itemDir` at `sha`, removing it on every exit path. */
+function runDetached(itemDir: string, sha: string, label: string, lines: string[], run: (path: string, lines: string[]) => VerifyResult): VerifyResult {
   const path = realpathSync(mkdtempSync(join(tmpdir(), "kf-verify-")));
   const itemModules = join(itemDir, "node_modules");
   const link = join(path, "node_modules");
@@ -252,8 +329,8 @@ function runDetached(itemDir: string, sha: string, commands: string[][], lines: 
       symlinkSync(itemModules, link, "dir");
       linked = true;
     }
-    lines.push(`Running in a detached worktree at ${sha.slice(0, 7)} (${path})`);
-    result = runCommands(commands, path, "task", lines);
+    lines.push(`${label} (${path})`);
+    result = run(path, lines);
   } catch (err) {
     const warning = cleanup();
     if (warning !== null) throw new Error(`${err instanceof Error ? err.message : String(err)}; ${warning}`, { cause: err });
@@ -292,6 +369,17 @@ export function verifyStage(root: string, feature: Feature): VerifyResult & { re
     exit: code,
   };
   return { code, lines, record };
+}
+
+/** The log of a wave's runs, beside the ledger; not `task-NNN-verify.log`, which `kf next` and `kf loop-stats` read as a task's. */
+export function waveVerifyLogPath(itemDir: string, wave: number): string {
+  return join(itemDir, "loop", `wave-${wave}-verify.log`);
+}
+
+/** Append one wave run, in the task log's format. */
+export function appendWaveVerifyLog(itemDir: string, wave: number, result: VerifyResult, at: Date = new Date()): void {
+  mkdirSync(join(itemDir, "loop"), { recursive: true });
+  appendFileSync(waveVerifyLogPath(itemDir, wave), `## kf verify ${at.toISOString()} exit=${result.code}\n${result.lines.join("\n").split("\n").map((l) => `  ${l}`).join("\n")}\n`);
 }
 
 /** The log `kf verify` writes beside the ledger: the ledger's verify lines are checked against it. */

@@ -9,6 +9,7 @@ import {
   PER_TASK_BUCKETS,
   SEATS,
   checkVerifyLines,
+  checkWaveVerifyLines,
   completedTasks,
   lateStamps,
   loopStats,
@@ -25,7 +26,7 @@ import {
   type SeatFigures,
 } from "../../workflow/loop-stats.js";
 import { taskView } from "../../workflow/tasks.js";
-import { verifyLogPath } from "../../workflow/verify.js";
+import { verifyLogPath, waveVerifyLogPath } from "../../workflow/verify.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -62,6 +63,12 @@ function ledgerProblems(stats: LoopStats, parsed: ParsedLedger, itemDir: string,
     const log = verifyLogPath(itemDir, task);
     return parseVerifyLog(existsSync(log) ? readFileSync(log, "utf8") : "");
   });
+  const waveCheck = checkWaveVerifyLines(parsed, (wave) => {
+    const log = waveVerifyLogPath(itemDir, wave);
+    return parseVerifyLog(existsSync(log) ? readFileSync(log, "utf8") : "");
+  });
+  unlogged.push(...waveCheck.unlogged);
+  offClock.push(...waveCheck.offClock);
   const parts = [
     ...(broken ? [`${broken} are left out of every figure`] : []),
     ...(unlogged.length > 0 ? [`ledger lines ${list(unlogged)} report a verify exit no kf verify run logged`] : []),
@@ -83,6 +90,9 @@ function renderReport(feature: string, stats: LoopStats): string {
     `seat minutes: ${min(stats.seatMinutes)}`,
     ...SEATS.map((s) => seatLine(s, stats.seats[s])),
     seatLine("verify", stats.verify),
+    ...(stats.waveVerify
+      ? [seatLine("wave verify", { count: stats.waveVerify.count, median: stats.waveVerify.medianMin, sum: stats.waveVerify.sumMin })]
+      : []),
     `rounds: ${stats.rounds}`,
     `cascades: ${stats.cascades}`,
     `tasks: ${stats.tasks}`,

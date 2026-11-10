@@ -3,6 +3,7 @@ import { uiSpecs, unnamedReportShas } from "./fold.js";
 import { JUDGEMENTS, closesText, commitsCloseGate } from "./judgements.js";
 import { sameSha } from "./ledger-state.js";
 import { shellQuote } from "./record.js";
+import { waveIntents } from "./waves.js";
 import type {
   Action,
   ImplementerStep,
@@ -589,10 +590,12 @@ function capWriteCloses(line: string): MachineEventType[] {
   return ["other"];
 }
 
-/** The item intents: Conflict scan, the cap's owed writes and decides, Invalid ceiling, Unknown task, Drift (resume only). */
+/**
+ * The item intents: Conflict scan, the cap's owed writes and decides, Invalid ceiling, Unknown task, the wave verifies
+ * and their decides, Drift (resume only).
+ */
 export function itemIntents(world: World, opts: NextOptions): Intent[] {
   // Drift is a task's: its open developer seat's intents print it (seatIntents).
-  void opts;
   const intents: Intent[] = [];
   if (world.scan === "none") intents.push(judge({ kind: "conflictScan", openedAt: null }, null));
   let ceilingDecide = false;
@@ -613,6 +616,7 @@ export function itemIntents(world: World, opts: NextOptions): Intent[] {
   for (const [task, { decided }] of world.unknown) {
     if (!decided) intents.push(judge({ kind: "unknownTask", task, openedAt: null }, null));
   }
+  intents.push(...waveIntents(world, opts));
   return intents;
 }
 

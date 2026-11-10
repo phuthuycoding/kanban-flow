@@ -17,6 +17,13 @@ export const LEDGER_SHAPES = {
 // `+hhmm` is accepted beside `+hh:mm`: the same instant, and a hand-written ledger drops the colon easily.
 export const TS_SUFFIX = / @ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))$/;
 
+/** Wave verify lines; kept out of LEDGER_SHAPES so the per-task grammar and its verify column stay as they are. */
+export const WAVE_SHAPES = {
+  waveVerifyStarted: /^wave ([1-9]\d*): verify started$/,
+  waveVerifyDone: /^wave ([1-9]\d*): verify done exit=(\d+)$/,
+} as const;
+export type WaveShapeName = keyof typeof WAVE_SHAPES;
+
 const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
 
 /** A line that claims a shape behind a markdown bullet or indentation; it fails the grammar but must not pass as other-timed. */
@@ -37,8 +44,11 @@ export type ShapeName = keyof typeof LEDGER_SHAPES;
 export interface LedgerLine {
   /** 1-based line number in the ledger file. */
   line: number;
-  kind: "shape" | "unparsed" | "other-timed" | "untimed";
+  kind: "shape" | "wave" | "unparsed" | "other-timed" | "untimed";
   shape?: ShapeName;
+  /** Set on a `wave <w>: verify …` line (kind "wave"). */
+  waveShape?: WaveShapeName;
+  wave?: number;
   task?: string;
   /** Epoch ms (UTC) of the line's suffix. */
   ts?: number;
@@ -100,6 +110,10 @@ export function classify(text: string, line: number): LedgerLine {
     const m = LEDGER_SHAPES[shape].exec(body);
     if (m) return { line, kind: "shape", shape, task: m[1], ts, stamp, ...shapeFields(shape, m) };
   }
+  for (const waveShape of Object.keys(WAVE_SHAPES) as WaveShapeName[]) {
+    const m = WAVE_SHAPES[waveShape].exec(body);
+    if (m) return { line, kind: "wave", waveShape, wave: Number(m[1]), ts, stamp, ...(m[2] !== undefined ? { exit: Number(m[2]) } : {}) };
+  }
   const reopened = REOPENED.exec(body);
   if (reopened) return { line, kind: "other-timed", task: reopened[1], reopened: true, ts, stamp };
   return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
@@ -107,7 +121,8 @@ export function classify(text: string, line: number): LedgerLine {
 
 /** Orphans no later open of the same seat or verify answers: a resume re-dispatches a lost seat, which leaves an honest orphan. */
 export function unansweredOrphans(parsed: ParsedLedger, orphans: number[]): number[] {
-  const key = (l: LedgerLine): string | null => (l.shape === "dispatched" ? `${l.task} ${l.seat}` : l.shape === "verifyStarted" ? `${l.task} verify` : null);
+  const key = (l: LedgerLine): string | null =>
+    l.shape === "dispatched" ? `${l.task} ${l.seat}` : l.shape === "verifyStarted" ? `${l.task} verify` : l.waveShape === "waveVerifyStarted" ? `wave ${l.wave} verify` : null;
   return orphans.filter((n) => {
     const line = parsed.lines.find((l) => l.line === n);
     const own = line ? key(line) : null;
@@ -161,15 +176,29 @@ const VERIFY_STAMP_TOLERANCE_MS = 15 * 60_000;
  * is not logged, and a line older than the log's first run under the earlier format has nothing to check against.
  */
 export function checkVerifyLines(parsed: ParsedLedger, logOf: (task: string) => VerifyLog): { unlogged: number[]; offClock: number[] } {
+  return checkDoneLines(parsed.lines.filter((l) => l.shape === "verifyDone"), (l) => l.task!, logOf);
+}
+
+/** The same check for `wave <w>: verify done` lines against loop/wave-<w>-verify.log. */
+export function checkWaveVerifyLines(parsed: ParsedLedger, logOf: (wave: number) => VerifyLog): { unlogged: number[]; offClock: number[] } {
+  return checkDoneLines(parsed.lines.filter((l) => l.waveShape === "waveVerifyDone"), (l) => String(l.wave), (key) => logOf(Number(key)));
+}
+
+function checkDoneLines(
+  doneLines: LedgerLine[],
+  keyOf: (l: LedgerLine) => string,
+  logOf: (key: string) => VerifyLog,
+): { unlogged: number[]; offClock: number[] } {
   const unlogged: number[] = [];
   const offClock: number[] = [];
   const claimed = new Map<string, Set<number>>();
-  for (const l of parsed.lines) {
-    if (l.shape !== "verifyDone" || l.exit === 3) continue;
-    const { runs, handWrittenUntil } = logOf(l.task!);
+  for (const l of doneLines) {
+    if (l.exit === 3) continue;
+    const key = keyOf(l);
+    const { runs, handWrittenUntil } = logOf(key);
     if (handWrittenUntil !== undefined && l.ts! < handWrittenUntil) continue;
-    const taken = claimed.get(l.task!) ?? new Set<number>();
-    claimed.set(l.task!, taken);
+    const taken = claimed.get(key) ?? new Set<number>();
+    claimed.set(key, taken);
     let best = -1;
     runs.forEach((run, i) => {
       if (run.exit !== l.exit || taken.has(i)) return;
@@ -216,6 +245,8 @@ export interface LoopStats {
   wallMinutes: number;
   seats: Record<Seat, SeatFigures>;
   verify: SeatFigures;
+  /** Present only when the ledger has wave verify runs, so an old ledger's output is unchanged. Wave verify runs (`wave <w>: verify started/done`): their minutes are not in `verify`, `verifyMinutes`, busy or saved. */
+  waveVerify?: { count: number; medianMin: number; sumMin: number };
   seatMinutes: number;
   verifyMinutes: number;
   busyMinutes: number;
@@ -398,6 +429,17 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
     orphans,
   );
 
+  const waves = parsed.lines.filter((l) => l.kind === "wave");
+  const wavePairs = pairLines(
+    waves,
+    (l) => l.waveShape === "waveVerifyStarted",
+    (l) => l.waveShape === "waveVerifyDone",
+    (l) => String(l.wave),
+    unparsed,
+    orphans,
+  );
+  const waveFigures = figures(wavePairs.map(({ open, close }) => (close.ts! - open.ts!) / MINUTE));
+
   const seatIntervals = seatPairs.map(({ open, close }) => ({ seat: open.seat!, model: open.model!, start: open.ts!, end: close.ts! }));
   const verifyIntervals = verifyPairs.map(({ open, close }) => ({ start: open.ts!, end: close.ts! }));
   const minutesOf = (iv: Interval): number => (iv.end - iv.start) / MINUTE;
@@ -419,10 +461,12 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
 
   const timed = parsed.lines.filter((l) => l.ts !== undefined).map((l) => l.ts!);
   let wallMs = 0;
+  let wallStart = 0;
+  let wallEnd = 0;
   if (dispatched.length > 0) {
-    const start = Math.min(...dispatched.map((l) => l.ts!));
-    const end = inProgress || completes.length === 0 ? Math.max(...timed) : Math.max(...completes.map((l) => l.ts!));
-    wallMs = end - start;
+    wallStart = Math.min(...dispatched.map((l) => l.ts!));
+    wallEnd = inProgress || completes.length === 0 ? Math.max(...timed) : Math.max(...completes.map((l) => l.ts!));
+    wallMs = wallEnd - wallStart;
   }
 
   const openWaits: number[] = [];
@@ -447,17 +491,24 @@ export function loopStats(parsed: ParsedLedger, deps?: Record<string, string[]>)
   const seatMs = sum(seatIntervals.map((iv) => iv.end - iv.start));
   const verifyMs = sum(verifyIntervals.map((iv) => iv.end - iv.start));
   const busyMs = unionMs([...seatIntervals, ...verifyIntervals]);
+  // A wave verify is kf work, not controller time, yet it stays out of busy and saved.
+  // Clipped to the wall window so a wave verify outside it cannot push controller time below zero.
+  const waveIntervals = wavePairs
+    .map(({ open, close }) => ({ start: Math.max(open.ts!, wallStart), end: Math.min(close.ts!, wallEnd) }))
+    .filter((iv) => iv.end > iv.start);
+  const workMs = unionMs([...seatIntervals, ...verifyIntervals, ...waveIntervals]);
 
   return {
     inProgress,
     wallMinutes: round1(wallMs / MINUTE),
     seats,
     verify: figures(verifyIntervals.map(minutesOf)),
+    ...(waveFigures.count > 0 ? { waveVerify: { count: waveFigures.count, medianMin: waveFigures.median, sumMin: waveFigures.sum } } : {}),
     seatMinutes: round1(seatMs / MINUTE),
     verifyMinutes: round1(verifyMs / MINUTE),
     busyMinutes: round1(busyMs / MINUTE),
     savedMinutes: round1((seatMs + verifyMs - busyMs) / MINUTE),
-    controllerMinutes: round1((wallMs - busyMs) / MINUTE),
+    controllerMinutes: round1(Math.max(0, wallMs - workMs) / MINUTE),
     waitMinutes: round1(waitMs / MINUTE),
     rounds: of("fixRound").length,
     cascades: of("cascadeOwed").length,
