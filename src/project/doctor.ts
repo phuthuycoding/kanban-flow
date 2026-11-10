@@ -15,7 +15,7 @@ import { checkHarnessLegacyKeys, checkLegacyRunState, fixFailure, removeLegacyHa
 import { checkGithubHooks, checkOrphanedHooks, repairHooks } from "./doctor-hooks.js";
 import { checkSkills, repairSkills } from "./doctor-install.js";
 import type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
-import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, jsonIndent, type ProjectConfig } from "./config.js";
+import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, jsonIndent, PROJECT_CONFIG_KEYS, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
 import { writeFileAtomic } from "../shared/paths.js";
@@ -272,6 +272,26 @@ function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfi
   return findings;
 }
 
+// Legacy keys are known so they never warn twice, but kf no longer reads them, so a hint never points at one.
+const HINT_EXCLUDED = new Set(["ship", "stack", "defaultContext"]);
+
+/** A top-level config key kf does not read is silently ignored, so a typo turns a setting off; name it, and the key it likely meant. */
+function checkUnknownConfigKeys(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+  if (!cfg) return [];
+  const raw = readRawConfig(root);
+  if (!raw) return [];
+  return Object.keys(raw).filter((key) => !PROJECT_CONFIG_KEYS.has(key)).map((key) => {
+    const near = [`${key}s`, key.endsWith("s") ? key.slice(0, -1) : undefined]
+      .find((k): k is string => k !== undefined && PROJECT_CONFIG_KEYS.has(k) && !HINT_EXCLUDED.has(k));
+    return {
+      level: "WARNING" as const,
+      area: ".kf/config.json",
+      message: `unknown_config_key: "${key}" is not a kf config key and is ignored.`,
+      action: near ? `did you mean "${near}"? rename or remove it` : "remove it, or keep it as a note (kf ignores it)",
+    };
+  });
+}
+
 /**
  * The repo link is opt-in, so its absence is only worth reporting when a GitHub origin exists
  * to link to — otherwise the warning would nag projects that have nothing to record.
@@ -347,6 +367,7 @@ export function runDoctor(root: string): DoctorReport {
   const config = checkConfig(root);
   findings.push(...config.findings);
   findings.push(...checkLegacyFields(root, config.cfg));
+  findings.push(...checkUnknownConfigKeys(root, config.cfg));
   findings.push(...checkRepository(root, config.cfg));
   findings.push(...checkGithubHooks(root));
   findings.push(...checkOrphanedHooks(root));

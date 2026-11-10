@@ -32,6 +32,18 @@ export interface ProjectConfig {
 }
 
 /**
+ * Every top-level key kf reads from `.kf/config.json`, plus the legacy `ship` block `kf doctor` reports on its own.
+ * Typed against `ProjectConfig` so a key added there without this list fails the typecheck instead of warning as unknown.
+ */
+export const PROJECT_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  ...Object.keys({
+    schema: true, contexts: true, repository: true, project: true, defaultContext: true, stacks: true, stack: true,
+    reviewer: true, agents: true, skills: true, harness: true, worktree: true, created: true,
+  } satisfies Record<keyof ProjectConfig, true>),
+  "ship",
+]);
+
+/**
  * The `ship` block configured the removed `kf ship` pipeline. Configs written by earlier releases
  * still carry it, so any shape is accepted and dropped rather than refused; `kf doctor` reports it.
  * Returns whether a leftover block was present.
