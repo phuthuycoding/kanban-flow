@@ -11,7 +11,7 @@ import { validateFeature, checkDirectionGate, type Finding } from "../workflow/v
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
-import { cmdValidate } from "../cli/commands/inspect.js";
+import { cmdStatus, cmdValidate } from "../cli/commands/inspect.js";
 import { cmdArchive } from "../cli/commands/archive.js";
 import { cmdCancel } from "../cli/commands/cancel.js";
 import type { ParsedArgs } from "../cli/args.js";
@@ -633,4 +633,38 @@ exit 0
     expect(res.code, res.stdout).toBe(0);
     expect(feature("demo").stage).toBe("done");
   });
+});
+
+describe("plan check edge cases", () => {
+  it("reports an unreadable project config as one docs finding, and kf status still answers", async () => {
+    await project();
+    await plannedFeature("demo", ["docs/specs/cli/x.md"]);
+    // An empty contexts list is refused by the config parser, so the declared contexts cannot be read.
+    await writeFile(join(root, ".kf", "config.json"), JSON.stringify({
+      schema: "kanban-flow", created: "x", contexts: [], worktree: { enabled: false },
+    }));
+
+    const found = docsFindings(validateFeature(feature("demo"), false, false).issues);
+    expect(found.map((i) => [i.code, i.severity])).toEqual([["docs_config_invalid", "ERROR"]]);
+
+    const status = await cmdStatus(args("status", [], { change: "demo" }), root);
+    expect(status.stdout).toContain("demo");
+  });
+
+  it.each(["implementation", "review"] as const)(
+    "does not ask a legacy item in %s for a Documentation Impact section",
+    async (stage) => {
+      await project();
+      await plannedFeature("demo", ["none — test fixture"]);
+      expect((await cmdApprove(args("approve", ["demo"]), root)).code).toBe(0);
+      await dropMarker("demo");
+      if (stage === "review") await implementationToReview("demo");
+      expect(feature("demo").stage).toBe(stage);
+      // A plan written before living docs existed: no Documentation Impact section at all.
+      await writeFile(join(feature("demo").dir, ARTIFACTS["implementation-plan"].file), "# Contract\nUC-001: Create a task\n");
+
+      const res = await validate("demo");
+      expect(docsFindings(res.issues)).toEqual([]);
+    },
+  );
 });
