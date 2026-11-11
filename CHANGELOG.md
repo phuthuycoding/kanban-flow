@@ -19,6 +19,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ### Removed
 - **Breaking: `kf archive --skip-specs` and `kf cancel --purge-docs`.** Both exit 1 with `--<flag> was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc`. `kf cancel` of a done item no longer lists or deletes docs.
 
+### Fixed
+- **`kf doctor --fix` keeps the layout of untouched config keys (#161).** A repair of `.kf/config.json` (and `kf init` patching an existing config) re-serialises only the top-level keys it changes or adds; every other key keeps its original text, so inline arrays stay inline, and the file keeps its trailing newline or its absence. Regression tests: `src/tests/config-layout.test.ts`, `src/tests/doctor.test.ts`.
+
 ## [0.17.0] - 2026-11-10
 
 ### Added
