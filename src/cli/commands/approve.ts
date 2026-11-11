@@ -39,7 +39,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   if (!by.trim()) return { code: 1, stdout: "Approver name must not be empty.", stderr: "missing approver" };
   const to = args.options.backlog ? "backlog" : "implementation";
   const previous = { approval: f.meta.approval, executionId: f.meta.executionId };
-  const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash };
+  const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash, livingDocs: true as const };
   await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined }));
   const outcome = await transitionItem(root.root, f.name, to, { cwd });
   if (outcome.kind !== "moved") {

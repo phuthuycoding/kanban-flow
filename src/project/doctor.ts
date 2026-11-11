@@ -20,6 +20,7 @@ import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { DEFAULT_AGENT, parseAgentIds } from "../integrations/agents.js";
+import { scanLegacyFeatures } from "../workflow/living-docs.js";
 
 export type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
 
@@ -357,6 +358,18 @@ function readRawConfig(root: string): Record<string, unknown> | null {
   return readRawConfigText(root)?.raw ?? null;
 }
 
+/** Legacy docs left for kf:docs to consolidate (FR-016): a WARNING only, never repaired by --fix. */
+function checkLegacyDocs(legacy: Record<string, string[]>): DoctorFinding[] {
+  const counts = Object.entries(legacy).map(([context, features]) => `${context} ${features.length}`);
+  if (counts.length === 0) return [];
+  return [{
+    level: "WARNING",
+    area: "docs",
+    message: `Legacy docs not consolidated: ${counts.join(", ")} feature(s) under docs/requirement, docs/use-cases or docs/testplan.`,
+    action: "run kf:docs to consolidate them into living docs under docs/specs/<context>/",
+  }];
+}
+
 /** Diagnose a project. Read-only: nothing here writes, moves or deletes. */
 export function runDoctor(root: string): DoctorReport {
   const findings: DoctorFinding[] = [];
@@ -381,6 +394,8 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkUndelivered(root));
   findings.push(...checkAwaitingMerge(root));
   findings.push(...checkDocsBranches(root));
+  const legacyDocs = scanLegacyFeatures(root, config.cfg?.contexts);
+  findings.push(...checkLegacyDocs(legacyDocs));
   findings.push(...checkStatusMap(config.cfg));
   findings.push(...checkStatusMapLegacy(config.cfg));
   findings.push(...(config.cfg ? checkHarnessLegacyKeys(readRawConfig(root)) : []));
@@ -397,6 +412,7 @@ export function runDoctor(root: string): DoctorReport {
     findings,
     invalidItems,
     totalItems: items.length,
+    legacyDocs,
     ok: findings.every((f) => f.level !== "ERROR"),
   };
 }

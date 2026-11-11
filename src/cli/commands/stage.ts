@@ -46,7 +46,6 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
         return renderArchive(await archiveItem(root.root, name, {
           force: Boolean(args.options.force),
           skipHooks: Boolean(args.options["skip-hooks"]),
-          skipSpecs: Boolean(args.options["skip-specs"]),
           trigger: "stage",
         }));
       }
@@ -54,30 +53,5 @@ export async function cmdStage(args: ParsedArgs, cwd: string): Promise<CmdResult
     case "moved":
       break;
   }
-  const moved = outcome.stdout;
-
-  // An item reopened into `done` must end up as archived as it was: `status: "archived"` back,
-  // and canonical docs re-synced, since `kf cancel --purge-docs` may have deleted them. Archive
-  // is idempotent once the item is in `done`, so hand off rather than duplicate its logic.
-  if (outcome.reopened && to === "done") {
-    // The caller's flags are deliberately NOT forwarded. `--force` on `kf stage` means "skip a
-    // gate"; inside archive it also means "overwrite canonical docs that changed since the
-    // snapshot", which would destroy hand edits on a command that never offered to. A re-sync
-    // that refuses is the correct outcome here, and archive says why.
-    //
-    // Archive can fail as well as refuse — a missing source artifact, an unwritable docs tree.
-    // The move and the metadata write have already committed by now, so a failure must not
-    // turn a successful reopen into exit 1.
-    const resync = await archiveItem(root.root, name);
-    if (resync.kind === "error") {
-      const why = resync.error instanceof Error ? resync.error.message : String(resync.error);
-      return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced: ${why}\n  Fix that, then run: kf archive ${name}` };
-    }
-    const rendered = renderArchive(resync);
-    if (resync.kind === "refused" || resync.kind === "hook-failed") {
-      return { code: 0, stdout: `${moved}\n  Canonical docs were not re-synced. Run: kf archive ${name}\n${rendered.stdout}` };
-    }
-    return { code: 0, stdout: `${moved}\n${rendered.stdout}` };
-  }
-  return { code: 0, stdout: moved };
+  return { code: 0, stdout: outcome.stdout };
 }

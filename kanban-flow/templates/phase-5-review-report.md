@@ -7,6 +7,8 @@ commit: "{commit}"
 status: REJECT
 ci: "{ci}"
 landing: "{landing}"
+docs: "{docs}"
+docs_reason: "{docs_reason}"
 ---
 
 # Review Report

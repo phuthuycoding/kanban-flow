@@ -8,7 +8,7 @@ import { MANAGED_SKILLS, MANAGED_AGENTS, LEGACY_SKILLS } from "../integrations/m
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // Spelled out on purpose: the module under test is checked against the intended lists, not against itself.
-const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel"];
+const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel", "docs"];
 const AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer", "researcher"];
 const LEGACY = ["kanban-flow", "kanban-brainstorm", "kanban-plan", "kanban-implement", "kanban-test", "kanban-review", "kanban-archive", "kanban-bug"];
 

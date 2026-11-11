@@ -5,11 +5,9 @@ import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
-export { canonicalContent, canonicalDocPaths, type CanonicalKind } from "../../workflow/canonical-docs.js";
-
-function canonicalBlock(docs: string[], skipSpecs: boolean, indent: string): string {
-  if (docs.length > 0) return `${indent}Canonical docs synced:\n${docs.map((d) => `${indent}  ${d}`).join("\n")}`;
-  return `${indent}${skipSpecs ? "(--skip-specs: canonical docs not touched)" : "(no canonical docs synced)"}`;
+/** The refusal of a docs flag an earlier release had: the close no longer touches docs/. */
+export function removedDocsFlag(flag: string): CmdResult {
+  return { code: 1, stdout: `--${flag} was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc`, stderr: "removed flag" };
 }
 
 function issueNote(hasIssue: boolean): string {
@@ -36,41 +34,30 @@ function branchNote(branch: BranchDeletion): string {
     (branch.remote.kind === "kept" && branch.local.kind !== "kept" ? `\n  ⚠ origin kept ${branch.branch}: ${branch.remote.detail}` : "");
 }
 
-/** Where the docs went, when that is not the plain working-tree sync `canonicalBlock` already prints. */
-function docsBranchNote(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
-  if (outcome.docsOn === "tree") return outcome.docsNote ? `\n  ⚠ ${outcome.docsNote}` : "";
-  const why = outcome.docsNote ? ` (${outcome.docsNote})` : "";
-  if (!outcome.docsBranch) return `\n  Canonical docs already current on origin's default branch${why} — nothing committed.`;
-  return `\n  Canonical docs committed to ${outcome.docsBranch}, not pushed${why}:` +
-    outcome.docs.map((d) => `\n    ${d}`).join("") +
-    `\n  Commit hooks were skipped for this kf-authored docs commit (--no-verify); run them before pushing if the repo relies on them.` +
-    `\n  Push it: git push -u origin ${outcome.docsBranch}, then open a PR for it.`;
-}
-
-/** Worktree, branch and docs lines of a close, shared by kf archive, kf status and kf sync. */
+/** Worktree, branch and legacy-docs lines of a close, shared by kf archive, kf status and kf sync. */
 export function closeDetails(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
   const removed = outcome.teardown ? worktreeNote(outcome.teardown, outcome.worktreePath) : "";
   const counted = outcome.countNote ? `\n  ⚠ ${outcome.countNote}` : "";
   const reviewed = outcome.reviewNote ? `\n  ⚠ ${outcome.reviewNote}` : "";
-  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${reviewed}${docsBranchNote(outcome)}`;
+  const legacy = outcome.legacyDocsNote ? `\n  ⚠ ${outcome.legacyDocsNote}` : "";
+  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${reviewed}${legacy}`;
 }
 
 function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
-  const docs = outcome.docsOn === "tree" ? `\n${canonicalBlock(outcome.docs, outcome.skipSpecs, "  ")}` : "";
-  return `✓ Archived '${outcome.name}'  review → done\n  ${outcome.dir}${docs}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${closeDetails(outcome)}${bypassNote(outcome.bypasses)}`;
+  return `✓ Archived '${outcome.name}'  review → done\n  ${outcome.dir}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.${issueNote(outcome.hasIssue)}${closeDetails(outcome)}${bypassNote(outcome.bypasses)}`;
 }
 
-/** The docs lines of a reconcile: the plain resync, or what happened to the recorded docs branch. */
+/** The docs lines of a reconcile: what happened to the recorded docs branch, if there is one. */
 function reconciledDocs(outcome: Extract<ArchiveOutcome, { kind: "reconciled" }>): string {
   const d = outcome.docsBranch;
-  if (!d) return canonicalBlock(outcome.docs, outcome.skipSpecs, "");
+  if (!d) return "";
   switch (d.kind) {
     case "waiting":
-      return `Canonical docs wait on ${d.branch}${d.reason ? ` — not proven merged (${d.reason})` : ""}${d.push ? `: git push -u origin ${d.branch}, then open a PR for it` : ""} — nothing rewritten.`;
+      return `\nCanonical docs wait on ${d.branch}${d.reason ? ` — not proven merged (${d.reason})` : ""}${d.push ? `: git push -u origin ${d.branch}, then open a PR for it` : ""} — nothing rewritten.`;
     case "landed":
-      return `Canonical docs from ${d.branch} are on origin's default branch — recorded as landed, nothing rewritten.`;
+      return `\nCanonical docs from ${d.branch} are on origin's default branch — recorded as landed, nothing rewritten.`;
     case "relanded":
-      return `Canonical docs ${d.unproven ? `not proven landed (${d.unproven})` : "never landed"}; committed again to ${d.branch}, not pushed (${d.why}):` +
+      return `\nCanonical docs ${d.unproven ? `not proven landed (${d.unproven})` : "never landed"}; committed again to ${d.branch}, not pushed (${d.why}):` +
         outcome.docs.map((doc) => `\n  ${doc}`).join("") +
         (d.unproven ? `\n  ⚠ If the earlier PR did merge, this PR reverts later edits to these docs: do not merge it.` : "") +
         `\nCommit hooks were skipped for this kf-authored docs commit (--no-verify); run them before pushing if the repo relies on them.` +
@@ -82,7 +69,7 @@ function renderReconciled(outcome: Extract<ArchiveOutcome, { kind: "reconciled" 
   const delivered = outcome.alreadyDelivered
     ? "\n  Delivery finalized — item was already marked delivered; side effects re-checked."
     : "\n  Delivery finalized — `delivered` stamped in .kfw.json.";
-  return `Feature '${outcome.name}' is already in done.\n${reconciledDocs(outcome)}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
+  return `Feature '${outcome.name}' is already in done.${reconciledDocs(outcome)}${delivered}${issueNote(outcome.hasIssue)}${bypassNote(outcome.bypasses)}`;
 }
 
 /** Render an archive outcome the way `kf archive` prints it. An `error` outcome is rethrown. */
@@ -103,11 +90,11 @@ export function renderArchive(outcome: ArchiveOutcome): CmdResult {
 export async function cmdArchive(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
   if (!name) return { code: 1, stdout: "Usage: kf archive <feature>", stderr: "missing feature" };
+  if (args.options["skip-specs"]) return removedDocsFlag("skip-specs");
   const root = await findRoot(cwd);
   if (!root.ok) return { code: 1, stdout: root.err!, stderr: "no works" };
   return renderArchive(await archiveItem(root.root, name, {
     force: Boolean(args.options.force),
     skipHooks: Boolean(args.options["skip-hooks"]),
-    skipSpecs: Boolean(args.options["skip-specs"]),
   }));
 }

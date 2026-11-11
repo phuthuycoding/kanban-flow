@@ -268,7 +268,7 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
   - **Let the nature of the feature set the default.** Do not ask again when the answer is obvious: a CRUD API is `unit+integration`, an app with a UI is `full`. Ask only when you genuinely cannot decide.
 - **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Under `full`, at least one criterion per FR must read as a UI action: what is clicked, what is typed, what appears on screen.
 
-Set `status: pending` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation). Write nothing under `docs/` here: the close writes the canonical requirement, and a file in the main checkout would make `kf stage … planning` skip its base fast-forward.
+Set `status: pending` → `status: confirmed` in the spec frontmatter when the human signs off (Phase 1 ends on this confirmation). Write nothing under `docs/` here: the living docs are edited at review (`kf:review` step 2b), and a file in the main checkout would make `kf stage … planning` skip its base fast-forward.
 
 ```bash
 kf status --change {feature_name}

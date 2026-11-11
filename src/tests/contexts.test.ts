@@ -352,9 +352,10 @@ describe("kf init and the declared list", () => {
     const res = await cmdInit(args("init", [], { defaults: true, context: "payments" }), dir);
     expect(res.code).toBe(1);
     expect(res.stdout).toContain("not a declared context");
-    for (const d of ["requirement", "use-cases", "testplan"]) {
+    for (const d of ["requirement", "use-cases", "testplan", "specs"]) {
       expect(existsSync(join(dir, "docs", d, "payments")), d).toBe(false);
     }
+    expect(existsSync(join(dir, "docs", "specs")), "no docs tree before the refusal").toBe(false);
   });
 
   it("leaves a project that predates the list unrestricted", async () => {
@@ -776,8 +777,9 @@ describe("edges nothing else reaches", () => {
     const cfg = readProjectConfig(dir);
     expect(cfg.defaultContext, "the list already decides the default").toBeUndefined();
     expect(cfg.contexts).toEqual(["auth", "billing"]);
-    // Seeding docs at a declared context is fine — kf new --context billing can reach them.
-    expect(existsSync(join(dir, "docs", "requirement", "billing"))).toBe(true);
+    // The living-doc layout is context-free: docs/specs, never a per-context legacy tree.
+    expect(existsSync(join(dir, "docs", "specs", "README.md"))).toBe(true);
+    expect(existsSync(join(dir, "docs", "requirement"))).toBe(false);
     expect((await cmdNew(args("new", ["x"]), dir)).stdout, "and the default is untouched").toContain("Context: auth");
   });
 
@@ -796,9 +798,9 @@ describe("edges nothing else reaches", () => {
     expect(cfg.defaultContext, "the named context must survive on an already-initialised project").toBe("payments");
     const raw = JSON.parse(readFileSync(join(dir, ".kf", "config.json"), "utf8")) as { harness?: unknown };
     expect(raw.harness, "and re-running init must write the harness back as it was").toEqual(harness);
-    // Where docs land and where new items go have to be the same place, or the tree is dead.
+    expect(existsSync(join(dir, "docs", "specs", "README.md"))).toBe(true);
     for (const docsDir of ["requirement", "use-cases", "testplan"]) {
-      expect(existsSync(join(dir, "docs", docsDir, "payments")), docsDir).toBe(true);
+      expect(existsSync(join(dir, "docs", docsDir)), docsDir).toBe(false);
     }
     expect((await cmdNew(args("new", ["x"]), dir)).stdout).toContain("Context: payments");
   });
@@ -828,9 +830,9 @@ describe("edges nothing else reaches", () => {
       schema: "kanban-flow", created: "x", contexts: ["billing", "auth"], defaultContext: "legacy",
     }));
     expect((await cmdInit(args("init", [], { minimal: true }), dir)).code).toBe(0);
-    // contexts[0] is the default; a stale defaultContext must not decide where docs land.
-    expect(existsSync(join(dir, "docs", "requirement", "billing"))).toBe(true);
-    expect(existsSync(join(dir, "docs", "requirement", "legacy"))).toBe(false);
+    // The living-doc layout does not depend on the context at all.
+    expect(existsSync(join(dir, "docs", "specs", "README.md"))).toBe(true);
+    expect(existsSync(join(dir, "docs", "requirement"))).toBe(false);
   });
 
   it("keeps a default the project already had when nobody names one", async () => {

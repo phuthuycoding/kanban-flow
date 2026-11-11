@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ import { cmdArchive, renderArchive } from "../cli/commands/archive.js";
 import { archiveItem } from "../workflow/archive.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
 
@@ -36,7 +38,7 @@ const feature = (name = "shipit") => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: PASS\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function implementationStage(name = "shipit"): Promise<void> {
@@ -44,7 +46,7 @@ async function implementationStage(name = "shipit"): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), "# Contract\nUC-001: Ship it");
+    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Ship it") : "# Contract\nUC-001: Ship it");
   }
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it\nUser ships.");
@@ -83,21 +85,13 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const DOCS = [
-  "docs/requirement/app/shipit.md",
-  "docs/use-cases/app/shipit/README.md",
-  "docs/use-cases/app/shipit/diagram.md",
-  "docs/testplan/app/shipit.md",
-  "docs/testplan/app/shipit-result.md",
-  "docs/use-cases/app/shipit/UC-001.md",
-];
-
 // Recorded from `kf archive` before archiveItem existed; <root> and <folder> stand in for the temp
-// project root and the timestamped item folder.
+// project root and the timestamped item folder. A close no longer syncs docs, so the success and
+// reconcile outputs carry no docs lines.
 const RECORDED = {
   success: {
     code: 0,
-    stdout: `✓ Archived 'shipit'  review → done\n  <root>/.works/done/<folder>\n  Canonical docs synced:\n${DOCS.map((d) => `    <root>/${d}`).join("\n")}\n  Delivery finalized — \`delivered\` stamped in .kfw.json.`,
+    stdout: "✓ Archived 'shipit'  review → done\n  <root>/.works/done/<folder>\n  Delivery finalized — `delivered` stamped in .kfw.json.",
   },
   unmerged: {
     code: 1,
@@ -111,7 +105,7 @@ const RECORDED = {
   },
   reconcile: {
     code: 0,
-    stdout: `Feature 'shipit' is already in done.\nCanonical docs synced:\n${DOCS.map((d) => `  <root>/${d}`).join("\n")}\n  Delivery finalized — item was already marked delivered; side effects re-checked.`,
+    stdout: "Feature 'shipit' is already in done.\n  Delivery finalized — item was already marked delivered; side effects re-checked.",
   },
 };
 
@@ -127,7 +121,7 @@ describe("archiveItem — typed outcome", () => {
     if (outcome.kind !== "archived") return;
     expect(outcome.from).toBe("review");
     expect(outcome.dir).toBe(join(root, ".works", "done", folder));
-    expect(outcome.docs.map((d) => normalize(d))).toEqual(DOCS.map((d) => `<root>/${d}`));
+    expect(existsSync(join(root, "docs")), "a close writes nothing under docs/").toBe(false);
     expect(outcome.bypasses).toEqual([]);
     expect(outcome.teardown).toBeNull();
     expect(outcome).not.toHaveProperty("stdout");
@@ -177,6 +171,7 @@ describe("archiveItem — typed outcome", () => {
     expect(outcome.kind).toBe("reconciled");
     expect(outcome).not.toHaveProperty("stdout");
     expect(normalize(renderArchive(outcome).stdout)).toBe(RECORDED.reconcile.stdout);
+    expect(existsSync(join(root, "docs")), "a reconcile writes nothing under docs/").toBe(false);
   });
 
   it("names review, not the removed shipping stage, for an item cancelled from shipping", async () => {

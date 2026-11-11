@@ -76,7 +76,7 @@ describe("no leftover pre-plugin names anywhere in the living tree", () => {
   });
 });
 
-const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel"];
+const SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel", "docs"];
 const AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-writer", "automation-writer", "researcher"];
 const INSTALL_CMD = "/plugin install kf@kanban-flow";
 
@@ -96,7 +96,7 @@ describe("README and the Pages site", () => {
     const text = read("README.md");
     expect(text).toContain(INSTALL_CMD);
     expect(text).toContain("kf-");
-    expect(text).toContain("10 skills");
+    expect(text).toContain("11 skills");
     expect(text).toContain("7 agents");
     expect(text).not.toMatch(STALE_COUNTS);
   });
@@ -111,7 +111,7 @@ describe("README and the Pages site", () => {
     const text = read(".github/pages/index.html");
     expect(text).toContain(INSTALL_CMD);
     expect(text).toContain("/kf:flow");
-    expect(text).toContain("10 skills");
+    expect(text).toContain("11 skills");
     expect(text).toContain("7 agents");
     expect(text).not.toMatch(STALE_COUNTS);
   });
@@ -129,9 +129,9 @@ describe("the workflow docs", () => {
     expect(AGENTS.filter((a) => !text.includes(a))).toEqual([]);
   });
 
-  it("cli-reference states the 10 skills, the 7 agents, the kf- copy names and the plugin", () => {
+  it("cli-reference states the 11 skills, the 7 agents, the kf- copy names and the plugin", () => {
     const text = read("docs/workflow/cli-reference.md");
-    expect(text).toContain("10 skills");
+    expect(text).toContain("11 skills");
     expect(text).toContain("7 agents");
     expect(text).toContain("kf-");
     expect(text).toMatch(/plugin/i);
@@ -153,9 +153,9 @@ describe("the workflow docs", () => {
 });
 
 describe("the CLI help", () => {
-  it.each(["install", "uninstall"])("kf %s help names 10 skills, 7 agents, every agent and the plugin", (cmd) => {
+  it.each(["install", "uninstall"])("kf %s help names 11 skills, 7 agents, every agent and the plugin", (cmd) => {
     const help = commandHelp(cmd);
-    expect(help).toContain("10 skills");
+    expect(help).toContain("11 skills");
     expect(help).toContain("7 agents");
     expect(AGENTS.filter((a) => !help.includes(a))).toEqual([]);
     expect(help).toMatch(/plugin/i);

@@ -11,6 +11,8 @@ export interface DoctorReport {
   findings: DoctorFinding[];
   invalidItems: number;
   totalItems: number;
+  /** Legacy feature names per declared context still on disk (FR-016); empty when none. */
+  legacyDocs: Record<string, string[]>;
   ok: boolean;
 }
 

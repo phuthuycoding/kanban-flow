@@ -24,7 +24,11 @@ any stage → cancelled, with a reason on the record
 There is no shipping stage. A review PASS opens the pull request, watches CI and
 stops; you merge it on GitHub. The next `kf status` (or `kf sync`, or `kf archive`)
 sees the merged PR and closes the item: the branch and the item worktree are removed
-safely, the canonical docs are synced, and the folder moves to `.works/done/`. Items
+safely and the folder moves to `.works/done/`; the close copies nothing under `docs/`.
+The current docs are the living docs in `docs/specs/<context>/<capability>.md`, edited
+at review in one commit before the reviewers; the older `docs/requirement`,
+`docs/use-cases` and `docs/testplan` snapshots wait for `/kf:docs` to consolidate
+them, and `kf validate --all --base <ref>` checks the living docs in CI. Items
 that deliver no code (`landing: none`) close the same way once nothing is ahead of
 the default branch. `kf ship` is deprecated and exits 1 with that explanation. `kf
 status --all` ends with **Needs you**, **Waiting to merge** (PR URL and the
@@ -95,9 +99,9 @@ cd kanban-flow && npm install && npm run build && npm link
 
 ## Onboard your agent
 
-`kf init` does the filesystem half: it installs the 10 skills (`flow`,
+`kf init` does the filesystem half: it installs the 11 skills (`flow`,
 `brainstorm`, `plan`, `implement`, `test`, `review`, `archive`, `bug`, `spike`,
-`travel`) and the 7 agents they dispatch by name — `code-reviewer`, `scout`,
+`travel`, `docs`) and the 7 agents they dispatch by name — `code-reviewer`, `scout`,
 `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher` —
 and seeds `AGENTS.md` when the project does not already have one.
 
@@ -110,8 +114,8 @@ and seeds `AGENTS.md` when the project does not already have one.
 ```
 
 The commands are then `/kf:flow` (the orchestrator), `/kf:brainstorm`, `/kf:plan`,
-`/kf:implement`, `/kf:test`, `/kf:review`, `/kf:archive`, `/kf:bug`, `/kf:spike` and
-`/kf:travel`, and the agents are dispatched as `kf:<agent>` (`kf:developer`, ...).
+`/kf:implement`, `/kf:test`, `/kf:review`, `/kf:archive`, `/kf:bug`, `/kf:spike`,
+`/kf:travel` and `/kf:docs`, and the agents are dispatched as `kf:<agent>` (`kf:developer`, ...).
 The default scope is **global** (the plugin's `user` scope, so one install serves
 every project and tracks package upgrades); a project that wants its own sets
 `skills.scope: "project"` in `.kf/config.json` (the onboarding question asks), and

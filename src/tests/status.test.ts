@@ -13,6 +13,7 @@ import {
 } from "../workflow/features.js";
 import { computeStatus, statusToJson, renderStatusText } from "../workflow/status.js";
 import { validateFeature } from "../workflow/validate.js";
+import { withDocsImpact } from "./helpers/contract.js";
 
 let root: string;
 
@@ -39,7 +40,8 @@ async function makeFeature(name = "todo-list", stage: Stage = "brainstorm", ctx 
   }
   if (stage === "planning" || stage === "backlog" || stage === "implementation" || stage === "testing" || stage === "review" || stage === "done") {
     for (const f of ["phase-2-implementation-plan.md", "phase-2-use-case-specification.md", "phase-2-use-case-diagram.md", "phase-2-test-case.md"]) {
-      await writeFile(join(dir, f), `# ${f}\nreal content\n## TC-001\nFR-001 UC-001`);
+      const body = `# ${f}\nreal content\n## TC-001\nFR-001 UC-001`;
+      await writeFile(join(dir, f), f === "phase-2-implementation-plan.md" ? withDocsImpact(body) : body);
     }
     await mkdir(join(dir, "use-cases"), { recursive: true });
     await writeFile(join(dir, "use-cases", "UC-001.md"), "# UC-001\nreal content");

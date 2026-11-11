@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { ensureWorksStructure, findFeature } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { withDocsImpact } from "./helpers/contract.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
@@ -86,7 +87,7 @@ async function makeItem(opts: { files: string; worktree: boolean }): Promise<Ite
   must(await cmdNew(args("new", ["f"], { context: "app" }), root), "kf new");
   await write("spec-requirement", spec);
   must(await cmdStage(args("stage", ["f", "planning"]), root), "kf stage planning");
-  await write("implementation-plan", `# Implementation Plan\nUC-001: Create a task\n\n## Task Breakdown\n\n${TABLE_HEADER}\n| TASK-001 | Do it | Core | - | Change merged | FR-001 / UC-001 | - | ${opts.files} |\n`);
+  await write("implementation-plan", withDocsImpact(`# Implementation Plan\nUC-001: Create a task\n\n## Task Breakdown\n\n${TABLE_HEADER}\n| TASK-001 | Do it | Core | - | Change merged | FR-001 / UC-001 | - | ${opts.files} |\n`));
   for (const id of ["use-case-specification", "use-case-diagram"] as const) await write(id, "# Contract\nUC-001: Create a task");
   await mkdir(join(feature().dir, "use-cases"), { recursive: true });
   await writeFile(join(feature().dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");

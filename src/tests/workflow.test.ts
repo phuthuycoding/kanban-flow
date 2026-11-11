@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
-import { symlinkSync } from "node:fs";
+import { existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureWorksStructure, findFeature, listFeatures, readFeatureMeta, writeFeatureMeta, executionContractHash } from "../workflow/features.js";
@@ -15,6 +15,7 @@ import { cmdArchive } from "../cli/commands/archive.js";
 import { validateFeature, checkDirectionGate } from "../workflow/validate.js";
 import { computeStatus, renderStatusText } from "../workflow/status.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { bootstrapDefaults } from "../project/bootstrap.js";
 import { readProjectConfig } from "../project/config.js";
 import { resolveTemplate, resolveRule } from "../shared/paths.js";
@@ -32,7 +33,7 @@ async function planning(): Promise<void> {
   await writeFile(join(feature().dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature().dir, ARTIFACTS[id].file), "# Contract\nUC-001: Create a task");
+    await writeFile(join(feature().dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Create a task") : "# Contract\nUC-001: Create a task");
   }
   await mkdir(join(feature().dir, "use-cases"), { recursive: true });
   await writeFile(join(feature().dir, "use-cases", "UC-001.md"), "# UC-001 Create a task\nUser can create a task.");
@@ -47,7 +48,7 @@ async function implementation(): Promise<void> {
 const evidence = "## Commands and Evidence\n\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | 12 passed |\n";
 
 async function report(id: "testing-result" | "review-report", status = "PASS", execution = feature().meta?.executionId): Promise<void> {
-  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
+  await writeFile(join(feature().dir, ARTIFACTS[id].file), `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified current implementation.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 async function review(): Promise<void> {
@@ -167,8 +168,8 @@ describe("requirement and approval gates", () => {
     expect(feature().stage).toBe("done");
     expect(validateFeature(feature()).valid).toBe(true);
     expect(await readFile(canonical, "utf8")).toBe("Existing feature documentation");
-    expect(await readdir(join(root, "docs", "use-cases"))).toEqual([]);
-    expect(await readdir(join(root, "docs", "testplan"))).toEqual([]);
+    expect(await readdir(join(root, "docs"))).not.toContain("use-cases");
+    expect(await readdir(join(root, "docs"))).not.toContain("testplan");
   });
 
   it("invalidates bug approval when the triage contract changes", async () => {
@@ -265,9 +266,8 @@ describe("requirement and approval gates", () => {
     await report("review-report");
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
-    const canonical = join(root, "docs", "use-cases", "app", "demo");
-    expect(await readFile(join(canonical, "README.md"), "utf8")).toContain("[UC-001](UC-001-create-task.md)");
-    expect(await readFile(join(canonical, "UC-001-create-task.md"), "utf8")).toContain("UC-001");
+    expect(feature().stage).toBe("done");
+    expect(existsSync(join(root, "docs")), "the close copies no use case into docs/").toBe(false);
   });
 
   it("does not confuse FR-001 with FR-0010", async () => {
@@ -290,7 +290,7 @@ describe("requirement and approval gates", () => {
 
   it("checks approval throughout autonomous execution and supports returning to planning", async () => {
     await implementation();
-    await writeFile(join(feature().dir, ARTIFACTS["implementation-plan"].file), "# Changed contract\nNew scope");
+    await writeFile(join(feature().dir, ARTIFACTS["implementation-plan"].file), withDocsImpact("# Changed contract\nNew scope"));
     expect((await cmdStage(args("stage", ["demo", "testing"]), root)).code).toBe(1);
     expect((await cmdStage(args("stage", ["demo", "planning"]), root)).code).toBe(0);
     expect(feature().meta?.approval?.status).toBe("pending");
@@ -397,7 +397,7 @@ describe("archive consistency", () => {
     expect(feature().stage).toBe("review");
   });
 
-  it("copies requirement, use cases and test plan into canonical docs on archive", async () => {
+  it("archives without copying requirement, use cases or test plan into docs/", async () => {
     await planning();
     await writeFile(join(feature().dir, ARTIFACTS["use-case-specification"].file), "# Index\n[UC-001](use-cases/UC-001.md)");
     await cmdApprove(args("approve", ["demo"]), root);
@@ -409,14 +409,8 @@ describe("archive consistency", () => {
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nVerified scope and tests");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
 
-    const canonical = join(root, "docs");
-    expect(await readFile(join(canonical, "requirement", "app", "demo.md"), "utf8")).toContain("status: archived");
-    expect(await readFile(join(canonical, "use-cases", "app", "demo", "README.md"), "utf8")).toContain("UC-001");
-    expect(await readFile(join(canonical, "use-cases", "app", "demo", "README.md"), "utf8")).toContain("[UC-001](UC-001.md)");
-    expect(await readFile(join(canonical, "use-cases", "app", "demo", "diagram.md"), "utf8")).toContain("Contract");
-    expect(await readFile(join(canonical, "use-cases", "app", "demo", "UC-001.md"), "utf8")).toContain("UC-001");
-    expect(await readFile(join(canonical, "testplan", "app", "demo.md"), "utf8")).toContain("TC-001");
-    expect(await readFile(join(canonical, "testplan", "app", "demo-result.md"), "utf8")).toContain("status: PASS");
+    expect(feature().stage).toBe("done");
+    expect(existsSync(join(root, "docs")), "nothing is written under docs/ at close").toBe(false);
   });
 
   it.each(["archive", "stage"])("completes the pipeline through %s with consistent spec and metadata", async (command) => {
@@ -429,37 +423,40 @@ describe("archive consistency", () => {
     expect(result.code, result.stdout).toBe(0);
     expect(feature().stage).toBe("done");
     expect(feature().meta?.status).toBe("archived");
-    expect(await readFile(canonical, "utf8")).toContain("status: archived");
+    expect(await readFile(canonical, "utf8"), "a doc already under docs/ is left byte-identical").toBe(spec);
     expect(validateFeature(feature()).valid).toBe(true);
     expect(JSON.parse((await cmdStatus(args("status", [], { all: true, json: true }), root)).stdout).features).toHaveLength(1);
   });
 
-  it("records a bypass when --force overwrites changed canonical docs on re-archive", async () => {
+  it("re-archiving with --force restores nothing over a hand-edited doc and records no docs bypass", async () => {
     await review();
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Closure\nVerified");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
 
     const canonical = join(root, "docs", "requirement", "app", "demo.md");
+    await mkdir(join(root, "docs", "requirement", "app"), { recursive: true });
     await writeFile(canonical, "# Hand-edited after archive");
-    expect((await cmdArchive(args("archive", ["demo"]), root)).stderr).toBe("canonical docs changed");
     const forced = await cmdArchive(args("archive", ["demo"], { force: true }), root);
-    expect(forced.code).toBe(0);
-    expect(forced.stdout).toContain("Bypass recorded: --force");
-    const bypasses = feature().meta!.bypasses!;
-    expect(bypasses).toHaveLength(1);
-    expect(bypasses[0]).toMatchObject({ from: "done", to: "done", flag: "force" });
-    expect(bypasses[0].codes).toContain("canonical_docs_changed");
-    expect(await readFile(canonical, "utf8")).toContain("status: archived");
+    expect(forced.code, forced.stdout).toBe(0);
+    expect(await readFile(canonical, "utf8")).toBe("# Hand-edited after archive");
+    expect((feature().meta!.bypasses ?? []).flatMap((b) => b.codes)).not.toContain("canonical_docs_changed");
   });
 
-  it("honors skip-specs on first and repeated archive while marking metadata", async () => {
+  it("refuses the removed --skip-specs flag on first and repeated archive", async () => {
     await review();
     await mkdir(join(root, "docs", "use-cases", "app"), { recursive: true });
     const canonical = join(root, "docs", "use-cases", "app", "demo.md");
     await writeFile(canonical, spec);
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Closure\nVerified");
-    expect((await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root)).code).toBe(0);
-    expect((await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root)).code).toBe(0);
+    const removed = "--skip-specs was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc";
+    const first = await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root);
+    expect(first.code).not.toBe(0);
+    expect(`${first.stdout}\n${first.stderr ?? ""}`).toContain(removed);
+    expect(feature().stage).toBe("review");
+    expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
+    const repeated = await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root);
+    expect(repeated.code).not.toBe(0);
+    expect(`${repeated.stdout}\n${repeated.stderr ?? ""}`).toContain(removed);
     expect(await readFile(canonical, "utf8")).toBe(spec);
     expect(feature().meta?.status).toBe("archived");
   });
@@ -469,11 +466,11 @@ describe("archive consistency", () => {
     await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Closure\nVerified");
     expect((await cmdArchive(args("archive", ["demo"]), root)).code).toBe(0);
     const canonical = join(root, "docs", "requirement", "app", "demo.md");
-    const updated = (await readFile(canonical, "utf8")) + "\nBug fix: clarified duplicate-submit behavior.";
+    await mkdir(join(root, "docs", "requirement", "app"), { recursive: true });
+    const updated = "# Requirement\nBug fix: clarified duplicate-submit behavior.";
     await writeFile(canonical, updated);
-    expect((await cmdArchive(args("archive", ["demo"]), root)).stderr).toBe("canonical docs changed");
-    expect(await readFile(canonical, "utf8")).toBe(updated);
-    expect((await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root)).code).toBe(0);
+    const again = await cmdArchive(args("archive", ["demo"]), root);
+    expect(again.code, again.stdout).toBe(0);
     expect(await readFile(canonical, "utf8")).toBe(updated);
   });
 
@@ -593,7 +590,7 @@ describe("CLI output and persisted data", () => {
 
 describe("review → done delivery gate", () => {
   const reviewReport = (fm: string) => writeFile(join(feature().dir, ARTIFACTS["review-report"].file),
-    `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${fm}\n---\n# Review\nReviewed.\n`);
+    `---\nstatus: PASS\nexecution: ${feature().meta?.executionId}\n${fm}\n${REVIEW_DOCS_NONE}---\n# Review\nReviewed.\n`);
   const gateCodes = () => checkDirectionGate(feature(), "done").map((i) => i.code);
   const recordPr = () => writeFeatureMeta(feature().dir, { ...readFeatureMeta(feature().dir)!, pr: "https://github.com/acme/app/pull/7" });
 

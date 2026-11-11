@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +17,9 @@ import { computeStatus, renderStatusText } from "../workflow/status.js";
 import { readProjectConfig } from "../project/config.js";
 import { runHook } from "../integrations/hooks.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
+import * as paths from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
 
@@ -68,7 +70,7 @@ const feature = (name = "shipit") => findFeature(root, name)!;
 async function report(name: string, id: "testing-result" | "review-report", status = "PASS"): Promise<void> {
   const execution = readFeatureMeta(feature(name).dir)!.executionId;
   await writeFile(join(feature(name).dir, ARTIFACTS[id].file),
-    `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
+    `---\nstatus: ${status}\nexecution: ${execution}\n${id === "review-report" ? "ci: none\nlanding: none\n" + REVIEW_DOCS_NONE : ""}---\n# Evidence\nVerified.\n${id === "testing-result" ? evidence : ""}`);
 }
 
 /** Drive a feature work item to a review-stage PASS state, ready to archive. */
@@ -77,7 +79,7 @@ async function reviewStage(name = "shipit"): Promise<void> {
   await writeFile(join(feature(name).dir, ARTIFACTS["spec-requirement"].file), spec);
   expect((await cmdStage(args("stage", [name, "planning"]), root)).code).toBe(0);
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram"] as const) {
-    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), "# Contract\nUC-001: Ship it");
+    await writeFile(join(feature(name).dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact("# Contract\nUC-001: Ship it") : "# Contract\nUC-001: Ship it");
   }
   await mkdir(join(feature(name).dir, "use-cases"), { recursive: true });
   await writeFile(join(feature(name).dir, "use-cases", "UC-001.md"), "# UC-001 Ship it\nUser ships.");
@@ -139,6 +141,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   process.env.PATH = prevPath;
   for (const v of Object.keys(process.env)) {
     if (v.startsWith("GH_")) delete process.env[v];
@@ -220,7 +223,7 @@ describe("merge gate — kf archive refuses unverifiable delivery", () => {
 });
 
 describe("finalization — archive is the delivery gate", () => {
-  it("delivers a merged item: move, docs, done hook close+board, flag last", async () => {
+  it("delivers a merged item: move, done hook close+board, flag last, nothing under docs/", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     await seedPackHooks("done.sh");
@@ -237,7 +240,7 @@ describe("finalization — archive is the delivery gate", () => {
     expect(calls).toContain(`pr view ${PR}`);
     expect(calls).toContain(`issue close ${ISSUE}`);
     expect(calls).toContain("project item-edit");
-    expect(existsSync(join(root, "docs", "requirement", "app", "shipit.md"))).toBe(true);
+    expect(existsSync(join(root, "docs")), "a close writes nothing under docs/").toBe(false);
   });
 
   it("packaged done.sh closes the issue and moves the board; delivered.sh is gone", async () => {
@@ -275,10 +278,18 @@ describe("finalization — archive is the delivery gate", () => {
   it("rolls back a mid-pass failure — folder restored, flag never written", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
-    // Canonical docs can't be written when the destination path is a directory.
-    await mkdir(join(root, "docs", "requirement", "app", "shipit.md"), { recursive: true });
+    // The delivered stamp is the last write of the close; failing it is a failure after the move.
+    const writer = paths.writeFileAtomic;
+    let failed = false;
+    vi.spyOn(paths, "writeFileAtomic").mockImplementation(async (file, content) => {
+      if (!failed && file.includes(join(".works", "done")) && file.endsWith(".kfw.json")) {
+        failed = true;
+        throw new Error("Simulated metadata write failure");
+      }
+      await writer(file, content);
+    });
 
-    await expect(cmdArchive(args("archive", ["shipit"]), root)).rejects.toThrow();
+    await expect(cmdArchive(args("archive", ["shipit"]), root)).rejects.toThrow("Simulated metadata write failure");
     expect(feature().stage).toBe("review");
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });
@@ -327,7 +338,7 @@ describe("a review report written before ci/landing existed", () => {
   it("closes on its merged PR with a single gh lookup", async () => {
     await reviewStage();
     const execution = readFeatureMeta(feature().dir)!.executionId;
-    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n`);
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n${REVIEW_DOCS_NONE}---\n# Evidence\nVerified.\n`);
     await link("shipit", { pr: PR });
 
     const res = await cmdArchive(args("archive", ["shipit"]), root);
@@ -340,7 +351,7 @@ describe("a review report written before ci/landing existed", () => {
   it("still refuses when its PR is not merged", async () => {
     await reviewStage();
     const execution = readFeatureMeta(feature().dir)!.executionId;
-    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n---\n# Evidence\nVerified.\n`);
+    await writeFile(join(feature().dir, ARTIFACTS["review-report"].file), `---\nstatus: PASS\nexecution: ${execution}\n${REVIEW_DOCS_NONE}---\n# Evidence\nVerified.\n`);
     await link("shipit", { pr: PR });
     process.env.GH_PR_STATE = "OPEN";
 

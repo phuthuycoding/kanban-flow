@@ -717,7 +717,7 @@ export function scopeFromArgs(options: Record<string, unknown>): SkillScope | un
   return flag as SkillScope | undefined;
 }
 
-const PURGE_DIRS = [".works", ".kf", join("docs", "requirement"), join("docs", "use-cases"), join("docs", "testplan")];
+const PURGE_DIRS = [".works", ".kf"];
 
 export interface InstallSkillsOptions {
   /** The scope the project declared in config; a "project" declaration is never dismantled. */

@@ -32,7 +32,7 @@ status: planning
 |---|---|---|---|---|---|---|
 | TASK-001 | {task_description} | {area} | {dependencies} | {expected_output} | {requirement_reference} | {file_paths_dirs_or_globs} |
 
-Add one row per task. Execution progress lives outside the approved plan: in the hand-maintained `tasks.md` and the loop ledger `loop/progress.md`. **Files** is a comma-separated list of paths, directories or globs: the allowlist `kf verify --task` enforces for everything the task may touch; an empty Files cell means the files are unknown and nothing is refused. Dependencies are `TASK-###` tokens or `-`. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or a `## Documentation Impact` entry — or `kf validate` warns it is uncovered.
+Add one row per task. Execution progress lives outside the approved plan: in the hand-maintained `tasks.md` and the loop ledger `loop/progress.md`. **Files** is a comma-separated list of paths, directories or globs: the allowlist `kf verify --task` enforces for everything the task may touch; an empty Files cell means the files are unknown and nothing is refused. Dependencies are `TASK-###` tokens or `-`. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or an entry under Documentation Impact — or `kf validate` warns it is uncovered.
 
 ## Complexity
 - Level: {complexity_level}
@@ -79,6 +79,7 @@ Add one row per task. Execution progress lives outside the approved plan: in the
 - Coverage target: >= {coverage_target}%
 
 ## Documentation Impact
+<!-- One line per entry, in one of three forms: `docs/specs/{context}/<capability>.md` (a living doc this feature creates or updates; the context index `README.md` is updated with it and is never listed), `consolidates: {context}/{feature}` (a legacy feature folded into a living doc), or `none — <reason>` (no living doc changes). Replace the placeholder line; keep none of this guidance as an entry. -->
 - {documentation_impact}
 
 ## Definition of Done

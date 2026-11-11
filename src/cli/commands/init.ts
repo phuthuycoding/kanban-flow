@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
@@ -73,17 +73,30 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   await mkdir(join(target, ".kf", "templates"), { recursive: true });
   await mkdir(join(target, ".kf", "hooks"), { recursive: true });
   await mkdir(join(target, ".kf", "review", "rules"), { recursive: true });
-  for (const docsDir of ["requirement", "use-cases", "testplan"]) {
-    await mkdir(join(target, "docs", docsDir, ctx), { recursive: true });
-  }
+  await seedSpecs(target);
   const scope = effectiveSkillsScope(cfg);
   const skills = await installForAgents(target, agents.length ? agents : parseAgentIds(cfg.agents), scope, cfg.skills?.scope);
   if (skills.code !== 0) return skills;
   const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {
     code: 0,
-    stdout: `✓ Initialized kanban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/{requirement,use-cases,testplan}/${ctx}\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n  AGENTS.md: ${agentsFile === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}\n\n${skills.stdout}`,
+    stdout: `✓ Initialized kanban-flow in ${target}\n  .works/{${STAGES.join(",")}}\n  docs/specs (living docs)\n  .kf/templates (project overrides)\n  .kf/hooks (phase hooks, e.g. hooks/planning.sh)\n  .kf/review/rules (project review rules)\n  AGENTS.md: ${agentsFile === "created" ? "created" : "kept existing AGENTS.md/CLAUDE.md"}\n\n${skills.stdout}`,
   };
+}
+
+const SPECS_README = `# Specs
+
+\`docs/specs/\` is the current description of the system: one file per capability, kept up to date by every change.
+
+\`docs/requirement\`, \`docs/use-cases\` and \`docs/testplan\` are legacy snapshots awaiting consolidation into this folder; \`kf doctor\` lists the ones that are left.
+`;
+
+/** Create docs/specs and its README when missing; an existing README is the project's own and stays as written. */
+async function seedSpecs(target: string): Promise<void> {
+  const dir = join(target, "docs", "specs");
+  await mkdir(dir, { recursive: true });
+  const readme = join(dir, "README.md");
+  if (!existsSync(readme)) await writeFile(readme, SPECS_README, "utf8");
 }
 
 /**
@@ -133,13 +146,12 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   const skills = await installForAgents(target, answers.agents, answers.skillScope, answers.skillScope);
   if (skills.code !== 0) return skills;
 
-  for (const docsDir of ["requirement", "use-cases", "testplan"]) {
-    await mkdir(join(target, "docs", docsDir, answers.defaultContext), { recursive: true });
-  }
+  await seedSpecs(target);
 
   const out: string[] = [];
   out.push(`✓ Bootstrapped kanban-flow in ${target}${interactive && !tty ? " (non-interactive: using defaults)" : ""}`);
   out.push(`  .works/{${STAGES.join(",")}}`);
+  out.push(`  docs/specs (living docs)`);
   const ctxLine = answers.contexts.length > 0 ? `contexts: ${answers.contexts.join(", ")}` : `context: ${answers.defaultContext} (not restricted)`;
   out.push(`  ${ctxLine}   stacks: ${answers.stacks.join(", ") || "unset"}   reviewer: ${answers.reviewer}${answers.repository ? `   repository: ${answers.repository}` : ""}`);
   out.push(`  agents: ${answers.agents.join(", ")}`);

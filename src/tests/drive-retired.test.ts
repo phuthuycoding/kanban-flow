@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from "node:path";
 
 import { ensureWorksStructure, executionContractHash } from "../workflow/features.js";
 import { ARTIFACTS, METADATA_FILE } from "../workflow/schema.js";
+import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const KF = join(PKG_ROOT, "dist", "index.js");
@@ -122,11 +123,11 @@ async function passedReviewItem(root: string, name: string, leftovers: Record<st
   await mkdir(join(dir, "use-cases"), { recursive: true });
   await writeFile(join(dir, ARTIFACTS["spec-requirement"].file), "---\nstatus: confirmed\n---\n# Spec\nreal content\nFR-001");
   for (const id of ["implementation-plan", "use-case-specification", "use-case-diagram", "test-cases"] as const) {
-    await writeFile(join(dir, ARTIFACTS[id].file), `# ${id}\nreal content\n## TC-001\nFR-001 UC-001`);
+    await writeFile(join(dir, ARTIFACTS[id].file), id === "implementation-plan" ? withDocsImpact(`# ${id}\nreal content\n## TC-001\nFR-001 UC-001`) : `# ${id}\nreal content\n## TC-001\nFR-001 UC-001`);
   }
   await writeFile(join(dir, "use-cases", "UC-001.md"), "# UC-001\nreal content");
   await writeFile(join(dir, ARTIFACTS["testing-result"].file), "---\nstatus: PASS\nexecution: run-1\n---\n# Test\nreal content\nOverall: 85%\n## Commands and Evidence\n| Command / tool | Exit code | Evidence / output |\n|---|---:|---|\n| npm test | 0 | ok |");
-  await writeFile(join(dir, ARTIFACTS["review-report"].file), "---\nstatus: PASS\nexecution: run-1\nci: none\nlanding: none\n---\n# Review\nreal content");
+  await writeFile(join(dir, ARTIFACTS["review-report"].file), "---\nstatus: PASS\nexecution: run-1\nci: none\nlanding: none\n" + REVIEW_DOCS_NONE + "---\n# Review\nreal content");
   await writeFile(join(dir, ARTIFACTS["feature-report"].file), "# Feature Report\nreal content");
   await writeFile(join(dir, METADATA_FILE), JSON.stringify({
     schema: "kanban-flow", feature: name, context: "app", created: TS,
@@ -275,7 +276,7 @@ async function plannedProject(worktrees: boolean): Promise<string> {
   await writeFile(join(dir(), ARTIFACTS["spec-requirement"].file),
     "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A");
   must(kf(root, "stage", "f", "planning"), "kf stage planning");
-  await writeFile(join(dir(), ARTIFACTS["implementation-plan"].file), PLAN);
+  await writeFile(join(dir(), ARTIFACTS["implementation-plan"].file), withDocsImpact(PLAN));
   for (const id of ["use-case-specification", "use-case-diagram"] as const) {
     await writeFile(join(dir(), ARTIFACTS[id].file), "# Contract\nUC-001: Create a task");
   }

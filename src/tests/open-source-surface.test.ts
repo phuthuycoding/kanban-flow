@@ -533,3 +533,77 @@ describe("the docs describe concurrent developers in one worktree", () => {
     }
   });
 });
+
+describe("the living-docs text surfaces", () => {
+  const text = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
+  const workflowPages = readdirSync(join(ROOT, "docs", "workflow")).filter((f) => f.endsWith(".md")).map((f) => `docs/workflow/${f}`);
+
+  it("runs the project-wide docs check on pull requests in the lint job, after a full-history build", () => {
+    const ci = text(".github/workflows/ci.yml");
+    const lint = ci.slice(ci.indexOf("\n  lint:"), ci.indexOf("\n  test:"));
+    expect(lint).toContain("fetch-depth: 0");
+    expect(lint).toContain("npm run build");
+    expect(lint).toContain("node dist/index.js validate --all --strict --base origin/${{ github.base_ref }}");
+    expect(lint).toContain("pull_request");
+    expect(lint.indexOf("npm run build")).toBeLessThan(lint.indexOf("validate --all"));
+  });
+
+  it("has review step 2b edit the living docs, one History line each, in one commit before the reviewers", () => {
+    const review = text("skills/review/SKILL.md");
+    const start = review.indexOf("## 2b.");
+    const step = review.slice(start, review.indexOf("## 3.", start));
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(step).toContain("docs/specs/");
+    expect(step).toContain("History");
+    expect(step).toMatch(/one commit/i);
+    expect(step).toContain("docs_reason");
+    expect(step).toContain("`docs:`");
+    expect(step).not.toContain("Superseded by");
+    expect(step).not.toContain("Add a banner");
+  });
+
+  it("no longer describes copying snapshots or bannering in the archive skill and the reconcile guide", () => {
+    const archive = text("skills/archive/SKILL.md");
+    const reconcile = text("skills/archive/reconcile.md");
+    for (const [name, body] of [["archive", archive], ["reconcile", reconcile]] as const) {
+      expect(body, name).not.toContain("Superseded by");
+      expect(body, name).not.toContain("--skip-specs");
+      expect(body, name).not.toContain("docs-reconciled.md");
+    }
+    expect(archive).not.toContain("sync canonical docs for");
+    expect(reconcile).toContain("consolidates:");
+    expect(reconcile).toContain("docs/specs/");
+  });
+
+  it("describes docs/specs as the current docs and says the close copies nothing", () => {
+    const readme = text("docs/README.md");
+    expect(readme).toContain("docs/specs/");
+    expect(readme).not.toContain("copied out when a feature closes");
+    expect(readme).not.toContain("Superseded by");
+    expect(text("README.md")).toContain("docs/specs");
+    expect(text("kanban-flow/README.md")).toContain("11 skills");
+    expect(text("kanban-flow/README.md")).not.toContain("10 skills");
+    for (const page of workflowPages) {
+      const body = text(page);
+      expect(body, page).not.toContain("Superseded by");
+      expect(body, page).not.toContain("the CLI copies the documents people actually read");
+      for (const line of body.split("\n").filter((l) => /--skip-specs|--purge-docs/.test(l))) {
+        expect(line, `${page}: ${line.slice(0, 80)}`).toMatch(/removed|refused/i);
+      }
+    }
+    const cli = text("docs/workflow/cli-reference.md");
+    expect(cli).toContain("validate --all");
+    expect(cli).toContain("--base");
+    expect(cli).toContain("Legacy docs not consolidated");
+    expect(cli).not.toContain("the docs roots");
+  });
+
+  it("names the removed flags and the breaking change under the unreleased changelog", () => {
+    const changelog = text("CHANGELOG.md");
+    const start = changelog.indexOf("## [Unreleased]");
+    const section = changelog.slice(start, changelog.indexOf("\n## [", start + 1));
+    for (const needle of ["Breaking", "--skip-specs", "--purge-docs", "kf:docs", "validate --all"]) {
+      expect(section, needle).toContain(needle);
+    }
+  });
+});

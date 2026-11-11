@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,8 +42,6 @@ describe("cancelItem returns a typed outcome", () => {
       reason: "dropped",
       by: "Quyen",
       target: join(root, ".works", "cancelled", "demo_20260919_1200"),
-      docs: [],
-      purged: false,
       teardown: null,
       bypasses: [],
     });
@@ -111,13 +109,14 @@ describe("cancelItem returns a typed outcome", () => {
     await writeFile(hook, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     await addItem("wt", "implementation", { worktree: { path, branch: "t/wt", domain: "wt.test", port: 4000, createdAt: "20260919_1200" } });
 
-    const outcome = await cancelItem(root, "wt", { reason: "stop", by: "Quyen", purgeDocs: true });
+    const outcome = await cancelItem(root, "wt", { reason: "stop", by: "Quyen" });
 
     expect(outcome.kind === "refused" && outcome.reason).toBe("worktree-dirty");
     const text = outcome.kind === "refused" ? outcome.stdout : "";
     expect(text).toContain("Cannot cancel 'wt': Worktree for 'wt' has uncommitted changes");
     expect(text).toContain(`The cancelled hook already ran (${hook}). The item was not cancelled.`);
-    expect(text).toContain("re-run: kf cancel wt --reason 'stop' --by 'Quyen' --purge-docs");
+    expect(text).toContain("re-run: kf cancel wt --reason 'stop' --by 'Quyen'");
+    expect(text).not.toContain("--purge-docs");
     expect(existsSync(path)).toBe(true);
     expect(findFeature(root, "wt")!.stage).toBe("implementation");
   });
@@ -128,29 +127,22 @@ describe("cancelItem returns a typed outcome", () => {
     await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", worktree: { enabled: true, routesFile } }));
     await addItem("wt", "implementation", { worktree: { path: join(root, "gone-worktree"), branch: "t/wt", domain: "wt.test", port: 4000, createdAt: "20260919_1200" } });
 
-    const outcome = await cancelItem(root, "wt", { reason: "stop", by: " Quyen ", force: true, skipHooks: true, purgeDocs: true });
+    const outcome = await cancelItem(root, "wt", { reason: "stop", by: " Quyen ", force: true, skipHooks: true });
 
     const text = outcome.kind === "refused" ? outcome.stdout : "";
-    expect(text).toContain("re-run: kf cancel wt --reason 'stop' --by 'Quyen' --purge-docs --force --skip-hooks");
+    expect(text).toContain("re-run: kf cancel wt --reason 'stop' --by 'Quyen' --force --skip-hooks");
   });
 
-  it("asks the caller before purging, and keeps everything when declined", async () => {
+  it("cancels an archived item without touching its docs", async () => {
     const doc = join(root, "docs", "requirement", "app", "arch.md");
     await mkdir(join(doc, ".."), { recursive: true });
     await writeFile(doc, "x");
     await addItem("arch", "done", { status: "archived" });
 
-    expect(await cancelItem(root, "arch", { reason: "superseded", purgeDocs: true })).toMatchObject({ kind: "refused", reason: "purge-unconfirmed" });
-    let asked: string[] = [];
-    const kept = await cancelItem(root, "arch", {
-      reason: "superseded",
-      purgeDocs: true,
-      confirmPurge: async (docs) => { asked = docs; return false; },
-    });
-    expect(asked).toEqual([doc]);
-    expect(kept.kind).toBe("kept");
-    expect(findFeature(root, "arch")!.stage).toBe("done");
-    expect(existsSync(doc)).toBe(true);
+    const outcome = await cancelItem(root, "arch", { reason: "superseded" });
+    expect(outcome.kind).toBe("cancelled");
+    expect(findFeature(root, "arch")!.stage).toBe("cancelled");
+    expect(await readFile(doc, "utf8")).toBe("x");
   });
 
   it("returns a failed move as an error instead of throwing", async () => {
@@ -187,7 +179,7 @@ describe("kf cancel output is unchanged", () => {
     }
   });
 
-  it("canonical docs left in place and deleted", async () => {
+  it("an archived item lists no docs, and the removed --purge-docs is refused", async () => {
     const docDir = join(root, "docs", "requirement", "app");
     await mkdir(docDir, { recursive: true });
     await writeFile(join(docDir, "arch.md"), "x");
@@ -196,8 +188,11 @@ describe("kf cancel output is unchanged", () => {
     await addItem("gone", "done", { status: "archived" });
 
     const kept = await cmdCancel(args(["arch"], { reason: "superseded" }), root);
-    expect(render(kept.stdout)).toBe("✓ Cancelled 'arch' (was done) by human\n  Reason: superseded\n  <root>/.works/cancelled/arch_20260919_1200\n  Canonical docs left in place (use --purge-docs to delete them):\n    docs/requirement/app/arch.md\n  Reopen with: kf stage arch done");
+    expect(render(kept.stdout)).toBe("✓ Cancelled 'arch' (was done) by human\n  Reason: superseded\n  <root>/.works/cancelled/arch_20260919_1200\n  Reopen with: kf stage arch done");
     const purged = await cmdCancel(args(["gone"], { reason: "superseded", "purge-docs": true, force: true }), root);
-    expect(render(purged.stdout)).toBe("✓ Cancelled 'gone' (was done) by human\n  Reason: superseded\n  <root>/.works/cancelled/gone_20260919_1200\n  Deleted canonical docs:\n    docs/requirement/app/gone.md\n  Reopen with: kf stage gone done");
+    expect(purged.code).not.toBe(0);
+    expect(`${purged.stdout}\n${purged.stderr ?? ""}`).toContain("--purge-docs was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc");
+    expect(findFeature(root, "gone")!.stage).toBe("done");
+    expect(existsSync(join(docDir, "gone.md"))).toBe(true);
   });
 });

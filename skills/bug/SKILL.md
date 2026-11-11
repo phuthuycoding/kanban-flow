@@ -30,7 +30,7 @@ Read and fill `phase-1-spec-requirement.md` using the bug template (`kf instruct
 - What the fix covers and what it does not, plus acceptance criteria for the behaviour a regression must protect.
 - Suspected root cause when there is evidence for one; when there is not, say it is undetermined.
 - Regression test strategy and acceptance criteria that can be checked.
-- The related feature when you can identify it, and the docs impact: which file needs changing and why, or that no docs change is needed.
+- The related feature when you can identify it, and the docs impact: which existing living doc under `docs/specs/<context>/` needs changing and why, or that no docs change is needed. A bug fix updates a living doc and never creates one.
 
 - **Sibling entry points**: list what else reaches the broken code, under the report's `## Scope` — `### In Scope` for those the fix covers, `### Out of Scope` for the rest. Review will ask which of them the fix covers, so naming them here is cheaper than discovering them later.
 

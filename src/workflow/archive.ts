@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { sameCommit } from "./validate-reports.js";
 
 import { ARTIFACTS, METADATA_FILE, currentStageName, type LegacyStageName, type Stage } from "./schema.js";
-import { findFeature, stageDir, assertPathName, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
+import { findFeature, stageDir, updateFeatureMeta, withDocsLanded, writeFeatureMeta, type Bypass, type Feature, type FeatureMeta } from "./features.js";
 import { lockPath, withLock } from "../shared/lock.js";
 import { isPidAlive } from "../shared/process.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
@@ -12,10 +12,6 @@ import { writeFileAtomic } from "../shared/paths.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
 import { recordBypasses } from "./bypass.js";
 import {
-  prepareCanonicalCopies,
-  isUnstampedSnapshot,
-  writeCanonicalCopies,
-  rollbackCanonicalCopies,
   resolveDocsTarget,
   writeCanonicalDocsBranch,
   docsLandedProof,
@@ -36,7 +32,6 @@ export type ArchiveTrigger = "status" | "sync" | "archive" | "stage" | "issues";
 export interface ArchiveOptions {
   force?: boolean;
   skipHooks?: boolean;
-  skipSpecs?: boolean;
   trigger?: ArchiveTrigger;
 }
 
@@ -46,7 +41,6 @@ export type ArchiveRefusalReason =
   | "cancelled"
   | "merge-gate"
   | "gate"
-  | "docs-changed"
   | "wrong-stage"
   | "direction"
   | "target-exists"
@@ -65,9 +59,6 @@ export type ArchiveOutcome =
       name: string;
       from: Stage;
       dir: string;
-      /** Canonical doc destinations written; empty when none were synced or skipSpecs was set. */
-      docs: string[];
-      skipSpecs: boolean;
       hasIssue: boolean;
       bypasses: Bypass[];
       teardown: TeardownResult | null;
@@ -81,23 +72,19 @@ export type ArchiveOutcome =
       pr: string | null;
       /** Why the reviewed commit is not the merged one; null when they agree or the report names none. */
       reviewNote: string | null;
-      /** Where the canonical docs went: the working tree, or a branch cut from origin's default branch. */
-      docsOn: "tree" | "branch";
-      /** Unpushed branch the docs were committed to (then `docs` are repository-relative); null when they went into the working tree. */
-      docsBranch: string | null;
-      /** Why the docs went where they went, when that is worth saying. */
-      docsNote: string | null;
+      /** The warning for an item approved before living docs whose PASS report records no `docs:`; null otherwise. */
+      legacyDocsNote: string | null;
     }
   | {
-      /** The item was already in done: canonical docs re-synced and delivery re-stamped. */
+      /** The item was already in done: delivery re-stamped, a recorded docs branch waited on or re-landed. */
       kind: "reconciled";
       name: string;
       dir: string;
+      /** Docs committed again on a re-landed docs branch, repository-relative; empty otherwise. */
       docs: string[];
-      skipSpecs: boolean;
       /** True when delivery was already stamped before this reconcile. */
       alreadyDelivered: boolean;
-      /** What this reconcile did about the recorded docs branch; null when there is none or --skip-specs was set. */
+      /** What this reconcile did about the recorded docs branch; null when there is none. */
       docsBranch: ReconciledDocsBranch | null;
       hasIssue: boolean;
       bypasses: Bypass[];
@@ -146,7 +133,6 @@ function docsBranchPlan(root: string, f: Feature, branch: string): DocsBranchPla
   if (proof.landed) return { kind: "landed", branch, by: proof.by };
   if (pushed === false) return { kind: "waiting", branch, push: true, ...(proof.pushed && proof.reason ? { reason: proof.reason } : {}) };
   const target = resolveDocsTarget(root, f, { branchOnly: `the docs branch ${branch} is gone and nothing proves its docs landed, so the rewrite must show in a PR diff` });
-  if (target.kind === "tree") throw new Error(`resolveDocsTarget chose the working tree for '${f.name}' although a branch was required`);
   if (target.kind === "refused") return target;
   return { kind: "branch", branch, target, ...(!proof.gone && proof.reason ? { unproven: proof.reason } : {}) };
 }
@@ -165,7 +151,7 @@ function rerunCommand(name: string, opts: ArchiveOptions): string {
   if (opts.trigger === "status") return `kf status --change ${name}`;
   if (opts.trigger === "sync") return "kf sync";
   if (opts.trigger === "issues") return `kf issues done ${name}`;
-  const flags = `${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}${opts.skipSpecs ? " --skip-specs" : ""}`;
+  const flags = `${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}`;
   return opts.trigger === "stage" ? `kf stage ${name} done${flags}` : `kf archive ${name}${flags}`;
 }
 
@@ -237,6 +223,19 @@ function reviewMismatch(dir: string, mergedHead: string): string | null {
   const reviewed = splitFrontmatter(readFileSync(p, "utf8")).fm.commit;
   if (!reviewed || sameCommit(mergedHead, reviewed)) return null;
   return `the review passed ${reviewed.slice(0, 7)} but ${mergedHead.slice(0, 7)} was merged: the review did not see the last commits`;
+}
+
+/**
+ * The one warning line of a close for an item approved before living docs (no `livingDocs` marker)
+ * whose PASS review report records no `docs:`; null for every other item.
+ */
+function legacyDocsWarning(f: Feature): string | null {
+  if (f.meta?.approval?.livingDocs === true) return null;
+  const p = join(f.dir, ARTIFACTS["review-report"].file);
+  if (!existsSync(p)) return null;
+  const { fm } = splitFrontmatter(readFileSync(p, "utf8"));
+  if (fm.status !== "PASS" || (fm.docs ?? "").trim() !== "") return null;
+  return `${f.name}: no living doc recorded (approved before living docs)`;
 }
 
 /** The docs-branch record after a reconcile: kept, landed, or the branch the docs were re-landed on. */
@@ -326,29 +325,17 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const merge = checkMergeGate(f, readProjectConfig(root).repository);
   if (merge.kind === "failed") return refuseMerge(f.name, merge.failure);
 
-  // Only review → done transition is archive-able. If already done, refresh canonical docs idempotently.
+  // Only review → done transition is archive-able. If already done, reconcile idempotently: the
+  // close writes nothing under docs/, only a docs branch recorded by an earlier release is re-landed.
   if (f.stage === "done") {
     const check = validateFeature(f, false, true);
     if (!check.valid && !opts.force) return refuseChecks("gate", "gate failed", renderValidateText(check), check.issues);
-    const recordedBranch = opts.skipSpecs ? undefined : f.meta?.docsBranch;
+    const recordedBranch = f.meta?.docsBranch;
     const plan = recordedBranch ? docsBranchPlan(root, f, recordedBranch) : null;
     if (plan?.kind === "refused") return refuse("docs-target", "docs target", `Cannot archive '${name}': ${plan.message}`);
-    const copies = opts.skipSpecs || plan ? [] : prepareCanonicalCopies(root, f);
-    const changedDocs = copies.filter((copy) => copy.original !== null && copy.original !== copy.content && !isUnstampedSnapshot(copy));
-    if (changedDocs.length > 0 && !opts.force) {
-      return refuse(
-        "docs-changed",
-        "canonical docs changed",
-        `Canonical docs have changed since archive:\n${changedDocs.map((copy) => `  ${copy.destination}`).join("\n")}\nUse --skip-specs to preserve them, or --force only to intentionally restore the archived snapshot.`,
-      );
-    }
-    // --force here skips either the validation gate or the changed-docs refusal above;
-    // reaching this point with either failing means force was given. Record it like the
+    // Reaching this point with the gate failing means --force was given. Record it like the
     // review → done path does, or a forced refresh would leave no trail.
-    const forcedCodes = [
-      ...(check.valid ? [] : check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code)),
-      ...(changedDocs.length > 0 ? ["canonical_docs_changed"] : []),
-    ];
+    const forcedCodes = check.valid ? [] : check.issues.filter((i) => i.severity === "ERROR").map((i) => i.code);
     // Reconcile also re-runs the done hook: the AC gate re-checks, the board re-syncs and
     // the issue close is a no-op on an already-closed issue. --skip-hooks records a bypass.
     const skipHooks = Boolean(opts.skipHooks);
@@ -371,7 +358,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     let written: DocsBranchResult | null = null;
     try {
       if (plan?.kind === "branch") written = await writeCanonicalDocsBranch(root, f, plan.target);
-      else await writeCanonicalCopies(copies);
       if (f.meta) await updateFeatureMeta(root, f.name, (meta) => ({
         ...docsRecord(meta, plan, written),
         bypasses: recorded.length > 0 ? [...(meta.bypasses ?? []), ...recorded] : meta.bypasses,
@@ -383,20 +369,18 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     } catch (err) {
       const committed = written?.branch ?? null;
       const rollback = await Promise.allSettled([
-        rollbackCanonicalCopies(copies),
         ...(committed ? [Promise.resolve().then(() => deleteBranch(root, committed))] : []),
         ...(originalMeta === null ? [] : [writeFileAtomic(metaPath, originalMeta)]),
       ]);
       const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
-      if (failures.length > 0) throw new AggregateError([err, ...failures], `Canonical docs sync failed and rollback was incomplete for '${name}'.`);
-      throw new Error(`Canonical docs sync failed for '${name}'; feature remains in done.`, { cause: err });
+      if (failures.length > 0) throw new AggregateError([err, ...failures], `Reconcile failed and rollback was incomplete for '${name}'.`);
+      throw new Error(`Reconcile failed for '${name}'; feature remains in done.`, { cause: err });
     }
     return {
       kind: "reconciled",
       name,
       dir: f.dir,
-      docs: written ? written.docs : copies.map((copy) => copy.destination),
-      skipSpecs: Boolean(opts.skipSpecs),
+      docs: written ? written.docs : [],
       alreadyDelivered: Boolean(f.meta?.delivered),
       docsBranch: reconciledDocsBranch(plan, written),
       hasIssue: Boolean(f.meta?.issue),
@@ -422,6 +406,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
 
   // Read now: the item folder moves to done before the outcome is built.
   const reviewNote = merge.kind === "merged" ? reviewMismatch(f.dir, merge.headRefOid) : null;
+  const legacyDocsNote = legacyDocsWarning(f);
 
   // Landing rule: with no PR to verify, `landing: none` may close only when the item branch
   // carries nothing — otherwise unpushed work would be counted as delivered.
@@ -470,15 +455,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   if (existsSync(target)) {
     return refuse("target-exists", "target exists", `Target already exists: ${target}`);
   }
-
-  // Where the canonical docs go is settled while nothing has happened yet: preparing the copies
-  // fails on a missing source artifact, and the target may refuse (origin unreachable, a
-  // leftover docs branch). Both must refuse before the hook and the branch deletion.
-  if (f.context) assertPathName(f.context, "context");
-  assertPathName(f.name, "feature");
-  const copies = opts.skipSpecs ? [] : prepareCanonicalCopies(root, f);
-  const docsTarget: DocsTarget = copies.length > 0 ? resolveDocsTarget(root, f) : { kind: "tree" };
-  if (docsTarget.kind === "refused") return refuse("docs-target", "docs target", `Cannot archive '${name}': ${docsTarget.message}`);
 
   // A dirty worktree refuses before the hook: the hook closes the issue and moves the board,
   // which must not happen for an item that then stays in review.
@@ -538,9 +514,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
   const branch = f.meta.worktree ? deleteItemBranch(root, f.meta.worktree.branch, proof) : null;
 
   const recorded = recordBypasses(f.stage, "done", forcedCodes, skippedHook);
-  let docs: string[] = copies.map((copy) => copy.destination);
-  let docsBranch: string | null = null;
-  let docsCommit: string | null = null;
   const stale = await withLock(root, f.name, async (): Promise<ArchiveOutcome | null> => {
     const cur = findFeature(root, f.name);
     if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
@@ -549,15 +522,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     const originalMeta = readFileSync(join(cur.dir, METADATA_FILE), "utf8");
     let moved = false;
     try {
-      // Canonical docs → move → meta stamp.
-      if (docsTarget.kind === "branch") {
-        const written = await writeCanonicalDocsBranch(root, cur, docsTarget);
-        docsBranch = written.branch;
-        docsCommit = written.commit;
-        docs = written.docs;
-      } else {
-        await writeCanonicalCopies(copies);
-      }
+      // Move → meta stamp.
       await mkdir(dest, { recursive: true });
       await rename(cur.dir, target);
       moved = true;
@@ -567,30 +532,23 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
         bypasses: recorded.length > 0 ? [...(cur.meta.bypasses ?? []), ...recorded] : cur.meta.bypasses,
         status: "archived",
         worktree: undefined,
-        ...(docsBranch ? { docsBranch, ...(docsCommit ? { docsCommit } : {}) } : {}),
         delivered: true,
         deliveredAt: new Date().toISOString(),
       });
     } catch (err) {
-      // writeCanonicalDocsBranch removes its own branch when it fails; a committed one is undone here.
-      const undoDocs = docsTarget.kind === "branch"
-        ? async () => { if (docsBranch) deleteBranch(root, docsBranch); }
-        : () => rollbackCanonicalCopies(copies);
-      const rollback = await Promise.allSettled([
-        undoDocs(),
-        ...(moved ? [writeFileAtomic(join(target, METADATA_FILE), originalMeta)] : []),
-      ]);
-      const failures = rollback.filter((r): r is PromiseRejectedResult => r.status === "rejected").map((r) => r.reason);
+      const failures: unknown[] = [];
       if (moved) {
-        try {
-          await rename(target, cur.dir);
-        } catch (rollbackError) {
-          failures.push(rollbackError);
+        for (const undo of [() => writeFileAtomic(join(target, METADATA_FILE), originalMeta), () => rename(target, cur.dir)]) {
+          try {
+            await undo();
+          } catch (rollbackError) {
+            failures.push(rollbackError);
+          }
         }
       }
       const removed = alreadyRemoved(teardown, f.meta?.worktree?.path ?? null, branch);
       if (failures.length > 0) throw new AggregateError([err, ...failures], `Archive failed and rollback was incomplete for '${name}'.${removed}`);
-      throw new Error(`Archive failed for '${name}' (${err instanceof Error ? err.message : String(err)}); feature restored to review (docs, move and metadata rolled back).${removed} Fix the cause, then finish with: ${rerun}`, { cause: err });
+      throw new Error(`Archive failed for '${name}' (${err instanceof Error ? err.message : String(err)}); feature restored to review (move and metadata rolled back).${removed} Fix the cause, then finish with: ${rerun}`, { cause: err });
     }
     return null;
   });
@@ -601,8 +559,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     name,
     from: f.stage,
     dir: target,
-    docs,
-    skipSpecs: Boolean(opts.skipSpecs),
     hasIssue: Boolean(f.meta?.issue),
     bypasses: recorded,
     teardown,
@@ -611,8 +567,6 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     countNote: ahead?.note ?? null,
     pr: f.meta?.pr ?? null,
     reviewNote,
-    docsOn: docsTarget.kind === "branch" ? "branch" : "tree",
-    docsBranch,
-    docsNote: docsTarget.kind === "branch" ? docsTarget.why : docsTarget.kind === "tree" ? docsTarget.note ?? null : null,
+    legacyDocsNote,
   };
 }

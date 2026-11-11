@@ -1,11 +1,10 @@
-import { rm } from "node:fs/promises";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 
 import { ARTIFACTS, UC_FILE_NAME, UC_FILE_PATTERN } from "./schema.js";
 import { assertPathName, type Feature } from "./features.js";
-import { splitFrontmatter, applyFrontmatter, getFmValue } from "../shared/frontmatter.js";
+import { splitFrontmatter, applyFrontmatter } from "../shared/frontmatter.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import {
   blobId,
@@ -70,21 +69,6 @@ export function canonicalContent(kind: CanonicalKind, raw: string): string {
     return archivedDocument(implementedUseCaseRows(linked));
   }
   return archivedDocument(raw);
-}
-
-/** Canonical doc paths a feature owns, whether or not they exist on disk. */
-export function canonicalDocPaths(root: string, feature: Feature): string[] {
-  if (!feature.context || feature.meta?.kind === "bug") return [];
-  const base = join(root, "docs");
-  const { context, name } = { context: feature.context, name: feature.name };
-  const useCaseDir = join(base, "use-cases", context, name);
-  const files = [
-    join(base, "requirement", context, `${name}.md`),
-    join(base, "testplan", context, `${name}.md`),
-    join(base, "testplan", context, `${name}-result.md`),
-  ];
-  if (existsSync(useCaseDir)) files.push(useCaseDir);
-  return files.filter((p) => existsSync(p));
 }
 
 /**
@@ -197,55 +181,34 @@ export function docsLandedProof(root: string, feature: Feature, run: LandedRun =
   return { landed: false, pushed: true, gone: true, reason: `${goneBranchText(branch)}; no docs commit was recorded and ${base} does not hold these docs` };
 }
 
-/**
- * Older versions copied these docs without the archived stamp. Such a doc is not an edit when
- * stamping it yields the new copy. Only the pre-stamp statuses qualify, so a hand-set status
- * (e.g. superseded) is still reported as changed instead of being normalized away.
- */
-export function isUnstampedSnapshot(copy: CanonicalCopy): boolean {
-  if (copy.original === null) return false;
-  const status = getFmValue(copy.original, "status");
-  if (status !== null && status !== "planning") return false;
-  return canonicalContent(copy.kind, copy.original) === copy.content;
-}
-
 export async function writeCanonicalCopies(copies: CanonicalCopy[]): Promise<void> {
   for (const copy of copies) await writeFileAtomic(copy.destination, copy.content);
 }
 
-export async function rollbackCanonicalCopies(copies: CanonicalCopy[]): Promise<void> {
-  for (const copy of copies) {
-    if (copy.original === null) await rm(copy.destination, { force: true });
-    else await writeFileAtomic(copy.destination, copy.original);
-  }
-}
-
 /**
- * Where a close writes canonical docs. `tree`: the primary working tree, as always. `branch`: a
- * branch cut from `base` (`origin/<default>`) in a temporary worktree, because the primary is not
- * a safe place — on another branch, carrying uncommitted changes, or behind origin.
+ * Where a re-land of a docs branch an earlier release recorded goes: a branch cut from `base`
+ * (`origin/<default>`) in a temporary worktree, so the rewrite shows in a PR diff. A close itself
+ * writes nothing under docs/.
  */
 export type DocsTarget =
-  | { kind: "tree"; note?: string }
   | { kind: "branch"; branch: string; base: string; why: string }
   | { kind: "refused"; message: string };
 
 export const docsBranchName = (feature: Feature): string => `docs/${feature.context}-${feature.name}`;
 
 /**
- * Decide the docs target before anything irreversible runs; fetches origin's default branch to
- * know "behind". `opts.branchOnly` is why these docs must go to a branch even from a safe
- * checkout (the overwrite has to show in a PR diff): where the decision would be the working
- * tree, that becomes the branch, or a refusal when there is no origin/<default> to cut it from.
+ * Decide the docs branch of a re-land before anything irreversible runs; fetches origin's default
+ * branch to cut it from. `opts.branchOnly` is why these docs must go to a branch (the overwrite
+ * has to show in a PR diff); it is the reason given when the checkout itself is not unsafe. A
+ * refusal when there is no origin/<default> to cut the branch from.
  */
-export function resolveDocsTarget(root: string, feature: Feature, opts: { branchOnly?: string } = {}): DocsTarget {
+export function resolveDocsTarget(root: string, feature: Feature, opts: { branchOnly: string }): DocsTarget {
   if (!insideWorkTree(root) || !hasRemote(root, "origin")) {
-    return opts.branchOnly ? { kind: "refused", message: `there is no origin to cut a docs branch from (add it: git remote add origin <url>), and ${opts.branchOnly}.` } : { kind: "tree" };
+    return { kind: "refused", message: `there is no origin to cut a docs branch from (add it: git remote add origin <url>), and ${opts.branchOnly}.` };
   }
   const base = originDefaultRef(root);
   if (!base) {
-    if (opts.branchOnly) return { kind: "refused", message: `origin/HEAD is not set, so there is no default branch to cut a docs branch from (set it: git remote set-head origin -a), and ${opts.branchOnly}.` };
-    return { kind: "tree", note: "origin/HEAD is not set, so the default branch is unknown — docs written to the working tree (set it: git remote set-head origin -a)" };
+    return { kind: "refused", message: `origin/HEAD is not set, so there is no default branch to cut a docs branch from (set it: git remote set-head origin -a), and ${opts.branchOnly}.` };
   }
   const defaultBranch = base.slice(base.indexOf("/") + 1);
   const fetched = fetchBranch(root, "origin", defaultBranch);
@@ -263,12 +226,11 @@ export function resolveDocsTarget(root: string, feature: Feature, opts: { branch
     const behind = countCommits(root, "HEAD", base);
     if (behind > 0) why = `the checkout is ${behind} commit(s) behind ${base}`;
   }
-  if (!why && !opts.branchOnly) return { kind: "tree" };
   const branch = docsBranchName(feature);
   if (revParse(root, `refs/heads/${branch}`)) {
     return { kind: "refused", message: `the canonical docs branch ${branch} already exists — push or delete it, then re-run.` };
   }
-  return { kind: "branch", branch, base, why: why ?? opts.branchOnly! };
+  return { kind: "branch", branch, base, why: why ?? opts.branchOnly };
 }
 
 export interface DocsBranchResult {
