@@ -15,6 +15,7 @@ import { cmdArchive } from "../cli/commands/archive.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { cmdSync } from "../cli/commands/sync.js";
 import { archiveItem } from "../workflow/archive.js";
+import { writeCanonicalDocsBranch } from "../workflow/canonical-docs.js";
 import { deleteRemoteBranch, landedProof } from "../shared/git.js";
 import { deleteItemBranch } from "../worktree/lifecycle.js";
 import { runDoctor } from "../project/doctor.js";
@@ -154,6 +155,37 @@ async function reviewItem(name = "demo", opts: { landing?: "pr" | "none"; commit
   await writeFile(join(feature(name).dir, ARTIFACTS["feature-report"].file), "# Feature Report\nShipped.");
 }
 
+/** Leave the primary `commits` commits behind origin: where an earlier release put the docs on docs/<context>-<feature>. */
+function primaryBehind(commits: number): void {
+  const base = git(root, "symbolic-ref", "--short", "HEAD");
+  for (let n = 1; n <= commits; n++) {
+    writeFileSync(join(root, `upstream-${n}.txt`), "x");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", `upstream ${n}`);
+  }
+  git(root, "push", "-q", "origin", base);
+  git(root, "reset", "-q", "--hard", `HEAD~${commits}`);
+}
+
+/**
+ * A done item whose docs branch an earlier release left unpushed. The close itself commits no
+ * docs any more, so the branch and its record are seeded the way that close wrote them: the
+ * canonical docs committed on docs/app-demo, cut from origin's default branch.
+ */
+async function closedWithSeededDocsBranch(behind = 1): Promise<void> {
+  await reviewItem();
+  primaryBehind(behind);
+  const res = await status();
+  expect(res.stdout).toContain("✓ done demo");
+  expect(res.stdout).not.toContain("Canonical docs committed");
+  expect(git(root, "branch", "--list", "docs/app-demo"), "the close cuts no docs branch").toBe("");
+  expect(readFeatureMeta(feature().dir)!.docsBranch).toBeUndefined();
+  const base = `origin/${git(root, "symbolic-ref", "--short", "HEAD")}`;
+  const written = await writeCanonicalDocsBranch(root, feature(), { kind: "branch", branch: "docs/app-demo", base, why: "seeded as an earlier close left it" });
+  expect(written.branch).toBe("docs/app-demo");
+  await writeFeatureMeta(feature().dir, { ...readFeatureMeta(feature().dir)!, docsBranch: written.branch!, docsCommit: written.commit! });
+}
+
 describe("auto-close on merge", () => {
   it("kf status closes a merged item: done, worktree and branch gone locally and on origin, hook first", async () => {
     await reviewItem();
@@ -177,8 +209,9 @@ describe("auto-close on merge", () => {
     const hook = readFileSync(join(scratch, "hook.out"), "utf8");
     expect(hook).toContain("status_done=Done");
     expect(hook).toContain("branch_at_hook=t/demo");
-    // Primary on the default branch, clean, not behind: docs land in the working tree.
-    expect(existsSync(join(root, "docs", "requirement", "app", "demo.md"))).toBe(true);
+    // A close writes nothing under docs/ and cuts no docs branch.
+    expect(existsSync(join(root, "docs"))).toBe(false);
+    expect(git(root, "branch", "--list", "docs/*")).toBe("");
   }, 15_000);
 
   it("refuses a dirty worktree from kf status and kf archive before the hook; nothing deleted", async () => {
@@ -496,23 +529,10 @@ exit $rc
   }, 15_000);
 });
 
-describe("canonical docs when the primary checkout is behind origin", () => {
-  it("commits the docs on docs/<context>-<feature> from origin, leaves the primary untouched, doctor flags it until pushed", async () => {
-    await reviewItem();
+describe("a docs branch an earlier close left with the primary behind origin", () => {
+  it("leaves the primary untouched; doctor flags the docs branch until pushed", async () => {
+    await closedWithSeededDocsBranch(2);
     const base = git(root, "symbolic-ref", "--short", "HEAD");
-    for (const n of [1, 2]) {
-      writeFileSync(join(root, `upstream-${n}.txt`), "x");
-      git(root, "add", ".");
-      git(root, "commit", "-qm", `upstream ${n}`);
-    }
-    git(root, "push", "-q", "origin", base);
-    git(root, "reset", "-q", "--hard", "HEAD~2");
-
-    const res = await status();
-    expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain("✓ done demo");
-    expect(res.stdout).toContain("Canonical docs committed to docs/app-demo, not pushed (the checkout is 2 commit(s) behind origin/");
-    expect(res.stdout).toContain("git push -u origin docs/app-demo");
     expect(feature().stage).toBe("done");
     expect(readFeatureMeta(feature().dir)!.docsBranch).toBe("docs/app-demo");
 
@@ -554,14 +574,7 @@ describe("canonical docs when the primary checkout is behind origin", () => {
   }, 15_000);
 
   it("a squash-merged and pruned docs branch is landed only on a merged PR for that head; gh failing proves nothing", async () => {
-    await reviewItem();
-    const base = git(root, "symbolic-ref", "--short", "HEAD");
-    writeFileSync(join(root, "upstream.txt"), "x");
-    git(root, "add", ".");
-    git(root, "commit", "-qm", "upstream");
-    git(root, "push", "-q", "origin", base);
-    git(root, "reset", "-q", "--hard", "HEAD~1");
-    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    await closedWithSeededDocsBranch();
     git(root, "push", "-q", "-u", "origin", "docs/app-demo");
     git(root, "push", "-q", "origin", "--delete", "docs/app-demo");
     git(root, "fetch", "-q", "--prune", "origin");
@@ -594,30 +607,18 @@ describe("canonical docs when the primary checkout is behind origin", () => {
     expect(ghCalls().slice(before.length), "a landed docs branch is not asked about again").not.toContain("--head docs/app-demo");
   }, 15_000);
 
-  it("kf archive --skip-specs on a done item keeps the docs branch record", async () => {
-    await reviewItem();
-    const base = git(root, "symbolic-ref", "--short", "HEAD");
-    writeFileSync(join(root, "upstream.txt"), "x");
-    git(root, "add", ".");
-    git(root, "commit", "-qm", "upstream");
-    git(root, "push", "-q", "origin", base);
-    git(root, "reset", "-q", "--hard", "HEAD~1");
-    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+  it("kf archive --skip-specs on a done item is refused as removed and keeps the docs branch record", async () => {
+    await closedWithSeededDocsBranch();
     const before = readFeatureMeta(feature().dir)!;
-    expect((await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root)).code).toBe(0);
+    const res = await cmdArchive(args("archive", ["demo"], { "skip-specs": true }), root);
+    expect(res.code).not.toBe(0);
+    expect(`${res.stdout}\n${res.stderr ?? ""}`).toContain("--skip-specs was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc");
     expect(readFeatureMeta(feature().dir)!.docsBranch).toBe("docs/app-demo");
     expect(readFeatureMeta(feature().dir)!.docsCommit).toBe(before.docsCommit);
   }, 15_000);
 
-  it("records the docs commit at close and proves a deleted docs branch landed only by a merged PR at that commit", async () => {
-    await reviewItem();
-    const base = git(root, "symbolic-ref", "--short", "HEAD");
-    writeFileSync(join(root, "upstream.txt"), "x");
-    git(root, "add", ".");
-    git(root, "commit", "-qm", "upstream");
-    git(root, "push", "-q", "origin", base);
-    git(root, "reset", "-q", "--hard", "HEAD~1");
-    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+  it("proves a deleted docs branch landed only by a merged PR at its recorded docs commit", async () => {
+    await closedWithSeededDocsBranch();
     const sha = git(root, "rev-parse", "docs/app-demo");
     expect(readFeatureMeta(feature().dir)!.docsCommit).toBe(sha);
     git(root, "branch", "-D", "docs/app-demo");
@@ -640,15 +641,9 @@ describe("kf archive on a done item with a recorded docs branch", () => {
   const meta = () => readFeatureMeta(feature().dir)!;
   const requirement = () => join(root, "docs", "requirement", "app", "demo.md");
 
-  /** Close with the primary one commit behind origin, so the docs go onto docs/app-demo. */
+  /** Close with the primary one commit behind origin, then seed docs/app-demo as an earlier close left it. */
   async function closedOntoDocsBranch(): Promise<void> {
-    await reviewItem();
-    writeFileSync(join(root, "upstream.txt"), "x");
-    git(root, "add", ".");
-    git(root, "commit", "-qm", "upstream");
-    git(root, "push", "-q", "origin", base());
-    git(root, "reset", "-q", "--hard", "HEAD~1");
-    expect((await status()).stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    await closedWithSeededDocsBranch();
   }
 
   /** An item closed before docsCommit was recorded. */
@@ -865,58 +860,36 @@ describe("kf archive on a done item with a recorded docs branch", () => {
   }, 15_000);
 });
 
-describe("the canonical docs commit after the irreversible steps", () => {
-  /** Leave the primary 2 commits behind origin, so the docs go to a branch in a temp worktree. */
-  function putPrimaryBehind(): void {
-    const base = git(root, "symbolic-ref", "--short", "HEAD");
-    for (const n of [1, 2]) {
-      writeFileSync(join(root, `upstream-${n}.txt`), "x");
-      git(root, "add", ".");
-      git(root, "commit", "-qm", `upstream ${n}`);
-    }
-    git(root, "push", "-q", "origin", base);
-    git(root, "reset", "-q", "--hard", "HEAD~2");
-  }
-
-  it("does not run the repository's commit hooks", async () => {
-    await reviewItem();
-    putPrimaryBehind();
+describe("commits around the close", () => {
+  it("the re-land docs commit does not run the repository's commit hooks", async () => {
+    await closedWithSeededDocsBranch(2);
+    git(root, "branch", "-D", "docs/app-demo");
     const hooks = join(scratch, "git-hooks");
     await mkdir(hooks, { recursive: true });
     await writeFile(join(hooks, "pre-commit"), "#!/bin/sh\necho 'lint needs node_modules' >&2\nexit 1\n", { mode: 0o755 });
     git(root, "config", "core.hooksPath", hooks);
 
-    const res = await status();
+    const res = await cmdArchive(args("archive", ["demo"]), root);
     expect(res.code, res.stdout).toBe(0);
-    expect(res.stdout).toContain("Canonical docs committed to docs/app-demo, not pushed");
+    expect(res.stdout).toContain("committed again to docs/app-demo, not pushed");
     expect(res.stdout).toContain("Commit hooks were skipped for this kf-authored docs commit (--no-verify)");
-    expect(feature().stage).toBe("done");
+    expect(git(root, "branch", "--list", "docs/app-demo")).toContain("docs/app-demo");
   }, 15_000);
 
-  it("a failing commit rolls back docs, move and metadata and says what was already removed", async () => {
+  it("a close commits nothing, so a commit that would fail cannot fail it", async () => {
     await reviewItem();
-    const wt = feature().meta!.worktree!;
-    const originalMeta = readFileSync(join(feature().dir, ".kfw.json"), "utf8");
-    putPrimaryBehind();
-    // Signing with a program that always fails makes `git commit` fail even with --no-verify.
+    primaryBehind(2);
+    // Signing with a program that always fails makes any `git commit` fail even with --no-verify.
     git(root, "config", "commit.gpgSign", "true");
     git(root, "config", "gpg.program", "false");
 
     const res = await status();
-    expect(res.code).toBe(1);
-    expect(res.stdout).toContain("✗ demo: close failed: Archive failed for 'demo' (committing the canonical docs on docs/app-demo failed:");
-    expect(res.stdout).toContain(`feature restored to review (docs, move and metadata rolled back). Already removed and not restored: worktree ${wt.path}, branch t/demo (local), branch t/demo on origin. Fix the cause, then finish with: kf status --change demo`);
-    expect(feature().stage).toBe("review");
-    expect(readFileSync(join(feature().dir, ".kfw.json"), "utf8")).toBe(originalMeta);
+    expect(res.code, res.stdout).toBe(0);
+    expect(res.stdout).toContain("✓ done demo");
+    expect(feature().stage).toBe("done");
     expect(git(root, "branch", "--list", "docs/app-demo")).toBe("");
     expect(git(root, "worktree", "list")).not.toContain("kf-docs-");
     expect(git(root, "status", "--porcelain")).toBe("");
-
-    git(root, "config", "--unset", "commit.gpgSign");
-    const finished = await status();
-    expect(finished.code, finished.stdout).toBe(0);
-    expect(finished.stdout).toContain("✓ done demo");
-    expect(feature().stage).toBe("done");
   }, 15_000);
 });
 

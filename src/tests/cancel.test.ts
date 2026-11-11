@@ -48,9 +48,9 @@ async function addCanonicalDocs(name: string): Promise<string[]> {
 }
 
 /**
- * An item archived by the real pipeline, so `kf archive` can actually re-sync canonical docs.
+ * An item archived by the real pipeline, so the reopen into done runs against a real close.
  * `addItem` writes one artifact, which makes archive refuse at its own gate long before the
- * two branches below are reached — the reason the first version of these tests proved nothing.
+ * reopen paths below are reached.
  */
 async function archivedItem(name: string): Promise<void> {
   expect((await cmdNew(args("new", [name], { context: "app" }), root)).code).toBe(0);
@@ -161,32 +161,27 @@ describe("kf cancel stops a work item with a reason", () => {
 });
 
 describe("cancelling something already archived", () => {
-  it("lists its canonical docs and only deletes them when told twice", async () => {
+  it("leaves its docs untouched and lists none of them", async () => {
     const kept = await addCanonicalDocs("demo");
-    const other = await addCanonicalDocs("sibling");
     await addItem("demo", "done", { status: "archived" });
-    await addItem("sibling", "done", { status: "archived" });
 
-    const listed = await cmdCancel(args("cancel", ["demo"], { reason: "superseded" }), root);
-    expect(listed.code).toBe(0);
-    expect(listed.stdout).toContain("Canonical docs left in place");
-    for (const p of kept) expect(existsSync(p), p).toBe(true);
-
-    const purged = await cmdCancel(args("cancel", ["sibling"], { reason: "superseded", "purge-docs": true, force: true }), root);
-    expect(purged.code).toBe(0);
-    expect(purged.stdout).toContain("Deleted canonical docs");
-    for (const p of other) expect(existsSync(p), p).toBe(false);
-    for (const p of kept) expect(existsSync(p), p).toBe(true);
+    const res = await cmdCancel(args("cancel", ["demo"], { reason: "superseded" }), root);
+    expect(res.code).toBe(0);
+    expect(feature().stage).toBe("cancelled");
+    expect(res.stdout).not.toContain("Canonical docs");
+    for (const p of kept) expect(await readFile(p, "utf8"), p).toBe("# demo");
   });
 
-  it("refuses to purge without confirmation when there is no TTY", async () => {
+  it("refuses the removed --purge-docs flag, with or without --force, and deletes nothing", async () => {
     const docs = await addCanonicalDocs("demo");
     await addItem("demo", "done", { status: "archived" });
-    const res = await cmdCancel(args("cancel", ["demo"], { reason: "superseded", "purge-docs": true }), root);
-    expect(res.code).toBe(1);
-    expect(res.stdout).toContain("--force");
-    expect(feature().stage).toBe("done");
-    for (const p of docs) expect(existsSync(p)).toBe(true);
+    for (const force of [false, true]) {
+      const res = await cmdCancel(args("cancel", ["demo"], { reason: "superseded", "purge-docs": true, force }), root);
+      expect(res.code, `force: ${force}`).not.toBe(0);
+      expect(`${res.stdout}\n${res.stderr ?? ""}`).toContain("--purge-docs was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc");
+      expect(feature().stage).toBe("done");
+      for (const p of docs) expect(existsSync(p), p).toBe(true);
+    }
   });
 
   it("says nothing about docs for an item that was never archived", async () => {
@@ -270,7 +265,7 @@ describe("failure paths of cancelling", () => {
     // A plain file where the folder would land makes rename fail; listFeatures skips non-directories.
     await writeFile(join(root, ".works", "cancelled", "demo_20260919_1200"), "in the way");
 
-    await expect(cmdCancel(args("cancel", ["demo"], { reason: "superseded", "purge-docs": true, force: true }), root)).rejects.toThrow();
+    await expect(cmdCancel(args("cancel", ["demo"], { reason: "superseded", force: true }), root)).rejects.toThrow();
     for (const p of docs) expect(existsSync(p), p).toBe(true);
     expect(feature().stage).toBe("done");
     expect(feature().meta!.cancellation).toBeUndefined();
@@ -537,10 +532,13 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
   it("still sends a live review item to done through archive, not the plain move", async () => {
     // isReopen must be false for an item that was never cancelled, or --force would skip archive.
     await addItem("live", "review");
-    // Archive is what handles review → done; here it refuses because the fixture has no
-    // planning artifacts to copy. The point is that the plain move never runs.
-    await expect(cmdStage(args("stage", ["live", "done"], { force: true }), root)).rejects.toThrow(/canonical docs/i);
-    expect(feature("live").stage).toBe("review");
+    // Archive is what handles review → done: with --force it closes even this thin fixture, and
+    // only archive stamps delivery — the plain move never does.
+    const res = await cmdStage(args("stage", ["live", "done"], { force: true }), root);
+    expect(res.code, res.stdout).toBe(0);
+    expect(feature("live").stage).toBe("done");
+    expect(feature("live").meta?.delivered).toBe(true);
+    expect(existsSync(join(root, "docs")), "and the close copies nothing").toBe(false);
   });
 
   it("restores the archived state when reopened into done", async () => {
@@ -552,48 +550,44 @@ describe("a cancelled item owes nothing, whatever stage it was dropped from", ()
     expect(feature("archived-then-dropped").meta?.status).toBe("archived");
   });
 
-  it("asks archive to re-sync the canonical docs when reopened into done", async () => {
-    // kf cancel --purge-docs can delete them; the move alone would leave them gone and silent.
+  it("copies nothing and asks for no re-sync when reopened into done", async () => {
+    // Living docs are edited at review, so a reopen has no snapshot to restore.
     await addItem("resync", "done");
     await cmdCancel(args("cancel", ["resync"], { reason: "superseded" }), root);
     const res = await cmdStage(args("stage", ["resync", "done"]), root);
     expect(res.code).toBe(0);
-    // This fixture is too thin for archive to succeed, so the hand-off must say so rather than
-    // leave the docs silently missing.
-    expect(res.stdout).toContain("kf archive resync");
+    expect(feature("resync").stage).toBe("done");
+    expect(res.stdout).not.toContain("Canonical docs");
+    expect(res.stdout).not.toContain("kf archive resync");
+    expect(existsSync(join(root, "docs"))).toBe(false);
   });
 
-  it("does not let --force on kf stage overwrite canonical docs that changed", async () => {
-    // --force on kf stage means "skip a gate". Forwarding it into archive also means "restore
-    // the archived snapshot over hand edits", which this command never offered to do — and the
-    // bypass record it stamps says nothing about documents.
+  it("leaves a hand-edited doc as it is when --force on kf stage reopens into done", async () => {
+    // --force on kf stage means "skip a gate"; it must never mean "restore a snapshot over hand edits".
     await archivedItem("edited");
     const doc = join(root, "docs", "requirement", "app", "edited.md");
     await cmdCancel(args("cancel", ["edited"], { reason: "superseded" }), root);
+    await mkdir(join(doc, ".."), { recursive: true });
     await writeFile(doc, "hand edited after archive\n");
 
     const res = await cmdStage(args("stage", ["edited", "done"], { force: true }), root);
     expect(res.code).toBe(0);
     expect(await readFile(doc, "utf8"), "the edit must survive the reopen").toBe("hand edited after archive\n");
-    // And the refusal has to be visible, or the stale doc looks re-synced.
-    expect(res.stdout).toContain("Canonical docs have changed since archive");
+    expect(res.stdout).not.toContain("Canonical docs");
   });
 
-  it("keeps the reopen successful when the doc re-sync throws", async () => {
-    // The move and the metadata write have already committed by the time archive runs, so a
-    // throw from it must not report the reopen as failed. Archive throws, rather than returning
-    // non-zero, whenever it cannot even read a canonical destination.
+  it("reopens into done when a doc path is unreadable, since the reopen touches no docs", async () => {
     await archivedItem("thrower");
     await cmdCancel(args("cancel", ["thrower"], { reason: "superseded" }), root);
     const doc = join(root, "docs", "requirement", "app", "thrower.md");
-    await rm(doc);
+    await rm(doc, { force: true });
     await mkdir(doc, { recursive: true });
 
     const res = await cmdStage(args("stage", ["thrower", "done"]), root);
     expect(res.code, "the reopen itself succeeded").toBe(0);
     expect(res.stdout).toContain("✓ Moved 'thrower' cancelled → done");
-    expect(res.stdout, "and it says what is left undone").toContain("Canonical docs were not re-synced");
-    expect(res.stdout).toContain("kf archive thrower");
+    expect(res.stdout).not.toContain("Canonical docs were not re-synced");
+    expect(res.stdout).not.toContain("kf archive thrower");
     expect(feature("thrower").stage).toBe("done");
   });
 

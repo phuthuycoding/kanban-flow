@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readdir } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import { runHook } from "../integrations/hooks.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { PKG_GITHUB_HOOKS_DIR } from "../shared/paths.js";
+import * as paths from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
 
@@ -140,6 +141,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   process.env.PATH = prevPath;
   for (const v of Object.keys(process.env)) {
     if (v.startsWith("GH_")) delete process.env[v];
@@ -221,7 +223,7 @@ describe("merge gate — kf archive refuses unverifiable delivery", () => {
 });
 
 describe("finalization — archive is the delivery gate", () => {
-  it("delivers a merged item: move, docs, done hook close+board, flag last", async () => {
+  it("delivers a merged item: move, done hook close+board, flag last, nothing under docs/", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
     await seedPackHooks("done.sh");
@@ -238,7 +240,7 @@ describe("finalization — archive is the delivery gate", () => {
     expect(calls).toContain(`pr view ${PR}`);
     expect(calls).toContain(`issue close ${ISSUE}`);
     expect(calls).toContain("project item-edit");
-    expect(existsSync(join(root, "docs", "requirement", "app", "shipit.md"))).toBe(true);
+    expect(existsSync(join(root, "docs")), "a close writes nothing under docs/").toBe(false);
   });
 
   it("packaged done.sh closes the issue and moves the board; delivered.sh is gone", async () => {
@@ -276,10 +278,18 @@ describe("finalization — archive is the delivery gate", () => {
   it("rolls back a mid-pass failure — folder restored, flag never written", async () => {
     await reviewStage();
     await link("shipit", { issue: ISSUE, pr: PR });
-    // Canonical docs can't be written when the destination path is a directory.
-    await mkdir(join(root, "docs", "requirement", "app", "shipit.md"), { recursive: true });
+    // The delivered stamp is the last write of the close; failing it is a failure after the move.
+    const writer = paths.writeFileAtomic;
+    let failed = false;
+    vi.spyOn(paths, "writeFileAtomic").mockImplementation(async (file, content) => {
+      if (!failed && file.includes(join(".works", "done")) && file.endsWith(".kfw.json")) {
+        failed = true;
+        throw new Error("Simulated metadata write failure");
+      }
+      await writer(file, content);
+    });
 
-    await expect(cmdArchive(args("archive", ["shipit"]), root)).rejects.toThrow();
+    await expect(cmdArchive(args("archive", ["shipit"]), root)).rejects.toThrow("Simulated metadata write failure");
     expect(feature().stage).toBe("review");
     expect(readFeatureMeta(feature().dir)!.delivered).toBeUndefined();
   });

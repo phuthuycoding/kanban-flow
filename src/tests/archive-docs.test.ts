@@ -85,15 +85,20 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("archive stamps canonical docs", () => {
-  it("marks the UC index, UC files, diagram and test plan archived and keeps the result status", async () => {
+/** Write `content` at a canonical snapshot path, as an earlier release's close left it. */
+async function snapshot(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content);
+}
+
+describe("archive writes nothing under docs/", () => {
+  it("leaves docs/ absent and the item's own artifacts as approved", async () => {
     await archived();
-    for (const path of [docs.index(), docs.uc(), docs.diagram(), docs.plan()]) {
-      const content = await readFile(path, "utf8");
-      expect(content, path).toContain("status: archived");
-      expect(content, path).not.toContain("status: planning");
-    }
-    expect(await readFile(docs.result(), "utf8")).toContain("status: PASS");
+    expect(feature().stage).toBe("done");
+    expect(existsSync(join(root, "docs")), "a close copies no canonical doc").toBe(false);
+    expect(await readFile(join(feature().dir, ARTIFACTS["use-case-diagram"].file), "utf8")).toBe(diagram);
+    expect(await readFile(join(feature().dir, ARTIFACTS["test-cases"].file), "utf8")).toBe(testPlan);
+    expect(await readFile(join(feature().dir, "use-cases", "UC-001-create-task.md"), "utf8")).toBe(ucFile);
   });
 
   it("creates a missing done directory before the move", async () => {
@@ -102,70 +107,90 @@ describe("archive stamps canonical docs", () => {
     expect(existsSync(join(root, ".works", "done", feature().folder))).toBe(true);
   });
 
-  it("copies a source without frontmatter unchanged", async () => {
+  it("copies a source without frontmatter nowhere and leaves it as written", async () => {
     const plain = "# UC-001 Create a task\nUser can create a task.\n";
     await archived(plain);
-    expect(await readFile(docs.uc(), "utf8")).toBe(plain);
+    expect(existsSync(docs.uc())).toBe(false);
+    expect(await readFile(join(feature().dir, "use-cases", "UC-001-create-task.md"), "utf8")).toBe(plain);
   });
 
-  it("flips use case rows to implemented and leaves the coverage table alone", async () => {
+  it("flips no use case row: the item's index stays as approved and no canonical index is written", async () => {
     await archived();
-    const index = await readFile(docs.index(), "utf8");
-    expect(index).toContain("| UC-001 | Create a task | [UC-001](UC-001-create-task.md) | User | implemented |");
-    expect(index).toContain("| UC-001 | FR-001 | TC-001 | planned |");
+    expect(existsSync(docs.index())).toBe(false);
     expect(await readFile(join(feature().dir, ARTIFACTS["use-case-specification"].file), "utf8")).toBe(ucIndex);
   });
 });
 
-describe("re-archive with stamped docs", () => {
+describe("re-archive of a done item with legacy snapshots", () => {
+  /** The stamped snapshots an earlier release wrote at close. */
+  const stamped = () => ({
+    [docs.index()]: ucIndex.replace("use-cases/UC-001", "UC-001").replace("status: planning", "status: archived").replace("| planned |\n\n##", "| implemented |\n\n##"),
+    [docs.uc()]: ucFile.replace("status: planning", "status: archived"),
+    [docs.diagram()]: diagram.replace("status: planning", "status: archived"),
+    [docs.plan()]: testPlan.replace("status: planning", "status: archived"),
+  });
+
+  async function seed(files: Record<string, string>): Promise<void> {
+    for (const [path, content] of Object.entries(files)) await snapshot(path, content);
+  }
+
+  async function expectUntouched(files: Record<string, string>): Promise<void> {
+    for (const [path, content] of Object.entries(files)) expect(await readFile(path, "utf8"), path).toBe(content);
+  }
+
   it("reports no changed docs and records no bypass", async () => {
     await archived();
-    const before = await readFile(docs.index(), "utf8");
+    await seed(stamped());
     const again = await cmdArchive(args("archive", ["demo"]), root);
     expect(again.code, again.stdout).toBe(0);
-    expect(await readFile(docs.index(), "utf8")).toBe(before);
+    await expectUntouched(stamped());
     expect(feature().meta?.bypasses ?? []).toHaveLength(0);
   });
 
-  it("still refuses when a canonical doc was edited after archive", async () => {
+  it("no longer refuses a canonical doc edited after archive, and keeps the edit", async () => {
     await archived();
-    const edited = `${await readFile(docs.uc(), "utf8")}\n> **Superseded by \`later\`.** Kept for history.\n`;
+    await seed(stamped());
+    const edited = `${stamped()[docs.uc()]}\n> **Superseded by \`later\`.** Kept for history.\n`;
     await writeFile(docs.uc(), edited);
     const again = await cmdArchive(args("archive", ["demo"]), root);
-    expect(again.stderr).toBe("canonical docs changed");
+    expect(again.code, again.stdout).toBe(0);
+    expect(again.stderr).not.toBe("canonical docs changed");
     expect(await readFile(docs.uc(), "utf8")).toBe(edited);
   });
 
-  it("still refuses a status-only edit on an archived doc", async () => {
+  it("no longer refuses a status-only edit on an archived doc, and keeps it", async () => {
     await archived();
-    const edited = (await readFile(docs.uc(), "utf8")).replace("status: archived", "status: superseded");
+    await seed(stamped());
+    const edited = stamped()[docs.uc()].replace("status: archived", "status: superseded");
     await writeFile(docs.uc(), edited);
-    expect((await cmdArchive(args("archive", ["demo"]), root)).stderr).toBe("canonical docs changed");
+    const again = await cmdArchive(args("archive", ["demo"]), root);
+    expect(again.code, again.stdout).toBe(0);
     expect(await readFile(docs.uc(), "utf8")).toBe(edited);
   });
 
-  it("still refuses a body edit on an unstamped doc from an older version", async () => {
+  it("no longer refuses a body edit on an unstamped doc from an older version, and keeps it", async () => {
     await archived();
     const edited = `${ucFile}\nHand-written note.\n`;
-    await writeFile(docs.uc(), edited);
-    expect((await cmdArchive(args("archive", ["demo"]), root)).stderr).toBe("canonical docs changed");
+    await snapshot(docs.uc(), edited);
+    const again = await cmdArchive(args("archive", ["demo"]), root);
+    expect(again.code, again.stdout).toBe(0);
     expect(await readFile(docs.uc(), "utf8")).toBe(edited);
   });
 
-  it("upgrades unstamped docs written by an older version without a bypass", async () => {
+  it("leaves unstamped docs written by an older version as they are, without a bypass", async () => {
     await archived();
     // What older versions wrote: sources copied as-is, only links rewritten in the index.
-    await writeFile(docs.index(), ucIndex.replace("use-cases/UC-001", "UC-001"));
-    await writeFile(docs.uc(), ucFile);
-    await writeFile(docs.diagram(), diagram);
-    await writeFile(docs.plan(), testPlan);
+    const older = {
+      [docs.index()]: ucIndex.replace("use-cases/UC-001", "UC-001"),
+      [docs.uc()]: ucFile,
+      [docs.diagram()]: diagram,
+      [docs.plan()]: testPlan,
+    };
+    await seed(older);
     const again = await cmdArchive(args("archive", ["demo"]), root);
     expect(again.code, again.stdout).toBe(0);
     expect(feature().meta?.bypasses ?? []).toHaveLength(0);
-    expect(await readFile(docs.index(), "utf8")).toContain("| User | implemented |");
-    for (const path of [docs.index(), docs.uc(), docs.diagram(), docs.plan()]) {
-      expect(await readFile(path, "utf8"), path).toContain("status: archived");
-    }
+    await expectUntouched(older);
   });
 });
 

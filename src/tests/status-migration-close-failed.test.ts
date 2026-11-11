@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -9,6 +9,7 @@ import { cmdApprove } from "../cli/commands/approve.js";
 import { cmdStatus } from "../cli/commands/inspect.js";
 import { ensureWorksStructure, findFeature, readFeatureMeta, writeFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import * as paths from "../shared/paths.js";
 import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
@@ -37,7 +38,8 @@ async function report(id: "testing-result" | "review-report"): Promise<void> {
 
 /**
  * A review PASS item with a merged PR, put back in the legacy shipping stage, whose close then
- * throws: a file sits where its canonical requirement doc's directory goes, so the docs write fails.
+ * throws: the delivered-stamp metadata write into the done folder fails, after the folder move,
+ * so the close rolls the item back to review.
  */
 async function shippedItemWhoseCloseThrows(): Promise<string> {
   const dir = () => findFeature(root, "shipped")!.dir;
@@ -61,8 +63,15 @@ async function shippedItemWhoseCloseThrows(): Promise<string> {
   const folder = basename(dir());
   await mkdir(join(root, ".works", "shipping"), { recursive: true });
   await rename(dir(), join(root, ".works", "shipping", folder));
-  await mkdir(join(root, "docs", "requirement"), { recursive: true });
-  await writeFile(join(root, "docs", "requirement", "app"), "not a directory");
+  // Every close attempt fails (kf status retries the close after migrating); the rollback's
+  // restore of the original metadata carries no delivered stamp and is let through.
+  const writer = paths.writeFileAtomic;
+  vi.spyOn(paths, "writeFileAtomic").mockImplementation(async (file, content) => {
+    if (file.includes(join(".works", "done")) && file.endsWith(".kfw.json") && String(content).includes('"delivered": true')) {
+      throw new Error("Simulated metadata write failure");
+    }
+    await writer(file, content);
+  });
   return folder;
 }
 
@@ -79,6 +88,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   process.env.PATH = prevPath;
   await rm(root, { recursive: true, force: true });
 });
@@ -90,6 +100,7 @@ describe("kf status after a real legacy move whose close failed", () => {
 
     const res = await cmdStatus(status({ change: "shipped" }), root);
     expect(res.stdout).toContain(`✗ migrated ${folder}: .works/shipping → .works/review (PR merged, close failed:`);
+    expect(res.stdout).toContain("Simulated metadata write failure");
     expect(res.code).toBe(1);
     expect(findFeature(root, "shipped")!.stage).toBe("review");
     expect((await cmdStatus(status({ all: true }), root)).code).toBe(1);

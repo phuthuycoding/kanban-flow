@@ -1,6 +1,6 @@
-import { rename, rm } from "node:fs/promises";
+import { rename } from "node:fs/promises";
 import { existsSync, mkdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 import { findFeature, stageDir, writeFeatureMeta, type Bypass, type Cancellation } from "./features.js";
 import { withLock } from "../shared/lock.js";
@@ -9,7 +9,6 @@ import { runHook, resolveHook, type HookResult, type HookSource } from "../integ
 import { WorktreeDirtyError } from "../worktree/manager.js";
 import { readProjectConfig } from "../project/config.js";
 import { nowTimestamp } from "../shared/time.js";
-import { canonicalDocPaths } from "./canonical-docs.js";
 import { recordBypasses } from "./bypass.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { teardownWorktree, type TeardownResult } from "../worktree/lifecycle.js";
@@ -21,12 +20,6 @@ export interface CancelOptions {
   by?: string;
   force?: boolean;
   skipHooks?: boolean;
-  purgeDocs?: boolean;
-  /**
-   * Asks a human whether the listed canonical docs may be deleted. Absent means nobody can be
-   * asked (no TTY), so a purge without `force` is refused rather than assumed.
-   */
-  confirmPurge?: (docs: string[]) => Promise<boolean>;
 }
 
 /** Why a cancel was refused. Each maps 1:1 to the stderr tag `kf cancel` has always printed. */
@@ -36,7 +29,6 @@ export type CancelRefusalReason =
   | "unknown-item"
   | "already-cancelled"
   | "metadata-missing"
-  | "purge-unconfirmed"
   | "worktree-dirty"
   | "teardown-failed"
   | "changed-concurrently";
@@ -49,14 +41,9 @@ export type CancelOutcome =
       cancellation: Cancellation;
       /** Where the item folder now lives. */
       target: string;
-      /** Canonical docs of an archived item, absolute paths; empty for any other stage. */
-      docs: string[];
-      purged: boolean;
       teardown: TeardownResult | null;
       bypasses: Bypass[];
     }
-  /** The human declined the purge prompt, so nothing was touched. */
-  | { kind: "kept"; stdout: string }
   | { kind: "refused"; reason: CancelRefusalReason; stdout: string; stderrTag: string }
   | { kind: "hook-failed"; hook: HookResult; stdout: string; stderrTag: string }
   | { kind: "error"; error: unknown };
@@ -69,7 +56,7 @@ const shellArg = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
 /** The command that repeats this cancel, with every flag of the original call that changes what it does. */
 function rerunCommand(name: string, reason: string, opts: CancelOptions): string {
   const by = typeof opts.by === "string" && opts.by.trim() ? ` --by ${shellArg(opts.by.trim())}` : "";
-  return `kf cancel ${name} --reason ${shellArg(reason)}${by}${opts.purgeDocs ? " --purge-docs" : ""}${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}`;
+  return `kf cancel ${name} --reason ${shellArg(reason)}${by}${opts.force ? " --force" : ""}${opts.skipHooks ? " --skip-hooks" : ""}`;
 }
 
 /**
@@ -88,7 +75,7 @@ export function refuseReason(name: string, rawReason: string): CancelOutcome | n
 }
 
 /**
- * Stop a work item for good: gates, hook, optional doc purge, worktree teardown and the move into
+ * Stop a work item for good: gates, hook, worktree teardown and the move into
  * `cancelled`. Pure of CLI concerns; callers render the outcome. Anything that used to propagate
  * as a throw comes back as `{ kind: "error" }`.
  */
@@ -112,8 +99,6 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
   }
   if (!f.meta) return refuse("metadata-missing", "metadata missing", "Feature metadata is missing.");
 
-  const force = Boolean(opts.force);
-
   const skipHooks = Boolean(opts.skipHooks);
   const skippedHook: HookSource | null = skipHooks ? resolveHook(root, "cancelled") : null;
   let ranHook: HookSource | null = null;
@@ -131,25 +116,6 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
       };
     }
     if (hook.ran) ranHook = hook.hook;
-  }
-
-  const docs = f.stage === "done" ? canonicalDocPaths(root, f) : [];
-  let purgeApproved = false;
-  if (opts.purgeDocs && docs.length > 0) {
-    if (force) {
-      purgeApproved = true;
-    } else if (!opts.confirmPurge) {
-      return refuse(
-        "purge-unconfirmed",
-        "purge requires interactive confirmation or --force",
-        `Refusing to delete canonical docs without confirmation:\n${docs.map((d) => `  ${relative(root, d)}`).join("\n")}\nRe-run with --force.`,
-      );
-    } else {
-      if (!(await opts.confirmPurge(docs))) {
-        return { kind: "kept", stdout: `Cancelled nothing. Re-run without --purge-docs to drop the work item and keep the docs.` };
-      }
-      purgeApproved = true;
-    }
   }
 
   const by = typeof opts.by === "string" && opts.by.trim()
@@ -210,12 +176,5 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
   });
   if (moveError) return moveError;
 
-  // Deleting docs cannot be undone, so it happens only after the move succeeded.
-  let purged = false;
-  if (purgeApproved) {
-    for (const doc of docs) await rm(doc, { recursive: true, force: true });
-    purged = true;
-  }
-
-  return { kind: "cancelled", reason, by, cancellation, target, docs, purged, teardown, bypasses: recorded };
+  return { kind: "cancelled", reason, by, cancellation, target, teardown, bypasses: recorded };
 }

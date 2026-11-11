@@ -1,9 +1,7 @@
-import { relative } from "node:path";
-
-import { selectOption } from "../../project/bootstrap.js";
 import { cancelItem, refuseReason } from "../../workflow/cancel.js";
 import { findRoot } from "./helpers.js";
 import { bypassNote } from "../../workflow/bypass.js";
+import { removedDocsFlag } from "./archive.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
 
@@ -14,8 +12,9 @@ import type { CmdResult } from "../result.js";
  */
 export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   const name = args.positionals[0];
-  if (!name) return { code: 1, stdout: 'Usage: kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]', stderr: "missing feature" };
+  if (!name) return { code: 1, stdout: 'Usage: kf cancel <feature> --reason "<why>" [--by <name>] [--force] [--skip-hooks]', stderr: "missing feature" };
   const reason = typeof args.options.reason === "string" ? args.options.reason : "";
+  if (args.options["purge-docs"]) return removedDocsFlag("purge-docs");
   const badReason = refuseReason(name, reason);
   if (badReason?.kind === "refused") return { code: 1, stdout: badReason.stdout, stderr: badReason.stderrTag };
   const root = await findRoot(cwd);
@@ -26,16 +25,6 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
     by: typeof args.options.by === "string" ? args.options.by : undefined,
     force: Boolean(args.options.force),
     skipHooks: Boolean(args.options["skip-hooks"]),
-    purgeDocs: Boolean(args.options["purge-docs"]),
-    confirmPurge: process.stdin.isTTY
-      ? async (docs) => {
-        const pick = await selectOption(
-          `Delete these canonical docs of '${name}'? (↑/↓ + Enter)\n${docs.map((d) => `  ${relative(root.root, d)}`).join("\n")}`,
-          ["Keep them — only cancel the work item", "Delete them"],
-        );
-        return pick === 1;
-      }
-      : undefined,
   });
   switch (outcome.kind) {
     case "error":
@@ -43,18 +32,11 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
     case "refused":
     case "hook-failed":
       return { code: 1, stdout: outcome.stdout, stderr: outcome.stderrTag };
-    case "kept":
-      return { code: 0, stdout: outcome.stdout };
     case "cancelled":
       break;
   }
 
-  const { docs, purged, teardown, cancellation, by, target } = outcome;
-  const docsNote = docs.length === 0
-    ? ""
-    : purged
-      ? `\n  Deleted canonical docs:\n${docs.map((d) => `    ${relative(root.root, d)}`).join("\n")}`
-      : `\n  Canonical docs left in place (use --purge-docs to delete them):\n${docs.map((d) => `    ${relative(root.root, d)}`).join("\n")}`;
+  const { teardown, cancellation, by, target } = outcome;
   const worktreeNote = teardown?.removed || teardown?.unmergedCommits
     ? `\n  Worktree removed (branch ${teardown.branch} kept)` +
       (teardown.unmergedCommits > 0
@@ -64,6 +46,6 @@ export async function cmdCancel(args: ParsedArgs, cwd: string): Promise<CmdResul
     : "";
   return {
     code: 0,
-    stdout: `✓ Cancelled '${name}' (was ${cancellation.fromStage}) by ${by}\n  Reason: ${outcome.reason.split("\n")[0]}\n  ${target}${docsNote}${worktreeNote}\n  Reopen with: kf stage ${name} ${cancellation.fromStage}${bypassNote(outcome.bypasses)}`,
+    stdout: `✓ Cancelled '${name}' (was ${cancellation.fromStage}) by ${by}\n  Reason: ${outcome.reason.split("\n")[0]}\n  ${target}${worktreeNote}\n  Reopen with: kf stage ${name} ${cancellation.fromStage}${bypassNote(outcome.bypasses)}`,
   };
 }
