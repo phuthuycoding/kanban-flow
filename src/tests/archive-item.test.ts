@@ -87,7 +87,7 @@ afterEach(async () => {
 
 // Recorded from `kf archive` before archiveItem existed; <root> and <folder> stand in for the temp
 // project root and the timestamped item folder. A close no longer syncs docs, so the success and
-// reconcile outputs carry no docs lines; they are compared line by line, blank lines aside.
+// reconcile outputs carry no docs lines.
 const RECORDED = {
   success: {
     code: 0,
@@ -112,10 +112,6 @@ const RECORDED = {
 const render = (res: { code: number; stdout: string; stderr?: string }, folder: string) =>
   ({ ...res, stdout: normalize(res.stdout).split(folder).join("<folder>") });
 
-/** The output as its non-blank lines, so a dropped docs block is compared without pinning the blank line around it. */
-const lines = (res: { code: number; stdout: string; stderr?: string }) =>
-  ({ ...res, stdout: res.stdout.split("\n").filter((line) => line.trim() !== "") });
-
 describe("archiveItem — typed outcome", () => {
   it("archives a merged review item", async () => {
     await reviewStage();
@@ -129,7 +125,7 @@ describe("archiveItem — typed outcome", () => {
     expect(outcome.bypasses).toEqual([]);
     expect(outcome.teardown).toBeNull();
     expect(outcome).not.toHaveProperty("stdout");
-    expect(lines(render(renderArchive(outcome), folder))).toEqual(lines(RECORDED.success));
+    expect(render(renderArchive(outcome), folder)).toEqual(RECORDED.success);
     expect(feature().stage).toBe("done");
     expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
   });
@@ -174,7 +170,7 @@ describe("archiveItem — typed outcome", () => {
     const outcome = await archiveItem(root, "shipit");
     expect(outcome.kind).toBe("reconciled");
     expect(outcome).not.toHaveProperty("stdout");
-    expect(lines({ code: 0, stdout: normalize(renderArchive(outcome).stdout) }).stdout).toEqual(lines(RECORDED.reconcile).stdout);
+    expect(normalize(renderArchive(outcome).stdout)).toBe(RECORDED.reconcile.stdout);
     expect(existsSync(join(root, "docs")), "a reconcile writes nothing under docs/").toBe(false);
   });
 
@@ -199,7 +195,7 @@ describe("kf archive renders byte-identically to the recorded output", () => {
   it("success", async () => {
     await reviewStage();
     const folder = feature().folder;
-    expect(lines(render(await cmdArchive(args("archive", ["shipit"]), root), folder))).toEqual(lines(RECORDED.success));
+    expect(render(await cmdArchive(args("archive", ["shipit"]), root), folder)).toEqual(RECORDED.success);
   });
 
   it("unmerged-PR refusal", async () => {
@@ -217,6 +213,6 @@ describe("kf archive renders byte-identically to the recorded output", () => {
     await reviewStage();
     expect((await cmdArchive(args("archive", ["shipit"]), root)).code).toBe(0);
     const res = await cmdArchive(args("archive", ["shipit"]), root);
-    expect(lines({ ...res, stdout: normalize(res.stdout) })).toEqual(lines(RECORDED.reconcile));
+    expect({ ...res, stdout: normalize(res.stdout) }).toEqual(RECORDED.reconcile);
   });
 });
