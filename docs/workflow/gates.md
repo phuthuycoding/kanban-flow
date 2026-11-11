@@ -13,8 +13,8 @@ One group is not shared: the *direction* gate, which decides where a PASS or FAI
 | 2 — Planning (feature) | `phase-2-use-case-specification.md` plus `use-cases/UC-###(-<slug>).md` | Index and coverage in the phase file; each UC carries its own preconditions, flows and alternate or error flows | Design and testing |
 | 2 — Planning (feature) | `phase-2-use-case-diagram.md` | A valid actor and use case diagram | Traceability |
 | 2 — Planning (feature) | `phase-2-test-case.md` | TC-XXX entries linked to FR-XXX and UC-XXX | The testing contract |
-| 4 — Testing | `phase-4-testing-result.md` | The current execution id, a PASS/FAIL/REJECT/BLOCKED verdict, the evidence | Review, or the repair loop |
-| 5 — Review | `phase-5-review-report.md` | The current execution id, a PASS/FAIL/REJECT/REQUIREMENT_BUG verdict, the findings; on PASS also `ci: green\|none` and `landing: pr\|none` (with `landing: pr`, a recorded PR) | Closing the item, or the repair loop |
+| 4 — Testing | `phase-4-testing-result.md` | The current execution id, a PASS/FAIL/BLOCKED verdict, the evidence | Review, or the repair loop |
+| 5 — Review | `phase-5-review-report.md` | The current execution id, a PASS/FAIL/REQUIREMENT_BUG verdict, the findings; on PASS also `ci: green\|none` and `landing: pr\|none` (with `landing: pr`, a recorded PR) | Closing the item, or the repair loop |
 | 6 — Artifact (feature) | `phase-6-feature-report.md` | The summary, what changed, the tests, the docs, the known limits | A finished feature |
 
 Implementation has no required artifact of its own in the schema, but the implement skill must finish the tasks in the plan and leave the code in a state that can be tested.
@@ -33,9 +33,9 @@ flowchart LR
     P -->|feature: 4 artifacts + approval<br/>bug: bug report + approval| I[implementation]
     I -->|implementation complete + tasks done| T[testing]
     T -->|PASS + current execution| R[review]
-    T -->|FAIL/REJECT| I
+    T -->|FAIL| I
     R -->|PASS + current execution + ci green or none + landing<br/>PR merged or nothing to land<br/>feature additionally requires feature report| D[done]
-    R -->|FAIL/REJECT| I
+    R -->|FAIL| I
     T -->|scope change| P
     R -->|scope change| P
     P -->|hold: no gate| BL[backlog]
@@ -66,7 +66,7 @@ A connection string carrying a password (`scheme://user:<password>@host`) is als
 
 The secret scan is the one check that ignores the stage entirely. It runs on **every artifact that exists on disk**, whether or not the workflow has reached the phase that asks for that file, and including items in `cancelled` — which sit at `STAGE_INDEX = -1` and are exempt from every other artifact check. A credential is a credential regardless of where the item stands, and cancelling an item must not be a way to take a committed token off the radar.
 
-The move from testing to review also needs evidence kf produced itself. `kf verify <feature> --stage` appends a record of every run that ran a command to `<item>/loop/stage-verify.jsonl`: the item's HEAD sha, whether the tracked tree was clean, each pinned command with its outcome (exit code, signal, not started, not run), a sha256 of the output and the overall exit. `kf stage <feature> review` reads the latest record — a wave verify's record (`kf verify <feature> --wave <w>`, tagged `wave`) counts like any other — and runs nothing: it refuses with `verify_record_missing` (no record), `verify_record_invalid` (the last line cannot be read — an earlier pass never stands in), `verify_record_failed`, `verify_record_stale` (the record names another commit than HEAD), `verify_tree_dirty` (tracked changes at record time or now), `verify_config_changed` (`harness.verify.stage` differs from the record, order included) or `verify_dir_missing`. A project with no `harness.verify.stage` is refused with `verify_not_configured` until the item carries a waiver: `kf verify <feature> --stage --waive "<reason>"` stores the reason, the time and who gave it, is refused while stage commands are pinned, and is shown by `kf status` and in the review report's `verify` row. Every code passes with `--force`, recorded as a bypass. The testing report's `## Commands and Evidence` table describes the run; `testing_exit_code` no longer exists.
+The move from testing to review also needs evidence kf produced itself. `kf verify <feature> --stage` appends a record of every run that ran a command to `<item>/loop/stage-verify.jsonl`: the item's HEAD sha, whether the tracked tree was clean, each pinned command with its outcome (exit code, signal, not started, not run), a sha256 of the output and the overall exit. `kf stage <feature> review` reads the latest record — a wave verify's record (`kf verify <feature> --wave <w>`, tagged `wave`) counts like any other — and runs nothing: it refuses with `verify_record_missing` (no record), `verify_record_invalid` (the last line cannot be read — an earlier pass never stands in), `verify_record_failed`, `verify_record_stale` (the record names another commit than HEAD), `verify_tree_dirty` (tracked changes at record time or now), `verify_config_changed` (`harness.verify.stage` differs from the record, order included) or `verify_dir_missing`. A project with no `harness.verify.stage` is refused with `verify_not_configured` until the item carries a waiver: `kf verify <feature> --stage --waive "<reason>"` stores the reason, the time and who gave it, is refused while stage commands are pinned, and is shown by `kf status` and in the review report's `verify` row. Every code passes with `--force`, recorded as a bypass. Testing reads this record instead of re-running the suite, and its report's `## Commands and Evidence` table cites it; only a project with no `harness.verify.stage` has testing run the test command once. The table is not what the gate reads; `testing_exit_code` no longer exists.
 
 The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four planning artifacts and every use-case file for a feature; a bug's fingerprint covers the bug report alone. Editing the contract after approval forces a return to planning, a rewrite and a fresh approval. That includes the plan's Task Breakdown — dependencies and `Files` — so the allowlist `kf verify --task` enforces is the one that was approved.
 
@@ -96,7 +96,7 @@ Every time `--force` skips a gate that was actually failing, or `--skip-hooks` s
 A flag that skips nothing, because the gate passed or no hook exists, records nothing. `kf validate` raises the `gate_bypassed` warning, `kf status` prints `Bypasses: N`, and `kf view --json` and the dashboard count the work items carrying one. There is no command to erase a record. The limit is worth stating plainly: this is a trail for a human reviewer, not a guarantee, because an agent can still edit the JSON by hand.
 
 - A phase hook fails: the transition is refused. Fix the hook, or use `--skip-hooks` once you understand what that skips.
-- Testing or review comes back `FAIL` or `REJECT`: return to implementation, fix the code, then enter testing again for a new execution id.
+- Testing or review comes back `FAIL`, or CI is red: return to implementation and repair each failure on the task that owns the failing file, continuing its round count under the five-round cap (five rounds is the task's whole life), then enter testing again for a new execution id.
 - `BLOCKED`: stop and report the blocker. Never fake a PASS.
 - `REQUIREMENT_BUG`: stop the feature and tell the user. Continue only on a clear decision from them about the scope or the requirement.
 - Archive fails midway: the CLI returns the feature to review and restores the metadata and specs where it can. When the rollback is incomplete, the error says so plainly so it can be sorted out by hand.

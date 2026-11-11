@@ -11,7 +11,7 @@ phase-1-spec-requirement.md
 ├── use-cases/UC-###-<slug>.md            (feature only: one file per UC)
 ├── phase-2-use-case-diagram.md           (feature only)
 └── phase-2-test-case.md                  (feature only: the test contract)
-    └── phase-4-testing-result.md         (the outcome of one execution)
+    └── phase-4-testing-result.md         (the outcome of one execution: the stage record, each TC mapped to its test, line coverage per changed file)
         └── phase-5-review-report.md      (review of that same execution)
             └── phase-6-feature-report.md (feature only: the handover)
 ```
@@ -38,7 +38,7 @@ A `PASS` is refused while `ci` is `red` (`review_ci_red`) or missing (`review_ci
 | Frontmatter | Identifies the work item, its context, its status and the current execution |
 | Placeholder | Lives only in the template; every one must be replaced with real content before a gate |
 | ID | `FR-###`, `UC-###`, `TC-###`, used consistently across every artifact |
-| Report status | Testing: `PASS/FAIL/REJECT/BLOCKED`; review: `PASS/FAIL/REJECT/REQUIREMENT_BUG` |
+| Report status | Testing: `PASS/FAIL/BLOCKED`; review: `PASS/FAIL/REQUIREMENT_BUG` |
 | Execution | Testing and review must carry the same `executionId` as the current run |
 | Summary tables | Totals must match the detail rows, not merely describe them |
 
