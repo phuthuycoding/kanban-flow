@@ -19,7 +19,7 @@ kf status --all ──► classify ──► 1 brainstorm ──confirm──►
 
 State is enforced by `kf`: artifact gates, approval fingerprints, execution ids, report statuses and traceability. The agent authors and verifies the content; file presence alone never proves that code was tested.
 
-**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. **The stop list — stop and report to the human only for:** an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree (merge, push to a shared branch, publish, a database write); a reopened task at its round cap, apart from the one minimal fix past the cap `kf:implement` makes; a plan too broken to act on, a scope change after approval being one; a review `REQUIREMENT_BUG`; a testing `BLOCKED`. Everything else is fixed in the loop.
+**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. **The stop list — stop and report to the human only for:** an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree (merge, push to a shared branch, publish, a database write); a reopened task at its round cap, apart from the one minimal fix past the cap `kf:implement` makes; a plan too broken to act on, a scope change after approval being one; a review `REQUIREMENT_BUG`; a testing `BLOCKED`.
 
 **Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; `kf init -i` when the user should answer the setup questions). Detect stack and tooling by READING the repository — never assume.
 
@@ -120,7 +120,7 @@ The approval is the start: `kf approve {feature}` moves the item to implementati
 - Brainstorm asks about **material ambiguity** only (missing scope, unclear behavior, conflicting acceptance criteria). Minor details → reasonable assumption, recorded in the spec.
 - Confirm the requirement in Phase 1, then obtain execution-contract approval in Phase 2. Present a tight summary + implementation plan and ask for approval. On approval run `kf approve` (`kf approve --backlog` when the reply defers). Without approval, do not start autonomous execution.
 - If scope must change after approval, stop implementation and explain the change. On the user's direction run `kf stage <feature> planning`, revise the contract and obtain fresh approval. REQUIREMENT_BUG blocks this route too; report it and await a human decision.
-- Stop only for the stop list under the Human boundary; anything else that blocks is fixed in the loop.
+- Stop for the human only on the stop list under the Human boundary. A stop a phase skill or `kf next` reports (the liveness guard, no CI result) is reported as it says, never retried.
 - Never bypass a failed gate with `--force` unless the user explicitly approves.
 
 ---
