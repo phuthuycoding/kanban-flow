@@ -19,24 +19,11 @@ One group is not shared: the *direction* gate, which decides where a PASS or FAI
 
 Implementation has no required artifact of its own in the schema, but the implement skill must finish the tasks in the plan and leave the code in a state that can be tested.
 
-## Canonical output on entering `done`
+## Docs on entering `done`
 
-Closing the item (`kf archive`, or the automatic close on a merged PR) copies from the work item folder to stable paths under the context. Only a feature gets its canonical docs copied automatically:
+Closing the item (`kf archive`, or the automatic close on a merged PR) copies nothing under `docs/`, for a feature or a bug: the work item folder moves into `.works/done/` and keeps every artifact for audit. The current docs are the living docs under `docs/specs/<context>/`, edited at review before the reviewers (see [artifacts](artifacts.md)); the legacy `docs/requirement`, `docs/use-cases` and `docs/testplan` snapshots an earlier release copied stay until `/kf:docs` consolidates them. An item approved before living docs whose PASS report records no `docs:` closes with the warning `⚠ <feature>: no living doc recorded (approved before living docs)`. `kf archive --skip-specs` was removed and exits 1 (`--skip-specs was removed: living docs are edited at review (docs/specs/); see kf instruct living-doc`).
 
-| Source | Destination |
-| --- | --- |
-| `phase-1-spec-requirement.md` | `docs/requirement/{context}/{feature}.md` |
-| `phase-2-use-case-specification.md` | `docs/use-cases/{context}/{feature}/README.md`, the index |
-| `use-cases/UC-###(-<slug>).md` | `docs/use-cases/{context}/{feature}/UC-###(-<slug>).md`, one file per use case |
-| `phase-2-use-case-diagram.md` | `docs/use-cases/{context}/{feature}/diagram.md` |
-| `phase-2-test-case.md` | `docs/testplan/{context}/{feature}.md` |
-| `phase-4-testing-result.md` | `docs/testplan/{context}/{feature}-result.md` |
-
-The canonical requirement is marked `archived`; the other artifacts keep their frontmatter and evidence so they can be traced later. Inside the index, links of the form `use-cases/UC-....md` are rewritten to plain `UC-....md` so the canonical `README.md` points at the sibling copies rather than back into `.works/`. `phase-6-feature-report.md` is deliberately not copied — it stays in the work item folder for audit.
-
-Two overwrite rules matter. On a **first** archive (review → done) the work item's copies win unconditionally — a canonical path already holding a hand-edited file, including a requirement mirror an older brainstorm wrote in Phase 1, is overwritten without a refusal. The changed-docs refusal applies only to a **re-archive** of an item already in `done`: there the CLI lists the canonical docs that changed since the snapshot and requires `--skip-specs` (keep them) or `--force` (restore the snapshot, and the bypass is recorded). For history: an old-style requirement mirror at `docs/use-cases/{context}/{feature}.md` is also stamped `status: archived` when one exists.
-
-For a bug, archive only moves the work item into `done`; the related feature's docs change only when the bug report states a docs impact. `--skip-specs` skips this whole table.
+The living-docs rules bind items approved from the living-docs release on (`kf approve` records `approval.livingDocs`); earlier items skip them. In planning the plan needs a `## Documentation Impact` that names a `docs/specs/<context>/<capability>.md` or waives with `none — <reason>` (`docs_impact_missing`), with `README` reserved for the index (`docs_capability_reserved`) and only declared contexts (`docs_context_undeclared`). A PASS review report needs `docs: updated` or `docs: none` (`docs_key_missing`) and a `docs_reason` for `none` (`docs_reason_missing`), and every `consolidates:` legacy feature fully removed (`docs_consolidation_incomplete`) — the review → done gate checks these too. In review `kf validate` also reads git at the item checkout against the merge-base with `origin/HEAD`: `docs: updated` with no committed change under `docs/specs/` (`docs_updated_no_change`), a capability file a bug adds (`docs_bug_new_spec`), a legacy feature removed only in part (`docs_legacy_half_removed`) or never named in a `## History` or `## Retired` section (`docs_legacy_unnamed`), and the structure of each touched context (`docs_heading_missing`, `docs_index_missing_entry`, `docs_index_dangling`). A failed git lookup is `docs_git_failed`, never a pass; a base that cannot be resolved fails `docs: updated` and is only a `docs_base_unresolved` WARNING for `docs: none`.
 
 ## What each direction requires
 
@@ -87,9 +74,9 @@ The Phase 2 approval is a SHA-256 fingerprint of the requirement, the four plann
 
 `cancelled` is the one stage with **no artifact gate**. Its `STAGE_INDEX` is `-1`, so every "is this artifact due yet" and "are we past planning" comparison comes out false, and the validator skips artifacts, approval, traceability and report semantics entirely. In exchange it has exactly one requirement of its own: `cancellation.reason` must not be empty, and a missing one is `cancellation_missing`.
 
-`kf cancel` runs the `cancelled.sh` hook like any other transition, and for an item in `done` it **lists** the canonical docs rather than deleting them. Only `--purge-docs` deletes. On a TTY it asks first — unless `--force` is also given, which takes the confirmation as already granted; without a TTY, `--force` is the only way through. The deletion runs only **after** the work item has moved into `.works/cancelled/` successfully, so a failure during the move cannot lose documents. A cancelled item cannot be archived.
+`kf cancel` runs the `cancelled.sh` hook like any other transition and never touches `docs/`; `--purge-docs` was removed and is refused with exit 1. A cancelled item cannot be archived.
 
-An item cancelled *out of* `done` reopens into `done`: `kf stage` restores its `archived` status and re-syncs the canonical docs through the archive path. When that sync is refused — changed docs included — the item still lands in `done` and the output says to finish with `kf archive`.
+An item cancelled *out of* `done` reopens into `done`: `kf stage` restores its `archived` status and writes no docs.
 
 On the numbers: cancelled items are taken out of the denominator of `completionRate`, so dropping something does not dent the rate.
 

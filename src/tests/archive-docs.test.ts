@@ -202,12 +202,17 @@ describe("closure guidance and repository docs", () => {
       return statSync(path).isDirectory() ? walk(path) : [path];
     });
 
-  it("the archive skill carries the reconcile step and the post-merge docs commit", () => {
+  it("the archive skill points to the living docs edited at review and neither copies nor banners", () => {
     const skill = readFileSync(join(repo, "skills", "archive", "SKILL.md"), "utf8");
-    expect(skill).toContain("Reconcile superseded docs");
+    const review = readFileSync(join(repo, "skills", "review", "SKILL.md"), "utf8");
     expect(skill).toContain("](reconcile.md)");
     expect(existsSync(join(repo, "skills", "archive", "reconcile.md"))).toBe(true);
-    expect(skill).toContain("docs({context}): sync canonical docs for {feature_name}");
+    expect(skill).toContain("docs/specs/");
+    expect(skill).toContain("the close copies nothing");
+    expect(skill).toContain("docs({context}): update living docs for {feature_name}");
+    expect(review).toContain("docs({context}): update living docs for {feature_name}");
+    expect(skill).not.toContain("Reconcile superseded docs");
+    expect(skill).not.toContain("docs({context}): sync canonical docs for {feature_name}");
   });
 
   it("the feature report template asks for the reconciled docs", () => {

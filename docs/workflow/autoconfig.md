@@ -48,6 +48,7 @@ Four sections, in order:
 | Base review rules | `general.md`, `security.md`, `performance.md` in `.kf/review/rules/` | `kf init --defaults` (seeds templates + rules) |
 | Stack rule packs | A `<stack>.md` in `.kf/review/rules/` for every stack — `config.stacks` when set, else detected | `kf rules --stack <id>` (`kf rules --list` shows packs) |
 | `.works/` ignored | `.gitignore` lists `.works/` — only checked when `.git` exists | `echo '.works/' >> .gitignore` |
+| CI | a workflow under `.github/workflows/` runs `validate --all --strict --base` | add a pull_request step (fetch-depth 0) running `kf validate --all --strict --base origin/<base_ref>`, so a change without its living-doc update fails |
 | Agent file | `AGENTS.md` or `CLAUDE.md` at the root | create `AGENTS.md` documenting the commands and conventions |
 | Declared contexts | `contexts` in `.kf/config.json` | optional — `kf contexts` prints a survey brief for an agent to propose a list, a human confirms it. Without a list, `kf new` accepts any context |
 | Phase hooks | at least one file other than `.gitkeep` in `.kf/hooks/` | optional — add shell hooks named after stages (see below) |
@@ -65,7 +66,8 @@ Not on the checklist, reported by `kf doctor` (or `kf validate`) instead:
 - Missing hook-pack files, only in a project that uses the pack (`.kf/hooks/lib-github.sh` is present or a stage hook sources it): `kf doctor --fix` restores them from the package and never overwrites a hook the project edited.
 - Leftover legacy folders `.works/dones/` or `.works/shipping/`; the next `kf status` (or `kf sync`) migrates them.
 - A `.gitignore` without `.kf/travel/`; `kf doctor --fix` adds the entry.
-- `docs_branch_unpushed` — canonical docs for a closed item sit on an unpushed `docs/<context>-<feature>` branch.
+- `Legacy docs not consolidated: <context> <N>, …` — legacy feature snapshots remain under `docs/requirement`, `docs/use-cases` or `docs/testplan`; a WARNING whose action is to run `kf:docs`, which consolidates them into living docs under `docs/specs/<context>/`. `kf doctor --fix` never touches them.
+- `docs_branch_unpushed` — canonical docs an earlier release's close committed for an item sit on an unpushed `docs/<context>-<feature>` branch.
 - `worktree_infra_missing` (from `kf validate`) — `*.<domainZone>` (default `.test`) does not resolve to the kf proxy or `kf proxy serve` is not running. Worktrees still work through the direct `127.0.0.1:<port>` URL; the one-time fix needs sudo: `sudo kf worktree setup` (`--print` shows the plan first). Set `worktree.enabled: false` to opt a project out. `worktree.domains` (boolean, default `true`) switches the domain infrastructure; the check is skipped when it is `false`: with it `false`, there are no `.test` DNS or proxy probes, `kf status` prints only `http://127.0.0.1:<port>`, hooks get no `KFW_WORKTREE_DOMAIN`, and ports and routes are still allocated and JSON outputs still carry `domain`.
 
 ## Phase hooks

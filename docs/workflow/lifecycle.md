@@ -49,8 +49,8 @@ flowchart TD
     MG -- Not yet --> MG
     MG -- "Yes: next kf status --change / kf sync / kf archive" --> AD{Work item kind?}
     AD -- Feature --> FC[Write feature-report]
-    FC --> AE[kf archive: copy requirement, use-case and testplan docs]
-    AD -- Bug --> BC[Update the related feature docs if needed]
+    FC --> AE[kf archive: copies nothing under docs/, the living docs were edited at review]
+    AD -- Bug --> BC[Its living doc was updated at review if needed]
     BC --> BA[kf archive: keep the bug record with its test and review]
     BA --> AF
     AE --> AF([done: item closed])
@@ -74,11 +74,11 @@ The report is gated at review → done: a PASS needs `ci` green or none (`review
 
 Nobody is asked "archive?". An item with a PASS review closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged on GitHub, or, for `landing: none`, once it has 0 commits ahead of origin's default branch. Until then `kf status` says to merge the PR (its URL) and run `kf status --change <feature>` again. A PR that was closed unmerged is refused.
 
-The close runs in a binding order: gates, refusal while a close is in progress, refusal while the worktree is dirty, the `done` hook, worktree teardown, branch deletion (local, then origin), canonical docs, the move into `.works/done/`, and the metadata stamp.
+The close runs in a binding order: gates, refusal while a close is in progress, refusal while the worktree is dirty, the `done` hook, worktree teardown, branch deletion (local, then origin), the move into `.works/done/`, and the metadata stamp. The close writes nothing under `docs/`.
 
 Branch deletion is conservative. The PR head must be the item branch. The local branch is deleted only when its tip equals the PR head, and the origin branch is deleted with a lease. A branch with commits past the merged head is kept and reported.
 
-Canonical docs are written into the working tree only when the primary checkout is on a clean, current default branch. Otherwise they go to an unpushed `docs/<context>-<feature>` branch, recorded as `meta.docsBranch`; `kf doctor` warns while it is unpushed (`docs_branch_unpushed`).
+The docs are the living docs under `docs/specs/<context>/`: review step 2b edits the ones the plan's `## Documentation Impact` names, in one commit before the reviewers, so they merge with the PR, and the review report records `docs: updated` or `docs: none` with `docs_reason`. An item an earlier release closed may still carry an unpushed `docs/<context>-<feature>` branch of canonical docs, recorded as `meta.docsBranch`; `kf doctor` warns while it is unpushed (`docs_branch_unpushed`), and the close re-lands it when it never landed.
 
 An older project is migrated once, by `kf status` or `kf sync`: `.works/dones/*` moves to `.works/done/`, and `.works/shipping/*` returns to `review` (a merged PR closes it like any other). `kf stage <item> shipping` and `kf stage <item> dones` are refused with a hint, and `kf ship` is a deprecated alias that exits 1 — review opens the PR and the merge on GitHub closes the item. Publishing to npm is a manual `gh release create v<version>`, which triggers the release workflow.
 

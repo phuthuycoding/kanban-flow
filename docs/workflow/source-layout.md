@@ -31,7 +31,9 @@ src/
 │   ├── schema.ts         # stages, artifacts, transitions
 │   ├── features.ts       # .kfw.json metadata (approval, execution id, bypasses), feature listing
 │   ├── bypass.ts         # --force/--skip-hooks audit records (recordBypasses, bypassNote)
-│   ├── canonical-docs.ts # canonical docs sync: content, paths, prepare/write/rollback copies
+│   ├── canonical-docs.ts # legacy docs branches: landed proof and the re-land of a recorded docsBranch
+│   ├── living-docs.ts    # docs/specs/ scan, structure and index rules, legacy-removal check, docs base
+│   ├── validate-docs.ts  # per-item living-docs rules: Documentation Impact, review docs keys and git checks
 │   ├── archive.ts        # archive transaction (archiveItem) behind kf archive
 │   ├── cancel.ts         # cancel transaction (cancelItem) behind kf cancel
 │   ├── tasks.ts          # the plan's task graph

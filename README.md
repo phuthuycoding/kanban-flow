@@ -24,7 +24,11 @@ any stage → cancelled, with a reason on the record
 There is no shipping stage. A review PASS opens the pull request, watches CI and
 stops; you merge it on GitHub. The next `kf status` (or `kf sync`, or `kf archive`)
 sees the merged PR and closes the item: the branch and the item worktree are removed
-safely, the canonical docs are synced, and the folder moves to `.works/done/`. Items
+safely and the folder moves to `.works/done/`; the close copies nothing under `docs/`.
+The current docs are the living docs in `docs/specs/<context>/<capability>.md`, edited
+at review in one commit before the reviewers; the older `docs/requirement`,
+`docs/use-cases` and `docs/testplan` snapshots wait for `/kf:docs` to consolidate
+them, and `kf validate --all --base <ref>` checks the living docs in CI. Items
 that deliver no code (`landing: none`) close the same way once nothing is ahead of
 the default branch. `kf ship` is deprecated and exits 1 with that explanation. `kf
 status --all` ends with **Needs you**, **Waiting to merge** (PR URL and the

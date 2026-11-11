@@ -46,26 +46,22 @@ The CLI checks the files, the placeholders, secret-like content, ID references, 
 
 ## On close into `done`
 
-A review PASS item closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged (or at once when `landing: none` and nothing is ahead of the default branch), and `kf archive` is the explicit form. The close leaves the artifact set in `.works/done/{feature}_{timestamp}/` for audit. For a feature, the CLI copies the documents people actually read into the canonical docs:
+A review PASS item closes on the next `kf status --change <feature>` (or `--all`), `kf sync` or `kf archive` once its PR is merged (or at once when `landing: none` and nothing is ahead of the default branch), and `kf archive` is the explicit form. The close leaves the artifact set in `.works/done/{feature}_{timestamp}/` for audit and copies nothing under `docs/` — for a feature or a bug. The feature report stays with the work item.
 
-| Canonical doc | Contents |
+## Living docs `docs/specs/`
+
+The docs people read for current behaviour are the living docs, one per capability:
+
+| Living doc | Contents |
 |---|---|
-| `docs/requirement/{context}/{feature}.md` | The archived requirement |
-| `docs/use-cases/{context}/{feature}/README.md` | The UC index and coverage |
-| `docs/use-cases/{context}/{feature}/UC-###(-<slug>).md` | Each use case narrative |
-| `docs/use-cases/{context}/{feature}/diagram.md` | The actor and use case diagram |
-| `docs/testplan/{context}/{feature}.md` | The test plan and the coverage matrix |
-| `docs/testplan/{context}/{feature}-result.md` | The most recent execution result |
+| `docs/specs/{context}/{capability}.md` | `## Purpose`, `## Current behaviour`, `## Use cases`, `## Surfaces` and `## History` — one History line per feature or bug that changed it |
+| `docs/specs/{context}/README.md` | The context index: `## Capabilities` links every capability file, `## Retired` names the capabilities and legacy features that no longer exist |
 
-Every copy except the execution result is stamped `status: archived` in its frontmatter (a file without frontmatter is copied as-is), and the index lands as `README.md` with its `use-cases/...` links rewritten to sibling links and its "Use Case Files" rows flipped from `planned` to `implemented`. The feature report is not copied — it stays with the work item for audit. On this first copy the `.works/` versions win unconditionally: whatever already sits at a canonical path, including a hand-edited requirement mirror, is overwritten.
+`kf instruct living-doc` and `kf instruct living-doc-index` print the templates and the path (`--change <feature>` fills the context). `README` is the index and never a capability name. A feature edits them at review (`/kf:review` step 2b, before the reviewer dispatch) in one docs commit on the item branch, as the plan's `## Documentation Impact` names them; the review report records `docs: updated` or `docs: none` with `docs_reason`, and the feature report's `## Docs Reconciled` lists the living docs created or updated and the legacy features consolidated. A bug edits an existing living doc and never creates one.
 
-For a bug, archive neither creates nor overwrites an existing feature's docs. The archive skill updates the related docs only when the bug report states a docs impact; when there is none, it says "No documentation update required" in the closure or review.
+The plan's `## Documentation Impact` takes one line per entry: `docs/specs/<context>/<capability>.md`, `consolidates: <context>/<feature>` (a legacy feature this feature folds into a living doc), or `none — <reason>`. A consolidated legacy feature has every file deleted — `docs/requirement/<context>/<feature>.md`, `docs/use-cases/<context>/<feature>/`, `docs/testplan/<context>/<feature>.md` and `<feature>-result.md` — and its `<context>/<feature>` token named in a living doc's `## History` or the index's `## Retired`.
 
-The overwrite behaviour flips on a re-archive: archiving a feature that is already in `done` refuses to overwrite canonical docs that have changed since the snapshot, so updates from a bug or from extra documentation survive. Use `--skip-specs` to leave the docs alone; use `--force` only when restoring the old snapshot is what you actually want — the bypass is recorded in `.kfw.json`. A doc an older version wrote without the archived stamp (status absent or `planning`) is not an edit: when stamping it yields the new copy, the re-archive upgrades it in place without a refusal or a bypass. Any other difference, a hand-set status included, is still refused.
-
-Snapshots alone go stale when a later feature changes the same behavior, so review reconciles them (`/kf:review` step 2b, before the reviewer dispatch): the reconcile step finds earlier canonical docs that contradict the new behavior, marks each with a `> **Superseded by <feature>.**` banner under its title (the old body stays for history), brings `docs/workflow/*` up to date in one docs commit on the item branch, and lists what it touched in `reviews/<id>/docs-reconciled.md`, which feeds the feature report's `## Docs Reconciled` section. A banner counts as an edit to that older feature's docs, so re-archiving it by hand needs `--skip-specs` to keep the banner; `kf sync` never re-archives a delivered item, so the sweep is unaffected.
-
-When the primary checkout is on a clean, current default branch, the canonical docs are written into its working tree. Otherwise they are committed to an unpushed `docs/<context>-<feature>` branch cut from `origin/<default>`, the name is stamped in the work item's `meta.docsBranch`, and `kf status --all` lists it under **Waiting to merge** until it is pushed (`kf doctor` warns `docs_branch_unpushed`).
+The legacy snapshots under `docs/requirement`, `docs/use-cases` and `docs/testplan`, which earlier releases copied at the close, are history: nothing banners or rewrites them, and `/kf:docs` consolidates them one context at a time (`kf doctor` warns `Legacy docs not consolidated` while any remain). A docs branch an earlier close recorded (`meta.docsBranch`, an unpushed `docs/<context>-<feature>` branch) is still listed under **Waiting to merge** until it lands (`kf doctor` warns `docs_branch_unpushed`).
 
 ## The task loop ledger `<item>/loop/progress.md`
 
@@ -99,8 +95,8 @@ Sizes are S=1, M=2, L=4, XL=8 points. The morning budget is the median daily tot
 - [ ] Feature: four planning artifacts, one file per UC, and a test matrix whose IDs line up.
 - [ ] Bug: a triage record carrying the reproduction, the severity and the regression strategy.
 - [ ] Testing and review both `PASS`, on the current execution, the review report with `ci` green or none and a `landing` value.
-- [ ] The feature report records what changed, which tests ran, which docs moved, which earlier docs were reconciled (or `None` with a reason) and what limits remain. Not required for a bug.
-- [ ] Canonical docs synced where needed, and no database, deploy or publish action outside the approved scope.
+- [ ] The feature report records what changed, which tests ran, which living docs were created or updated and which legacy features consolidated (or `None` with a reason) and what limits remain. Not required for a bug.
+- [ ] The review report's `docs:` says whether the living docs changed, and no database, deploy or publish action outside the approved scope.
 
 ## The implementation plan's Task Breakdown
 

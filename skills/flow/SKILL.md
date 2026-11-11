@@ -85,12 +85,9 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 
 For features, `kf validate` checks each `## TC-###` for FR references and matching individual UC files. Approval fingerprints the requirement, four planning artifacts and individual UC files. For bugs, approval fingerprints only the bug report; feature planning artifacts and feature report are not required. A changed contract must return to planning for human approval. Each entry to testing creates a new execution id; testing and review reports must carry that id in `execution:`. Read templates with `kf instruct <artifact> --change <feature>` to obtain the current id and exact output path.
 
-Feature canonical docs are synced by the CLI on close:
-- Requirement: `docs/requirement/{context}/{feature_name}.md`
-- Use cases: `docs/use-cases/{context}/{feature_name}/README.md`, one `UC-###(-<slug>).md` per use case and `diagram.md`
-- Test plan/result: `docs/testplan/{context}/{feature_name}.md` and `{feature_name}-result.md`
+The current docs are the living docs under `docs/specs/<context>/`, one `<capability>.md` per capability plus the context index `README.md`. The plan's `## Documentation Impact` names the ones a feature changes; review step 2b (`kf:review`) edits them in one commit before the reviewers, and the review report records `docs: updated` or `docs: none` with `docs_reason`. The close copies nothing under `docs/`. The legacy snapshots under `docs/requirement`, `docs/use-cases` and `docs/testplan` wait for `kf:docs` to consolidate them (`kf doctor` warns `Legacy docs not consolidated`).
 
-Work item type is stored in `.kfw.json` as `kind: feature|bug`. Create a bug with `kf new <name> --type bug`; route it to `kf:bug` for reproduction and triage before planning. A bug's related feature docs are updated in review (`kf:review` step 2b) when needed, and the close changes no bug docs; never auto-create feature docs for a bug or overwrite a feature requirement with bug-report content.
+Work item type is stored in `.kfw.json` as `kind: feature|bug`. Create a bug with `kf new <name> --type bug`; route it to `kf:bug` for reproduction and triage before planning. A bug's related living doc is updated in review (`kf:review` step 2b) when needed, and the close changes no docs; a bug never creates a living doc or overwrites one with bug-report content.
 
 ---
 
@@ -144,7 +141,7 @@ kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/i
 kf tasks {feature} [--json] [--graph]    # tasks parsed from the approved plan, with state; --graph adds critical path and max width
 kf verify {feature} --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | --stage [--waive "<reason>"] | --wave <w>   # harness.verify commands + the task's Files allowlist check; --stage records the run the review gate reads
 kf loop-stats {feature} [--json] [--record] | --all [--json]   # measure a task loop from its ledger; --record writes (replacing any earlier) the item's row in .works/loop-metrics.md
-kf archive {feature}           # explicit, idempotent close: merged-PR (or landing: none) check → review → done + docs + issue close + board + delivered stamp; kf status / kf sync run it after the merge
+kf archive {feature}           # explicit, idempotent close: merged-PR (or landing: none) check → review → done + issue close + board + delivered stamp; kf status / kf sync run it after the merge
 kf sync                        # close sweep: closes every review item whose recorded PR merged, or with landing: none and nothing to land
 kf issues link {feature} <url> --pr [--replace]   # record the item's PR; --replace only when the recorded PR was closed unmerged
 kf cancel {feature} --reason "<why>"   # drop the item for good — propose it, the human decides

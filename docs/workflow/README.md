@@ -20,7 +20,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 1. [Lifecycle](lifecycle.md) — who does what, and in what order.
 2. [State machine](state-machine.md) — the states and the transitions each one allows.
 3. [Gates](gates.md) — artifacts, approval, execution ids and report status.
-4. [Artifact contract](artifacts.md) — file structure, traceability and the canonical output.
+4. [Artifact contract](artifacts.md) — file structure, traceability and the living docs under `docs/specs/`.
 5. [CLI reference](cli-reference.md) — the command syntax an agent uses to move state.
 6. [Agent onboarding](autoconfig.md) — `kf init`, `AGENTS.md`, the `kf autoconfig` briefing and phase hooks.
 7. [Skill routing](skills.md) — which skill loads in which state.
@@ -40,7 +40,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 - A FAIL or a REJECT, or red CI on the PR, returns to implementation and must be tested again. BLOCKED stops the pipeline.
 - Review runs the independent `code-reviewer` first; only after its PASS is the branch pushed and the PR opened, and the review report is PASS only when CI is green or absent. The human merges the PR on GitHub; `kf status`, `kf sync` or `kf archive` then closes the item into `done`, removes its worktree and deletes the merged branch.
 - REQUIREMENT_BUG stops every ordinary transition so the user can decide.
-- The feature report must be written before the close; the CLI syncs the canonical docs when a feature is archived. A bug only updates the related docs when there is a docs impact.
+- The feature report must be written before the close, and the close copies nothing under `docs/`: review edits the living docs under `docs/specs/` and the review report records `docs:`. A bug only updates an existing living doc when there is a docs impact.
 
 One rule in that list is not like the others: the pipeline granting itself no access to a database, a deployment, a publish or a message is a **policy carried in the skill prompts**, not a gate. Nothing in `src/` enforces it. It bends exactly as far as the agent does.
 
@@ -64,7 +64,8 @@ project/
 │   ├── cancelled/
 │   └── done/
 └── docs/
-    ├── requirement/{context}/{feature}.md
+    ├── specs/{context}/README.md + <capability>.md   # living docs
+    ├── requirement/{context}/{feature}.md           # legacy snapshots, until kf:docs
     ├── use-cases/{context}/{feature}/README.md + UC-###-<slug>.md + diagram.md
     └── testplan/{context}/{feature}{,-result}.md
 ```
