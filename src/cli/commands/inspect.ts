@@ -13,7 +13,7 @@ import {
   statusToJson,
   type CloseState,
 } from "../../workflow/status.js";
-import { branchPushed, revParse, runGit, type LandedRun } from "../../shared/git.js";
+import { branchPushed, isGitFailure, revParse, runGit, type LandedRun } from "../../shared/git.js";
 import { checkLivingDocTree, removedLegacyFindings, resolveDocsBase, type DocsFinding } from "../../workflow/living-docs.js";
 import { docsLandedProof } from "../../workflow/canonical-docs.js";
 import { LockTimeoutError } from "../../shared/lock.js";
@@ -303,11 +303,6 @@ interface ProjectDocsResult {
   stage: "-";
   valid: boolean;
   issues: DocsFinding[];
-}
-
-/** Errors the git helpers and the living-docs ref guard throw: plain Errors naming git or the refused ref. */
-function isGitFailure(err: unknown): err is Error {
-  return err instanceof Error && err.constructor === Error && /^(git |Refusing unsafe )/.test(err.message);
 }
 
 /**

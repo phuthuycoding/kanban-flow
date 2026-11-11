@@ -44,6 +44,15 @@ function assertSafeArg(kind: string, value: string): void {
  * Runs git without a shell. Non-zero exits are returned, not thrown; only a failure to
  * spawn git at all (or a timeout) throws.
  */
+/**
+ * True for the errors the git helpers here and in workflow/living-docs.ts throw on a failed git call
+ * (message prefixed "git …") or a refused ref ("Refusing unsafe …"). Callers turn only these into a
+ * docs_git_failed finding and rethrow anything else, so a programming bug still crashes with its stack.
+ */
+export function isGitFailure(err: unknown): err is Error {
+  return err instanceof Error && err.constructor === Error && /^(git |Refusing unsafe )/.test(err.message);
+}
+
 export function runGit(dir: string, args: string[], opts: GitOptions = {}): GitResult {
   const res = spawnSync("git", ["-C", dir, ...args], {
     encoding: "utf8",
