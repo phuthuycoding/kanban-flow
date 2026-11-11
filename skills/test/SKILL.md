@@ -31,7 +31,7 @@ Every entry to testing creates a new execution id. Keep old reports as evidence,
 
 Testing runs no full suite, lint, build or typecheck: the loop's last wave verify (or `kf verify <f> --stage`) already ran them at HEAD, and the review board and CI run them again. Read `kf status --change {feature_name}`: the `Stage verify:` line must read PASS at the item's HEAD. When the project pins `harness.verify.stage`, anything else — no record, a failed record, a record older than HEAD — gives `BLOCKED` naming `kf verify <f> --stage`; run nothing in its place. `## Commands and Evidence` cites that record: the sha and the commands it ran.
 
-**No stage commands.** When the project pins no `harness.verify.stage`, the `Stage verify:` line reads `not configured — …` or `waived — …` and there is no record to read. Then kf:test runs the project's test command once, with coverage when the tooling supports it, and cites that run. That run serves the TC mapping and the coverage, so no second, scoped run is made. The waiver itself is still recorded at the entry to review, as today.
+**No stage commands.** When the project pins no `harness.verify.stage`, the `Stage verify:` line reads `not configured — …` or `waived — …` and there is no record to read. Then kf:test runs the project's test command once, with coverage when the tooling supports it, and cites that run. That run serves the TC mapping and the coverage, so no second, scoped run is made. The waiver itself (`kf verify <f> --stage --waive "<reason>"`) is recorded only on the human's word: the session asks the human for it before `kf stage <f> review` and never writes it on its own.
 
 Testing commits nothing: a commit would move HEAD past the stage record, and the review gate would refuse it. It dispatches no automation-writer either: UI and E2E specs are written and committed in kf:implement's task loop.
 
@@ -57,7 +57,7 @@ kf instruct testing-result --change {feature_name}
 
 Fill `phase-4-testing-result.md`, set frontmatter `status:` to exactly one of:
 
-- `PASS` — every approved TC maps to a passing test or a behaviour run, the coverage target is met (or no run is needed, with the reason) and the stage record is PASS at HEAD (or the no-stage-commands run passed)
+- `PASS` — every automated TC maps to a passing test and every manual TC to a behaviour run (a behaviour run never replaces a missing test), the coverage target is met (or no run is needed, with the reason) and the stage record is PASS at HEAD (or the no-stage-commands run passed)
 - `FAIL` — a TC with no test or only a skipped test, a failing test, coverage below target, or a failing behaviour run
 - `BLOCKED` — cannot test: the stage record is not PASS at HEAD while stage commands are pinned, a required coverage target is unmeasurable, or the env/tooling is missing
 
@@ -86,6 +86,7 @@ Report written with a decisive status. Hand off:
 
 ```text
 If PASS: kf stage {feature_name} review, then load the kf:review skill (independent reviewer, then the PR and the CI watch).
+  With no stage commands pinned, ask the human for the waiver first (kf verify <f> --stage --waive "<reason>"); it is recorded only on the human's word.
 If FAIL: kf:implement first (Repairing after the loop, on the owning task), then testing with a new execution id.
 If BLOCKED: stop and report the blocker.
 ```

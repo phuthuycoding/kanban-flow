@@ -192,6 +192,42 @@ describe("kf:test statuses and the fix rule", () => {
   });
 });
 
+describe("kf:test keeps a behaviour run from standing in for a missing test", () => {
+  it("no longer lets a behaviour run satisfy the PASS rule for any approved test case", () => {
+    const text = testSkill();
+    expect(text).not.toContain("a passing test or a behaviour run");
+  });
+
+  it("maps an automated test case to a passing test and a manual one to a behaviour run, never replacing a missing test", () => {
+    const text = testSkill();
+    expect(text).toMatch(/every automated TC[^.;]*passing test/i);
+    expect(text).toMatch(/every manual TC[^.;]*behaviour run/i);
+    expect(text).toMatch(/behaviour run never replaces a missing test/i);
+  });
+});
+
+describe("kf:test asks the human for the waiver when no stage commands are pinned", () => {
+  it("records the waiver only on the human's word and asks for it before kf stage review", () => {
+    const text = testSkill();
+    expect(text).toContain("kf verify <f> --stage --waive");
+    expect(text).toMatch(/only on the human's word/);
+    expect(text).toMatch(/ask(s|ed)? (the human )?for (it|the waiver)[^.]*before `kf stage <f> review`|before `kf stage <f> review`[^.]*ask/i);
+  });
+
+  it("repeats the waiver ask in the Done hand-off", () => {
+    const done = slice(testSkill(), "## Done", "\u0000end");
+    expect(done).toMatch(/waive/i);
+  });
+
+  it("keeps the What stops you list unchanged at seven reasons", () => {
+    const stops = slice(testSkill(), "**What stops you.**", "## Done");
+    expect(stops).toContain("a plan too broken to act on");
+    expect(stops).toContain("a review `REQUIREMENT_BUG`");
+    expect(stops).toContain("a testing `BLOCKED`");
+    expect(stops).not.toMatch(/waiver|waive/i);
+  });
+});
+
 describe("only kf:implement dispatches the automation-writer", () => {
   it("has the agent and its brief name no testing-stage dispatch, brief, report or commit", () => {
     for (const text of [agent(), brief()]) {
