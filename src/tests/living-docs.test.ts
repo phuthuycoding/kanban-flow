@@ -177,6 +177,15 @@ describe("checkLivingDocTree", () => {
     expect(`${unlisted[0].file} ${unlisted[0].message}`).toContain("y.md");
   });
 
+  it("finds every template heading in a living doc saved with CRLF line endings", async () => {
+    write("docs/specs/cli/README.md", index(["x.md"]));
+    write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS).replace(/\n/g, "\r\n"));
+
+    const findings: DocsFinding[] = await checkLivingDocTree(repo);
+
+    expect(withCode(findings, "docs_heading_missing")).toEqual([]);
+  });
+
   it("refuses a capability named README in another letter case", async () => {
     // The index name is reserved; on a case-insensitive filesystem a Readme.md capability is the index.
     write("docs/specs/cli/Readme.md", livingDoc(FIVE_HEADINGS));
@@ -247,6 +256,20 @@ describe("removedLegacyFindings", () => {
     const findings: DocsFinding[] = await removedLegacyFindings(repo, mergeBase);
 
     expect(errors(findings)).toEqual([]);
+  });
+
+  it("accepts a removed legacy feature named in the History of a living doc saved with CRLF line endings", async () => {
+    // Keep the CRLF bytes in the commit whatever the machine's global autocrlf says.
+    sh(repo, "config", "core.autocrlf", "false");
+    const mergeBase = baseThenBranch(() => legacyFeature("cli", "foo"));
+    removeLegacyFeature("cli", "foo");
+    write("docs/specs/cli/README.md", index(["x.md"]));
+    write("docs/specs/cli/x.md", livingDoc(FIVE_HEADINGS, "- Consolidated cli/foo (#12)").replace(/\n/g, "\r\n"));
+    commit("consolidate foo in a CRLF doc");
+
+    const findings: DocsFinding[] = await removedLegacyFindings(repo, mergeBase);
+
+    expect(withCode(findings, "docs_legacy_unnamed")).toEqual([]);
   });
 
   it("accepts a fully removed legacy feature listed under an index's Retired section", async () => {
