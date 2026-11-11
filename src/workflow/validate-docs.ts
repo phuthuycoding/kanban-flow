@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS, STAGE_INDEX } from "./schema.js";
 import { readMarkdownSection, sectionItems } from "../shared/frontmatter.js";
-import { git, runGit } from "../shared/git.js";
+import { git, isGitFailure, runGit } from "../shared/git.js";
 import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { finding, type Finding } from "./findings.js";
 import { findWorksRoot, type Feature } from "./features.js";
@@ -174,11 +174,6 @@ export function checkReviewDocsKeys(feature: Feature, fm: Record<string, string>
     }
   }
   return issues;
-}
-
-/** An error thrown by the git helpers or their argument guards, not a programming error. */
-function isGitFailure(err: unknown): err is Error {
-  return err instanceof Error && err.constructor === Error && /^(git |Refusing unsafe )/.test(err.message);
 }
 
 const toFinding = (feature: Feature, f: DocsFinding): Finding => finding(feature, f.severity, f.file, f.code, f.message);
