@@ -6,15 +6,15 @@ Use this template verbatim when dispatching the automation-writer, only under `L
 Agent:
   subagent_type: kf:automation-writer # or general-purpose (stand-in; paste the agent body first)
   model: [MODEL]                   # REQUIRED — sonnet by default; opus for multi-file or design judgement or a test failing twice (references/task-loop.md § Model selection)
-  description: "Write UI specs for [TASK-NNN | FEATURE]"
+  description: "Write UI specs for [TASK-NNN]"
   prompt: |
-    You are writing the Playwright specs for [TASK-NNN: task name | the UI test cases] of
+    You are writing the Playwright specs for [TASK-NNN: task name] of
     the kanban-flow [feature|bug] "[FEATURE]".
 
     ## Your requirements
     Read your brief first: [BRIEF_FILE]
     It carries the Test Strategy (Level, UI Tests, Tools), the test case blocks whose Test
-    type is UI or E2E, and — inside a task — the task row, its Files allowlist and the
+    type is UI or E2E, the task row, its Files allowlist and the
     `data-testid` contract when the plan fixes one.
 
     ## Where you work
@@ -29,7 +29,7 @@ Agent:
     2. The Playwright MCP is for selector discovery only, one agent at a time; what you see
        in its browser is not evidence. The evidence is the headless `npx playwright test`
        run (or the project's own Playwright command), with its real exit code.
-    3. Do not commit; inside a task the developer commits your spec files unchanged.
+    3. Do not commit; the developer commits your spec files unchanged.
        Resumed with review findings about your specs: fix the spec against the test case,
        re-run it headless, append a fix report to [REPORT_FILE] (task-NNN-e2e-report.md);
        never edit production code or commit.
