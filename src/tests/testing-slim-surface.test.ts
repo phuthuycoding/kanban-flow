@@ -228,6 +228,25 @@ describe("kf:test asks the human for the waiver when no stage commands are pinne
   });
 });
 
+describe("the docs and the feature report follow the slimmer testing stage", () => {
+  const featureReport = () => read("kanban-flow", "templates", "phase-6-feature-report.md");
+
+  it("no longer says /kf:test runs the stage verify after the last commit of testing", () => {
+    const text = harness();
+    expect(text).not.toMatch(/`\/kf:test` runs `--stage`/);
+    expect(text).not.toContain("again after the last commit of testing");
+  });
+
+  it("asks the feature report for per-file line coverage or none with a reason, not one overall figure", () => {
+    const text = featureReport();
+    expect(text).not.toContain("{overall_coverage}");
+    const row = text.split("|").map((s) => s.trim());
+    const coverage = text.match(/\| Coverage \|[^|]*\|/)?.[0] ?? "";
+    expect(row).toContain("Coverage");
+    expect(coverage).toMatch(/line (coverage|%)[^|]*(per|changed)|per (changed )?file|none — /i);
+  });
+});
+
 describe("only kf:implement dispatches the automation-writer", () => {
   it("has the agent and its brief name no testing-stage dispatch, brief, report or commit", () => {
     for (const text of [agent(), brief()]) {
