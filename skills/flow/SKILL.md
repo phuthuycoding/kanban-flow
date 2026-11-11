@@ -13,13 +13,13 @@ Plugin root: `${CLAUDE_PLUGIN_ROOT}` — the reference files of this skill write
 
 ```
 kf status --all ──► classify ──► 1 brainstorm ──confirm──► 2 plan ──approve──► 3 implement ──► 4 test ──► 5 review + PR + CI ──PASS──► merge on GitHub ──► 6 done
-                    spike │ bounded │ architectural                                  ▲                │  FAIL / REJECT  │
+                    spike │ bounded │ architectural                                  ▲                │      FAIL       │
                     (no item)                                                        └────────────────┴─────────────────┘
 ```
 
 State is enforced by `kf`: artifact gates, approval fingerprints, execution ids, report statuses and traceability. The agent authors and verifies the content; file presence alone never proves that code was tested.
 
-**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. Stop and ask only for `REQUIREMENT_BUG`, a scope change, a reopened task at its round cap (apart from the one minimal fix past the cap `kf:implement` makes), or a stop code that names the human; a testing `BLOCKED` stops and reports the blocker.
+**Human boundary — three decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), and merge the reviewed PR on GitHub. Everything between runs autonomously inside the approved scope. **The stop list — stop and report to the human only for:** an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree (merge, push to a shared branch, publish, a database write); a reopened task at its round cap, apart from the one minimal fix past the cap `kf:implement` makes; a plan too broken to act on, a scope change after approval being one; a review `REQUIREMENT_BUG`; a testing `BLOCKED`. Everything else is fixed in the loop.
 
 **Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; `kf init -i` when the user should answer the setup questions). Detect stack and tooling by READING the repository — never assume.
 
@@ -35,7 +35,7 @@ A step invoked as a tool renders one line carrying its name; a step merely *perf
 | 2 Plan | `Skill(kf:plan)` · `Agent(kf:scout)` per thing that changes · `Agent(kf:researcher)` per outside-knowledge question · `Agent(kf:spec-reviewer)` before the approval ask | the impact survey was done inline, or the plan presented without the reviewer |
 | 1–2 Bug | `Skill(kf:bug)`, then `Skill(kf:plan)` on its bug branch; no `scout` and no `spec-reviewer` — triage grounds the names itself | the report confirmed without the user's word, or a root cause stated without evidence |
 | 3 Implement | `Skill(kf:implement)` with `Agent(kf:test-writer)`, `Agent(kf:developer)` and `Agent(kf:code-reviewer)` per task · `Agent(kf:researcher)` for a blocker that needs outside knowledge | a task was marked complete without its test-writer, developer or review seat |
-| 4 Test | `Skill(kf:test)` · `Agent(kf:automation-writer)` when the level is `full` and a UI test case has no spec | a PASS report with no command and exit code behind it |
+| 4 Test | `Skill(kf:test)` | a PASS report with no command and exit code behind it |
 | 5 Review | `Skill(kf:review)` · `Agent(kf:code-reviewer)` × the tier `select-tier` chose · the landing board `cat` from its file · `gh pr create` (first review only) and the CI watcher, both after the reviewer PASS | the orchestrator wrote findings itself, dispatched fewer seats than the tier, summarised the board instead of printing it, or opened the PR before the reviewer passed |
 | Spike (no item) | `Skill(kf:spike)` · `Agent(kf:researcher)` per question research can answer | the probe was run without the skill, or a work item was opened for a question |
 | 6 Merge / close | the PR URL handed to the human, then `kf status --change {feature}` showing `done` after their merge | a close before the PR merged, or a merge made by the agent |
@@ -75,13 +75,13 @@ Folder name: `{feature_name}_{timestamp}` (created by `kf new`). Artifacts follo
 | 2. Planning | `kf:plan` | Feature: four phase-2 files + `use-cases/UC-###(-<slug>).md`; bug: confirmed bug report | Feature: `scout` per surface, saved under `<item>/reviews/`, and `spec-reviewer` before approval; a bug runs neither; **human approves: `kf approve` starts, `kf approve --backlog` defers** |
 | Backlog | — | Approved planning contract remains intact | Waiting for the explicit decision to start (`kf stage <f> implementation`) |
 | 3. Implement | `kf:implement` | — (tasks.md and the `loop/progress.md` ledger track) | The subagent-driven task loop — `test-writer` → `developer` → `code-reviewer` per task, `kf verify --task` after each task commit, bounded fix loop |
-| 4. Testing | `kf:test` | `phase-4-testing-result.md` (`status: PASS`) | Counts, not verdicts; a changed behaviour no test covers is run for real; FAIL/REJECT → loop to implementation; BLOCKED → stop and report |
-| 5. Review | `kf:review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents at the tier the diff earns, evidence verified; the landing board stamps every check with the tree's fingerprint; only after the reviewer PASS is the item branch pushed and the PR opened, then CI is watched (`ci:` / `landing:` in the report); FAIL/REJECT or red CI → loop; REQUIREMENT_BUG → STOP |
+| 4. Testing | `kf:test` | `phase-4-testing-result.md` (`status: PASS`) | Counts, not verdicts; a changed behaviour no test covers is run for real; FAIL → loop to implementation; BLOCKED → stop and report |
+| 5. Review | `kf:review` | `phase-5-review-report.md` (`status: PASS`) | Facts and pack by the orchestrator, findings by independent `code-reviewer` agents at the tier the diff earns, evidence verified; the landing board stamps every check with the tree's fingerprint; only after the reviewer PASS is the item branch pushed and the PR opened, then CI is watched (`ci:` / `landing:` in the report); FAIL or red CI → loop; REQUIREMENT_BUG → STOP |
 | 6. Closure | `kf:archive` at review PASS (feature report) or to repair a done item | Feature: `phase-6-feature-report.md` (written at review PASS); bug: current test/review evidence | The normal close loads no skill: once the PR is merged on GitHub, `kf status --change {feature}` (or `--all`) / `kf sync` close the item to `done` silently (a `landing: none` item with no commits closes the same way); `kf archive` is the explicit, idempotent form |
 
 **Two gate layers on every move:**
 1. **Artifact gate** — files exist and contain no template placeholders.
-2. **Directional gate** — report `status` semantics: FAIL/REJECT blocks forward motion and forces a loop back to implementation; REQUIREMENT_BUG blocks **all** motion (STOP FEATURE — never silently rewrite the requirement).
+2. **Directional gate** — report `status` semantics: FAIL blocks forward motion and forces a loop back to implementation; REQUIREMENT_BUG blocks **all** motion (STOP FEATURE — never silently rewrite the requirement).
 
 For features, `kf validate` checks each `## TC-###` for FR references and matching individual UC files. Approval fingerprints the requirement, four planning artifacts and individual UC files. For bugs, approval fingerprints only the bug report; feature planning artifacts and feature report are not required. A changed contract must return to planning for human approval. Each entry to testing creates a new execution id; testing and review reports must carry that id in `execution:`. Read templates with `kf instruct <artifact> --change <feature>` to obtain the current id and exact output path.
 
@@ -120,7 +120,7 @@ The approval is the start: `kf approve {feature}` moves the item to implementati
 - Brainstorm asks about **material ambiguity** only (missing scope, unclear behavior, conflicting acceptance criteria). Minor details → reasonable assumption, recorded in the spec.
 - Confirm the requirement in Phase 1, then obtain execution-contract approval in Phase 2. Present a tight summary + implementation plan and ask for approval. On approval run `kf approve` (`kf approve --backlog` when the reply defers). Without approval, do not start autonomous execution.
 - If scope must change after approval, stop implementation and explain the change. On the user's direction run `kf stage <feature> planning`, revise the contract and obtain fresh approval. REQUIREMENT_BUG blocks this route too; report it and await a human decision.
-- Auto-fix benign blockers once. Stop + ask only when genuinely stuck.
+- Stop only for the stop list under the Human boundary; anything else that blocks is fixed in the loop.
 - Never bypass a failed gate with `--force` unless the user explicitly approves.
 
 ---
@@ -160,7 +160,7 @@ Phase hooks: `<project>/.kf/hooks/{phase}.sh` run automatically before entering 
 - Never `mv` feature folders manually — always `kf stage` / `kf archive`.
 - Never bypass a failed gate with `--force` unless the user explicitly approves. Every real bypass (`--force` on a failing gate, `--skip-hooks` on an existing hook) is recorded in `.kfw.json` and reported by `kf status`/`kf validate`.
 - Always write `phase-4-testing-result.md` and `phase-5-review-report.md` — gates enforce it.
-- FAIL/REJECT loops back to implementation and re-testing before review. REQUIREMENT_BUG → STOP, never rewrite the requirement. When the item should be dropped for good, **propose** `kf cancel {feature} --reason "<why>"` and let the user decide; never cancel on your own. Reopening later is `kf stage {feature} <the stage it was cancelled from>`.
+- A testing FAIL, a review FAIL or red CI loops back to implementation, where `kf:implement` repairs it on the task that owns the failing file ("Repairing after the loop", five rounds for the task's whole life), then re-testing before review. REQUIREMENT_BUG → STOP, never rewrite the requirement. When the item should be dropped for good, **propose** `kf cancel {feature} --reason "<why>"` and let the user decide; never cancel on your own. Reopening later is `kf stage {feature} <the stage it was cancelled from>`.
 - No scope creep beyond the approved plan. Hidden complexity upgrades the path; it never widens the contract silently.
 - Follow the project's AGENTS.md and the user's permissions. Autonomous execution does not authorize unrelated changes, database operations, deployment or messages to others.
 - Never silently swallow errors. If a step cannot complete and cannot be auto-fixed, STOP and report.
