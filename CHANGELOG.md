@@ -4,6 +4,8 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-11
+
 ### Added
 - **Living docs under `docs/specs/`.** The current description of the system is one living doc per capability, `docs/specs/<context>/<capability>.md` with the headings `## Purpose`, `## Current behaviour`, `## Use cases`, `## Surfaces` and `## History`, listed in the context index `docs/specs/<context>/README.md` (`## Capabilities`, `## Retired`). `kf init` creates `docs/specs/` (with a `README.md` when missing); `kf instruct living-doc` and `kf instruct living-doc-index` print the templates and the output path (`--change` only fills the context). The plan's `## Documentation Impact` names the living docs a feature changes (`docs/specs/<context>/<capability>.md`), the legacy features it folds in (`consolidates: <context>/<feature>`) or waives with `none — <reason>`; `kf validate` refuses a feature plan in planning without one (`docs_impact_missing`). Review step 2b edits the living docs in one commit before the reviewers, and the review report records `docs: updated|none` with `docs_reason` for `none`.
 - **`/kf:docs`.** An eleventh skill that consolidates the legacy snapshots (`docs/requirement`, `docs/use-cases`, `docs/testplan`) into `docs/specs/`, one context per run, writing nothing until the human approves its table.
