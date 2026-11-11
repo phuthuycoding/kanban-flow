@@ -58,7 +58,7 @@ describe("the agent contract names the verify tiers", () => {
     expect(skill("implement")).toContain("Wave verify exit 3");
   });
 
-  for (const name of ["test", "flow"]) {
+  for (const name of ["flow"]) {
     it(`${name} runs the stage verify only when kf status does not show PASS at HEAD`, () => {
       expect(skill(name)).toContain(STATUS_RULE);
     });

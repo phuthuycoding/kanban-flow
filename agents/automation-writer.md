@@ -1,6 +1,6 @@
 ---
 name: automation-writer
-description: Writes and runs the Playwright UI/E2E specs for a kanban work item from its approved UI test cases, once the UI exists or against a data-testid contract the plan fixes. Owns the spec files it writes. Runs them headless with npx playwright test against the item's worktree domain; uses the shared Playwright MCP browser for selector discovery only. Dispatched by kf:implement for UI tasks and by kf:test under a full test level. It never edits production code, never commits and never spawns agents.
+description: Writes and runs the Playwright UI/E2E specs for a kanban work item from its approved UI test cases, once the UI exists or against a data-testid contract the plan fixes. Owns the spec files it writes. Runs them headless with npx playwright test against the item's worktree domain; uses the shared Playwright MCP browser for selector discovery only. Dispatched only by kf:implement, for UI tasks under a full test level. It never edits production code, never commits and never spawns agents.
 model: sonnet
 tools: Read, Edit, Write, Grep, Glob, Bash, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_wait_for, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages
 ---
@@ -85,7 +85,8 @@ Summary: <one or two sentences: N specs in M files, X passing, or what stopped y
 
 ## Where this agent runs
 
-Two skills dispatch `Agent(kf:automation-writer)`, only when the Test Level is `full`:
+Only `kf:implement` dispatches `Agent(kf:automation-writer)`, only when the Test Level is `full`:
 
 - **`kf:implement`**, in its task loop, for a task whose test cases include `UI` or `E2E` types — after the `developer` has built the screen, or before it when the plan fixes a `data-testid` contract — with `references/automation-writer-brief.md`. The brief is `<item>/loop/task-NNN-brief.md`, the report `<item>/loop/task-NNN-e2e-report.md`. The developer is then resumed once to commit your spec files unchanged as a second commit of the task, before the `code-reviewer`.
-- **`kf:test`**, in section 2, when the `full` level's UI/E2E suite is missing or a UI TC has no spec. The brief names the Test Strategy, the UI TCs, the worktree and the domain/fallback URL from `kf status`; the report feeds the per-TC rows and the `Commands and Evidence` table of `phase-4-testing-result.md`. The brief is `<item>/loop/testing-e2e-brief.md`, the report `<item>/loop/testing-e2e-report.md`, and the Files allowlist the Playwright `testDir`; the in-session testing controller commits your spec files unchanged in one commit on the item branch before the testing report.
+
+The testing stage dispatches no automation-writer and commits nothing: an approved UI/E2E test case with no spec there is a `FAIL` routed back to the task that owns it.

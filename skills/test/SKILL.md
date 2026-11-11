@@ -1,6 +1,6 @@
 ---
 name: test
-description: 'Test a kanban feature against its approved test plan or a bug against reproduction and regression scope. Write current-execution results with PASS/FAIL/REJECT/BLOCKED. Use in testing.'
+description: 'Test a kanban feature against its approved test plan or a bug against reproduction and regression scope. Write current-execution results with PASS/FAIL/BLOCKED. Use in testing.'
 ---
 
 # Kanban Phase 4 — Testing (Autonomous)
@@ -27,15 +27,27 @@ Every entry to testing creates a new execution id. Keep old reports as evidence,
 
 **Where the code lives:** when the item has a worktree (`kf status --change {feature_name}` shows `Worktree:` with `Domain:` or `Direct:`), run the app and its tests inside the worktree path — that is where implementation landed. For HTTP/browser checks prefer `http://<domain>` (start the project's dev server on the allocated port); When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then); if the machine's domain infra is not set up, use the `127.0.0.1:<port>` fallback shown in `kf status --change {feature_name}` and say so in the report.
 
-## 2. Run against the plan's test cases
+## 2. Read the stage record and map the test cases
 
-Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests / Tools / Coverage Target) — it was committed in the approved plan. Detect the real test tooling from the repo. Execute exactly what the level promises: `unit` → unit suite; `unit+integration` → + integration; `full` → + UI/E2E suite (Playwright/Cypress/...). Under `full`, when the UI/E2E suite is missing or a UI test case has no spec, dispatch `Agent(kf:automation-writer)` with `${CLAUDE_PLUGIN_ROOT}/skills/implement/references/automation-writer-brief.md`: write the brief to `<item>/loop/testing-e2e-brief.md` (Test Strategy, the UI test cases, the worktree and the domain or fallback URL from `kf status --change {feature_name}`), name `<item>/loop/testing-e2e-report.md` as its report and the Playwright `testDir` as the Files allowlist (from the project's Playwright config; the spec paths when it has none), then run what it wrote. The automation-writer never commits: the in-session controller commits the automation-writer's spec files unchanged in one commit on the item branch before writing the testing report, so the review package and the PR carry them. The Playwright MCP is for selector discovery only, one agent at a time; the evidence is the headless run. Put each `npx playwright test` row in `## Commands and Evidence` with its real exit code — a non-zero row means the report is not PASS. If the suite is still missing after the run, or the tests are skipped, that's a gap — report it, don't fake coverage.
+Testing runs no full suite, lint, build or typecheck: the loop's last wave verify (or `kf verify <f> --stage`) already ran them at HEAD, and the review board and CI run them again. Read `kf status --change {feature_name}`: the `Stage verify:` line must read PASS at the item's HEAD. When the project pins `harness.verify.stage`, anything else — no record, a failed record, a record older than HEAD — gives `BLOCKED` naming `kf verify <f> --stage`; run nothing in its place. `## Commands and Evidence` cites that record: the sha and the commands it ran.
 
-Track TC-by-TC: Status / Actual / Expected / Tool / Evidence.
+**No stage commands.** When the project pins no `harness.verify.stage`, the `Stage verify:` line reads `not configured — …` or `waived — …` and there is no record to read. Then kf:test runs the project's test command once, with coverage when the tooling supports it, and cites that run. That run serves the TC mapping and the coverage, so no second, scoped run is made. The waiver itself is still recorded at the entry to review, as today.
 
-**"It builds" is not "it works".** For every changed behaviour the plan or the diff names that no automated test exercises, run the real code path once and record the command and its real output as a fact: the CLI command with its arguments and exit code, the HTTP request against `http://<domain>` (or the `127.0.0.1:<port>` fallback; When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`) with the response, the script with its output. Run each `TASK-NNN: unverified — <claim>` line of `<item>/loop/progress.md` the same way. Put each under a `## Behaviour run` heading in the report, next to the TC it stands in for, and name the behaviours you could not run and why. A suite that ran nothing, or a suite that never touches the changed path, is not PASS on its own — the review stage reads the "changed behaviour no test touches" line from this report into the reviewer's pack.
+Testing commits nothing: a commit would move HEAD past the stage record, and the review gate would refuse it. It dispatches no automation-writer either: UI and E2E specs are written and committed in kf:implement's task loop.
 
-For `kind: bug`, use the bug report's reproduction, expected result, acceptance criteria and regression strategy instead of a phase-2 test plan. Verify the defect is fixed and run the affected regression suite; use descriptive test IDs or actual test names in the results table. Do not require FR/UC/TC artifacts for a bug.
+### Test cases
+
+Read the Test Strategy from `phase-1-spec-requirement.md` (Test Level / UI Tests / Tools / Coverage Target) — it was committed in the approved plan. Map every approved `TC-###` to the test that covers it: each TC row names the test file and the test name, and cites the stage record (or the no-stage-commands run) as the run. Track TC-by-TC: Status / Expected / Actual / Evidence. A TC with no test or only a skipped test gives `FAIL` naming the TC and the owning task, the task whose Files hold that test or the code the TC exercises. Skipped means `.skip`, `.todo`, `xit`, `it.skip` or the framework's equivalent. Under `Level: full`, an approved UI/E2E TC with no spec in the tree gives `FAIL` routed to its owning task; testing never writes the spec.
+
+For `kind: bug`, the rows are the regression tests the bug report names, with their descriptive test names, instead of a phase-2 test plan; the bug report's reproduction, expected result and acceptance criteria say what the fix must show. Do not require FR/UC/TC artifacts for a bug.
+
+### Coverage
+
+Measure coverage once, with the project's coverage tool, scoped to the item's changed source files: `git diff --name-only <BASE>..HEAD` against the item's base branch, minus tests, docs and config. In this repository, for example: `npx vitest related <files> --run --coverage --coverage.include=<file>...`. The metric is line coverage per file against the spec's Coverage Target; `## Coverage` gives each changed file's line %, the target and the command. A file below the target gives `FAIL` naming the files and their owning tasks. A required target that is unmeasurable (no coverage tooling) gives `BLOCKED` naming what is missing. A spec with no target means no run, and an item with no changed source files (docs only) means no run; either way `## Coverage` states the reason. Under the no-stage-commands exception the one run above already measured coverage.
+
+### Behaviour run
+
+**"It builds" is not "it works".** For every changed behaviour the plan or the diff names that no test exercises, run the real code path once and record the command and its real output as a fact: the CLI command with its arguments and exit code, the HTTP request against `http://<domain>` (or the `127.0.0.1:<port>` fallback; When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`) with the response, the script with its output. Run each `TASK-NNN: unverified — <claim>` line of `<item>/loop/progress.md` the same way. Put each under a `## Behaviour run` heading in the report, next to the TC it stands in for, and name the behaviours you could not run and why. A failing behaviour run gives `FAIL` routed to the owning task. When there is nothing to run, `## Behaviour run` states `none — <why>` and the report can still be `PASS`. The review stage reads the "changed behaviour no test touches" line from this report into the reviewer's pack.
 
 ## 3. Write testing-result
 
@@ -45,27 +57,26 @@ kf instruct testing-result --change {feature_name}
 
 Fill `phase-4-testing-result.md`, set frontmatter `status:` to exactly one of:
 
-- `PASS` — all tests pass, coverage target met
-- `FAIL` — tests failing
-- `REJECT` — feature does not meet acceptance criteria
-- `BLOCKED` — cannot test (env/tooling)
+- `PASS` — every approved TC maps to a passing test or a behaviour run, the coverage target is met (or no run is needed, with the reason) and the stage record is PASS at HEAD (or the no-stage-commands run passed)
+- `FAIL` — a TC with no test or only a skipped test, a failing test, coverage below target, or a failing behaviour run
+- `BLOCKED` — cannot test: the stage record is not PASS at HEAD while stage commands are pinned, a required coverage target is unmeasurable, or the env/tooling is missing
 
-Always write the report, including `execution:` from the current template. Include per-TC results, actual commands, evidence and coverage against the approved target. Record **counts, not verdicts**: the number of tests each command ran and passed, the test files by name, and — in its own line — the changed behaviour that no test touches. A suite that ran nothing is not a pass. The review stage copies these facts into the reviewer's pack as data; a "✅ all green" there invites agreement where numbers let the reviewer judge adequacy. In the "Commands and Evidence" table the Exit code column must be the real numeric exit code of each command you ran, written bare (`0`, not `` `0` `` or `0 ✅`), and a `|` inside a command or evidence cell is written `\|`, or moved into a script: a raw one shifts the columns. The table describes the run; it does not gate it — the stage record is the gate into review: after the last commit of testing, run `kf verify <f> --stage` in the worktree — only when `kf status` does not show PASS at HEAD, since the last wave's verify at HEAD already is that record — and never copy its exit code into the report as proof. `kf stage <f> review` reads the record kf wrote, not the table. `## Behaviour run` entries are not exit-checked; their output is the evidence. Keep status and conclusion consistent. Missing tooling, skipped required tests or unmeasured required coverage cannot count as PASS. Write outcomes here; keep phase-2-test-case.md unchanged.
+Always write the report, including `execution:` from the current template. Include per-TC results with the test file and test name, the stage record, coverage per changed file and the behaviour run. Record **counts, not verdicts**: the number of tests each command ran and passed, the test files by name, and — in its own line — the changed behaviour that no test touches. A suite that ran nothing is not a pass. The review stage copies these facts into the reviewer's pack as data; a "✅ all green" there invites agreement where numbers let the reviewer judge adequacy. In the "Commands and Evidence" table the Exit code column must be the real numeric exit code of each command you ran, written bare (`0`, not `` `0` `` or `0 ✅`), and a `|` inside a command or evidence cell is written `\|`, or moved into a script: a raw one shifts the columns. The table describes the run; it does not gate it — the stage record is the gate into review: `kf stage <f> review` reads the record kf wrote at HEAD, not the table, so never copy its exit code into the report as proof. `## Behaviour run` entries are not exit-checked; their output is the evidence. Keep status and conclusion consistent. Missing tooling, skipped required tests or unmeasured required coverage cannot count as PASS. Write outcomes here; keep phase-2-test-case.md unchanged.
 
 ## 4. The directional gate decides
 
 - `PASS` → `kf stage {feature_name} review`
-- `FAIL`/`REJECT` → loop to implementation, apply the fix, then enter testing again and write a result for the new execution id:
+- `FAIL` → loop to implementation, then enter testing again and write a result for the new execution id:
 
 ```bash
 kf stage {feature_name} implementation
 ```
 
-...then return here and re-test before attempting review again.
+Each failure is repaired on the task that owns it, under kf:implement's "Repairing after the loop": the one fix rule for a testing FAIL, a review FAIL and red CI. A reopened task continues its round count; five rounds is its whole life. Then return here and re-test before attempting review again.
 
-- `BLOCKED` → stop and report the environment/tooling blocker. Do not advance or substitute a known issue for required passing tests.
+- `BLOCKED` → stop and report the environment/tooling blocker, or the stage record to make with `kf verify <f> --stage`. Do not advance or substitute a known issue for required passing tests.
 
-Still failing after one fix cycle → STOP, show failing tests, ask: fix deeper / record as known issue / abort.
+**What stops you.** The stop list is kf:implement's, word for word: an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree (merge, push to a shared branch, publish, a database write); a reopened task at its round cap, apart from the one minimal fix past the cap (3.4); a plan too broken to act on. Two gate outcomes outside the loop stop you too: a review `REQUIREMENT_BUG`; a testing `BLOCKED`.
 
 ---
 
@@ -75,6 +86,6 @@ Report written with a decisive status. Hand off:
 
 ```text
 If PASS: kf stage {feature_name} review, then load the kf:review skill (independent reviewer, then the PR and the CI watch).
-If FAIL/REJECT: kf:implement first, then testing with a new execution id.
+If FAIL: kf:implement first (Repairing after the loop, on the owning task), then testing with a new execution id.
 If BLOCKED: stop and report the blocker.
 ```
