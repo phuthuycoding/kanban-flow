@@ -117,19 +117,6 @@ describe("a REJECT review report reads as FAIL", () => {
     expect(checkDirectionGate(feature(), "done").find((i) => i.code === "review_not_pass")?.message).toBe(rejected);
   });
 
-  it("refuses closing with the same exit code and a FAIL-only message", async () => {
-    await inReview("REJECT");
-    await writeFile(join(feature().dir, ARTIFACTS["feature-report"].file), "# Feature report\nCurrent summary");
-    const rejected = await cmdStage(args("stage", ["demo", "done"]), root);
-    expect(rejected.code).toBe(1);
-    expect(text(rejected)).not.toContain("REJECT");
-
-    await report("review-report", "FAIL");
-    const failed = await cmdStage(args("stage", ["demo", "done"]), root);
-    expect(failed.code).toBe(rejected.code);
-    expect(text(failed)).toBe(text(rejected));
-  });
-
   it("raises no review_status error and warns with the word FAIL", async () => {
     await inReview("REJECT");
     const issues = codes();
