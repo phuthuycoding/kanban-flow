@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
@@ -20,6 +20,7 @@ import { deleteRemoteBranch, landedProof } from "../shared/git.js";
 import { deleteItemBranch } from "../worktree/lifecycle.js";
 import { runDoctor } from "../project/doctor.js";
 import { checkMergeGate, gh } from "../integrations/github.js";
+import * as paths from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
 
@@ -107,6 +108,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   process.env.PATH = prevPath;
   for (const v of ["GH_CALLS", "GH_ORIGIN", "GH_FAIL", "GH_PR_STATE", "GH_PR_HEAD_NAME", "GH_PR_HEAD_OID", "GH_PR_LIST", "GH_FAIL_TEXT", "GH_SLEEP", "DONE_HOOK_EXIT", "REAL_GIT", "RACE_REPO", "RACE_SHA"]) delete process.env[v];
   await rm(scratch, { recursive: true, force: true });
@@ -894,6 +896,35 @@ describe("commits around the close", () => {
 });
 
 describe("a close that fails after the done hook says what is already gone", () => {
+  it("a failed delivered stamp rolls back move and metadata, names the removed worktree and branches, and the retry closes", async () => {
+    await reviewItem();
+    const wt = feature().meta!.worktree!;
+    const originalMeta = readFileSync(join(feature().dir, ".kfw.json"), "utf8");
+    // The delivered stamp is the close's last write, after teardown and both branch deletions.
+    const writer = paths.writeFileAtomic;
+    vi.spyOn(paths, "writeFileAtomic").mockImplementation(async (file, content) => {
+      if (file.endsWith(".kfw.json") && JSON.parse(String(content)).delivered === true) throw new Error("Simulated delivered-stamp failure");
+      await writer(file, content);
+    });
+
+    const res = await status();
+    expect(res.code).toBe(1);
+    expect(res.stdout).toContain("✗ demo: close failed: Archive failed for 'demo' (Simulated delivered-stamp failure)");
+    expect(res.stdout).toContain(`feature restored to review (move and metadata rolled back). Already removed and not restored: worktree ${wt.path}, branch t/demo (local), branch t/demo on origin. Fix the cause, then finish with: kf status --change demo`);
+    expect(readFileSync(join(scratch, "hook.out"), "utf8"), "the done hook ran before the failure").toContain("status_done=Done");
+    expect(feature().stage).toBe("review");
+    expect(readFileSync(join(feature().dir, ".kfw.json"), "utf8")).toBe(originalMeta);
+    expect(existsSync(wt.path)).toBe(false);
+    expect(git(root, "branch", "--list", "t/demo")).toBe("");
+
+    vi.restoreAllMocks();
+    const finished = await status();
+    expect(finished.code, finished.stdout).toBe(0);
+    expect(finished.stdout).toContain("✓ done demo");
+    expect(feature().stage).toBe("done");
+    expect(readFeatureMeta(feature().dir)!.delivered).toBe(true);
+  }, 15_000);
+
   it("a teardown failure that is not a dirty worktree is reported as such, with what was removed", async () => {
     await reviewItem();
     const wt = feature().meta!.worktree!;
