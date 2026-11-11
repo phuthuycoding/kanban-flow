@@ -216,7 +216,7 @@ describe("the published package", () => {
     // Published under the author's scope. The bare name was taken for a first release
     // and then dropped, and the lockfile carries the name too — it drifts silently otherwise.
     expect(pkg.name).toBe("@phuthuycoding/kanban-flow");
-    expect(pkg.version).toBe("0.17.0");
+    expect(pkg.version).toBe("0.18.0");
     expect(pkg.bin.kf).toBe("dist/index.js");
     const lock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf8"));
     expect(lock.name).toBe("@phuthuycoding/kanban-flow");
@@ -600,7 +600,7 @@ describe("the living-docs text surfaces", () => {
 
   it("names the removed flags and the breaking change under the unreleased changelog", () => {
     const changelog = text("CHANGELOG.md");
-    const start = changelog.indexOf("## [Unreleased]");
+    const start = changelog.indexOf("## [0.18.0]");
     const section = changelog.slice(start, changelog.indexOf("\n## [", start + 1));
     for (const needle of ["Breaking", "--skip-specs", "--purge-docs", "kf:docs", "validate --all"]) {
       expect(section, needle).toContain(needle);
