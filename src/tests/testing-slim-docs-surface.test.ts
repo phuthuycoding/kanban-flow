@@ -133,6 +133,15 @@ describe("user docs describe the slimmed testing stage and the one fix rule", ()
     }
   });
 
+  it("lifecycle.md gives the one stop list instead of a shorter list of exceptions", () => {
+    const text = read("docs/workflow/lifecycle.md");
+    expect(text).not.toContain("Two exceptions still need the user");
+    const namesList =
+      (/round cap/i.test(text) && /testing `?BLOCKED/.test(text) && /review `?REQUIREMENT_BUG/.test(text)) ||
+      /stop list/i.test(text);
+    expect(namesList, "lifecycle.md must name the stop list (round cap, testing BLOCKED, review REQUIREMENT_BUG) or point to it").toBe(true);
+  });
+
   it("README.md testing text cites the stage record", () => {
     expect(read("README.md")).toMatch(/\btest(ing|s)?\b[^]{0,300}?reads? the stage record/i);
   });
