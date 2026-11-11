@@ -51,6 +51,43 @@ describe("one fix rule and one stop list across implement and flow", () => {
     expect(hits).toBe(1);
   });
 
+  it("flow has no second stop sentence outside the list", () => {
+    const stopSentences = flow.match(/[^.\n]*\bstop\b[^.\n]*\bonly\b[^.\n]*/gi) ?? [];
+    // A pointer back to the list is fine; a second sentence enumerating stops is not.
+    const outsideList = stopSentences.filter((x) => !x.includes("stop list") || x.includes("irreversible"));
+    expect(outsideList).toHaveLength(1);
+    expect(outsideList[0]).toContain("irreversible");
+  });
+
+  it("flow brings back no auto-fix escape hatch", () => {
+    expect(flow).not.toMatch(/auto-fix/i);
+  });
+
+  it("flow's hard rule about a step that cannot complete points at the stop list", () => {
+    const rule = flow.split("\n").find((l) => /cannot complete/.test(l));
+    expect(rule).toBeDefined();
+    expect(rule).toContain("stop list");
+  });
+
+  it("flow relays a phase skill's own stop as reporting it, not as an extra stop class", () => {
+    const line = flow.split("\n").find((l) => l.includes("`kf next` reports"));
+    expect(line).toBeDefined();
+    expect(line).not.toMatch(/never retried/);
+    expect(line).toMatch(/report/i);
+  });
+
+  it("flow's Human boundary names the waiver before review as the human's decision", () => {
+    const boundary = flow.split("\n").find((l) => l.startsWith("**Human boundary"));
+    expect(boundary).toBeDefined();
+    expect(boundary).toMatch(/waiver/i);
+    expect(boundary).toMatch(/harness\.verify\.stage|pins no stage commands/);
+    expect(boundary).not.toContain("an eighth");
+  });
+
+  it("implement records the waiver only on the human's word", () => {
+    expect(implement).toContain("recorded only on the human's word");
+  });
+
   it("implement keeps its five-things sentence word for word", () => {
     expect(implement).toContain(
       "**Five things stop you, and only these:** an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree (merge, push to a shared branch, publish, a database write); a reopened task at its round cap, apart from the one minimal fix past the cap (3.4); a plan too broken to act on.",
