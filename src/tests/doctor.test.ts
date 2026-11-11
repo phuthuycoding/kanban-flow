@@ -550,6 +550,21 @@ describe("kf doctor --fix", () => {
     expect(report.ok).toBe(false);
   });
 
+  it("keeps untouched inline arrays on one line when it removes a legacy key", async () => {
+    await project();
+    const path = join(root, ".kf", "config.json");
+    const text = '{\n  "schema": "kanban-flow",\n  "stacks": ["node", "php"],\n  "stack": "node",\n  "contexts": ["app", "web"]\n}\n';
+    await writeFile(path, text);
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain('removed legacy "stack"');
+    const after = await readFile(path, "utf8");
+    expect(after).toContain('  "stacks": ["node", "php"],\n');
+    expect(after).toContain('  "contexts": ["app", "web"]');
+    expect(after).not.toContain('"stack":');
+    expect(JSON.parse(after)).toMatchObject({ stacks: ["node", "php"], contexts: ["app", "web"] });
+  });
+
   it("writes config defaults when the file is missing entirely", async () => {
     await project();
     await rm(join(root, ".kf", "config.json"));

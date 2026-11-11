@@ -219,7 +219,74 @@ export async function patchProjectConfig(root: string, keys: Record<string, unkn
   const f = configPath(root);
   const text = readFileSync(f, "utf8");
   const raw = JSON.parse(text) as Record<string, unknown>;
-  await writeFileAtomic(f, `${JSON.stringify({ ...raw, ...keys }, null, jsonIndent(text))}\n`);
+  await writeFileAtomic(f, serializeConfigPreserving(text, { ...raw, ...keys }));
+}
+
+/**
+ * Serialise `next` back over the JSON object text it was read from: a top-level key whose value is unchanged
+ * keeps its exact source text, a changed or added key is written as JSON.stringify writes it with the file's
+ * indent, and the trailing text after the closing brace is kept. Invalid JSON throws as JSON.parse does.
+ */
+export function serializeConfigPreserving(originalText: string, next: Record<string, unknown>): string {
+  const original: unknown = JSON.parse(originalText);
+  const rawIndent = jsonIndent(originalText);
+  const indent = typeof rawIndent === "number" ? " ".repeat(rawIndent) : rawIndent;
+  const isObject = original !== null && typeof original === "object" && !Array.isArray(original);
+  const spans = isObject ? topLevelValueSpans(originalText) : new Map<string, string>();
+  const parsed = isObject ? (original as Record<string, unknown>) : {};
+  const trailing = /\s*$/.exec(originalText)?.[0] ?? "";
+  const members: string[] = [];
+  for (const [key, value] of Object.entries(next)) {
+    const fresh = JSON.stringify(value, null, indent);
+    if (fresh === undefined) continue;
+    const kept = spans.get(key);
+    const unchanged = kept !== undefined && Object.hasOwn(parsed, key) && JSON.stringify(parsed[key]) === JSON.stringify(value);
+    members.push(`${indent}${JSON.stringify(key)}: ${unchanged ? kept : fresh.replace(/\n/g, `\n${indent}`)}`);
+  }
+  const body = members.length === 0 ? "{}" : `{\n${members.join(",\n")}\n}`;
+  return `${body}${trailing}`;
+}
+
+/** The source text of each top-level member value of a valid JSON object text, keyed by member name. */
+function topLevelValueSpans(text: string): Map<string, string> {
+  const spans = new Map<string, string>();
+  let i = text.indexOf("{") + 1;
+  const skipWs = () => { while (/\s/.test(text[i] ?? "")) i++; };
+  const skipString = () => {
+    i++;
+    while (text[i] !== '"') i += text[i] === "\\" ? 2 : 1;
+    i++;
+  };
+  const skipValue = () => {
+    if (text[i] === '"') return skipString();
+    let depth = 0;
+    while (i < text.length) {
+      const c = text[i];
+      if (c === '"') { skipString(); continue; }
+      if (c === "{" || c === "[") depth++;
+      else if (c === "}" || c === "]") {
+        if (depth === 0) return;
+        depth--;
+        if (depth === 0) { i++; return; }
+      } else if (depth === 0 && (c === "," || /\s/.test(c))) return;
+      i++;
+    }
+  };
+  for (;;) {
+    skipWs();
+    if (text[i] !== '"') return spans;
+    const keyStart = i;
+    skipString();
+    const key = JSON.parse(text.slice(keyStart, i)) as string;
+    skipWs();
+    i++;
+    skipWs();
+    const valueStart = i;
+    skipValue();
+    spans.set(key, text.slice(valueStart, i));
+    skipWs();
+    if (text[i] === ",") i++;
+  }
 }
 
 const STACK_PROBES: Array<[string, string]> = [

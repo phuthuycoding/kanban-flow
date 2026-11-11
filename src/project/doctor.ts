@@ -15,7 +15,7 @@ import { checkHarnessLegacyKeys, checkLegacyRunState, fixFailure, removeLegacyHa
 import { checkGithubHooks, checkOrphanedHooks, repairHooks } from "./doctor-hooks.js";
 import { checkSkills, repairSkills } from "./doctor-install.js";
 import type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
-import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, jsonIndent, PROJECT_CONFIG_KEYS, type ProjectConfig } from "./config.js";
+import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, PROJECT_CONFIG_KEYS, serializeConfigPreserving, type ProjectConfig } from "./config.js";
 import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
 import { writeFileAtomic } from "../shared/paths.js";
@@ -481,7 +481,7 @@ export async function runDoctorFixes(root: string): Promise<DoctorFixResult> {
       }
       if (changed) {
         try {
-          await writeFileAtomic(configPath(root), `${JSON.stringify(raw, null, jsonIndent(text))}\n`);
+          await writeFileAtomic(configPath(root), serializeConfigPreserving(text, raw));
           fixed.push(...configFixed);
         } catch (err) {
           if (!(err instanceof Error && "code" in err)) throw err;
