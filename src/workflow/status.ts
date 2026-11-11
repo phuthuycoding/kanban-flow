@@ -400,7 +400,7 @@ export function computeBuckets(
     } else if (f.stage === "review") {
       const review = currentReportStatus(f, "review-report");
       if (review === "FAIL" || review === "REJECT" || review === "REQUIREMENT_BUG") {
-        needsYou.push({ feature: f.name, decision: `review ${review} — repair (kf stage ${f.name} implementation) or revise the plan` });
+        needsYou.push({ feature: f.name, decision: `review ${review === "REJECT" ? "FAIL" : review} — repair (kf stage ${f.name} implementation) or revise the plan` });
       } else if (s.close?.kind === "pr-closed") {
         needsYou.push({ feature: f.name, decision: `${s.close.pr} was closed without merging — reopen and merge it, open a new PR and run kf issues link ${f.name} <url> --pr --replace, or move the item back` });
       } else if (s.close?.kind === "awaiting-merge") {

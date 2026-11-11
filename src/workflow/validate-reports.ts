@@ -28,7 +28,7 @@ export function checkTasks(feature: Feature): Finding[] {
   return issues;
 }
 
-/** testing-result semantics: PASS allows review; FAIL/REJECT must loop back; BLOCKED is a red flag. */
+/** testing-result semantics: PASS allows review; FAIL must loop back; BLOCKED is a red flag. */
 export function checkTestingResult(feature: Feature): Finding[] {
   const issues: Finding[] = [];
   const stageIndex = STAGE_INDEX[feature.stage];
@@ -38,7 +38,7 @@ export function checkTestingResult(feature: Feature): Finding[] {
   const { fm } = splitFrontmatter(readFileSync(trPath, "utf8"));
   const status = fm.status ?? "";
   if (!TEST_RESULTS.test(status)) {
-    issues.push(finding(feature, "ERROR", file, "testing_status", `testing-result status is "${status}"; expected PASS/FAIL/REJECT/BLOCKED`));
+    issues.push(finding(feature, "ERROR", file, "testing_status", `testing-result status is "${status}"; expected PASS/FAIL/BLOCKED`));
   }
   if (!feature.meta?.executionId || fm.execution !== feature.meta.executionId) {
     issues.push(finding(feature, "ERROR", file, "testing_stale", "Testing report must reference the current execution id from kf status/instruct."));
@@ -48,7 +48,7 @@ export function checkTestingResult(feature: Feature): Finding[] {
   }
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "testing") {
     issues.push(finding(feature, "WARNING", file, "testing_loops_back",
-      `Testing ${status.toUpperCase()}: must loop back to implementation (kf stage ${feature.name} implementation)`));
+      `Testing ${status.toUpperCase().replace(/^REJECT/, "FAIL")}: must loop back to implementation (kf stage ${feature.name} implementation)`));
   }
   return issues;
 }
@@ -110,7 +110,7 @@ export function checkReviewDelivery(feature: Feature, fm: Record<string, string>
   return issues;
 }
 
-/** review-report semantics: PASS allows archive; FAIL/REJECT loops back; REQUIREMENT_BUG stops the feature. */
+/** review-report semantics: PASS allows archive; FAIL loops back; REQUIREMENT_BUG stops the feature. */
 export function checkReviewReport(feature: Feature): Finding[] {
   const issues: Finding[] = [];
   const stageIndex = STAGE_INDEX[feature.stage];
@@ -120,7 +120,7 @@ export function checkReviewReport(feature: Feature): Finding[] {
   const { fm } = splitFrontmatter(readFileSync(rvPath, "utf8"));
   const status = fm.status ?? "";
   if (!REVIEW_RESULTS.test(status)) {
-    issues.push(finding(feature, "ERROR", file, "review_status", `review-report status is "${status}"; expected PASS/FAIL/REJECT/REQUIREMENT_BUG`));
+    issues.push(finding(feature, "ERROR", file, "review_status", `review-report status is "${status}"; expected PASS/FAIL/REQUIREMENT_BUG`));
   }
   if (!feature.meta?.executionId || fm.execution !== feature.meta.executionId) {
     issues.push(finding(feature, "ERROR", file, "review_stale", "Review report must reference the current execution id from kf status/instruct."));
@@ -136,7 +136,7 @@ export function checkReviewReport(feature: Feature): Finding[] {
   }
   if (/^(FAIL|REJECT)/i.test(status) && feature.stage === "review") {
     issues.push(finding(feature, "WARNING", file, "review_loops_back",
-      `Review ${status.toUpperCase()}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));
+      `Review ${status.toUpperCase().replace(/^REJECT/, "FAIL")}: must loop back to implementation, then testing again (kf stage ${feature.name} implementation)`));
   }
   if (/^REQUIREMENT_BUG/i.test(status)) {
     issues.push(finding(feature, "ERROR", file, "requirement_bug_stop",

@@ -125,7 +125,7 @@ export const ARTIFACTS: Record<ArtifactId, ArtifactDef> = {
     template: "phase-4-testing-result.md",
     phase: "test",
     dueFromStage: 4,
-    unlocks: "Phase 4 done — PASS gates testing → review; FAIL/REJECT loops back to implementation",
+    unlocks: "Phase 4 done — PASS gates testing → review; FAIL loops back to implementation",
   },
   "review-report": {
     id: "review-report",
@@ -163,7 +163,7 @@ export const STAGE_GATES: Record<Stage, ArtifactId[]> = {
 /**
  * Allowed transitions between stages.
  * Forward: one step at a time. Backtrack (loop) edges per the workflow:
- * a FAIL/REJECT testing/review result sends the feature back to implementation.
+ * a FAIL testing/review result sends the feature back to implementation.
  */
 export const TRANSITIONS: Record<Stage, Stage[]> = {
   brainstorm: ["planning"],
