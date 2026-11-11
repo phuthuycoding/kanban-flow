@@ -247,6 +247,15 @@ describe("the docs and the feature report follow the slimmer testing stage", () 
   });
 });
 
+describe("kf:test coverage never re-runs the full suite", () => {
+  it("re-measures nothing with the project's full test command inside the Coverage section", () => {
+    const section = slice(testSkill(), "### Coverage", "### Behaviour run");
+    expect(section).toContain("git diff --name-only");
+    expect(section).not.toContain("full test command");
+    expect(section).not.toMatch(/re-measured with the project's full/);
+  });
+});
+
 describe("only kf:implement dispatches the automation-writer", () => {
   it("has the agent and its brief name no testing-stage dispatch, brief, report or commit", () => {
     for (const text of [agent(), brief()]) {
