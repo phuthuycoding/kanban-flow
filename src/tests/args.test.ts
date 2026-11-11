@@ -25,6 +25,13 @@ describe("CLI arguments for living docs", () => {
     expect(parseArgsCli(["cancel", "demo", "--reason", "x", "--purge-docs"]).options["purge-docs"]).toBe(true);
   });
 
+  it("cancel and archive help no longer advertise the refused flags or the removed canonical-docs step", () => {
+    expect(commandHelp("cancel")).not.toContain("[--purge-docs]");
+    const archive = commandHelp("archive");
+    expect(archive).not.toContain("canonical docs");
+    expect(archive).not.toContain("[--skip-specs]");
+  });
+
   it("instruct help lists the living-doc artifacts", () => {
     const help = commandHelp("instruct");
     expect(help).toContain("living-doc-index");

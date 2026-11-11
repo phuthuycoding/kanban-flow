@@ -147,7 +147,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     options: {},
   },
   archive: {
-    help: "Usage: kf archive <feature> [--skip-hooks]  — the manual close: moves a review PASS item into done (done hook, worktree and branch teardown, canonical docs, delivered flag) once its recorded PR merged, or with landing: none and nothing ahead of origin/<default>; kf status and kf sync run the same close on their own",
+    help: "Usage: kf archive <feature> [--skip-hooks]  — the manual close: moves a review PASS item into done (done hook, worktree and branch teardown, delivered flag) once its recorded PR merged, or with landing: none and nothing ahead of origin/<default>; kf status and kf sync run the same close on their own",
     allowPositionals: true,
     options: {
       force: { type: "boolean", short: "f" },
@@ -195,7 +195,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   cancel: {
-    help: 'Usage: kf cancel <feature> --reason "<why>" [--by <name>] [--purge-docs] [--force] [--skip-hooks]  — stop a work item for good, recording who dropped it and why; reopen later with kf stage <feature> <its old stage>',
+    help: 'Usage: kf cancel <feature> --reason "<why>" [--by <name>] [--force] [--skip-hooks]  — stop a work item for good, recording who dropped it and why; reopen later with kf stage <feature> <its old stage>',
     allowPositionals: true,
     options: {
       reason: { type: "string" },
