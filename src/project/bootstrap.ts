@@ -13,7 +13,7 @@ import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
 import { STAGES } from "../workflow/schema.js";
 import { assertPathName } from "../workflow/features.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { readProjectFileConfig, effectiveSkillsScope } from "./config.js";
+import { readProjectConfig, readProjectFileConfig, effectiveSkillsScope } from "./config.js";
 import { runGit } from "../shared/git.js";
 
 export interface BootstrapAnswers {
@@ -170,6 +170,9 @@ export function hasWorkItems(root: string): boolean {
 
 export function bootstrapDefaults(root: string, explicitContext?: string): BootstrapAnswers {
   const cfg = readProjectFileConfig(root);
+  // Reviewer, agents and install scope are what kf install and kf doctor will use, so they start
+  // from the effective config; saveConfig decides separately whether the project file gets them.
+  const effective = readProjectConfig(root);
   const defaultContext = explicitContext || effectiveDefaultContext(cfg);
   // Declaring a list is a decision, and `--defaults` means nobody made one, so only an explicit
   // --context declares. Even then, not on a project that already exists: declaring one name there
@@ -185,14 +188,14 @@ export function bootstrapDefaults(root: string, explicitContext?: string): Boots
     defaultContext,
     defaultContextStated: Boolean(explicitContext) || cfg.contexts !== undefined || cfg.defaultContext !== undefined,
     stacks: cfg.stacks?.length ? cfg.stacks : detectStacks(root),
-    reviewer: cfg.reviewer ?? detectReviewer(root),
+    reviewer: effective.reviewer ?? detectReviewer(root),
     repository,
     // Defaults take the opt-in silently — the pack no-ops for a project that never configures it.
     installGithubHooks: repository !== undefined,
     ignoreWorks: shouldSuggestIgnoreWorks(root),
     seedFeature: false,
-    agents: cfg.agents?.length ? parseAgentIds(cfg.agents) : [DEFAULT_AGENT],
-    skillScope: effectiveSkillsScope(cfg),
+    agents: effective.agents?.length ? parseAgentIds(effective.agents) : [DEFAULT_AGENT],
+    skillScope: effectiveSkillsScope(effective),
   };
 }
 
@@ -392,6 +395,15 @@ async function copyDirInto(src: string, dest: string): Promise<void> {
 /** Write .kf/config.json for this project. */
 export function saveConfig(root: string, a: BootstrapAnswers): void {
   const existing = readProjectFileConfig(root);
+  const inherited = readProjectConfig(root);
+  // A key the project file lacks and a global/workspace layer supplies is written only when the
+  // answer differs from the inherited value; otherwise the committed file would pin a personal value.
+  const inheritedAgents = inherited.agents?.length ? parseAgentIds(inherited.agents) : undefined;
+  const writeReviewer = existing.reviewer !== undefined || inherited.reviewer === undefined || a.reviewer !== inherited.reviewer;
+  const writeAgents = existing.agents !== undefined || inheritedAgents === undefined
+    || a.agents.length !== inheritedAgents.length || a.agents.some((id, i) => id !== inheritedAgents[i]);
+  const writeSkills = existing.skills !== undefined || inherited.skills === undefined
+    || a.skillScope !== effectiveSkillsScope(inherited);
   // Both halves of the rule live here, not at a caller: this is the one point every set of
   // answers passes through, so no producer — present or future — can write a contexts list that
   // readProjectConfig then refuses. Dedupe covers the repeat rule; assertPathName covers names.
@@ -418,10 +430,10 @@ export function saveConfig(root: string, a: BootstrapAnswers): void {
     ...(contexts.length > 0 ? { contexts } : {}),
     ...legacyDefault,
     stacks: a.stacks,
-    reviewer: a.reviewer,
+    ...(writeReviewer ? { reviewer: a.reviewer } : {}),
     ...(a.repository ? { repository: a.repository } : {}),
-    agents: a.agents,
-    skills: { scope: a.skillScope },
+    ...(writeAgents ? { agents: a.agents } : {}),
+    ...(writeSkills ? { skills: { scope: a.skillScope } } : {}),
     ...(existing.harness !== undefined ? { harness: existing.harness } : {}),
     // Blocks saveConfig does not own — re-init must not silently drop what a human configured.
     ...(existing.worktree !== undefined ? { worktree: existing.worktree } : {}),

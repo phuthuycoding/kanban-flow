@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectFileConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
+import { readProjectConfig, readProjectFileConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../../integrations/agents.js";
@@ -34,7 +34,9 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   }
 
   const cfg = readProjectFileConfig(target);
-  const refusal = effectiveSkillsScope(cfg) === "global" ? globalLinkRefusal() : null;
+  // Write decisions use `cfg` (the project file); the install scope and agents use `effective`.
+  const effective = readProjectConfig(target);
+  const refusal = effectiveSkillsScope(effective) === "global" ? globalLinkRefusal() : null;
   if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const ctx = typeof args.options.context === "string" ? args.options.context : effectiveDefaultContext(cfg);
   // Same rule as the bootstrap path: an explicit --context on a genuinely new project is a
@@ -74,8 +76,8 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   await mkdir(join(target, ".kf", "hooks"), { recursive: true });
   await mkdir(join(target, ".kf", "review", "rules"), { recursive: true });
   await seedSpecs(target);
-  const scope = effectiveSkillsScope(cfg);
-  const skills = await installForAgents(target, agents.length ? agents : parseAgentIds(cfg.agents), scope, cfg.skills?.scope);
+  const scope = effectiveSkillsScope(effective);
+  const skills = await installForAgents(target, agents.length ? agents : parseAgentIds(effective.agents), scope, effective.skills?.scope);
   if (skills.code !== 0) return skills;
   const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {
@@ -119,7 +121,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   const explicitContext = typeof args.options.context === "string" ? args.options.context : undefined;
 
   // A declared global scope is refused before the user answers anything; an undeclared one may still be answered "project".
-  const early = readProjectFileConfig(target).skills?.scope === "global" ? globalLinkRefusal() : null;
+  const early = readProjectConfig(target).skills?.scope === "global" ? globalLinkRefusal() : null;
   if (early) return { code: 1, stdout: "", stderr: early };
 
   let answers: BootstrapAnswers;

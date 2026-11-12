@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,46 +35,40 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("kf init never copies global values into the project file", () => {
-  it("writes no global reviewer, agents or skills on init --defaults", async () => {
+const INHERITABLE = ["reviewer", "agents", "skills"];
+const inheritableKeys = (cfg: Record<string, unknown>) => Object.keys(cfg).filter((k) => INHERITABLE.includes(k));
+
+describe("kf init never copies inherited values into the project file", () => {
+  it("writes no reviewer, agents or skills key on init --defaults", async () => {
     const res = await cmdInit(args("init", [], { defaults: true }), root);
     expect(res.code, res.stdout + (res.stderr ?? "")).toBe(0);
-    const written = readProject();
-    expect(written.reviewer).not.toBe("A");
-    expect(written.agents).not.toEqual(["claude", "codex"]);
-    expect((written.skills as { scope?: string } | undefined)?.scope).not.toBe("project");
+    expect(inheritableKeys(readProject())).toEqual([]);
   });
 
-  it("writes no global reviewer, agents or skills on init --minimal", async () => {
+  it("writes no reviewer, agents or skills key on init --minimal", async () => {
     const res = await cmdInit(args("init", [], { minimal: true }), root);
     expect(res.code, res.stdout + (res.stderr ?? "")).toBe(0);
     const written = readProject();
-    expect(written.reviewer).toBeUndefined();
-    expect(written.agents).toBeUndefined();
-    expect(written.skills).toBeUndefined();
+    expect(inheritableKeys(written)).toEqual([]);
     expect(written.schema).toBe("kanban-flow");
     expect(typeof written.created).toBe("string");
   });
 
-  it("writes no global values when init is repeated", async () => {
+  it("writes no reviewer, agents or skills key when init is repeated", async () => {
     expect((await cmdInit(args("init", [], { defaults: true }), root)).code).toBe(0);
     expect((await cmdInit(args("init", [], { defaults: true }), root)).code).toBe(0);
     expect((await cmdInit(args("init", [], { minimal: true }), root)).code).toBe(0);
-    const raw = readFileSync(projectFile(), "utf8");
-    expect(raw).not.toContain('"A"');
-    expect(readProject().agents).not.toEqual(["claude", "codex"]);
-    expect((readProject().skills as { scope?: string } | undefined)?.scope).not.toBe("project");
+    expect(inheritableKeys(readProject())).toEqual([]);
   });
 
-  it("keeps the project's own reviewer and adds nothing global when patching an existing file", async () => {
+  it("keeps the project's own reviewer and adds nothing inherited when patching an existing file", async () => {
     mkdirSync(join(root, ".kf"), { recursive: true });
     writeFileSync(projectFile(), JSON.stringify({ reviewer: "B" }, null, 2) + "\n", "utf8");
     const res = await cmdInit(args("init", [], { minimal: true }), root);
     expect(res.code, res.stdout + (res.stderr ?? "")).toBe(0);
     const written = readProject();
     expect(written.reviewer).toBe("B");
-    expect(written.agents).toBeUndefined();
-    expect(written.skills).toBeUndefined();
+    expect(inheritableKeys(written)).toEqual(["reviewer"]);
     expect(written.schema).toBe("kanban-flow");
   });
 
@@ -86,27 +80,54 @@ describe("kf init never copies global values into the project file", () => {
   });
 });
 
+describe("kf init without any layer file", () => {
+  beforeEach(() => {
+    rmSync(globalFile());
+  });
+
+  it("still writes reviewer, agents and skills on init --defaults", async () => {
+    const res = await cmdInit(args("init", [], { defaults: true }), root);
+    expect(res.code, res.stdout + (res.stderr ?? "")).toBe(0);
+    const written = readProject();
+    expect(typeof written.reviewer).toBe("string");
+    expect(Array.isArray(written.agents)).toBe(true);
+    expect(written.skills).toBeDefined();
+  });
+});
+
+describe("kf init --minimal installs with the inherited skills settings", () => {
+  it("installs skill copies at project scope for the inherited agents when global says scope project", async () => {
+    // Write decisions stay on the project file, but the install step follows what kf install would do.
+    writeGlobal({ agents: ["codex"], skills: { scope: "project" } });
+    const res = await cmdInit(args("init", [], { minimal: true }), root);
+    expect(res.code, res.stdout + (res.stderr ?? "")).toBe(0);
+    expect(existsSync(join(root, ".agents", "skills"))).toBe(true);
+    expect(existsSync(join(homedir(), ".agents", "skills"))).toBe(false);
+    expect(inheritableKeys(readProject())).toEqual([]);
+  });
+});
+
 describe("kf doctor --fix creating a missing project file", () => {
   // findRoot only accepts a directory that already has .kf/, so the repair starts from an empty one.
   beforeEach(() => {
     mkdirSync(join(root, ".kf"), { recursive: true });
   });
 
-  it("writes the detected reviewer, not the global one, and leaves the global file unchanged", async () => {
-    const before = writeGlobal({ reviewer: "A" });
+  it("writes no reviewer, agents or skills key and leaves the global file unchanged", async () => {
+    const before = writeGlobal(GLOBAL);
     const { fixed, failures } = await runDoctorFixes(root);
     expect(failures).toEqual([]);
     expect(fixed.join("\n")).toContain(".kf/config.json");
-    const written = readProject();
-    expect(written.reviewer).not.toBe("A");
-    expect(readFileSync(projectFile(), "utf8")).not.toContain('"A"');
+    expect(inheritableKeys(readProject())).toEqual([]);
     expect(readFileSync(globalFile(), "utf8")).toBe(before);
   });
 
-  it("writes no global agents or skills into the created file", async () => {
+  it("still writes reviewer, agents and skills when no layer file exists", async () => {
+    rmSync(globalFile());
     await runDoctorFixes(root);
     const written = readProject();
-    expect(written.agents).not.toEqual(["claude", "codex"]);
-    expect((written.skills as { scope?: string } | undefined)?.scope).not.toBe("project");
+    expect(typeof written.reviewer).toBe("string");
+    expect(Array.isArray(written.agents)).toBe(true);
+    expect(written.skills).toBeDefined();
   });
 });
