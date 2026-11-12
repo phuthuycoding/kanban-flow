@@ -13,7 +13,7 @@ dist/
 # kanban-flow
 .works/
 
-# kanban-flow: skills and agents are installed per project by kf init; this repo ships them in skills/
+# kanban-flow: skills and agents are installed per project by kf init; this repo ships them in assets/skills/ and assets/agents/
 .claude/skills/
 .claude/agents/
 .kf/travel/

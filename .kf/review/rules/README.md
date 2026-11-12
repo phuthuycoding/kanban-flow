@@ -4,7 +4,7 @@
 - `general.md` — Rules applied to every review
 - `security.md` — Security-specific checks
 - `performance.md` — Performance-specific checks
-- `{stack}.md` — Stack-specific rules. Packs ship in the package at `kanban-flow/review/stacks/{stack}.md` (7 packs: `node`, `go`, `rust`, `python`, `php`, `ruby`, `java`) and are installed into this directory via `kf rules`.
+- `{stack}.md` — Stack-specific rules. Packs ship in the package at `assets/review/stacks/{stack}.md` (7 packs: `node`, `go`, `rust`, `python`, `php`, `ruby`, `java`) and are installed into this directory via `kf rules`.
 
 ## How to Use
 Skill `/kf:review` loads all rules in this directory at review time.
