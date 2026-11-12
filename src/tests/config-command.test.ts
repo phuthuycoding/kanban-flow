@@ -88,6 +88,19 @@ describe("kf config show", () => {
   });
 });
 
+describe("kf config show with a not-applied key first", () => {
+  it("lists a layer file whose first key is not applied without failing", async () => {
+    const proj = makeProject(join(scratch, "proj"), '{"schema":"kanban-flow"}\n');
+    write(globalFile(), '{"worktree":{"enabled":true},"reviewer":"A"}\n');
+
+    const res = await kf(proj, "show", "--global");
+    expect(res.code).toBe(0);
+    const lines = res.stdout.split("\n");
+    expect(lines.find((l) => /worktree\.enabled/.test(l))).toMatch(/not applied/);
+    expect(lines.find((l) => /\breviewer\b/.test(l))).not.toMatch(/not applied/);
+  });
+});
+
 describe("kf config get", () => {
   it("prints a scalar raw, an object as JSON, refuses an unset key and reads one layer only", async () => {
     const proj = makeProject(join(scratch, "proj"), '{"schema":"kanban-flow","skills":{"scope":"project"}}\n');
@@ -172,6 +185,36 @@ describe("kf config set", () => {
     expect(invalid.code).not.toBe(0);
     expect(invalid.all).toContain(globalFile());
     expect(read(globalFile())).toBe("{ not json");
+  });
+});
+
+describe("kf config set with a key kf does not know", () => {
+  it("refuses a misspelled or legacy key at every layer, leaving files unchanged", async () => {
+    const projText = '{\n  "schema": "kanban-flow"\n}\n';
+    const proj = makeProject(join(scratch, "proj"), projText);
+    const projFile = join(proj, ".kf", "config.json");
+    const gText = '{"reviewer":"A"}\n';
+    write(globalFile(), gText);
+
+    for (const argv of [["reviwer", "A"], ["--global", "reviwer", "A"], ["ship", "x"]]) {
+      const res = await kf(proj, "set", ...argv);
+      expect(res.code, argv.join(" ")).toBe(1);
+      expect(res.all, argv.join(" ")).toMatch(/not a kf config key/);
+      expect(res.all, argv.join(" ")).not.toMatch(/applies at the project layer only/);
+    }
+    expect(read(projFile)).toBe(projText);
+    expect(read(globalFile())).toBe(gText);
+  });
+
+  it("keeps the project-layer-only message for a known project-only key at the global layer", async () => {
+    const proj = makeProject(join(scratch, "proj"), '{"schema":"kanban-flow"}\n');
+    const gText = '{"reviewer":"A"}\n';
+    write(globalFile(), gText);
+
+    const res = await kf(proj, "set", "--global", "repository", "x/y");
+    expect(res.code).toBe(1);
+    expect(res.all).toMatch(/applies at the project layer only/);
+    expect(read(globalFile())).toBe(gText);
   });
 });
 

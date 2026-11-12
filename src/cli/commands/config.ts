@@ -7,6 +7,7 @@ import { configPath, parseProjectConfig, ProjectConfigError, serializeConfigPres
 import {
   findWorkspaceConfigPath,
   globalConfigPath,
+  KEY_LAYERS,
   keyAppliesAt,
   parseLayerConfig,
   readConfigLayers,
@@ -18,6 +19,9 @@ import { findWorksRoot } from "../../workflow/features.js";
 import type { CmdResult } from "../result.js";
 
 type Scope = "global" | "workspace" | null;
+
+/** Still read for old files (`ship` dropped, `stack` migrated to `stacks`), never written. */
+const LEGACY_KEYS: ReadonlySet<string> = new Set(["ship", "stack"]);
 
 /** One layer file and the rules it is validated by: a project rooted at home owns ~/.kf/config.json as its project file. */
 interface LayerTarget {
@@ -89,7 +93,8 @@ function globalTarget(root: string | null): LayerTarget {
 const HOME_ROOT_NOTE = "the project root is the home directory, so ~/.kf/config.json is the project file and is validated as one";
 
 function columns(rows: string[][]): string[] {
-  const widths = rows[0]?.map((_, i) => Math.max(...rows.map((r) => r[i].length))) ?? [];
+  const count = Math.max(0, ...rows.map((r) => r.length));
+  const widths = Array.from({ length: count }, (_, i) => Math.max(...rows.map((r) => (r[i] ?? "").length)));
   return rows.map((r) => `  ${r.map((cell, i) => (i === r.length - 1 ? cell : cell.padEnd(widths[i]))).join("  ")}`);
 }
 
@@ -216,6 +221,9 @@ async function cmdSet(args: ParsedArgs, scope: Scope, root: string | null, cwd: 
   const global = scope === "global" ? globalTarget(root) : null;
   const rules: ConfigLayer = scope === null ? "project" : global?.rules ?? scope;
   const top = parts[0];
+  if (!Object.hasOwn(KEY_LAYERS, top) || LEGACY_KEYS.has(top)) {
+    return { code: 1, stdout: `"${top}" is not a kf config key: nothing was written.`, stderr: "unknown config key" };
+  }
   if (!keyAppliesAt(top, rules)) {
     return { code: 1, stdout: `"${top}" applies at the project layer only: set it in the project's .kf/config.json (without --${scope}).`, stderr: "key not applied at this layer" };
   }
