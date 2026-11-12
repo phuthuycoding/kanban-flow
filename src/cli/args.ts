@@ -156,7 +156,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   rules: {
-    help: "Usage: kf rules [--stack <id> ...] [--list] [--force]  — copy stack best-practice review rules into .kf/review/rules (auto-detects stack; packs: node, go, rust, python, php, ruby, java)",
+    help: "Usage: kf rules [--stack <id> ...] [--list] [--force]  — copy stack best-practice review rules into .kf/review/rules (auto-detects stack; packs: node, go, rust, python, php, ruby, java, frontend, mvvm, monorepo — mvvm is an architecture and is installed with --stack mvvm)",
     options: {
       stack: { type: "string", multiple: true },
       list: { type: "boolean" },

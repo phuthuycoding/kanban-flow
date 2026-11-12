@@ -275,8 +275,8 @@ reopens the task that owns the failing file, and its round count continues — f
 the task's whole life. `/kf:review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
-surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
-area), and refutes any finding whose evidence quote is missing or not where the
+surface changed; five dimensions in parallel above; every reviewer on `opus`, `fable`
+only on a critical area), and refutes any finding whose evidence quote is missing or not where the
 reviewer said it is before it reaches the report. After the review PASS, `/kf:review` pushes the branch, opens the PR and watches the
 pushed commit's GitHub Actions runs and the PR's mergeability in the background. A red
 run is not handed to the human at first: it writes a `ci: red` / `FAIL` report with the

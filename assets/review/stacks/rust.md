@@ -9,7 +9,7 @@
 ## Safety
 - `unsafe` blocks are minimal, justified by a `// SAFETY:` comment, and reviewed individually
 - No `unsafe` to work around ownership — restructure instead
-- `clippy::pedantic`-level warnings justified or fixed; `cargo clippy` and `cargo fmt --check` clean
+- An `#[allow(clippy::…)]` or `#[allow(unused…)]` added by the change carries a comment why (`cargo clippy` and `cargo fmt --check` belong in the project's verify commands)
 - No integer overflow risk on user input — use `checked_`/`saturating_` ops where values are untrusted
 
 ## Ownership & API Design
@@ -25,8 +25,14 @@
 
 ## Dependencies & Code Quality
 - `Cargo.lock` committed for binaries; dependency features reviewed — no default-features pulled blindly
-- No `.unwrap()` on env/config parsing at runtime — fail fast with context at startup
+- Env and config are parsed once at startup into typed values, failing with the key's name
 - Tests live in `#[cfg(test)]` modules or `tests/`; doc examples compile via `cargo test --doc`
+
+## Security
+- SQL through bind parameters or checked query macros — no `format!` building a query from input
+- `std::process::Command` takes arguments, never a shell string with input
+- Paths built from input are canonicalized and checked against an allowed root
+- Deserialization of untrusted input has size and depth limits
 
 ## Performance
 - No accidental quadratic copies — `&str` slices, iterators, `Vec::with_capacity`

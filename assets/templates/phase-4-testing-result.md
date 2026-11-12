@@ -27,6 +27,14 @@ status: BLOCKED
 | Failed | {failed} |
 | Blocked | {blocked} |
 
+## Run Facts
+
+| Fact | Value |
+|---|---|
+| Stage record (sha, commands it ran) — or the no-stage-commands run | {stage_record} |
+| Tests run / passed by the coverage run | {tests_run_passed} |
+| Test files, by name | {test_files} |
+
 ## Test Results
 
 | Case / test name | Type | Status | Expected | Actual | Evidence |

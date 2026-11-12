@@ -21,7 +21,9 @@ Stand on quality, not survivor. The orchestrator produces **facts** and a **pack
 kf stage {feature_name} review
 ```
 
-(Already there → skip. If the move is refused, run `kf validate --change {feature_name}` — a missing, stale or non-PASS testing report blocks this direction; loop back through kf:test.)
+(Already there → skip. If the move is refused, read the refusal `kf stage` printed — `kf validate` does not report every cause: a missing, stale or non-PASS testing report blocks this direction (loop back through kf:test), and so does a stage record that is not PASS at HEAD (the `Stage verify:` line of `kf status --change {feature_name}`; run `kf verify {feature_name} --stage`).)
+
+**Capture the `Stage verify` line now**, from `kf status --change {feature_name}`, before any commit: a commit in step 2 or the step 2b docs commit moves HEAD past the record and the line then reads `stale`. Steps 4 and 10 use this capture.
 
 Read `kf status --change {feature_name} --json`: the current `executionId`, `kind`, and the `worktree` object (`path`, `branch`, `domain`, `port`; `null` without a worktree) — the text form prints it as the `Worktree:` with `Domain:` or `Direct:` block. When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then). **Worktree items:** the reviewed changes live on the item branch in that worktree — every command below runs inside it. The worktree teardown on close refuses while it is dirty, and the review runs on a committed tree (step 2).
 
@@ -53,7 +55,7 @@ printf '%s\n' "$ADDED_LINES" | grep -nE '(^|[^A-Za-z_])debugger([^A-Za-z_]|$)'
 
 A failing build, lint or suite, or a conflict marker, **short-circuits**: write the report with those findings, `status: FAIL`, and skip steps 2b–9 — no model budget on a tree that does not build.
 
-**Rules.** Resolve rule files per filename in project → user → package order: `{project_root}/.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, `${CLAUDE_PLUGIN_ROOT}/assets/review/rules/*.md` beside the installed CLI's package.json. Include general, security and performance plus the project's stack rule when installed (`kf rules` installs the stack packs; they are not auto-loaded from `${CLAUDE_PLUGIN_ROOT}/assets/review/stacks/`). If no rule source is available, the report says so instead of silently skipping. The rules go into the pack as paths; the reviewer reads them.
+**Rules.** Resolve rule files per filename in project → user → package order: `{project_root}/.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, `${CLAUDE_PLUGIN_ROOT}/assets/review/rules/*.md` beside the installed CLI's package.json; `README.md` in those folders is no rule file. Include general, security and performance plus the project's stack rule when installed (`kf rules` installs the stack packs; they are not auto-loaded from `${CLAUDE_PLUGIN_ROOT}/assets/review/stacks/`). If no rule source is available, the report says so instead of silently skipping. The rules go into the pack as paths; the reviewer reads them.
 
 ## 2b. Living docs — after the mechanical checks pass, before any reviewer
 
@@ -81,7 +83,7 @@ Print the tier, the reason, the excluded line count and why `CRITICAL` is 0 or 1
 bash ${CLAUDE_PLUGIN_ROOT}/assets/skills/review/scripts/review-package "$BASE" HEAD <item>/reviews/<id>/review-<base7>..<head7>.diff --untracked
 ```
 
-Then write `<item>/reviews/<id>/pack.md` with the six blocks `references/reviewer-brief.md` describes — Intent (requirement, plan, UC/TC paths; for a bug the report and its sibling entry points), Diff (the package path), Verified (step 2's real commands and output, the test files that ran, **the changed behaviour no test touches**, and the `Stage verify` line of `kf status --change {feature_name}` verbatim — the stage record or the waiver the item entered review on), Rules (paths), Deferred (verbatim `minor (deferred)` and `parked` lines from `<item>/loop/progress.md`, or "no ledger"), Baseline. Paths, not pasted artifacts.
+Then write `<item>/reviews/<id>/pack.md` with the six blocks `references/reviewer-brief.md` describes — Intent (requirement, plan, UC/TC paths; for a bug the report and its sibling entry points), Diff (the package path), Verified (step 2's real commands and output, the test files that ran, **the changed behaviour no test touches**, and the `Stage verify` line captured in step 1, verbatim — the stage record or the waiver the item entered review on), Rules (paths), Deferred (verbatim `minor (deferred)` and `parked` lines from `<item>/loop/progress.md`, or "no ledger"), Baseline. Paths, not pasted artifacts.
 
 Write `## Verified` as numbers and names, never as "✅ tests pass": a verdict invites agreement; facts let the reviewer ask whether the tests are adequate.
 
@@ -89,10 +91,10 @@ Write `## Verified` as numbers and names, never as "✅ tests pass": a verdict i
 
 Follow `references/reviewer-brief.md` exactly: the doctrine path to read first, the pack path, the schema path, and **the model named on every dispatch**. The reviewer has no write tool: **its reply is its report**, and you save each reply verbatim to `<item>/reviews/<id>/reviewer-<dimension>.md` before reading the next one.
 
-- **T1:** one `Agent(kf:code-reviewer)` on `sonnet`, all dimensions.
-- **T1C:** T1 plus one `contracts` reviewer on `sonnet` — two dispatches.
-- **T2:** five in **one message** — `bugs`, `security`, `perf`, `contracts`, `intent` — on `sonnet`; `contracts` on `opus` when `SHARED=1`.
-- **T3:** the same five, all on `opus`.
+- **T1:** one `Agent(kf:code-reviewer)` on `opus`, all dimensions.
+- **T1C:** T1 plus one `contracts` reviewer on `opus` — two dispatches.
+- **T2:** five in **one message** — `bugs`, `security`, `perf`, `contracts`, `intent` — on `opus`.
+- **T3:** the same five on `opus`; all on `fable` only when `CRITICAL=1`.
 
 Collect each reply **by name**; a reviewer that finishes without one is an incomplete gate — ask it for the report, and if none comes, the review is incomplete, not clean. Never review the diff yourself in parallel "to be safe"; never pre-judge a finding in the brief.
 
@@ -192,7 +194,7 @@ Never re-run, cancel or approve a workflow, never resolve a review thread, never
 kf instruct review-report --change {feature_name}
 ```
 
-Fill `phase-5-review-report.md`. Its `verify` Delivery row copies the `Stage verify` line of `kf status --change` — the record's sha and result, or the waiver's reason and who gave it. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and `commit:` to the full `git rev-parse HEAD` the report judges, and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 7–9 (the template's `## Delivery` table; `ci: not-run` for a `FAIL` or `REQUIREMENT_BUG` written before any CI watch); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
+Fill `phase-5-review-report.md`. Its `verify` Delivery row copies the `Stage verify` line of `kf status --change` captured in step 1 — the record's sha and result, or the waiver's reason and who gave it. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model — the `Model:` line each reply ends with, not the model you asked for — (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and `commit:` to the full `git rev-parse HEAD` the report judges, and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 7–9 (the template's `## Delivery` table; `ci: not-run` for a `FAIL` or `REQUIREMENT_BUG` written before any CI watch); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
 
 Set frontmatter `docs:` and `docs_reason` from step 2b: `docs: updated` when its commit changed a file under `docs/specs/`, else `docs: none` and the reason. For a bug, also record the verified root cause and its docs impact (the living doc updated, or why none was needed; after a step 2 short-circuit there is none — say so).
 
@@ -217,7 +219,7 @@ kf stage {feature_name} implementation
 
 ## References
 
-- `references/reviewer-doctrine.md` — pasted at the top of every reviewer brief.
+- `references/reviewer-doctrine.md` — named in every reviewer brief as the first file to read; pasted only for a general-purpose stand-in.
 - `references/finding-schema.md` — the one shape every reviewer returns; how findings become report rows.
 - `references/review-tiers.md` — `ADDED`/`SHARED`/`CRITICAL`, the tier rule, bundling, why tiers.
 - `references/reviewer-brief.md` — the dispatch template and the pack layout.

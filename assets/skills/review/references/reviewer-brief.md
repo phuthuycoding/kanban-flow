@@ -5,7 +5,7 @@ Use this when dispatching the whole-branch review. The `code-reviewer` agent is 
 ```
 Agent:
   subagent_type: kf:code-reviewer               # see "Stand-ins" below when it is not registered
-  model: [MODEL]                             # sonnet | opus — REQUIRED, per references/review-tiers.md
+  model: [MODEL]                             # opus | fable — REQUIRED, per references/review-tiers.md
   description: "Review [FEATURE] — [DIMENSION or whole diff]"
   prompt: |
     Read first, in this order — they are your contract:
@@ -37,7 +37,7 @@ Agent:
 
 **Placeholders**
 
-- `[MODEL]` — from the tier: `sonnet` for T1, T1C and T2; `opus` for T3 and for T2's `contracts` dimension when `SHARED=1`.
+- `[MODEL]` — from the tier: `opus` for every tier; `fable` only when `CRITICAL=1`.
 - `[DIMENSION]` — one of the five for T1C's second seat, T2 and T3; "all dimensions" for T1 and T1C's first seat.
 - `[DOCTRINE_FILE]`, `[SCHEMA_FILE]` — absolute paths of this skill's `references/reviewer-doctrine.md` and `references/finding-schema.md` (the reviewer has Read; pasting them costs output tokens on every dispatch).
 - `[PACK_FILE]` — the pack the orchestrator wrote: `<item>/reviews/<execution-id>/pack.md`.

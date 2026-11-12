@@ -61,7 +61,7 @@ Record `N/A` with a reason if no other documents need updates.
 
 ## Docs Reconciled
 
-| Document | Superseded / updated behavior | Action |
+| Living doc / legacy feature | Behavior now documented | Action |
 |---|---|---|
 | {reconciled_document} | {reconciled_change} | {reconciled_action} |
 

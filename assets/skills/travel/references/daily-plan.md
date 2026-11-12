@@ -5,7 +5,7 @@ The morning printout. The human approves or edits it; nothing is driven before t
 ```text
 Plan YYYY-MM-DD — slots: 3 | budget: 8 points (median of 3 days)
 Batch 1 (7/8 points)
-  t1 · workflow-slim · feature · L · carry-over — blocked yesterday: verify_failed, fixed by the human
+  t1 · workflow-slim · feature · L · carry-over — blocked yesterday: cap reached on TASK-003, fixed by the human
   t2 · cli-refactor · feature · M · review
   t3 · login-timeout · bug · S · implementation — sequential with t2 (src/cli/*)
 Batch 2 (if Batch 1 drains)

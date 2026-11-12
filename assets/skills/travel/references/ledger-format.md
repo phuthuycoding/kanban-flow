@@ -7,7 +7,7 @@ Gitignored. One section per day, newest last. The last section is the source of 
 
 ## 2026-10-30
 slots: 3 · budget: 10 tasks (default — fewer than 3 days measured)
-t1 · workflow-slim · feature · L · blocked · owner=travel · est0=L · estmin=40 · blocked: fix-loop breaker — review round 3 still has open findings — next: kf stage workflow-slim implementation
+t1 · workflow-slim · feature · L · blocked · owner=travel · est0=L · estmin=40 · blocked: TASK-004 cap reached after a reopen — next: kf stage workflow-slim planning
 t2 · cli-refactor · feature · M · done · est0=M · estmin=12 · merged https://github.com/<owner>/<repo>/pull/104
 t3 · login-timeout · bug · S · carry-over · est0=S · estmin=4 · waiting-to-merge https://github.com/<owner>/<repo>/pull/105 — ! gh pr merge 105 · files=3 · work=18 review=4
 

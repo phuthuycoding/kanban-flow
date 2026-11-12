@@ -10,14 +10,14 @@ Use the least powerful model that can do the role, and **name it on every dispat
 - **Integration and judgement** (multi-file coordination, pattern matching, debugging) and **design** (architecture, restructuring): `opus`.
 - **Seats:** `sonnet` by default for the test-writer, the developer and the automation-writer; `opus` for a developer on multi-file coordination or design judgement, or when the same test fails twice. Fix rounds 4–5 go one tier up.
 - **Escalation:** the same test failing twice for one task → `opus` with the error brief on disk (the failing test, its output, the diff tried). A third time → stop dispatching developers; investigate the root cause yourself or with the human.
-- **Reviewers:** `sonnet` for a small mechanical diff, `opus` for a subtle one (concurrency, auth, data migration). Scoped re-reviews of a small fix diff take `sonnet`.
-- Never below `sonnet` for an implementer or a reviewer: **turn count beats token price** — the cheapest tier takes two to three times the turns on multi-step work and costs more overall while doing worse.
+- **Reviewers:** `opus`, for the task review and its scoped re-reviews alike. The top tier is kept for the whole-branch review of a critical item (`kf:review`), where one pass sees the entire diff.
+- Never below `sonnet` for an implementer, never below `opus` for a reviewer: **turn count beats token price** — the cheapest tier takes two to three times the turns on multi-step work and costs more overall while doing worse.
 
 ## The ledger
 
 Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/loop/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection.
 
-Every line after the header ends with ` @ <ISO-8601 timestamp with offset>` — the moment the line was written, read from the clock with `date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'` and never estimated, a `T` between date and time and the offset as `±hh:mm`, e.g. ` @ 2026-11-01T18:41:26+07:00` — and nothing follows it; a line gets exactly one suffix, never a second suffix, and never starts with a markdown bullet. The suffix comes last so the `TASK-NNN:` that travel and the resume rule read stays first.
+Every line after the header ends with ` @ <ISO-8601 timestamp with offset>` — the moment the line was written, stamped by `kf record` from the clock (the form `date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'` prints) and never estimated, a `T` between date and time and the offset as `±hh:mm`, e.g. ` @ 2026-11-01T18:41:26+07:00` — and nothing follows it; a line gets exactly one suffix, never a second suffix, and never starts with a markdown bullet. The suffix comes last so the `TASK-NNN:` that travel and the resume rule read stays first.
 
 The lines `kf loop-stats` reads follow one grammar:
 
@@ -55,7 +55,7 @@ TASK-003: developer dispatched model=sonnet round=1 @ 2026-11-01T20:16:40+07:00
 TASK-003: developer done status=DONE @ 2026-11-01T20:28:05+07:00
 TASK-003: fix round 1/5 (1 addressed, 0 open — empty list rejected; commits d4e5f6a) @ 2026-11-01T20:31:48+07:00
 TASK-004: cascade re-review owed — after d4e5f6a of TASK-003 @ 2026-11-01T20:31:55+07:00
-TASK-004: code-reviewer dispatched model=sonnet round=1 cascade=d4e5f6a @ 2026-11-01T20:32:20+07:00
+TASK-004: code-reviewer dispatched model=opus round=1 cascade=d4e5f6a @ 2026-11-01T20:32:20+07:00
 TASK-003: complete (commits a1b2c3d,d4e5f6a, review clean) @ 2026-11-01T20:40:02+07:00
 Ruling: the empty commit list exits 3, not 1 — the requirement calls it bad input — cost if wrong: one re-run @ 2026-11-01T20:41:10+07:00
 TASK-001: test hashes src/tests/verify.test.ts=72d245a130481dcd4de1129b37d039ebf1371023 @ 2026-11-01T20:42:30+07:00
@@ -97,7 +97,7 @@ Note TASK-NNN: decided — <what> @ <ts>
 Note TASK-NNN: verify routed — TASK-MMM @ <ts>
 ```
 
-A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads the three last notes: the commits a developer made (`kf next` prints the note to write for any reported commit no ledger line names yet, before the review; a commit lands at the first ledger line that names it, a commits note or a review package, and cascades and verify waits are read from that position), the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
+A clean scan — a table with no rows — is written as the one line `Scan: clean`. `kf next` opens no seat until some `Scan:` line exists, and it reads every line shape listed above, refusing a ledger that holds a malformed one (exit 1, naming the line to repair). The three last notes are the ones the session writes on its own judgement: the commits a developer made (`kf next` prints the note to write for any reported commit no ledger line names yet, before the review; a commit lands at the first ledger line that names it, a commits note or a review package, and cascades and verify waits are read from that position), the decision that closes a `decide`, and a verify failure the evidence rule (`kf:implement` § 3.2) sent to another task.
 
 A `reopened` note cancels the task's earlier `complete` line: wherever the loop asks whether a task is complete, only a `complete` line after its latest `reopened` note counts (`kf:implement` § 3.4). The `implemented` line of a session with no subagent tool counts as the task's `complete` line, on resume too.
 
@@ -134,7 +134,7 @@ A review has one lane per task: while a code-reviewer of the task is in flight, 
 - **The re-review is scoped** to the findings and the fix diff. New findings on untouched code go to the ledger as deferred minors, not into the loop.
 - **Adjudicate only at the cap.** Adjudicating earlier to end a loop is pre-judging under another name. At the cap of a task never reopened, park the contestable with a ruling; rule on the smallest unblocking change for a load-bearing one. Parking a structural failure silently lets every dependent task build on it.
 - **Never fix a finding yourself**, an inline task's own findings aside. Controller fixes pollute your coordination context and skip review.
-- The task reviewer's "minor" findings are deferred, not dropped: the review stage's pack carries them under `## Deferred`, where the whole-branch reviewer — with the entire diff in front of it — says must-fix or leave. A roll-up nobody reads is a silent discard; this is the reader.
+- The task reviewer's LOW findings (`minor (deferred)` in the ledger) are deferred, not dropped: the review stage's pack carries them under `## Deferred`, where the whole-branch reviewer — with the entire diff in front of it — says must-fix or leave. A roll-up nobody reads is a silent discard; this is the reader.
 
 ## Rulings reach the human
 
@@ -152,4 +152,4 @@ Every `Ruling:` line is a decision you took on the human's behalf. Collect them 
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. |
 | "The developer spawned its own reviewer — free extra assurance" | A duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigour. |
-| "Tasks touch different files, run them all in parallel" | Up to the live cap N — it starts at min(2, `harness.developers.max`), steps up per clean parallel wave and halves on contention — and only under the dispatch conditions: dependencies' developers done, test hashes ledgered, and Files that `overlaps` in `kf tasks <f> --json` says are disjoint from every open task. Each task's package and `kf verify` take its own commit list, never a range: a range would carry another task's commits and the reviewer would grade the wrong diff, silently. |
+| "Tasks touch different files, run them all in parallel" | Up to the live cap N — it starts at min(2, `harness.developers.max`), steps up per clean parallel wave and halves on contention — and only under the dispatch conditions: dependencies' commits ledgered, test hashes ledgered, and Files that `overlaps` in `kf tasks <f> --json` says are disjoint from every open task. Each task's package and `kf verify` take its own commit list, never a range: a range would carry another task's commits and the reviewer would grade the wrong diff, silently. |

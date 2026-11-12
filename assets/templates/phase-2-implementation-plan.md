@@ -32,7 +32,7 @@ status: planning
 |---|---|---|---|---|---|---|
 | TASK-001 | {task_description} | {area} | {dependencies} | {expected_output} | {requirement_reference} | {file_paths_dirs_or_globs} |
 
-Add one row per task. Execution progress lives outside the approved plan: in the hand-maintained `tasks.md` and the loop ledger `loop/progress.md`. **Files** is a comma-separated list of paths, directories or globs: the allowlist `kf verify --task` enforces for everything the task may touch; an empty Files cell means the files are unknown and nothing is refused. Dependencies are `TASK-###` tokens or `-`. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or an entry under Documentation Impact — or `kf validate` warns it is uncovered.
+Add one row per task. After the table, record one line per wave — `Execution: wave <w> inline` for a wave of one task, otherwise `Execution: wave <w> parallel, <N> developers` (read `kf tasks <feature> --graph` for the waves). Execution progress lives outside the approved plan: in the hand-maintained `tasks.md` and the loop ledger `loop/progress.md`. **Files** is a comma-separated list of paths, directories or globs: the allowlist `kf verify --task` enforces for everything the task may touch; an empty Files cell means the files are unknown and nothing is refused. Dependencies are `TASK-###` tokens or `-`. Every surface declared under `## Affected surfaces` in the spec must appear here — as a task row or an entry under Documentation Impact — or `kf validate` warns it is uncovered.
 
 ## Complexity
 - Level: {complexity_level}

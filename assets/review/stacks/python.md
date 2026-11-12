@@ -22,9 +22,13 @@
 - No `eval`/`exec`/`pickle.loads`/`yaml.load` on untrusted input (`yaml.safe_load` only)
 - Subprocess calls use arg lists with `shell=False`; no user input in shell commands
 - Secrets from env/vault only — nothing sensitive in code or committed config
+- No `assert` for input validation or permission checks — it is stripped under `-O`
+- No `verify=False` on TLS calls outside tests; paths built from input are resolved and checked against an allowed root
 
 ## Dependencies & Resources
 - Files/sockets/connections managed with `with` — no unclosed `.open()` handles
+- HTTP calls (`requests`, `httpx`, `urllib`) pass an explicit `timeout` — the default waits forever
+- Timestamps are timezone-aware (`datetime.now(tz=…)`), never naive `datetime.now()` / `utcnow()`
 - Lockfile committed (`requirements.txt`, `poetry.lock`, `uv.lock`) with pinned or bounded versions
 - New dependencies justified — stdlib (pathlib, itertools, dataclasses) preferred first
 

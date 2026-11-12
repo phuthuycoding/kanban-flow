@@ -39,7 +39,7 @@ The four artifacts depend on each other: the UC list drives the diagram and the 
 | b. Skeleton | You | `implementation-plan`, the `use-case-specification` index with the final UC IDs, slugs and one-line goals |
 | c. UC files | One subagent per `UC-###`, in parallel | `use-cases/UC-###-<slug>.md` |
 | d. Diagram + test cases | You | `use-case-diagram`, `test-cases` |
-| e. Contract review | `Agent(kf:spec-reviewer)` with a fresh context, `model: opus` | Findings returned to you before section 3; advisory, never a gate on its own |
+| e. Contract review | `Agent(kf:spec-reviewer)` with a fresh context, `model: fable` | Findings returned to you before section 3; advisory, never a gate on its own |
 
 When the change is small (two UCs or fewer), skip the per-UC-file subagents of step c and write those files yourself: each handover re-reads the spec and the code, which costs more than it saves at that size. The scout (step a) and the spec-reviewer (step e) are never skipped for a feature. Research done inline must still write `<item>/reviews/research-<slug>.md`: the self-review fails a choice without that report. If your runtime has no subagent tool, do the same steps yourself in the same order.
 
@@ -67,7 +67,7 @@ Before any plan text, verify every name the confirmed spec commits to against it
 
 ### a. Impact survey — "what depends on X?"
 
-`kf stage <feature> planning` already fetched and fast-forwarded the base checkout to its upstream — survey the files as they are; if the transition output carried a `⚠ base is N commit(s) behind` warning, surface it to the user before writing the contract instead of pulling yourself.
+`kf stage <feature> planning` already fetched and fast-forwarded the base checkout to its upstream — survey the files as they are; if the transition output carried a `⚠` line (base behind its upstream, remote unreachable, detached HEAD), surface it to the user before writing the contract instead of pulling yourself.
 
 Grounding protects you from a name that does not exist; it does nothing to protect a caller you never knew about. So before writing the plan, dispatch **`Agent(kf:scout)`** once per thing the change will modify — a module, a shared surface (route, event, queue, schema, public export, CLI contract), a data shape — all in one message, naming the ref the change lands on. Each returns, under 40 lines: consumers (three passes: definition, symbol usage, indirect reach), the tests covering the change and the paths no test covers, what is written together with it, and why the code exists (`git blame` / `git log -S`).
 
@@ -123,7 +123,7 @@ kf instruct use-case --change {feature_name} --id UC-001-create-task
 
 ### e. Contract review
 
-Before section 3, run your own self-review first (spec coverage: every FR has a task and a TC; type and name consistency across tasks; every Review Focus line has a pinning test; proportion: a plan several times longer than its spec is a transcript; research: the self-review fails a plan that chooses between approaches or libraries, or pins an external dependency or API version, without a research report). Then dispatch **`Agent(kf:spec-reviewer)`** once, `model: opus`, with a fresh context: the brief names the work item folder, says the contract is at planning, carries a verbatim excerpt of the user's request (in the brief or a file you write under the item folder; never only the spec's Objective), names the git ref to ground names against and names a report file under the item folder (`<item>/reviews/contract-review.md`). It reports only requirement gaps, untestable FR/AC/TC, traceability breaks (an `FR-###` with no `TC-###`, a `TC-###` citing an unknown FR or UC, an index/file id mismatch, an uncovered Affected surface), scope drift, contradictions and ungrounded names. It edits nothing. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report` and say the review is missing — do not narrate a missing report as clean. Fix what it finds yourself, or record why a finding does not apply; HIGH findings you did not fix go into the approval summary.
+Before section 3, run your own self-review first (spec coverage: every FR has a task and a TC; type and name consistency across tasks; every Review Focus line has a pinning test; proportion: a plan several times longer than its spec is a transcript; research: the self-review fails a plan that chooses between approaches or libraries, or pins an external dependency or API version, without a research report). Then dispatch **`Agent(kf:spec-reviewer)`** once, `model: fable`, with a fresh context: the brief names the work item folder, says the contract is at planning, carries a verbatim excerpt of the user's request (in the brief or a file you write under the item folder; never only the spec's Objective), names the git ref to ground names against and names a report file under the item folder (`<item>/reviews/contract-review.md`). It reports only requirement gaps, untestable FR/AC/TC, traceability breaks (an `FR-###` with no `TC-###`, a `TC-###` citing an unknown FR or UC, an index/file id mismatch, an uncovered Affected surface), scope drift, contradictions and ungrounded names. It edits nothing. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report` and say the review is missing — do not narrate a missing report as clean. Fix what it finds yourself, or record why a finding does not apply; HIGH findings you did not fix go into the approval summary.
 
 ## 3. Human approval gate
 
@@ -131,7 +131,7 @@ Before section 3, run your own self-review first (spec coverage: every FR has a 
 kf validate --change {feature_name}
 ```
 
-Before approval, `approval_required` is expected; `approval_changed` is expected when revising an old contract. Fix all other errors and assess warnings before presenting the contract. `kf approve` validates the artifacts without requiring an existing approval. Present a tight summary to the user:
+Before approval, `approval_required` is expected, also when revising a contract (every entry to planning resets the approval to pending); `approval_changed` means the contract was edited without returning to planning. Fix all other errors and assess warnings before presenting the contract. `kf approve` validates the artifacts without requiring an existing approval. Present a tight summary to the user:
 
 - what the feature does (2-3 lines)
 - implementation plan headlines (tasks, approach, risks), with the output of `kf tasks <feature> --graph` (critical path and max width) as a block
@@ -152,7 +152,7 @@ Ask once: **"approve?"** The reply carries the start: "approve" starts implement
 | approve | `kf approve {feature_name}` | approval recorded, item → implementation (worktree provisioned when enabled), `Next: load the kf:implement skill` |
 | approve, backlog | `kf approve {feature_name} --backlog` | approval recorded, item → backlog; it starts later with `kf stage {feature_name} implementation` on the user's word |
 
-A refused move (hook, worktree provisioning) leaves the item in planning with the approval not kept: fix what the message names and re-run the same command. A base behind its upstream does not refuse the move; report any `⚠ base` line in the `kf approve` output to the user. A deferred item keeps its approved contract in `backlog`.
+A refused move (hook, worktree provisioning) leaves the item in planning with the approval not kept: fix what the message names and re-run the same command. A base behind its upstream does not refuse the move (a fast-forward that fails does, with the approval not kept); report any `⚠` line in the `kf approve` output to the user. A deferred item keeps its approved contract in `backlog`.
 
 ---
 

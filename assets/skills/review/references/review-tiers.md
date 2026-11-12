@@ -29,15 +29,15 @@ The repository may add its own shared-surface signals (a CLI's help table, a pub
 
 | Condition | Tier | Reviewers |
 | --- | --- | --- |
-| `CRITICAL=1`, any size | **T3** | five dimensions in parallel, all on `opus` |
-| `ADDED > 600` | **T3** | as above |
-| `201 ≤ ADDED ≤ 600` | **T2** | five dimensions in parallel on `sonnet`; `contracts` on `opus` when `SHARED=1` |
-| `ADDED ≤ 200` and `SHARED=1` | **T1C** | one all-dimension `code-reviewer` on `sonnet` **plus one `contracts` reviewer** on `sonnet` — two dispatches, not five |
-| `ADDED ≤ 200` and `SHARED=0` | **T1** | one `code-reviewer` on `sonnet` covering every dimension |
+| `CRITICAL=1`, any size | **T3** | five dimensions in parallel, all on `fable` |
+| `ADDED > 600` | **T3** | five dimensions in parallel, all on `opus` |
+| `201 ≤ ADDED ≤ 600` | **T2** | five dimensions in parallel on `opus` |
+| `ADDED ≤ 200` and `SHARED=1` | **T1C** | one all-dimension `code-reviewer` on `opus` **plus one `contracts` reviewer** on `opus` — two dispatches, not five |
+| `ADDED ≤ 200` and `SHARED=0` | **T1** | one `code-reviewer` on `opus` covering every dimension |
 
 The five dimensions are `bugs`, `security`, `perf`, `contracts`, `intent`. Each T2/T3 reviewer gets the same pack and a one-line dimension; it may still report a finding outside its dimension when it sees one. Dispatch the set in **one message** so they run concurrently; collect each by name — a reviewer that goes quiet is an incomplete gate, not a clean one.
 
-**Name the model on every dispatch.** A dispatch without a model lands on the runtime's default, which may be the session's most expensive model or its cheapest; neither is a decision. Never below `sonnet` for a reviewer: the cheapest tier takes more turns and reviews worse.
+**Name the model on every dispatch.** A dispatch without a model lands on the runtime's default, which may be the session's most expensive model or its cheapest; neither is a decision. Never below `opus` for a reviewer: a review is the last check on the code, and a reviewer weaker than the writer misses what the writer missed. The aliases are Claude Code's; `${CLAUDE_PLUGIN_ROOT}/assets/shared/harness-tools.md` § Model tiers maps them for other runtimes, and for an account with no `fable`.
 
 ## Oversized diffs (`ADDED > 2000`)
 
@@ -45,7 +45,7 @@ Do not review as one unit, and do not ask the human — report the split.
 
 1. Group the changed files into bundles of at most ~600 code lines by directory or by plan task; write the manifest once: `git diff --name-only "$BASE" > <item>/reviews/<id>/manifest.txt`.
 2. Build one package per bundle with the script's pathspec form: `review-package "$BASE" HEAD <item>/reviews/<id>/bundle-<n>.diff --untracked -- <paths of bundle n>`.
-3. Dispatch **one all-dimension reviewer per bundle** on `sonnet` (`opus` when `CRITICAL=1`), each given its bundle package plus the manifest so it knows the other half of a contract may have changed elsewhere, and **one `contracts` reviewer** on `opus` given the manifest and every bundle's stat section.
+3. Dispatch **one all-dimension reviewer per bundle** on `opus` (`fable` when `CRITICAL=1`), each given its bundle package plus the manifest so it knows the other half of a contract may have changed elsewhere, and **one `contracts` reviewer** on `opus` given the manifest and every bundle's stat section.
 4. Merge every bundle's arrays into one, verify it with `scripts/verify-findings.mjs` (which then dedups by `title + file`), report per bundle and in total.
 
 More than eight bundles means the item should have been more than one work item: record `split recommended: <N> bundles` in the report's `## Reviewer` section and continue — the human reads it before the merge, not as a mid-review question.

@@ -4,6 +4,15 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- **Three review rule packs: `frontend`, `monorepo` and `mvvm`.** `kf rules` now ships ten packs. `frontend` is detected from a build config (`vite.config.*`, `next.config.*`, `nuxt.config.ts`, `svelte.config.js`, `angular.json`) and `monorepo` from a workspace file (`pnpm-workspace.yaml`, `turbo.json`, `nx.json`, `lerna.json`); `mvvm` is an architecture, installed by name with `kf rules --stack mvvm`.
+- **Model tiers for other runtimes.** `assets/shared/harness-tools.md` maps the Claude Code aliases the skills name (`sonnet`, `opus`, `fable`) to three tiers, so a Codex or Gemini session picks its own model for each seat, and says what to record when the top tier is unavailable.
+
+### Changed
+- **Review seats run on `opus`.** The `code-reviewer` agent, the per-task review, its re-reviews and every whole-branch tier moved from `sonnet` to `opus`; a `CRITICAL=1` whole-branch review and the `spec-reviewer` run on `fable`. A reviewer ends its reply with a `Model:` line, and the review report records that model.
+- **Review rules a reviewer can check.** `security.md` gains object-level authorization and the common injection, traversal, SSRF, redirect, deserialization and webhook rules; `performance.md` opens with an evidence-first section and drops rules no diff can prove; `general.md` gains a Tests section. The seven language packs each gain the rules they lacked (a Security section for `node`, `go` and `rust`), and rules that only a tool run can prove (`go test -race`, `cargo clippy`, `rubocop`, `composer audit`) now point at `harness.verify`. A project that already installed a pack keeps its copy until `kf rules --force`.
+- **Skills, briefs and templates agree with the CLI.** `/kf:review` captures the `Stage verify` line before its docs commit; a refused `kf stage` is read from its own message, not from `kf validate`; a bug's regression task line must contain `regression` to get a test-writer; a stand-in seat is ledgered as a `Note` line; the test-case template's `Test type` and the use-case diagram are gated placeholders; the testing and review report templates gain the rows the skills ask for. `kf init -i`, `kf ship` and other retired wording are gone from the skills.
+
 ## [0.19.0] - 2026-11-12
 
 ### Added

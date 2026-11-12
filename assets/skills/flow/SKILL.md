@@ -5,7 +5,7 @@ description: Drive a kanban feature or bug through brainstorm, planning approval
 
 # Kanban Flow — the spine
 
-Plugin root: `${CLAUDE_PLUGIN_ROOT}` — the reference files of this skill write paths with this placeholder; resolve it to this path.
+Plugin root: `${CLAUDE_PLUGIN_ROOT}` — this skill writes paths with this placeholder; resolve it to this path.
 
 **The user describes the idea; the agent decides the rest.** One command runs the whole lifecycle; each phase runs a dedicated skill; the `kf` CLI holds the state. **Every gate is kept at every size** — what scales with the request is the depth of the design and the fan-out of the agents, never the number of steps.
 
@@ -21,7 +21,7 @@ State is enforced by `kf`: artifact gates, approval fingerprints, execution ids,
 
 **Human boundary — the human's decisions and nothing else:** confirm the requirement (Phase 1), approve the execution contract (Phase 2 — the approval starts the item; a reply that defers parks it in backlog), merge the reviewed PR on GitHub, and — in a project that pins no `harness.verify.stage` — the waiver before review (`kf verify {feature} --stage --waive "<reason>"`), recorded only on the human's word. Everything between runs autonomously inside the approved scope. **The stop list — stop and report to the human only for:** an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree (merge, push to a shared branch, publish, a database write); a reopened task at its round cap, apart from the one minimal fix past the cap `kf:implement` makes; a plan too broken to act on, a scope change after approval being one; a review `REQUIREMENT_BUG`; a testing `BLOCKED`.
 
-**Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; `kf init -i` when the user should answer the setup questions). Detect stack and tooling by READING the repository — never assume.
+**Preflight:** if the project has no `.works/`, run `kf init --defaults` first (full bootstrap without prompts; when the user should answer the setup questions, they run plain `kf init` in their own terminal — a shell without a TTY always takes the defaults). Detect stack and tooling by READING the repository — never assume.
 
 ---
 

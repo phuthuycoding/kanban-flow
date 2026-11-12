@@ -1,6 +1,6 @@
 # Automation-writer brief — the dispatch for a work item's UI/E2E specs
 
-Use this template verbatim when dispatching the automation-writer, only under `Level: full`: from the task loop for a task whose test cases include `UI` or `E2E` types, after the developer's commit or before it against a `data-testid` contract the plan fixes. Only kf:implement dispatches it; the testing stage never does. Exact values live in the brief file, never in this prompt. When the `automation-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/automation-writer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim when dispatching the automation-writer, only under `Level: full`: from the task loop for a task whose test cases include `UI` or `E2E` types, after the developer's commit or before it against a `data-testid` contract the plan fixes. Only kf:implement dispatches it; the testing stage never does. Exact values live in the brief file, never in this prompt. When the `automation-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/automation-writer.md` pasted first and a `Note TASK-NNN: automation-writer stand-in general-purpose` line in the ledger.
 
 ```
 Agent:
@@ -43,7 +43,7 @@ Agent:
 **Placeholders**
 
 - `[MODEL]` — REQUIRED. See `references/task-loop.md` § Model selection.
-- `[BRIEF_FILE]` — `<item>/loop/task-NNN-brief.md`, carrying the task's UI/E2E TC blocks.
+- `[BRIEF_FILE]` — `<item>/loop/task-NNN-brief.md`, carrying the spec's Test Strategy (`Level`, `UI Tests`, `Tools`), the task's UI/E2E TC blocks and the `data-testid` contract when the plan fixes one.
 - `[REPORT_FILE]` — `<item>/loop/task-NNN-e2e-report.md`.
 - `[WORKTREE]`, `[BRANCH]`, `[DOMAIN_URL]`, `[FALLBACK_URL]` — the `Worktree:` and `Domain:` lines and the `127.0.0.1:<port>` fallback from `kf status --change <feature>`. When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>` (the JSON outputs still carry `domain`; do not use it then).
 - `[FILES]` — the task row's Files allowlist.

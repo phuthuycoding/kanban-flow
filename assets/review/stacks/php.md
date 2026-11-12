@@ -16,12 +16,16 @@
 - DB access via PDO prepared statements or ORM bindings — no string-concatenated SQL
 - Output escaped for context (`htmlspecialchars`, template autoescape) — no raw `echo` of user data
 - No `eval`, `unserialize` on untrusted input, or `include`/`require` of dynamic paths
+- No user input in `exec`, `shell_exec`, `system`, `passthru`, `proc_open` or backticks — `escapeshellarg` at the least, an argument array where the API has one
+- Hashes and tokens compared with `hash_equals`, never `==`; no loose `==` on values that decide access
+- Session id regenerated on login and privilege change (`session_regenerate_id(true)`)
+- No mass assignment from the whole request (`$request->all()`, an empty `$guarded`) — name the fields
 - Uploads validated (MIME, extension, size) and stored outside web root or under renamed files
 - CSRF tokens on state-changing requests; passwords via `password_hash`/`password_verify` only
 
 ## Dependencies & Config
-- `composer.json`/`composer.lock` committed together; `composer audit` clean for new deps
-- Deploy installs with `--no-dev` — no dev-only packages reachable in production
+- `composer.json`/`composer.lock` committed together (`composer audit` belongs in the project's verify commands)
+- A package the production code imports is under `require`, never `require-dev`
 - Secrets and config from environment — nothing sensitive committed in `.env` or config files
 
 ## Performance
