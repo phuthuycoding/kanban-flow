@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
+import { readProjectFileConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../../integrations/agents.js";
@@ -22,7 +22,7 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
     assertPathName(args.options.context, "context");
     // Seeding docs/{ctx}/ for a context kf new would refuse leaves a tree nothing can ever fill.
     // This runs before either branch, so --minimal and the bootstrap path are both covered.
-    const explicit = checkContext(args.options.context, readProjectConfig(target));
+    const explicit = checkContext(args.options.context, readProjectFileConfig(target));
     if (!explicit.ok) return { code: 1, stdout: contextRefusal(args.options.context, explicit), stderr: "unknown context" };
   }
 
@@ -33,7 +33,7 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
     return cmdBootstrap(args, target, !useDefaults);
   }
 
-  const cfg = readProjectConfig(target);
+  const cfg = readProjectFileConfig(target);
   const refusal = effectiveSkillsScope(cfg) === "global" ? globalLinkRefusal() : null;
   if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const ctx = typeof args.options.context === "string" ? args.options.context : effectiveDefaultContext(cfg);
@@ -119,7 +119,7 @@ async function cmdBootstrap(args: ParsedArgs, target: string, interactive: boole
   const explicitContext = typeof args.options.context === "string" ? args.options.context : undefined;
 
   // A declared global scope is refused before the user answers anything; an undeclared one may still be answered "project".
-  const early = readProjectConfig(target).skills?.scope === "global" ? globalLinkRefusal() : null;
+  const early = readProjectFileConfig(target).skills?.scope === "global" ? globalLinkRefusal() : null;
   if (early) return { code: 1, stdout: "", stderr: early };
 
   let answers: BootstrapAnswers;

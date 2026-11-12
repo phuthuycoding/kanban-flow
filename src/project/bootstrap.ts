@@ -13,7 +13,7 @@ import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
 import { STAGES } from "../workflow/schema.js";
 import { assertPathName } from "../workflow/features.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { readProjectConfig, effectiveSkillsScope } from "./config.js";
+import { readProjectFileConfig, effectiveSkillsScope } from "./config.js";
 import { runGit } from "../shared/git.js";
 
 export interface BootstrapAnswers {
@@ -169,7 +169,7 @@ export function hasWorkItems(root: string): boolean {
 }
 
 export function bootstrapDefaults(root: string, explicitContext?: string): BootstrapAnswers {
-  const cfg = readProjectConfig(root);
+  const cfg = readProjectFileConfig(root);
   const defaultContext = explicitContext || effectiveDefaultContext(cfg);
   // Declaring a list is a decision, and `--defaults` means nobody made one, so only an explicit
   // --context declares. Even then, not on a project that already exists: declaring one name there
@@ -391,7 +391,7 @@ async function copyDirInto(src: string, dest: string): Promise<void> {
 
 /** Write .kf/config.json for this project. */
 export function saveConfig(root: string, a: BootstrapAnswers): void {
-  const existing = readProjectConfig(root);
+  const existing = readProjectFileConfig(root);
   // Both halves of the rule live here, not at a caller: this is the one point every set of
   // answers passes through, so no producer — present or future — can write a contexts list that
   // readProjectConfig then refuses. Dedupe covers the repeat rule; assertPathName covers names.
