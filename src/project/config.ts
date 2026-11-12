@@ -8,6 +8,7 @@ import { normalizeRepository } from "./repository.js";
 import { STAGES, LEGACY_STAGE_NAMES, type Stage, type LegacyStageName } from "../workflow/schema.js";
 import { parseWorktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { writeFileAtomic } from "../shared/paths.js";
+import { readConfigLayers } from "./config-layers.js";
 
 export interface ProjectConfig {
   schema: string;
@@ -123,7 +124,7 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
   return p as GitHubProject;
 }
 
-function parseSkillsBlock(value: unknown, file: string): SkillsConfig | undefined {
+export function parseSkillsBlock(value: unknown, file: string): SkillsConfig | undefined {
   if (value === undefined) return undefined;
   const bad = () => new Error(`Invalid project config: ${file} — skills.scope must be "global" or "project"`);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
@@ -132,8 +133,16 @@ function parseSkillsBlock(value: unknown, file: string): SkillsConfig | undefine
   return s as SkillsConfig;
 }
 
-/** Read the project config; missing config uses defaults, invalid config is an error. */
+/**
+ * The effective config: global `~/.kf/config.json`, then the nearest `.kf/workspace.json`, then the project
+ * file, each later layer winning. Missing files contribute nothing; an invalid one is an error naming it.
+ */
 export function readProjectConfig(root: string): Partial<ProjectConfig> {
+  return readConfigLayers(root).effective;
+}
+
+/** The project's `.kf/config.json` alone — what writers of that file and its doctor checks must read. */
+export function readProjectFileConfig(root: string): Partial<ProjectConfig> {
   const f = configPath(root);
   if (!existsSync(f)) return {};
   return parseProjectConfig(readFileSync(f, "utf8"), f);
