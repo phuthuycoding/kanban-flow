@@ -1,6 +1,6 @@
 # Reviewer brief — the dispatch for `code-reviewer`
 
-Use this when dispatching the whole-branch review. The `code-reviewer` agent is registered for Claude Code by the kf plugin (`kf install` runs the plugin install); its body lives at `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` so every runtime can read it. The agent has **no write tool**: its reply is the report, and the orchestrator saves it.
+Use this when dispatching the whole-branch review. The `code-reviewer` agent is registered for Claude Code by the kf plugin (`kf install` runs the plugin install); its body lives at `${CLAUDE_PLUGIN_ROOT}/assets/agents/code-reviewer.md` so every runtime can read it. The agent has **no write tool**: its reply is the report, and the orchestrator saves it.
 
 ```
 Agent:
@@ -48,7 +48,7 @@ Agent:
 
 ## Stand-ins
 
-When `code-reviewer` is not registered but the runtime has a subagent tool, dispatch `subagent_type: general-purpose` with the same prompt, **prefixed by the full body of `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md`** and the sentence "You must not write, edit or run anything; you have been given tools you may not use." A stand-in keeps every tool, so its read-only limit is a request: record `stand-in: general-purpose` for that seat in the report's `## Reviewer` section. With no subagent tool at all, the review cannot be completed by this session (see the skill, step 5).
+When `code-reviewer` is not registered but the runtime has a subagent tool, dispatch `subagent_type: general-purpose` with the same prompt, **prefixed by the full body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/code-reviewer.md`** and the sentence "You must not write, edit or run anything; you have been given tools you may not use." A stand-in keeps every tool, so its read-only limit is a request: record `stand-in: general-purpose` for that seat in the report's `## Reviewer` section. With no subagent tool at all, the review cannot be completed by this session (see the skill, step 5).
 
 ## The pack
 

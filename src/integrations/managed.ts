@@ -1,4 +1,4 @@
-/** Skills the package ships, by their bare name inside the kf plugin (`skills/<name>`). */
+/** Skills the package ships, by their bare name inside the kf plugin (`assets/skills/<name>`). */
 export const MANAGED_SKILLS = ["flow", "brainstorm", "plan", "implement", "test", "review", "archive", "bug", "spike", "travel", "docs"];
 
 /** Subagent definitions the phase skills dispatch by name; installed only for runtimes with an agent registry. */

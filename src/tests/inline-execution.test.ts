@@ -11,9 +11,9 @@ import { LEDGER_SHAPES, parseLedger } from "../workflow/loop-stats.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const PLAN = () => read("skills", "plan", "SKILL.md");
-const IMPLEMENT = () => read("skills", "implement", "SKILL.md");
-const TASK_LOOP = () => read("skills", "implement", "references", "task-loop.md");
+const PLAN = () => read("assets", "skills", "plan", "SKILL.md");
+const IMPLEMENT = () => read("assets", "skills", "implement", "SKILL.md");
+const TASK_LOOP = () => read("assets", "skills", "implement", "references", "task-loop.md");
 /** Both files that carry the implement-side rules; each rule may sit in either. */
 const IMPLEMENT_SIDE = () => `${IMPLEMENT()}\n${TASK_LOOP()}`;
 

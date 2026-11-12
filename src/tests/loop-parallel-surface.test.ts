@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = () => read("skills", "implement", "SKILL.md");
-const reference = (name: string) => read("skills", "implement", "references", name);
-const developerAgent = () => read("agents", "developer.md");
+const implement = () => read("assets", "skills", "implement", "SKILL.md");
+const reference = (name: string) => read("assets", "skills", "implement", "references", name);
+const developerAgent = () => read("assets", "agents", "developer.md");
 
 /** The text between the first `from` and the next `to` after it. */
 function slice(text: string, from: string, to: string): string {
@@ -72,7 +72,7 @@ describe("the parallel task loop window", () => {
         else if (/\.(md|html|json)$/.test(entry.name)) files.push(full);
       }
     };
-    walk(join(PKG_ROOT, "skills"));
+    walk(join(PKG_ROOT, "assets", "skills"));
     walk(join(PKG_ROOT, "docs", "workflow"));
     files.push(join(PKG_ROOT, "README.md"), join(PKG_ROOT, ".github", "pages", "index.html"));
     expect(files.length).toBeGreaterThan(10);
@@ -444,7 +444,7 @@ describe("a commit that was made but whose sha could not be read, and the full-s
 describe("the commit script's path is filled at dispatch, and a commit that was made is routed", () => {
   const OLD_INVOCATION = "node <skills dir>/";
   const PLACEHOLDER_ENTRY =
-    "- `[COMMIT_SCRIPT]` — the absolute path of `${CLAUDE_PLUGIN_ROOT}/skills/implement/scripts/commit-task.mjs`, filled at dispatch.";
+    "- `[COMMIT_SCRIPT]` — the absolute path of `${CLAUDE_PLUGIN_ROOT}/assets/skills/implement/scripts/commit-task.mjs`, filled at dispatch.";
   const BLOCKED_ROUTE =
     "A BLOCKED that quotes `commit made` names a commit that exists: add its sha to the task's commit list and continue as for DONE, never a re-commit.";
   const NO_COMMIT_EXCEPTION = "no commit unless the output says `commit made`";

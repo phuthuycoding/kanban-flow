@@ -18,7 +18,7 @@ State lives in two files under `.kf/travel/`, which is gitignored: `kf init` add
 | `.kf/travel/progress.md` | the ledger: one `## YYYY-MM-DD` section per day | [references/ledger-format.md](references/ledger-format.md) |
 | `.kf/travel/estimates.md` | one measured row per `done` line | [references/estimation.md](references/estimation.md) |
 
-The helper is `node ${CLAUDE_PLUGIN_ROOT}/skills/travel/scripts/estimates` (`size`, `measure`, `stats`, `overlap`); it reads only its arguments and `estimates.md`. Below, `estimates` means that command.
+The helper is `node ${CLAUDE_PLUGIN_ROOT}/assets/skills/travel/scripts/estimates` (`size`, `measure`, `stats`, `overlap`); it reads only its arguments and `estimates.md`. Below, `estimates` means that command.
 
 ---
 
@@ -133,7 +133,7 @@ Only one travel session runs per day, and the `session:` line under the day's he
 **On `done`:** append the row ([references/estimation.md](references/estimation.md) says where each value comes from):
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/skills/travel/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <est0> --estmin <n> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
+node ${CLAUDE_PLUGIN_ROOT}/assets/skills/travel/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <est0> --estmin <n> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
 ```
 
 `--est` is the line's `est0`, not today's re-size, so est and actual both cover the whole item.

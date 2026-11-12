@@ -39,7 +39,7 @@ export function checkOrphanedHooks(root: string): DoctorFinding[] {
     });
 }
 
-/** Pack file names shipped in kanban-flow/hooks/ — the lib plus one hook per stage. */
+/** Pack file names shipped in assets/hooks/ — the lib plus one hook per stage. */
 const GITHUB_HOOK_PACK = ["lib-github.sh", ...STAGES.map((s) => `${s}.sh`)];
 
 /** A shell line that sources the pack's lib; a comment that merely names it does not count. */

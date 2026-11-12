@@ -53,11 +53,11 @@ printf '%s\n' "$ADDED_LINES" | grep -nE '(^|[^A-Za-z_])debugger([^A-Za-z_]|$)'
 
 A failing build, lint or suite, or a conflict marker, **short-circuits**: write the report with those findings, `status: FAIL`, and skip steps 2b–9 — no model budget on a tree that does not build.
 
-**Rules.** Resolve rule files per filename in project → user → package order: `{project_root}/.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, `${CLAUDE_PLUGIN_ROOT}/kanban-flow/review/rules/*.md` beside the installed CLI's package.json. Include general, security and performance plus the project's stack rule when installed (`kf rules` installs the stack packs; they are not auto-loaded from `${CLAUDE_PLUGIN_ROOT}/kanban-flow/review/stacks/`). If no rule source is available, the report says so instead of silently skipping. The rules go into the pack as paths; the reviewer reads them.
+**Rules.** Resolve rule files per filename in project → user → package order: `{project_root}/.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, `${CLAUDE_PLUGIN_ROOT}/assets/review/rules/*.md` beside the installed CLI's package.json. Include general, security and performance plus the project's stack rule when installed (`kf rules` installs the stack packs; they are not auto-loaded from `${CLAUDE_PLUGIN_ROOT}/assets/review/stacks/`). If no rule source is available, the report says so instead of silently skipping. The rules go into the pack as paths; the reviewer reads them.
 
 ## 2b. Living docs — after the mechanical checks pass, before any reviewer
 
-The docs commit goes into the reviewed diff, so the reviewers see it and the board's fingerprint covers what was reviewed. Read `${CLAUDE_PLUGIN_ROOT}/skills/archive/reconcile.md` and follow it in the item worktree — it branches on `kind`. Edit the living docs under `docs/specs/<context>/` that the plan's `## Documentation Impact` names (a bug: the one its report names), with exactly one new `## History` line per doc edited, and consolidate each `consolidates:` legacy feature (its files deleted, its token named in a History line). The legacy snapshots are never bannered or rewritten. All of it is one commit on the item branch before any reviewer, `docs({context}): update living docs for {feature_name}`; nothing to change → no commit. An open question on a doc: ask the human (reconcile.md, section 2).
+The docs commit goes into the reviewed diff, so the reviewers see it and the board's fingerprint covers what was reviewed. Read `${CLAUDE_PLUGIN_ROOT}/assets/skills/archive/reconcile.md` and follow it in the item worktree — it branches on `kind`. Edit the living docs under `docs/specs/<context>/` that the plan's `## Documentation Impact` names (a bug: the one its report names), with exactly one new `## History` line per doc edited, and consolidate each `consolidates:` legacy feature (its files deleted, its token named in a History line). The legacy snapshots are never bannered or rewritten. All of it is one commit on the item branch before any reviewer, `docs({context}): update living docs for {feature_name}`; nothing to change → no commit. An open question on a doc: ask the human (reconcile.md, section 2).
 
 The result goes into the review report's frontmatter at step 10: `docs: updated` when the item branch changes a file under `docs/specs/`, else `docs: none` with a non-blank `docs_reason`. For an item approved with living docs, `kf validate` refuses a PASS without `docs:` (`docs_key_missing`), `docs: none` without `docs_reason` (`docs_reason_missing`), `docs: updated` with no committed change under `docs/specs/` since the merge-base (`docs_updated_no_change`), a capability file a bug adds (`docs_bug_new_spec`) and a planned consolidation with a legacy file left (`docs_consolidation_incomplete`). Step 10 and a resume read the docs commit from git, never memory.
 
@@ -70,7 +70,7 @@ Record `fp` (step 7a) at the end of step 2. When the docs commit changes it, the
 Compute `ADDED` (code lines only — lockfiles, snapshots and build output excluded), `SHARED` and `CRITICAL` as `references/review-tiers.md` shows, then:
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/select-tier "$ADDED" "$SHARED" "$CRITICAL"   # line 1 = T1|T1C|T2|T3, line 2 = reason
+bash ${CLAUDE_PLUGIN_ROOT}/assets/skills/review/scripts/select-tier "$ADDED" "$SHARED" "$CRITICAL"   # line 1 = T1|T1C|T2|T3, line 2 = reason
 ```
 
 Print the tier, the reason, the excluded line count and why `CRITICAL` is 0 or 1 in the report. Over 2000 lines: bundle per `references/review-tiers.md` before dispatching — a report note, never a question to the human.
@@ -78,7 +78,7 @@ Print the tier, the reason, the excluded line count and why `CRITICAL` is 0 or 1
 ## 4. Write the review pack
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/review-package "$BASE" HEAD <item>/reviews/<id>/review-<base7>..<head7>.diff --untracked
+bash ${CLAUDE_PLUGIN_ROOT}/assets/skills/review/scripts/review-package "$BASE" HEAD <item>/reviews/<id>/review-<base7>..<head7>.diff --untracked
 ```
 
 Then write `<item>/reviews/<id>/pack.md` with the six blocks `references/reviewer-brief.md` describes — Intent (requirement, plan, UC/TC paths; for a bug the report and its sibling entry points), Diff (the package path), Verified (step 2's real commands and output, the test files that ran, **the changed behaviour no test touches**, and the `Stage verify` line of `kf status --change {feature_name}` verbatim — the stage record or the waiver the item entered review on), Rules (paths), Deferred (verbatim `minor (deferred)` and `parked` lines from `<item>/loop/progress.md`, or "no ledger"), Baseline. Paths, not pasted artifacts.
@@ -96,7 +96,7 @@ Follow `references/reviewer-brief.md` exactly: the doctrine path to read first, 
 
 Collect each reply **by name**; a reviewer that finishes without one is an incomplete gate — ask it for the report, and if none comes, the review is incomplete, not clean. Never review the diff yourself in parallel "to be safe"; never pre-judge a finding in the brief.
 
-**Stand-ins.** When the runtime has subagents but no `code-reviewer` registered (an upgrade that relinked the skills before `kf install`, or a non-Claude runtime), dispatch a general-purpose subagent whose brief pastes the agent body from `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` verbatim and states that it must not write, edit or run anything; record `stand-in: general-purpose` for that reviewer in the report's `## Reviewer` section, because a stand-in's read-only limit is a request, not a guarantee. **When the runtime has no subagent tool at all, this session cannot complete the review**: a session does not grade its own work. Stop and tell the human that the review cannot complete in this session; a report written without an independent reviewer is never `PASS`.
+**Stand-ins.** When the runtime has subagents but no `code-reviewer` registered (an upgrade that relinked the skills before `kf install`, or a non-Claude runtime), dispatch a general-purpose subagent whose brief pastes the agent body from `${CLAUDE_PLUGIN_ROOT}/assets/agents/code-reviewer.md` verbatim and states that it must not write, edit or run anything; record `stand-in: general-purpose` for that reviewer in the report's `## Reviewer` section, because a stand-in's read-only limit is a request, not a guarantee. **When the runtime has no subagent tool at all, this session cannot complete the review**: a session does not grade its own work. Stop and tell the human that the review cannot complete in this session; a report written without an independent reviewer is never `PASS`.
 
 For `kind: bug`, the brief adds: review against the bug report and existing feature behaviour; check reproduction evidence, regression tests and fix scope; list the sibling entry points and whether the fix covers each; state a claim you tried to break. Do not demand feature planning artifacts for a bug.
 
@@ -104,7 +104,7 @@ For `kind: bug`, the brief adds: review against the bug report and existing feat
 
 ```bash
 jq -s add <item>/reviews/<id>/reviewer-*.json > <item>/reviews/<id>/findings.json   # every reviewer's array merged into ONE array
-node ${CLAUDE_PLUGIN_ROOT}/skills/review/scripts/verify-findings.mjs <worktree> <item>/reviews/<id>/findings.json > <item>/reviews/<id>/verified.json
+node ${CLAUDE_PLUGIN_ROOT}/assets/skills/review/scripts/verify-findings.mjs <worktree> <item>/reviews/<id>/findings.json > <item>/reviews/<id>/verified.json
 ```
 
 The script verifies the evidence first, then dedups the kept findings by `title + file`, keeping the highest severity (`duplicates` in its output). A finding whose `evidence` quote is not in the cited file is **refuted** and is never deduped: list every refuted finding under "refuted at verification" in the report and do not count it. Carry every `Declined:` line and every `Deferred:` verdict into the report.

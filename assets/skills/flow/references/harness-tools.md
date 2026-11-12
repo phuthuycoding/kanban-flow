@@ -10,14 +10,14 @@ Two rules for skill authors:
 | Action | Claude Code | Codex | Gemini CLI / others |
 | --- | --- | --- | --- |
 | Dispatch a subagent (fresh context, returns a report) | `Agent` (`subagent_type`, `model`, `prompt`) | `spawn_agent` with the same-named agent, or a plain subagent with the brief pasted | a subagent tool when the CLI has one; otherwise do the step yourself in the same order and say so — **except the review seat**: a session never grades its own work (`kf:review` step 5, `kf:implement` § 3.5) |
-| Dispatch a kanban agent by name (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher`) | `Agent` with `subagent_type: kf:<name>` — definitions registered by the kf plugin (`kf install` runs the plugin install); the bodies live at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md` | the body at `${CLAUDE_PLUGIN_ROOT}/agents/<name>.md` pasted as the subagent prompt; copies for runtimes without the plugin live at `<skills dir>/kf-flow/agents/<name>.md` | same |
+| Dispatch a kanban agent by name (`code-reviewer`, `scout`, `spec-reviewer`, `developer`, `test-writer`, `automation-writer`, `researcher`) | `Agent` with `subagent_type: kf:<name>` — definitions registered by the kf plugin (`kf install` runs the plugin install); the bodies live at `${CLAUDE_PLUGIN_ROOT}/assets/agents/<name>.md` | the body at `${CLAUDE_PLUGIN_ROOT}/assets/agents/<name>.md` pasted as the subagent prompt; copies for runtimes without the plugin live at `<skills dir>/kf-flow/agents/<name>.md` | same |
 | Invoke a kanban phase skill | `Skill` (`kf:<phase>`) | `$kf-<phase>` | read `<skills dir>/kf-<phase>/SKILL.md` |
 | Ledger of dispatched work | the file the skill names (`<item>/loop/progress.md`, `<item>/reviews/<id>/pack.md`) — not a todo tool: each todo call is an extra turn and does not survive the session | same file | same file |
 | Ask the human to choose between options | `AskUserQuestion` | ask in plain text | ask in plain text |
 | Read a file / search text / find files | `Read` / `Grep` / `Glob` | `cat` / `rg` / `find` | same |
 | Edit or create a file | `Edit` / `Write` | `apply_patch` | the CLI's edit tool |
 | Run a shell command | `Bash` | shell | shell |
-| Run a bundled skill script | `Bash: bash ${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/<name>` or `node …` — installs do not set the exec bit | `bash <skill dir>/scripts/<name>` or `node …` | same |
+| Run a bundled skill script | `Bash: bash ${CLAUDE_PLUGIN_ROOT}/assets/skills/<skill>/scripts/<name>` or `node …` — installs do not set the exec bit | `bash <skill dir>/scripts/<name>` or `node …` | same |
 | Wait on a background process (the CI watcher) | `Bash` with `run_in_background` | poll in the foreground | poll in the foreground |
 | Drive the pipeline's state | `Bash: kf …` — the CLI is the only writer of `.works/` state | same | same |
 

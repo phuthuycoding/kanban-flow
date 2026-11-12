@@ -5,5 +5,15 @@
   "author": {
     "name": "phuthuycoding"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "skills": "./assets/skills/",
+  "agents": [
+    "./assets/agents/automation-writer.md",
+    "./assets/agents/code-reviewer.md",
+    "./assets/agents/developer.md",
+    "./assets/agents/researcher.md",
+    "./assets/agents/scout.md",
+    "./assets/agents/spec-reviewer.md",
+    "./assets/agents/test-writer.md"
+  ]
 }

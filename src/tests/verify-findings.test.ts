@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const script = resolve(here, "../../skills/review/scripts/verify-findings.mjs");
+const script = resolve(here, "../../assets/skills/review/scripts/verify-findings.mjs");
 
 let root: string;
 

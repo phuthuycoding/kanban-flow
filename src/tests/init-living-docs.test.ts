@@ -123,7 +123,7 @@ describe("the docs skill", () => {
   });
 
   describe("SKILL.md", () => {
-    const text = () => readFileSync(join(ROOT, "skills", "docs", "SKILL.md"), "utf8");
+    const text = () => readFileSync(join(ROOT, "assets", "skills", "docs", "SKILL.md"), "utf8");
 
     it("has frontmatter naming the skill", () => {
       expect(text()).toMatch(/^---\n[\s\S]*?name:\s*docs[\s\S]*?\n---/);

@@ -13,7 +13,7 @@ The output of a spike is an answer; anything built along the way is throwaway. P
 
 1. Open no work item: no `kf new`, no `.works/` file, no branch. The spike leaves nothing in the repository.
 2. State in two sentences what you will probe, then start. Do not wait for a nod; read-only probing never waits for one.
-3. Dispatch `Agent(kf:researcher)` for each question that research can answer (docs, APIs, versions, prior art, how an existing piece of code works), using the template in `${CLAUDE_PLUGIN_ROOT}/skills/flow/references/researcher-brief.md`. Probe the rest yourself, as cheaply as correctness allows.
+3. Dispatch `Agent(kf:researcher)` for each question that research can answer (docs, APIs, versions, prior art, how an existing piece of code works), using the template in `${CLAUDE_PLUGIN_ROOT}/assets/skills/flow/references/researcher-brief.md`. Probe the rest yourself, as cheaply as correctness allows.
 4. Write throwaway code only in a scratch dir under `$CLAUDE_JOB_DIR/tmp` when that variable is set, otherwise under the OS temp dir (`mktemp -d`). Never write it into the repository.
 5. Wait for the user's explicit "go" before any irreversible step: a delete, a publish, a setting flipped on a shared system, a write to a remote. Name the step and its effect when you ask.
 6. Report a recommendation, the sources it rests on, and the exact commands you ran, so the user can repeat them.

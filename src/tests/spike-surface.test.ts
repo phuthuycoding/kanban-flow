@@ -13,8 +13,8 @@ const AGENTS = ["code-reviewer", "scout", "spec-reviewer", "developer", "test-wr
 const LEGACY = ["kanban-flow", "kanban-brainstorm", "kanban-plan", "kanban-implement", "kanban-test", "kanban-review", "kanban-archive", "kanban-bug"];
 
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
-const flow = () => read("skills/flow/SKILL.md");
-const spike = () => read("skills/spike/SKILL.md");
+const flow = () => read("assets/skills/flow/SKILL.md");
+const spike = () => read("assets/skills/spike/SKILL.md");
 
 function walk(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -54,8 +54,8 @@ describe("the managed name lists", () => {
   });
 
   it("has a skill dir and an agent file in the tree for every managed name", () => {
-    for (const name of SKILLS) expect(existsSync(join(ROOT, "skills", name, "SKILL.md")), `skills/${name}/SKILL.md`).toBe(true);
-    for (const name of AGENTS) expect(existsSync(join(ROOT, "agents", `${name}.md`)), `agents/${name}.md`).toBe(true);
+    for (const name of SKILLS) expect(existsSync(join(ROOT, "assets", "skills", name, "SKILL.md")), `skills/${name}/SKILL.md`).toBe(true);
+    for (const name of AGENTS) expect(existsSync(join(ROOT, "assets", "agents", `${name}.md`)), `agents/${name}.md`).toBe(true);
   });
 
   it("names the spike skill spike in its frontmatter", () => {
@@ -156,7 +156,7 @@ describe("the flow skill wiring", () => {
 });
 
 describe("the harness tools reference", () => {
-  const tools = () => read("skills/flow/references/harness-tools.md");
+  const tools = () => read("assets/skills/flow/references/harness-tools.md");
 
   it("lists the seven agents in the dispatch-by-name row", () => {
     const r = row(tools(), /Dispatch a kanban agent by name/);
@@ -171,7 +171,7 @@ describe("the harness tools reference", () => {
 });
 
 describe("the kf: prefix on every dispatch and hand-off", () => {
-  const files = () => [...walk(join(ROOT, "skills")), ...walk(join(ROOT, "agents"))];
+  const files = () => [...walk(join(ROOT, "assets", "skills")), ...walk(join(ROOT, "assets", "agents"))];
   const names = [...SKILLS, ...AGENTS].join("|");
 
   it("scans the spike skill", () => {

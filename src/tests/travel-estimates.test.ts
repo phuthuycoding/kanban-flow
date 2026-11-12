@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
 
-const SCRIPT = join(PKG_ROOT, "skills", "travel", "scripts", "estimates");
+const SCRIPT = join(PKG_ROOT, "assets", "skills", "travel", "scripts", "estimates");
 const HEADER = "date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin";
 const OLD_HEADER = "date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap";
 

@@ -32,12 +32,12 @@ export function isLinkedWorktree(dir: string): boolean {
   if (gitdir === undefined) return false;
   return statSync(join(resolve(dir, gitdir), "commondir"), { throwIfNoEntry: false })?.isFile() ?? false;
 }
-export const PKG_TEMPLATES_DIR = join(PKG_ROOT, "kanban-flow", "templates");
-export const PKG_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "rules");
-export const PKG_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "hooks");
+export const PKG_TEMPLATES_DIR = join(PKG_ROOT, "assets", "templates");
+export const PKG_RULES_DIR = join(PKG_ROOT, "assets", "review", "rules");
+export const PKG_HOOKS_DIR = join(PKG_ROOT, "assets", "hooks");
 /** The opt-in GitHub sync pack — a seed source only, deliberately not on the resolveHook path. */
-export const PKG_GITHUB_HOOKS_DIR = join(PKG_ROOT, "kanban-flow", "github-hooks");
-export const PKG_STACK_RULES_DIR = join(PKG_ROOT, "kanban-flow", "review", "stacks");
+export const PKG_GITHUB_HOOKS_DIR = join(PKG_ROOT, "assets", "github-hooks");
+export const PKG_STACK_RULES_DIR = join(PKG_ROOT, "assets", "review", "stacks");
 
 export interface TemplateSource {
   name: string;

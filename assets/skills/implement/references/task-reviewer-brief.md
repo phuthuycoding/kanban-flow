@@ -1,6 +1,6 @@
 # Task reviewer brief — the dispatch for one task's review
 
-Use this template verbatim after the developer reports DONE (and, for a UI task under `Level: full`, has committed the automation-writer's specs). The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim after the developer reports DONE (and, for a UI task under `Level: full`, has committed the automation-writer's specs). The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:
@@ -8,7 +8,7 @@ Agent:
   model: [MODEL]                          # REQUIRED — sonnet; opus for a high-risk or subtle diff
   description: "Review TASK-NNN (spec + quality)"
   prompt: |
-    Read first: [DOCTRINE_FILE] (${CLAUDE_PLUGIN_ROOT}/skills/review/references/reviewer-doctrine.md). Then the rule
+    Read first: [DOCTRINE_FILE] (${CLAUDE_PLUGIN_ROOT}/assets/skills/review/references/reviewer-doctrine.md). Then the rule
     files that bind this repository, in precedence order: [RULE_FILES]. A violated rule is a
     finding citing the rule's file:line.
 
@@ -71,7 +71,7 @@ Agent:
     ✅ compliant | ❌ issues found (file:line) · ⚠️ cannot verify from diff: <items>
     ### Strengths
     ### Findings
-    <JSON array per ${CLAUDE_PLUGIN_ROOT}/skills/review/references/finding-schema.md — evidence is a verbatim line>
+    <JSON array per ${CLAUDE_PLUGIN_ROOT}/assets/skills/review/references/finding-schema.md — evidence is a verbatim line>
     ### Assessment
     Task quality: Approved | Needs fixes — <one or two sentences>
     Every line is a verdict, a finding with file:line, or a check you ran — no preamble.
@@ -80,8 +80,8 @@ Agent:
 **Placeholders**
 
 - `[MODEL]` — REQUIRED. `sonnet` by default; `opus` for a subtle or high-risk diff (concurrency, auth, data migration).
-- `[DOCTRINE_FILE]` — absolute path of `${CLAUDE_PLUGIN_ROOT}/skills/review/references/reviewer-doctrine.md` (the reviewer has Read; do not paste it on every dispatch).
-- `[RULE_FILES]` — the rule files resolved once by the controller, project → user → package (`.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, the package's `${CLAUDE_PLUGIN_ROOT}/kanban-flow/review/rules/*.md`) plus `AGENTS.md`/`CLAUDE.md` when present.
+- `[DOCTRINE_FILE]` — absolute path of `${CLAUDE_PLUGIN_ROOT}/assets/skills/review/references/reviewer-doctrine.md` (the reviewer has Read; do not paste it on every dispatch).
+- `[RULE_FILES]` — the rule files resolved once by the controller, project → user → package (`.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, the package's `${CLAUDE_PLUGIN_ROOT}/assets/review/rules/*.md`) plus `AGENTS.md`/`CLAUDE.md` when present.
 - `[BRIEF_FILE]`, `[REPORT_FILE]` — the brief the developer worked from and the `<item>/loop/task-NNN-report.md` it wrote.
 - `[GLOBAL_CONSTRAINTS]` — copied verbatim from the plan's `## Global Constraints` (exact values, formats, relationships) — not process rules, which the template already carries.
 - `[BASE_SHA]`, `[HEAD_SHA]`, `[DIFF_FILE]` — the recorded `BASE`, the task's last commit, and the package `review-package --commits <sha>[,<sha>…]` wrote from the task's commit list.

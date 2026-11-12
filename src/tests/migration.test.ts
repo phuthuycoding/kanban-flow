@@ -97,7 +97,7 @@ async function seedLegacy(scope: SkillScope, travel: "owned" | "foreign" = "owne
 
   const travelPath = join(skills, "travel");
   if (travel === "owned") {
-    await symlink(join(PKG_ROOT, "skills", "travel"), travelPath, "dir");
+    await symlink(join(PKG_ROOT, "assets", "skills", "travel"), travelPath, "dir");
     owned.push(travelPath);
   } else {
     await mkdir(travelPath);
@@ -106,7 +106,7 @@ async function seedLegacy(scope: SkillScope, travel: "owned" | "foreign" = "owne
 
   for (const name of MANAGED_AGENTS) {
     const target = join(agents, `${name}.md`);
-    const packaged = join(PKG_ROOT, "agents", `${name}.md`);
+    const packaged = join(PKG_ROOT, "assets", "agents", `${name}.md`);
     if (scope === "global") await symlink(packaged, target);
     else await copyFile(packaged, target);
     owned.push(target);

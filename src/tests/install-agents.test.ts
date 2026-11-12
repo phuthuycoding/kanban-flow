@@ -23,7 +23,7 @@ afterEach(async () => {
 
 describe("the packaged agent definitions", () => {
   it("live at the plugin root and declare the same name in their frontmatter", async () => {
-    expect(PKG_AGENTS_DIR).toBe(join(PKG_ROOT, "agents"));
+    expect(PKG_AGENTS_DIR).toBe(join(PKG_ROOT, "assets", "agents"));
     for (const name of MANAGED_AGENTS) {
       const file = join(PKG_AGENTS_DIR, `${name}.md`);
       expect(existsSync(file), file).toBe(true);
@@ -35,8 +35,7 @@ describe("the packaged agent definitions", () => {
 
   it("ship in the tarball beside the skills", async () => {
     const pkg = JSON.parse(await readFile(join(PKG_ROOT, "package.json"), "utf8"));
-    expect(pkg.files).toContain("skills");
-    expect(pkg.files).toContain("agents");
+    expect(pkg.files).toContain("assets");
   });
 });
 

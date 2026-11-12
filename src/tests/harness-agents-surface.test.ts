@@ -6,10 +6,10 @@ import { PKG_ROOT } from "../shared/paths.js";
 import { MANAGED_AGENTS } from "../integrations/managed.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = () => read("skills", "implement", "SKILL.md");
-const reference = (name: string) => read("skills", "implement", "references", name);
-const testing = () => read("skills", "test", "SKILL.md");
-const agentBody = (name: string) => read("agents", `${name}.md`);
+const implement = () => read("assets", "skills", "implement", "SKILL.md");
+const reference = (name: string) => read("assets", "skills", "implement", "references", name);
+const testing = () => read("assets", "skills", "test", "SKILL.md");
+const agentBody = (name: string) => read("assets", "agents", `${name}.md`);
 
 /** The text between a heading that starts with `from` and the next heading that starts with `to`. */
 function slice(text: string, from: string, to: string): string {
@@ -238,8 +238,8 @@ describe("the documentation surfaces", () => {
     ["docs", "workflow", "skills.md"],
     ["docs", "workflow", "harness.md"],
     ["docs", "workflow", "lifecycle.md"],
-    ["skills", "flow", "SKILL.md"],
-    ["skills", "flow", "references", "harness-tools.md"],
+    ["assets", "skills", "flow", "SKILL.md"],
+    ["assets", "skills", "flow", "references", "harness-tools.md"],
   ];
   const STALE_COUNT = /\b(3|three) (kanban )?(agents|agent definitions|agent bodies|subagents)\b/i;
 
@@ -261,7 +261,7 @@ describe("the documentation surfaces", () => {
       ["README.md"],
       ["docs", "workflow", "skills.md"],
       ["docs", "workflow", "lifecycle.md"],
-      ["skills", "flow", "SKILL.md"],
+      ["assets", "skills", "flow", "SKILL.md"],
     ]) {
       const text = doc(...surface);
       expect(text, surface.join("/")).not.toMatch(/fresh implementer per task/i);
@@ -272,7 +272,7 @@ describe("the documentation surfaces", () => {
 });
 
 describe("the skills tree after the runner and drive removal", () => {
-  const skillsRoot = join(PKG_ROOT, "skills");
+  const skillsRoot = join(PKG_ROOT, "assets", "skills");
   function files(dir: string): string[] {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
       const full = join(dir, entry.name);
@@ -303,14 +303,14 @@ describe("the skills tree after the runner and drive removal", () => {
   });
 
   it("describes only in-session agents in the multi-agent harness section", () => {
-    const section = slice(read("skills", "flow", "SKILL.md"), "\n## Multi-agent harness", "\n## ");
+    const section = slice(read("assets", "skills", "flow", "SKILL.md"), "\n## Multi-agent harness", "\n## ");
     expect(section).not.toMatch(/runner|headless|harness\.(stages|roles|runners)/i);
     expect(section).toContain("Agent(");
-    expect(read("skills", "flow", "references", "harness-tools.md")).not.toMatch(/runner/i);
+    expect(read("assets", "skills", "flow", "references", "harness-tools.md")).not.toMatch(/runner/i);
   });
 
   it("says a review without a subagent tool cannot complete and the human is told, without kf run", () => {
-    const review = read("skills", "review", "SKILL.md");
+    const review = read("assets", "skills", "review", "SKILL.md");
     const fallback = review.split("\n").find((line) => line.includes("no subagent tool at all"));
     expect(fallback, "fallback paragraph").toBeDefined();
     expect(fallback).toMatch(/cannot complete/);

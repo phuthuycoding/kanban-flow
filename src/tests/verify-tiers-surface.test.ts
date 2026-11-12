@@ -7,7 +7,7 @@ import { commandHelp } from "../cli/args.js";
 import { relatedArgv } from "../workflow/verify.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const skill = (name: string) => read("skills", name, "SKILL.md");
+const skill = (name: string) => read("assets", "skills", name, "SKILL.md");
 const STATUS_RULE = "only when `kf status` does not show PASS at HEAD";
 
 describe("this repository's verify tiers", () => {
@@ -42,13 +42,13 @@ describe("the agent contract names the verify tiers", () => {
   });
 
   it("the task loop reference names the wave done line and the wave reopen source", () => {
-    const text = read("skills", "implement", "references", "task-loop.md");
+    const text = read("assets", "skills", "implement", "references", "task-loop.md");
     expect(text).toContain("wave <w>: verify done exit=<n>");
     expect(text).toContain("reopened — wave <w>");
   });
 
   it("the task loop reference names who writes the wave lines and why waves exist", () => {
-    const text = read("skills", "implement", "references", "task-loop.md");
+    const text = read("assets", "skills", "implement", "references", "task-loop.md");
     expect(text).toContain("wave-verify-started");
     expect(text).toContain("Why waves");
   });

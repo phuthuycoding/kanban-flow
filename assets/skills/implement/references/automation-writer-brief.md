@@ -1,6 +1,6 @@
 # Automation-writer brief — the dispatch for a work item's UI/E2E specs
 
-Use this template verbatim when dispatching the automation-writer, only under `Level: full`: from the task loop for a task whose test cases include `UI` or `E2E` types, after the developer's commit or before it against a `data-testid` contract the plan fixes. Only kf:implement dispatches it; the testing stage never does. Exact values live in the brief file, never in this prompt. When the `automation-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/automation-writer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim when dispatching the automation-writer, only under `Level: full`: from the task loop for a task whose test cases include `UI` or `E2E` types, after the developer's commit or before it against a `data-testid` contract the plan fixes. Only kf:implement dispatches it; the testing stage never does. Exact values live in the brief file, never in this prompt. When the `automation-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/automation-writer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:

@@ -6,7 +6,7 @@ import { PKG_ROOT } from "../shared/paths.js";
 import { commandHelp } from "../cli/args.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const skill = (name: string) => read("skills", name, "SKILL.md");
+const skill = (name: string) => read("assets", "skills", name, "SKILL.md");
 
 describe("the stage record is the gate into review in the agent-facing contract", () => {
   for (const name of ["implement", "test", "flow"]) {
@@ -34,7 +34,7 @@ describe("the stage record is the gate into review in the agent-facing contract"
   });
 
   it("the review report template has a verify row in the Delivery table", () => {
-    const template = read("kanban-flow", "templates", "phase-5-review-report.md");
+    const template = read("assets", "templates", "phase-5-review-report.md");
     const start = template.indexOf("## Delivery");
     expect(start).toBeGreaterThanOrEqual(0);
     const next = template.indexOf("\n## ", start + 1);

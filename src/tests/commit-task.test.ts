@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { pathAllowed } from "../workflow/allowlist.js";
 import { copyName } from "../integrations/managed.js";
 
-const SCRIPT = resolve(__dirname, "../../skills/implement/scripts/commit-task.mjs");
+const SCRIPT = resolve(__dirname, "../../assets/skills/implement/scripts/commit-task.mjs");
 
 let repo: string;
 

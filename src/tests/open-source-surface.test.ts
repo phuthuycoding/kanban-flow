@@ -50,10 +50,10 @@ describe("the user-facing surface is English", () => {
   });
 
   it("leaves no Vietnamese in the skills, their references, the agents or the templates, and keeps every skill and agent intact", () => {
-    const skillFiles = walk(join(ROOT, "skills"), (p) => p.endsWith("SKILL.md"));
-    const skillReferences = walk(join(ROOT, "skills"), (p) => p.endsWith(".md") && !p.endsWith("SKILL.md"));
-    const agentFiles = walk(join(ROOT, "agents"), (p) => p.endsWith(".md"));
-    const templates = walk(join(ROOT, "kanban-flow", "templates"), (p) => p.endsWith(".md"));
+    const skillFiles = walk(join(ROOT, "assets", "skills"), (p) => p.endsWith("SKILL.md"));
+    const skillReferences = walk(join(ROOT, "assets", "skills"), (p) => p.endsWith(".md") && !p.endsWith("SKILL.md"));
+    const agentFiles = walk(join(ROOT, "assets", "agents"), (p) => p.endsWith(".md"));
+    const templates = walk(join(ROOT, "assets", "templates"), (p) => p.endsWith(".md"));
     expect(skillFiles).toHaveLength(MANAGED_SKILLS.length);
     expect(agentFiles).toHaveLength(MANAGED_AGENTS.length);
     expect(offenders([...skillFiles, ...skillReferences, ...agentFiles, ...templates])).toEqual([]);
@@ -68,7 +68,7 @@ describe("the user-facing surface is English", () => {
     const docs = [
       join(ROOT, "README.md"),
       join(ROOT, "docs", "README.md"),
-      join(ROOT, "kanban-flow", "README.md"),
+      join(ROOT, "assets", "README.md"),
       ...walk(join(ROOT, "docs", "workflow"), (p) => p.endsWith(".md")),
     ];
     expect(docs).toHaveLength(14);
@@ -81,9 +81,9 @@ describe("the user-facing surface is English", () => {
 });
 
 describe("the phase skills follow the merge-closes flow", () => {
-  const kanbanSkillDirs = readdirSync(join(ROOT, "skills")).filter((name) => name.startsWith("kanban-"));
+  const kanbanSkillDirs = readdirSync(join(ROOT, "assets", "skills")).filter((name) => name.startsWith("kanban-"));
   const kanbanTexts = kanbanSkillDirs.flatMap((name) =>
-    walk(join(ROOT, "skills", name), (p) => p.endsWith(".md")).map((file) => ({ file: relative(ROOT, file), text: readFileSync(file, "utf8") })),
+    walk(join(ROOT, "assets", "skills", name), (p) => p.endsWith(".md")).map((file) => ({ file: relative(ROOT, file), text: readFileSync(file, "utf8") })),
   );
 
   it("has no ship stage skill and never points at kf ship or a shipping stage", () => {
@@ -102,17 +102,17 @@ describe("the phase skills follow the merge-closes flow", () => {
   });
 
   it("opens the PR in review only after the independent reviewer, then watches CI before the report", () => {
-    const review = readFileSync(join(ROOT, "skills", "review", "SKILL.md"), "utf8");
+    const review = readFileSync(join(ROOT, "assets", "skills", "review", "SKILL.md"), "utf8");
     const order = ["## 5. Dispatch the independent reviewer", "## 8. Push and open the PR", "## 9. Watch CI", "## 10. Write review-report"].map((h) => review.indexOf(h));
     expect(order.every((i) => i >= 0), String(order)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(review).toContain("kf issues link {feature_name} <PR URL> --pr");
-    expect(existsSync(join(ROOT, "skills", "review", "references", "ci-watch.md"))).toBe(true);
+    expect(existsSync(join(ROOT, "assets", "skills", "review", "references", "ci-watch.md"))).toBe(true);
   });
 });
 
 describe("the review skill keeps the close possible", () => {
-  const review = readFileSync(join(ROOT, "skills", "review", "SKILL.md"), "utf8");
+  const review = readFileSync(join(ROOT, "assets", "skills", "review", "SKILL.md"), "utf8");
 
   it("logs the landing gate inside the ignored item folder, never in a tracked tree", () => {
     expect(review).toContain("Append one line per board to `<item>/reviews/review-gate.tsv`");
@@ -127,7 +127,7 @@ describe("the review skill keeps the close possible", () => {
 });
 
 describe("the CI watcher", () => {
-  const watchDoc = readFileSync(join(ROOT, "skills", "review", "references", "ci-watch.md"), "utf8");
+  const watchDoc = readFileSync(join(ROOT, "assets", "skills", "review", "references", "ci-watch.md"), "utf8");
   const start = watchDoc.indexOf("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;");
   const loop = watchDoc.slice(start, watchDoc.indexOf("\n```", start)).replace("REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;", "REPO=o/r; SHA=abc123; WATCH=30;")
     .replaceAll("sleep 20", "sleep 1")
@@ -253,7 +253,7 @@ describe("documentation links", () => {
     const docs = [
       join(ROOT, "README.md"),
       join(ROOT, "docs", "README.md"),
-      join(ROOT, "kanban-flow", "README.md"),
+      join(ROOT, "assets", "README.md"),
       ...walk(join(ROOT, "docs", "workflow"), (p) => p.endsWith(".md")),
     ];
     const broken: string[] = [];
@@ -285,7 +285,7 @@ describe("the docs describe only the in-session path", () => {
   function docSurface(): string[] {
     return [
       join(ROOT, "README.md"),
-      join(ROOT, "kanban-flow", "README.md"),
+      join(ROOT, "assets", "README.md"),
       join(ROOT, ".github", "pages", "index.html"),
       ...walk(join(ROOT, ".kf", "hooks"), () => true),
       ...walk(join(ROOT, "docs", "workflow"), (p) => p.endsWith(".md")),
@@ -334,7 +334,7 @@ describe("the docs name the commit-list form beside the range form", () => {
   // calls in the review skill keep range mode for one contiguous diff and are left out.
   const SURFACES = [
     "README.md",
-    "kanban-flow/README.md",
+    "assets/README.md",
     ".github/pages/index.html",
     "CHANGELOG.md",
     "docs/workflow/README.md",
@@ -346,19 +346,19 @@ describe("the docs name the commit-list form beside the range form", () => {
     "docs/workflow/skills.md",
     "docs/workflow/autoconfig.md",
     "docs/workflow/source-layout.md",
-    "kanban-flow/templates/phase-2-implementation-plan.md",
-    "skills/flow/SKILL.md",
-    "skills/flow/references/harness-tools.md",
-    "agents/developer.md",
-    "skills/plan/SKILL.md",
-    "skills/implement/SKILL.md",
-    "skills/implement/references/task-loop.md",
-    "skills/implement/references/test-writer-brief.md",
-    "skills/implement/references/developer-brief.md",
-    "skills/implement/references/task-reviewer-brief.md",
-    "skills/implement/references/re-review-brief.md",
-    "skills/travel/SKILL.md",
-    "skills/travel/references/estimation.md",
+    "assets/templates/phase-2-implementation-plan.md",
+    "assets/skills/flow/SKILL.md",
+    "assets/skills/flow/references/harness-tools.md",
+    "assets/agents/developer.md",
+    "assets/skills/plan/SKILL.md",
+    "assets/skills/implement/SKILL.md",
+    "assets/skills/implement/references/task-loop.md",
+    "assets/skills/implement/references/test-writer-brief.md",
+    "assets/skills/implement/references/developer-brief.md",
+    "assets/skills/implement/references/task-reviewer-brief.md",
+    "assets/skills/implement/references/re-review-brief.md",
+    "assets/skills/travel/SKILL.md",
+    "assets/skills/travel/references/estimation.md",
   ];
 
   it("pairs every kf verify --base mention with --commits in the same file", () => {
@@ -522,8 +522,8 @@ describe("the docs describe concurrent developers in one worktree", () => {
   });
 
   it("lists --graph in the flow CLI block and in the plan approval summary", () => {
-    expect(read("skills/flow/SKILL.md")).toContain("kf tasks {feature} [--json] [--graph]");
-    expect(read("skills/plan/SKILL.md")).toContain("kf tasks <feature> --graph");
+    expect(read("assets/skills/flow/SKILL.md")).toContain("kf tasks {feature} [--json] [--graph]");
+    expect(read("assets/skills/plan/SKILL.md")).toContain("kf tasks <feature> --graph");
   });
 
   it("records concurrent developers, --graph and the new loop-stats figures in the unreleased changelog", () => {
@@ -549,7 +549,7 @@ describe("the living-docs text surfaces", () => {
   });
 
   it("has review step 2b edit the living docs, one History line each, in one commit before the reviewers", () => {
-    const review = text("skills/review/SKILL.md");
+    const review = text("assets/skills/review/SKILL.md");
     const start = review.indexOf("## 2b.");
     const step = review.slice(start, review.indexOf("## 3.", start));
     expect(start).toBeGreaterThanOrEqual(0);
@@ -563,8 +563,8 @@ describe("the living-docs text surfaces", () => {
   });
 
   it("no longer describes copying snapshots or bannering in the archive skill and the reconcile guide", () => {
-    const archive = text("skills/archive/SKILL.md");
-    const reconcile = text("skills/archive/reconcile.md");
+    const archive = text("assets/skills/archive/SKILL.md");
+    const reconcile = text("assets/skills/archive/reconcile.md");
     for (const [name, body] of [["archive", archive], ["reconcile", reconcile]] as const) {
       expect(body, name).not.toContain("Superseded by");
       expect(body, name).not.toContain("--skip-specs");
@@ -581,8 +581,8 @@ describe("the living-docs text surfaces", () => {
     expect(readme).not.toContain("copied out when a feature closes");
     expect(readme).not.toContain("Superseded by");
     expect(text("README.md")).toContain("docs/specs");
-    expect(text("kanban-flow/README.md")).toContain("11 skills");
-    expect(text("kanban-flow/README.md")).not.toContain("10 skills");
+    expect(text("assets/README.md")).toContain("11 skills");
+    expect(text("assets/README.md")).not.toContain("10 skills");
     for (const page of workflowPages) {
       const body = text(page);
       expect(body, page).not.toContain("Superseded by");

@@ -338,8 +338,8 @@ describe("a linked git worktree as the package root", () => {
   function stagePackage(pkg: string, gitMarker: "file" | "dir"): void {
     mkdirSync(pkg, { recursive: true });
     cpSync(join(PKG_ROOT, "dist"), join(pkg, "dist"), { recursive: true });
-    cpSync(join(PKG_ROOT, "skills"), join(pkg, "skills"), { recursive: true });
-    cpSync(join(PKG_ROOT, "agents"), join(pkg, "agents"), { recursive: true });
+    cpSync(join(PKG_ROOT, "assets", "skills"), join(pkg, "assets", "skills"), { recursive: true });
+    cpSync(join(PKG_ROOT, "assets", "agents"), join(pkg, "assets", "agents"), { recursive: true });
     cpSync(join(PKG_ROOT, "package.json"), join(pkg, "package.json"));
     symlinkSync(join(PKG_ROOT, "node_modules"), join(pkg, "node_modules"), "dir");
     if (gitMarker === "file") {

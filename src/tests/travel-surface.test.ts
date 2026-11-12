@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
 
-const DIR = join(PKG_ROOT, "skills", "travel");
+const DIR = join(PKG_ROOT, "assets", "skills", "travel");
 const read = (...parts: string[]) => readFileSync(join(DIR, ...parts), "utf8");
 const skill = read("SKILL.md");
 
@@ -147,7 +147,7 @@ describe("the travel skill", () => {
   it("states the ownership rule, and the phase skills honour it", () => {
     expect(skill).toMatch(/`driving` or `blocked` means travel owns/);
     for (const other of ["flow", "implement"]) {
-      const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
+      const text = readFileSync(join(PKG_ROOT, "assets", "skills", other, "SKILL.md"), "utf8");
       expect(text, other).toMatch(/`driving` or `blocked`/);
       expect(text, other).toContain(".kf/travel/progress.md");
     }
@@ -155,7 +155,7 @@ describe("the travel skill", () => {
 
   it("names the owner by the owner token on the travel ledger line", () => {
     for (const other of ["flow", "implement"]) {
-      const text = readFileSync(join(PKG_ROOT, "skills", other, "SKILL.md"), "utf8");
+      const text = readFileSync(join(PKG_ROOT, "assets", "skills", other, "SKILL.md"), "utf8");
       expect(text, other).toContain("a session that is not travel never runs a task loop for an `owner=travel` line");
       expect(text, other).toContain("`owner=human`");
     }

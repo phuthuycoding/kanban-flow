@@ -1,6 +1,6 @@
 # Test-writer brief — the dispatch for one task's tests
 
-Use this template verbatim when dispatching the test-writer for a task whose test cases include `Unit` or `Integration` types, or for a bug's regression task. One dispatch, one task, before the developer. Exact values live in the brief file, never in this prompt. When the `test-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/test-writer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim when dispatching the test-writer for a task whose test cases include `Unit` or `Integration` types, or for a bug's regression task. One dispatch, one task, before the developer. Exact values live in the brief file, never in this prompt. When the `test-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/test-writer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:

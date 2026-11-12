@@ -6,10 +6,10 @@ import { PKG_ROOT } from "../shared/paths.js";
 
 const normalise = (text: string) => text.replace(/\s+/g, " ");
 const read = (...parts: string[]) => normalise(readFileSync(join(PKG_ROOT, ...parts), "utf8"));
-const testSkill = () => read("skills", "test", "SKILL.md");
-const template = () => read("kanban-flow", "templates", "phase-4-testing-result.md");
-const agent = () => read("agents", "automation-writer.md");
-const brief = () => read("skills", "implement", "references", "automation-writer-brief.md");
+const testSkill = () => read("assets", "skills", "test", "SKILL.md");
+const template = () => read("assets", "templates", "phase-4-testing-result.md");
+const agent = () => read("assets", "agents", "automation-writer.md");
+const brief = () => read("assets", "skills", "implement", "references", "automation-writer-brief.md");
 const harness = () => read("docs", "workflow", "harness.md");
 
 /** The text between a heading that starts with `from` and the next heading that starts with `to`. */
@@ -229,7 +229,7 @@ describe("kf:test asks the human for the waiver when no stage commands are pinne
 });
 
 describe("the docs and the feature report follow the slimmer testing stage", () => {
-  const featureReport = () => read("kanban-flow", "templates", "phase-6-feature-report.md");
+  const featureReport = () => read("assets", "templates", "phase-6-feature-report.md");
 
   it("no longer says /kf:test runs the stage verify after the last commit of testing", () => {
     const text = harness();

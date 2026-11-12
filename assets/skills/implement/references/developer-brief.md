@@ -1,6 +1,6 @@
 # Developer brief — the dispatch for one task's production code
 
-Use this template verbatim when dispatching the developer for a task, after the test-writer's tests fail for the right reason (or after the ledgered `TASK-NNN: no test-writer — <why>` line). One dispatch, one task (or one batch of same-shape tiny tasks). Exact values live in the brief file, never in this prompt. When the `developer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/agents/developer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim when dispatching the developer for a task, after the test-writer's tests fail for the right reason (or after the ledgered `TASK-NNN: no test-writer — <why>` line). One dispatch, one task (or one batch of same-shape tiny tasks). Exact values live in the brief file, never in this prompt. When the `developer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/developer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
 
 ```
 Agent:
@@ -87,7 +87,7 @@ Agent:
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
 - `[IN_FLIGHT]` — `none`, or every other seat in flight at dispatch, including the seats dispatched in the same turn (e.g. `developer TASK-002`).
-- `[COMMIT_SCRIPT]` — the absolute path of `${CLAUDE_PLUGIN_ROOT}/skills/implement/scripts/commit-task.mjs`, filled at dispatch.
+- `[COMMIT_SCRIPT]` — the absolute path of `${CLAUDE_PLUGIN_ROOT}/assets/skills/implement/scripts/commit-task.mjs`, filled at dispatch.
 - `[ADVISORY]` — `yes` when the test-writer's run was advisory (it ran while a developer was in flight), otherwise `no`.
 - `[SPEC_FILES]` — the spec files the automation-writer's report lists when it ran before the developer against a `data-testid` contract; otherwise "none".
 - `[FILES_TO_COMMIT]` — the files the test-writer's (or automation-writer's) fix report lists.

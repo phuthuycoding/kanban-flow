@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 import { filesOverlap, patternsOverlap } from "../workflow/allowlist.js";
 
-const SCRIPT = join(PKG_ROOT, "skills", "travel", "scripts", "estimates");
+const SCRIPT = join(PKG_ROOT, "assets", "skills", "travel", "scripts", "estimates");
 
 function overlapCli(a: string[], b: string[]): boolean {
   const r = spawnSync(process.execPath, [SCRIPT, "overlap", a.join(","), b.join(",")], { encoding: "utf8" });

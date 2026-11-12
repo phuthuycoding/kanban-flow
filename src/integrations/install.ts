@@ -52,9 +52,9 @@ const SKILLS_MANIFEST = ".kanban-flow-skills.json";
 
 /** The npm package dir name of kanban-flow (the product name), used to recognise links made before the plugin. */
 const PRODUCT_PKG_DIR = "kanban-flow";
-const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
-/** The agent bodies sit at the plugin root, where Claude Code loads a plugin's agents from. */
-export const PKG_AGENTS_DIR = join(PKG_ROOT, "agents");
+const PKG_SKILLS_DIR = join(PKG_ROOT, "assets", "skills");
+/** The agent bodies sit under assets/agents, where the plugin manifest lists them for Claude Code. */
+export const PKG_AGENTS_DIR = join(PKG_ROOT, "assets", "agents");
 
 /** Text a caller prints. This module does not depend on the CLI result type. */
 export interface InstallReport {

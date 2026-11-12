@@ -24,8 +24,8 @@ export function renderForCopy(text: string, copyRoot: string): string {
     .replace(new RegExp(`Agent\\(kf:(${NAME})\\)`, "g"), (_m, a: string) => `paste ${copyRoot}/kf-flow/agents/${a}.md as a subagent prompt`)
     .replace(new RegExp(`/kf:(${NAME})`, "g"), "kf-$1")
     .replace(BARE_HANDOFF, "kf-$1")
-    .replace(new RegExp(`${PLUGIN}/skills/(${NAME})`, "g"), (_m, x: string) => `${copyRoot}/kf-${x}`)
-    .replace(new RegExp(`${PLUGIN}/agents`, "g"), () => `${copyRoot}/kf-flow/agents`)
+    .replace(new RegExp(`${PLUGIN}/assets/skills/(${NAME})`, "g"), (_m, x: string) => `${copyRoot}/kf-${x}`)
+    .replace(new RegExp(`${PLUGIN}/assets/agents`, "g"), () => `${copyRoot}/kf-flow/agents`)
     .replace(new RegExp(PLUGIN, "g"), () => PKG_ROOT);
 }
 

@@ -15,7 +15,7 @@ function frontmatter(text: string): string {
 
 describe("review findings come from an independent code-reviewer agent", () => {
   it("the review skill dispatches Agent(code-reviewer) and keeps the orchestrator to mechanical findings", () => {
-    const skill = read(PKG_ROOT, "skills", "review", "SKILL.md");
+    const skill = read(PKG_ROOT, "assets", "skills", "review", "SKILL.md");
     expect(skill).toContain("`Agent(kf:code-reviewer)` in the transcript is auditable");
     expect(skill).toContain("The orchestrator never writes a finding of its own except the mechanical ones in step 2");
   });
@@ -30,7 +30,7 @@ describe("review findings come from an independent code-reviewer agent", () => {
   });
 
   it("the code-reviewer agent is named and limited to read-only tools", () => {
-    const head = frontmatter(read(PKG_ROOT, "agents", "code-reviewer.md"));
+    const head = frontmatter(read(PKG_ROOT, "assets", "agents", "code-reviewer.md"));
     expect(head).toMatch(/^name: code-reviewer$/m);
     const tools = /^tools:\s*(.+)$/m.exec(head)?.[1].split(",").map((t) => t.trim());
     expect(tools).toEqual(["Read", "Grep", "Glob"]);

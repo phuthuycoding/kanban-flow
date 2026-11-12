@@ -5,18 +5,18 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = read("skills", "implement", "SKILL.md");
-const flow = read("skills", "flow", "SKILL.md");
+const implement = read("assets", "skills", "implement", "SKILL.md");
+const flow = read("assets", "skills", "flow", "SKILL.md");
 
 const SURFACES: Record<string, string[]> = {
-  "skills/implement/SKILL.md": ["skills", "implement", "SKILL.md"],
-  "skills/flow/SKILL.md": ["skills", "flow", "SKILL.md"],
-  "skills/review/SKILL.md": ["skills", "review", "SKILL.md"],
-  "skills/review/references/ci-watch.md": ["skills", "review", "references", "ci-watch.md"],
-  "skills/bug/SKILL.md": ["skills", "bug", "SKILL.md"],
-  "skills/travel/SKILL.md": ["skills", "travel", "SKILL.md"],
-  "kanban-flow/templates/phase-5-review-report.md": ["kanban-flow", "templates", "phase-5-review-report.md"],
-  "kanban-flow/README.md": ["kanban-flow", "README.md"],
+  "assets/skills/implement/SKILL.md": ["assets", "skills", "implement", "SKILL.md"],
+  "assets/skills/flow/SKILL.md": ["assets", "skills", "flow", "SKILL.md"],
+  "assets/skills/review/SKILL.md": ["assets", "skills", "review", "SKILL.md"],
+  "assets/skills/review/references/ci-watch.md": ["assets", "skills", "review", "references", "ci-watch.md"],
+  "assets/skills/bug/SKILL.md": ["assets", "skills", "bug", "SKILL.md"],
+  "assets/skills/travel/SKILL.md": ["assets", "skills", "travel", "SKILL.md"],
+  "assets/templates/phase-5-review-report.md": ["assets", "templates", "phase-5-review-report.md"],
+  "assets/README.md": ["assets", "README.md"],
 };
 
 const STOP_REASONS = [

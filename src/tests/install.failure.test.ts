@@ -19,7 +19,7 @@ describe("installation errors", () => {
     const root = await mkdtemp(join(tmpdir(), "kf-install-failure-"));
     try {
       const original = await vi.importActual<typeof import("node:fs")>("node:fs");
-      vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "skills") && original.existsSync(path));
+      vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "assets", "skills") && original.existsSync(path));
       await mkdir(join(root, ".works"), { recursive: true });
       expect((await cmdInstall(["codex"], { cwd: root })).code).toBe(1);
       expect((await installSkills(root, ["codex"], "project")).code).toBe(1);
@@ -35,12 +35,12 @@ describe("installation errors", () => {
     try {
       await mkdir(join(root, ".works"), { recursive: true });
       const original = await vi.importActual<typeof import("node:fs")>("node:fs");
-      vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "skills") && original.existsSync(path));
+      vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "assets", "skills") && original.existsSync(path));
       const skillsDir = join(root, ".agents", "skills");
       // Real copies first — the failing install must not take them down with it.
       vi.mocked(fs.existsSync).mockImplementation(original.existsSync);
       await copySkillsTo(skillsDir);
-      vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "skills") && original.existsSync(path));
+      vi.mocked(fs.existsSync).mockImplementation((path) => String(path) !== join(PKG_ROOT, "assets", "skills") && original.existsSync(path));
 
       expect((await cmdInstall(["codex"], { cwd: root })).code).toBe(1);
       expect(original.existsSync(join(skillsDir, "kf-flow", "SKILL.md"))).toBe(true);
