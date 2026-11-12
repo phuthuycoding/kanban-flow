@@ -1,3 +1,5 @@
+import type { ConfigLayer } from "./config-layers.js";
+
 export interface DoctorFinding {
   level: "ERROR" | "WARNING";
   area: string;
@@ -13,6 +15,8 @@ export interface DoctorReport {
   totalItems: number;
   /** Legacy feature names per declared context still on disk (FR-016); empty when none. */
   legacyDocs: Record<string, string[]>;
+  /** The global and workspace files that exist; the project file is not listed. */
+  configLayers: { layer: ConfigLayer; path: string }[];
   ok: boolean;
 }
 

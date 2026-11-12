@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { STAGES } from "../../workflow/schema.js";
 import { assertPathName, ensureWorksStructure } from "../../workflow/features.js";
 import { checkContext, contextRefusal, effectiveDefaultContext } from "../../project/contexts.js";
-import { readProjectConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
+import { readProjectConfig, readProjectFileConfig, detectStacks, writeProjectConfig, patchProjectConfig, configPath, effectiveSkillsScope } from "../../project/config.js";
 import { detectRepository } from "../../project/repository.js";
 import { nowTimestamp } from "../../shared/time.js";
 import { DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../../integrations/agents.js";
@@ -22,7 +22,7 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
     assertPathName(args.options.context, "context");
     // Seeding docs/{ctx}/ for a context kf new would refuse leaves a tree nothing can ever fill.
     // This runs before either branch, so --minimal and the bootstrap path are both covered.
-    const explicit = checkContext(args.options.context, readProjectConfig(target));
+    const explicit = checkContext(args.options.context, readProjectFileConfig(target));
     if (!explicit.ok) return { code: 1, stdout: contextRefusal(args.options.context, explicit), stderr: "unknown context" };
   }
 
@@ -33,8 +33,10 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
     return cmdBootstrap(args, target, !useDefaults);
   }
 
-  const cfg = readProjectConfig(target);
-  const refusal = effectiveSkillsScope(cfg) === "global" ? globalLinkRefusal() : null;
+  const cfg = readProjectFileConfig(target);
+  // Write decisions use `cfg` (the project file); the install scope and agents use `effective`.
+  const effective = readProjectConfig(target);
+  const refusal = effectiveSkillsScope(effective) === "global" ? globalLinkRefusal() : null;
   if (refusal) return { code: 1, stdout: "", stderr: refusal };
   const ctx = typeof args.options.context === "string" ? args.options.context : effectiveDefaultContext(cfg);
   // Same rule as the bootstrap path: an explicit --context on a genuinely new project is a
@@ -74,8 +76,8 @@ export async function cmdInit(args: ParsedArgs, cwd: string): Promise<CmdResult>
   await mkdir(join(target, ".kf", "hooks"), { recursive: true });
   await mkdir(join(target, ".kf", "review", "rules"), { recursive: true });
   await seedSpecs(target);
-  const scope = effectiveSkillsScope(cfg);
-  const skills = await installForAgents(target, agents.length ? agents : parseAgentIds(cfg.agents), scope, cfg.skills?.scope);
+  const scope = effectiveSkillsScope(effective);
+  const skills = await installForAgents(target, agents.length ? agents : parseAgentIds(effective.agents), scope, effective.skills?.scope);
   if (skills.code !== 0) return skills;
   const agentsFile = seedAgentsFile(target, cfg.stacks?.length ? cfg.stacks : detectStacks(target));
   return {

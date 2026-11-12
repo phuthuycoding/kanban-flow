@@ -246,7 +246,14 @@ kf loop-stats user-login --record                     # where the loop's time we
 kf verify user-login --stage                          # runs harness.verify.stage, records the run in loop/stage-verify.jsonl
 kf verify user-login --stage --waive "no suite yet"   # no harness.verify.stage pinned: the human's reason to enter review
 kf doctor --fix                                       # strips the removed harness keys and leftover run state
+kf config set --global reviewer Alice                 # a personal default for every project (also --workspace)
+kf config show                                        # the effective config, each value with its layer
 ```
+
+`reviewer`, `agents` and `skills` can also come from `~/.kf/config.json` (global) or from the
+nearest `.kf/workspace.json` in a parent folder (one workspace for several repositories).
+The project's `.kf/config.json` always wins, and every other key stays project-only; see
+[config layers](docs/workflow/cli-reference.md#config-layers).
 
 `kf verify` exits 0 on a pass, 1 when a verify command failed, 2 when a file
 outside the task's `Files` changed, 3 on bad input or when `kf verify` could not run (it runs nothing). kf never

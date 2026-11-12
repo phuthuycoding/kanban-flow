@@ -132,6 +132,7 @@ kf init                        # scaffold .works/ + hooks + docs
 kf doctor [--fix] [--json]     # diagnose the project; --fix applies the repairs needing no human decision
 kf issues [view <n>|create|link|sync <feature>]  # GitHub issues on the configured repository, via gh
 kf contexts [--json]           # declared contexts + counts, or a survey brief when none
+kf config show|get|set [--global|--workspace]   # layered config: reviewer/agents/skills from ~/.kf/config.json or .kf/workspace.json; the project wins
 kf new {feature} --context {ctx} [--type feature|bug]   # Phase 1: create feature/bug + seed spec
 kf status --change {feature}   # artefact checklist + Next: + approval state
 kf instruct {artifact} --change {feature}   # current execution id + exact output path

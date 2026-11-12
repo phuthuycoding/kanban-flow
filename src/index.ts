@@ -22,6 +22,7 @@ import { cmdCancel } from "./cli/commands/cancel.js";
 import { cmdApprove } from "./cli/commands/approve.js";
 import { cmdShip } from "./cli/commands/ship.js";
 import { cmdWorktree, cmdProxyServe } from "./cli/commands/worktree.js";
+import { cmdConfig } from "./cli/commands/config.js";
 import { cmdInstall, cmdUninstall, scopeFromArgs } from "./integrations/install.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
 import { parseAgentIds } from "./integrations/agents.js";
@@ -127,6 +128,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdShip(parsed, cwd);
     case "worktree":
       return cmdWorktree(parsed, cwd);
+    case "config":
+      return cmdConfig(parsed, cwd);
     case "proxy":
       return parsed.positionals[0] === "serve"
         ? cmdProxyServe(parsed)

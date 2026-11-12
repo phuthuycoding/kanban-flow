@@ -238,7 +238,8 @@ kf next user-login                  <span class="c"># after approval: what the t
 kf record user-login dispatched TASK-001 developer --model sonnet  <span class="c"># one stamped ledger line</span>
 kf verify user-login --wave 1       <span class="c"># a complete wave's full suite; the next wave's developers wait for it</span>
 kf verify user-login --stage        <span class="c"># records the run at HEAD; kf stage review reads that record</span>
-kf doctor                           <span class="c"># is the project itself healthy?</span></code></pre>
+kf doctor                           <span class="c"># is the project itself healthy?</span>
+kf config set --global reviewer Alice  <span class="c"># reviewer, agents, skills: global, workspace or project; the project wins</span></code></pre>
       <div class="cta" style="margin-top:26px">
         <a class="btn primary" href="workflow/README.html">Read the workflow guide</a>
         <a class="btn" href="workflow/cli-reference.html">CLI reference</a>

@@ -29,7 +29,7 @@ Today every skills path (`installProjectSkills`, `cmdInstall`, `cmdUninstall`) w
 
 ### Out of Scope
 - Changing the review-rules / templates precedence (already project → user → package).
-- A user-level default config (`~/.kf/config.json`) — scope is a per-project decision; the global *behavior* is the built-in default. (Considered and declined in Q&A.)
+- A user-level default config (`~/.kf/config.json`) — scope is a per-project decision; the global *behavior* is the built-in default. (Considered and declined in Q&A.) *Superseded by #176 (layered config): `skills.scope` may now come from `~/.kf/config.json` or a workspace `.kf/workspace.json`, and the project file still wins.*
 - Version pinning or selective per-skill installs — drift is reported, not auto-healed at install time.
 - Per-agent scope overrides (one agent global, another project).
 - Moving or renaming the packaged `skills/` source dirs.
@@ -104,7 +104,7 @@ Today every skills path (`installProjectSkills`, `cmdInstall`, `cmdUninstall`) w
 - Every listed agent has (or is documented to read) a user-level skills dir; the open standard `~/.agents/skills` is the fallback where an agent reads the shared dir (devin already `alsoReads` codex/opencode dirs).
 - Agents' skill discovery follows directory symlinks inside the skills dir — true for the filesystem-level scanners these agents use; verified per agent where docs allow, and copy fallback covers any agent that cannot.
 - The "ephemeral package root" heuristic (e.g. path contains an npx cache segment) is decided in planning; linking is skipped there because the target would dangle when the cache is purged.
-- Scope is stored per project only — no `~/.kf/config.json` user default (declined option).
+- Scope is stored per project only — no `~/.kf/config.json` user default (declined option). *Superseded by #176: see the Out of Scope note above.*
 - Content comparison for staleness compares managed skill files byte-for-byte against the package copy; the comparison helper is shared between autoconfig and doctor.
 - The config field is a `skills` object (`{ "scope": "..." }`) so later skill-related options have a home; naming finalized in planning.
 

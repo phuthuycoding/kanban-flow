@@ -254,6 +254,16 @@ const COMMANDS: Record<string, CmdSpec> = {
       wave: { type: "string" },
     },
   },
+  config: {
+    help: "Usage: kf config <show|get|set> [key] [value] [--global|--workspace] [--workspace-dir <path>] [--json]  — read and write the layered config: 'show' prints the effective config with the layer each leaf came from (global ~/.kf/config.json, nearest workspace .kf/workspace.json, project .kf/config.json) and the files found; 'get <key>' prints one value by dotted path; 'set <key> <value>' writes one value (JSON when it parses, else a string) to the project file; --global/--workspace read or write that layer's file only; --workspace-dir picks the directory a new workspace file goes in",
+    allowPositionals: true,
+    options: {
+      global: { type: "boolean" },
+      workspace: { type: "boolean" },
+      "workspace-dir": { type: "string" },
+      json: { type: "boolean" },
+    },
+  },
   worktree: {
     help: "Usage: kf worktree <create|remove|list|setup> [feature] [--force] [--json] [--print]  — manage per-item git worktrees and their .test domains (opt-in: set \"worktree.enabled\": true in .kf/config.json to auto-provision on stage → implementation; set \"worktree.domains\": false to skip the .test domain infrastructure and use http://127.0.0.1:<port>); 'setup' is the one-time machine onboarding (dnsmasq + proxy daemon, needs sudo)",
     allowPositionals: true,

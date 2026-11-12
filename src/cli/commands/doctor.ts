@@ -60,6 +60,9 @@ export async function cmdDoctor(args: ParsedArgs, cwd: string): Promise<CmdResul
   }
 
   const lines = [`Project: ${report.root}`, ""];
+  if (report.configLayers.length > 0) {
+    lines.push("Config layers:", ...report.configLayers.map((l) => `  ${l.layer}: ${l.path}`), "");
+  }
   if (fixed.length > 0) {
     lines.push(`Fixed (${fixed.length}):`, ...fixed.map((f) => `  ✓ ${f}`), "");
   }
