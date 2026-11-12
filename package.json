@@ -36,13 +36,9 @@
   },
   "files": [
     "dist",
-    "skills",
-    "agents",
+    "assets",
     ".claude-plugin",
-    "docs/workflow",
-    "kanban-flow/templates",
-    "kanban-flow/review",
-    "kanban-flow/github-hooks"
+    "docs/workflow"
   ],
   "engines": {
     "node": ">=20"

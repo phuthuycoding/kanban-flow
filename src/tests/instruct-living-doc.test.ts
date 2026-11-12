@@ -11,7 +11,7 @@ import { ARTIFACTS } from "../workflow/schema.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const template = (name: string) => readFileSync(join(repo, "kanban-flow", "templates", name), "utf8");
+const template = (name: string) => readFileSync(join(repo, "assets", "templates", name), "utf8");
 const headings = (text: string) => text.split("\n").filter((l) => /^## /.test(l)).map((l) => l.trim());
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 

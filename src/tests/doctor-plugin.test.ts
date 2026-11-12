@@ -210,7 +210,7 @@ describe("kf doctor and legacy leftovers", () => {
     const agents = join(home, ".claude", "agents");
     await mkdir(agents, { recursive: true });
     const agent = join(agents, "developer.md");
-    await symlink(join(PKG_ROOT, "agents", "developer.md"), agent);
+    await symlink(join(PKG_ROOT, "assets", "agents", "developer.md"), agent);
     owned.push(agent);
     const foreignTravel = join(home, ".agents", "skills", "travel");
     await mkdir(foreignTravel, { recursive: true });
@@ -338,7 +338,7 @@ describe("kf doctor --fix when the plugin cannot be repaired", () => {
     await writeFile(join(legacy, "SKILL.md"), "old\n");
     const agent = join(process.env.HOME!, ".claude", "agents", "developer.md");
     await mkdir(join(process.env.HOME!, ".claude", "agents"), { recursive: true });
-    await symlink(join(PKG_ROOT, "agents", "developer.md"), agent);
+    await symlink(join(PKG_ROOT, "assets", "agents", "developer.md"), agent);
 
     const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(res.code).not.toBe(0);

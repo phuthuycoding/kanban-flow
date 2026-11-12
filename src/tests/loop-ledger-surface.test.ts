@@ -6,10 +6,10 @@ import { PKG_ROOT } from "../shared/paths.js";
 import { parseLedger, TS_SUFFIX } from "../workflow/loop-stats.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const implement = () => read("skills", "implement", "SKILL.md");
-const taskLoop = () => read("skills", "implement", "references", "task-loop.md");
-const travel = () => read("skills", "travel", "SKILL.md");
-const estimation = () => read("skills", "travel", "references", "estimation.md");
+const implement = () => read("assets", "skills", "implement", "SKILL.md");
+const taskLoop = () => read("assets", "skills", "implement", "references", "task-loop.md");
+const travel = () => read("assets", "skills", "travel", "SKILL.md");
+const estimation = () => read("assets", "skills", "travel", "references", "estimation.md");
 
 /** The text between the first `from` and the next `to` after it (to the end when `to` is absent). */
 function slice(text: string, from: string, to: string): string {

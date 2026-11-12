@@ -20,11 +20,11 @@ const SWITCH_RULE =
 describe("the worktree.domains switch in the docs, skills and config", () => {
   it("tells every skill and the automation-writer to use the direct URL when domains are off", () => {
     for (const file of [
-      "skills/test/SKILL.md",
-      "skills/review/SKILL.md",
-      "skills/implement/SKILL.md",
-      "skills/implement/references/automation-writer-brief.md",
-      "agents/automation-writer.md",
+      "assets/skills/test/SKILL.md",
+      "assets/skills/review/SKILL.md",
+      "assets/skills/implement/SKILL.md",
+      "assets/skills/implement/references/automation-writer-brief.md",
+      "assets/agents/automation-writer.md",
     ]) {
       const text = plain(file);
       expect(text, file).toContain("When worktree.domains is false in .kf/config.json, use http://127.0.0.1:<port>");
@@ -32,13 +32,13 @@ describe("the worktree.domains switch in the docs, skills and config", () => {
   });
 
   it("names the Worktree line as Domain or Direct in the test and review skills", () => {
-    for (const file of ["skills/test/SKILL.md", "skills/review/SKILL.md"]) {
+    for (const file of ["assets/skills/test/SKILL.md", "assets/skills/review/SKILL.md"]) {
       expect(read(file), file).toContain("`Worktree:` with `Domain:` or `Direct:`");
     }
   });
 
   it("says the JSON outputs still carry domain but must not be used, in the status-reading skills", () => {
-    for (const file of ["skills/test/SKILL.md", "skills/review/SKILL.md", "skills/implement/SKILL.md", "agents/automation-writer.md"]) {
+    for (const file of ["assets/skills/test/SKILL.md", "assets/skills/review/SKILL.md", "assets/skills/implement/SKILL.md", "assets/agents/automation-writer.md"]) {
       expect(plain(file), file).toContain(SWITCH_RULE);
     }
   });

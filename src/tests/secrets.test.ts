@@ -108,7 +108,7 @@ describe("the scanner against this repository's own artifacts", () => {
         else if (entry.name.endsWith(".md")) files.push(full);
       }
     };
-    for (const d of ["docs", "skills", "kanban-flow", ".works"]) walk(join(root, d));
+    for (const d of ["docs", "assets", ".works"]) walk(join(root, d));
     expect(files.length, "the fixture must actually be scanning something").toBeGreaterThan(50);
 
     const offenders = files

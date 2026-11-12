@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const skill = () => read("skills", "implement", "SKILL.md");
+const skill = () => read("assets", "skills", "implement", "SKILL.md");
 const both = () => [["SKILL.md", skill()]] as const;
 
 const paragraphs = (text: string) => text.split(/\n\s*\n/);
@@ -15,7 +15,7 @@ const paragraphWith = (text: string, phrase: string) => {
   return found as string;
 };
 
-const loopReference = () => read("skills", "implement", "references", "task-loop.md");
+const loopReference = () => read("assets", "skills", "implement", "references", "task-loop.md");
 
 /** The text between the first `from` and the next `to` after it (to the end when `to` is absent). */
 function slice(text: string, from: string, to: string): string {

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const HEAD = "REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>;";
 
-const doc = readFileSync(join(ROOT, "skills", "review", "references", "ci-watch.md"), "utf8");
+const doc = readFileSync(join(ROOT, "assets", "skills", "review", "references", "ci-watch.md"), "utf8");
 const start = doc.indexOf(HEAD);
 const documented = doc.slice(start, doc.indexOf("\n```", start));
 // Real time is shrunk so the 60s settle window and 20s polls run in a couple of seconds.

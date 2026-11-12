@@ -12,8 +12,9 @@ vi.mock("../shared/paths.js", async (importOriginal) => {
   const os = await import("node:os");
   const path = await import("node:path");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kfw-pkg-"));
-  fs.cpSync(path.join(original.PKG_ROOT, "skills"), path.join(root, "skills"), { recursive: true });
-  fs.cpSync(path.join(original.PKG_ROOT, "agents"), path.join(root, "agents"), { recursive: true });
+  fs.cpSync(path.join(original.PKG_ROOT, "assets", "skills"), path.join(root, "assets", "skills"), { recursive: true });
+  fs.cpSync(path.join(original.PKG_ROOT, "assets", "agents"), path.join(root, "assets", "agents"), { recursive: true });
+  fs.cpSync(path.join(original.PKG_ROOT, "assets", "shared"), path.join(root, "assets", "shared"), { recursive: true });
   return { ...original, PKG_ROOT: root };
 });
 
@@ -21,7 +22,7 @@ import { PKG_ROOT } from "../shared/paths.js";
 import { copySkillsTo, linkOrCopySkillsTo, removeSkillsFrom, removeRetiredSkills, cmdInstall, cmdUninstall, MANAGED_SKILLS } from "../integrations/install.js";
 import { copyName } from "../integrations/managed.js";
 
-const PKG_TRAVEL = join(PKG_ROOT, "skills", "travel");
+const PKG_TRAVEL = join(PKG_ROOT, "assets", "skills", "travel");
 let dir: string;
 let pkgTravelSkill: string;
 

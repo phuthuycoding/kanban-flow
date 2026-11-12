@@ -42,12 +42,16 @@ describe("renderForCopy", () => {
   });
 
   it("points a plugin skill path at the copy dir", () => {
-    expect(renderForCopy(`${PLUGIN_VAR}/skills/flow/references/harness-tools.md`, ROOT)).toBe(`${ROOT}/kf-flow/references/harness-tools.md`);
+    expect(renderForCopy(`${PLUGIN_VAR}/assets/skills/implement/references/task-loop.md`, ROOT)).toBe(`${ROOT}/kf-implement/references/task-loop.md`);
+  });
+
+  it("points the plugin shared dir at kf-flow/shared inside the copy dir", () => {
+    expect(renderForCopy(`${PLUGIN_VAR}/assets/shared/harness-tools.md`, ROOT)).toBe(`${ROOT}/kf-flow/shared/harness-tools.md`);
   });
 
   it("points the plugin agents dir at kf-flow/agents inside the copy dir", () => {
-    expect(renderForCopy(`${PLUGIN_VAR}/agents/scout.md`, ROOT)).toBe(`${ROOT}/kf-flow/agents/scout.md`);
-    expect(renderForCopy(`bodies at ${PLUGIN_VAR}/agents`, ROOT)).toBe(`bodies at ${ROOT}/kf-flow/agents`);
+    expect(renderForCopy(`${PLUGIN_VAR}/assets/agents/scout.md`, ROOT)).toBe(`${ROOT}/kf-flow/agents/scout.md`);
+    expect(renderForCopy(`bodies at ${PLUGIN_VAR}/assets/agents`, ROOT)).toBe(`bodies at ${ROOT}/kf-flow/agents`);
   });
 
   it("turns an Agent dispatch into an instruction to paste the agent body", () => {
@@ -60,7 +64,7 @@ describe("renderForCopy", () => {
   });
 
   it("points any other plugin-root path at the package root", () => {
-    expect(renderForCopy(`${PLUGIN_VAR}/kanban-flow/review/rules`, ROOT)).toBe(`${PKG_ROOT}/kanban-flow/review/rules`);
+    expect(renderForCopy(`${PLUGIN_VAR}/assets/review/rules`, ROOT)).toBe(`${PKG_ROOT}/assets/review/rules`);
   });
 
   it("leaves text without plugin patterns unchanged", () => {
@@ -69,12 +73,12 @@ describe("renderForCopy", () => {
   });
 
   it("never leaves the plugin root variable in its output", () => {
-    const text = [`${PLUGIN_VAR}/skills/a/b.md`, `${PLUGIN_VAR}/agents`, `${PLUGIN_VAR}/other-dir/x`, `${PLUGIN_VAR}/other/y`].join("\n");
+    const text = [`${PLUGIN_VAR}/assets/skills/a/b.md`, `${PLUGIN_VAR}/assets/agents`, `${PLUGIN_VAR}/other-dir/x`, `${PLUGIN_VAR}/other/y`].join("\n");
     expect(renderForCopy(text, ROOT)).not.toContain("CLAUDE_PLUGIN_ROOT");
   });
 
   it("is idempotent on its own output", () => {
-    const text = `Skill(kf:plan) /kf:review Agent(kf:developer) ${PLUGIN_VAR}/skills/flow/SKILL.md ${PLUGIN_VAR}/agents ${PLUGIN_VAR}/kanban-flow/review/rules`;
+    const text = `Skill(kf:plan) /kf:review Agent(kf:developer) ${PLUGIN_VAR}/assets/skills/flow/SKILL.md ${PLUGIN_VAR}/assets/agents ${PLUGIN_VAR}/assets/review/rules`;
     const once = renderForCopy(text, ROOT);
     expect(renderForCopy(once, ROOT)).toBe(once);
   });
@@ -88,8 +92,8 @@ describe("renderForCopy", () => {
         else if (e.name.endsWith(".md")) files.push(p);
       }
     };
-    walk(join(PKG_ROOT, "skills"));
-    walk(join(PKG_ROOT, "agents"));
+    walk(join(PKG_ROOT, "assets", "skills"));
+    walk(join(PKG_ROOT, "assets", "agents"));
     expect(files.length).toBeGreaterThan(10);
     for (const f of files) {
       const out = renderForCopy(readFileSync(f, "utf8"), ROOT);

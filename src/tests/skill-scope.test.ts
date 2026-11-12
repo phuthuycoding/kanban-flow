@@ -30,7 +30,7 @@ import type { ParsedArgs } from "../cli/args.js";
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
   ({ command, positionals, options });
 
-const PKG_SKILLS = join(PKG_ROOT, "skills");
+const PKG_SKILLS = join(PKG_ROOT, "assets", "skills");
 
 let dir: string;
 const home = () => process.env.HOME!;

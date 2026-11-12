@@ -49,17 +49,17 @@ describe("readMarkdownSection + sectionItems — section primitives", () => {
 
 describe("templates and docs teach the contract (UC-002, TC-005/006)", () => {
   it("spec template ships the section and the plan template documents coverage (TC-005)", async () => {
-    const specTpl = await readFile(join(process.cwd(), "kanban-flow", "templates", "phase-1-spec-requirement.md"), "utf8");
+    const specTpl = await readFile(join(process.cwd(), "assets", "templates", "phase-1-spec-requirement.md"), "utf8");
     expect(specTpl).toContain("## Affected surfaces");
     expect(specTpl).toContain("{affected_surfaces}");
-    const planTpl = await readFile(join(process.cwd(), "kanban-flow", "templates", "phase-2-implementation-plan.md"), "utf8");
+    const planTpl = await readFile(join(process.cwd(), "assets", "templates", "phase-2-implementation-plan.md"), "utf8");
     expect(planTpl).toContain("Affected surfaces");
   });
 
   it("skills, workflow docs and changelog all mention the contract (TC-006)", async () => {
     for (const rel of [
-      "skills/brainstorm/SKILL.md",
-      "skills/plan/SKILL.md",
+      "assets/skills/brainstorm/SKILL.md",
+      "assets/skills/plan/SKILL.md",
       "docs/workflow/gates.md",
       "docs/workflow/cli-reference.md",
       "CHANGELOG.md",

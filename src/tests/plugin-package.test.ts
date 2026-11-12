@@ -27,8 +27,8 @@ function walk(dir: string, keep: (path: string) => boolean): string[] {
 }
 
 const isMd = (p: string) => p.endsWith(".md");
-const skillDocs = () => walk(join(ROOT, "skills"), isMd);
-const agentDocs = () => walk(join(ROOT, "agents"), isMd);
+const skillDocs = () => walk(join(ROOT, "assets", "skills"), isMd);
+const agentDocs = () => walk(join(ROOT, "assets", "agents"), isMd);
 
 function frontmatterName(file: string): string | null {
   const m = /^---\n([\s\S]*?)\n---/.exec(readFileSync(file, "utf8"));
@@ -60,19 +60,19 @@ describe("the managed name lists", () => {
 
   it("has a skill dir whose frontmatter name is the bare name for every managed skill", () => {
     for (const name of SKILLS) {
-      const file = join(ROOT, "skills", name, "SKILL.md");
+      const file = join(ROOT, "assets", "skills", name, "SKILL.md");
       expect(existsSync(file), `${relative(ROOT, file)} exists`).toBe(true);
       expect(frontmatterName(file), `${relative(ROOT, file)} frontmatter name`).toBe(name);
     }
   });
 
   it("has no kanban-* skill dir left in the tree", () => {
-    for (const name of LEGACY) expect(existsSync(join(ROOT, "skills", name)), `skills/${name}`).toBe(false);
+    for (const name of LEGACY) expect(existsSync(join(ROOT, "assets", "skills", name)), `skills/${name}`).toBe(false);
   });
 
   it("has an agent file at agents/<name>.md for every managed agent and none left under skills", () => {
-    for (const name of AGENTS) expect(existsSync(join(ROOT, "agents", `${name}.md`)), `agents/${name}.md`).toBe(true);
-    expect(existsSync(join(ROOT, "skills", "flow", "agents"))).toBe(false);
+    for (const name of AGENTS) expect(existsSync(join(ROOT, "assets", "agents", `${name}.md`)), `agents/${name}.md`).toBe(true);
+    expect(existsSync(join(ROOT, "assets", "skills", "flow", "agents"))).toBe(false);
   });
 });
 
@@ -114,9 +114,9 @@ describe("the plugin package", () => {
     expect(kf.source).toBe("./");
   });
 
-  it("ships .claude-plugin and agents in the published files", () => {
+  it("ships .claude-plugin and assets in the published files", () => {
     expect(pkg.files).toContain(".claude-plugin");
-    expect(pkg.files).toContain("agents");
+    expect(pkg.files).toContain("assets");
   });
 
   it("only references bundled paths that exist", () => {
@@ -157,7 +157,7 @@ describe("no leftover pre-plugin names", () => {
   const EXCLUDED = [":(exclude)src/cli/commands/autoconfig.ts", ":(exclude)src/cli/args.ts", ":(exclude)src/project/bootstrap.ts", ":(exclude)src/tests/fixtures/kanban-ship-0.13.0", ":(exclude)src/integrations/managed.ts", `:(exclude)${SELF}`];
   // Only tests that seed legacy kanban-* names on disk to prove migration and doctor handling may spell them, plus the docs grep test whose literals are search patterns.
   const SEEDING_TESTS = new Set(["src/tests/migration.test.ts", "src/tests/doctor-plugin.test.ts", "src/tests/doctor.test.ts", "src/tests/spike-surface.test.ts", "src/tests/docs-plugin-surface.test.ts"]);
-  const SCOPE = ["skills", "agents", ".claude-plugin", "src"];
+  const SCOPE = ["assets", ".claude-plugin", "src"];
 
   function grep(pattern: string): string[] {
     const res = spawnSync("git", ["grep", "-nE", pattern, "--", ...SCOPE, ...EXCLUDED], { cwd: ROOT, encoding: "utf8" });

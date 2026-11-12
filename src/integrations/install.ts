@@ -52,9 +52,11 @@ const SKILLS_MANIFEST = ".kanban-flow-skills.json";
 
 /** The npm package dir name of kanban-flow (the product name), used to recognise links made before the plugin. */
 const PRODUCT_PKG_DIR = "kanban-flow";
-const PKG_SKILLS_DIR = join(PKG_ROOT, "skills");
-/** The agent bodies sit at the plugin root, where Claude Code loads a plugin's agents from. */
-export const PKG_AGENTS_DIR = join(PKG_ROOT, "agents");
+const PKG_SKILLS_DIR = join(PKG_ROOT, "assets", "skills");
+/** The agent bodies sit under assets/agents, where the plugin manifest lists them for Claude Code. */
+export const PKG_AGENTS_DIR = join(PKG_ROOT, "assets", "agents");
+/** The references several skills cite; copy runtimes get them inside the flow copy, as they get the agents. */
+export const PKG_SHARED_DIR = join(PKG_ROOT, "assets", "shared");
 
 /** Text a caller prints. This module does not depend on the CLI result type. */
 export interface InstallReport {
@@ -116,7 +118,7 @@ function snapshotDigest(snap: Map<string, Buffer>): string {
 
 /**
  * Every file of the kf-<name> copy of managed skill <name> rendered for skillsDir, keyed by relative
- * path: .md files rendered, other files as packaged, and the flow copy carries the agent bodies.
+ * path: .md files rendered, other files as packaged, and the flow copy carries the agent bodies and the shared references.
  */
 function renderedSkill(skillsDir: string, name: string): Map<string, Buffer> {
   const out = new Map<string, Buffer>();
@@ -126,6 +128,7 @@ function renderedSkill(skillsDir: string, name: string): Map<string, Buffer> {
   }
   if (name === "flow") {
     for (const a of MANAGED_AGENTS) out.set(join("agents", `${a}.md`), Buffer.from(renderForCopy(readFileSync(join(PKG_AGENTS_DIR, `${a}.md`), "utf8"), skillsDir)));
+    for (const [rel, bytes] of dirSnapshot(PKG_SHARED_DIR)) out.set(join("shared", rel), Buffer.from(renderForCopy(bytes.toString("utf8"), skillsDir)));
   }
   return out;
 }
@@ -292,6 +295,20 @@ function isKfPackageRoot(dir: string): boolean {
 }
 
 /**
+ * The kf package root holding `resolved` — a skill dir or an agent file — in either layout:
+ * `<pkg>/<kind>/<name>` (releases up to 0.18.0) or `<pkg>/assets/<kind>/<name>`; null when neither is a kf package.
+ */
+function kfPackageRootOf(resolved: string, kind: "skills" | "agents"): string | null {
+  const parent = dirname(resolved);
+  if (basename(parent) !== kind) return null;
+  const oldRoot = dirname(parent);
+  if (isKfPackageRoot(oldRoot)) return oldRoot;
+  if (basename(oldRoot) !== "assets") return null;
+  const newRoot = dirname(oldRoot);
+  return isKfPackageRoot(newRoot) ? newRoot : null;
+}
+
+/**
  * What sits at a managed agent path. The agent names are deliberately unprefixed, so a user's
  * own `code-reviewer.md` is a real possibility: only an entry kanban-flow put there — a symlink
  * into the package, a byte-equal copy of the packaged file, or a copy whose hash the manifest
@@ -313,7 +330,9 @@ export function agentEntryState(agentsDir: string, name: string): AgentEntryStat
     // npm-link checkout, or a dir that no longer exists — is ours to replace, not the user's.
     // The package is recognised by its content, not its directory name: a checkout may be named anything.
     // The suffix covers a package dir that carries the product name, in both the plugin layout and the pre-plugin flow skill.
-    const ours = (resolved.endsWith(join(sep, "agents", `${name}.md`)) && isKfPackageRoot(resolve(resolved, "..", ".."))) || resolved.endsWith(join(PRODUCT_PKG_DIR, "agents", `${name}.md`));
+    const ours = (basename(resolved) === `${name}.md` && kfPackageRootOf(resolved, "agents") !== null)
+      || resolved.endsWith(join(PRODUCT_PKG_DIR, "agents", `${name}.md`))
+      || resolved.endsWith(join(PRODUCT_PKG_DIR, "assets", "agents", `${name}.md`));
     return ours || !existsSync(resolved) ? "stale" : "foreign";
   }
   if (!st.isFile()) return "not-file";
@@ -442,14 +461,14 @@ export async function removeSkillsFrom(skillsDir: string): Promise<{ removed: st
   return { removed, kept };
 }
 
-/** Packaged skills dirs are laid out as <package>/skills/<name>; a link into one is kanban-flow's. */
+/** Packaged skills dirs are laid out as <package>/assets/skills/<name> (<package>/skills/<name> up to 0.18.0); a link into one is kanban-flow's. */
 function isKanbanFlowSkillLink(skillsDir: string, name: string, target: string): boolean {
   const resolved = resolve(skillsDir, target);
   if (resolved === join(PKG_SKILLS_DIR, name)) return true;
-  if (resolved.endsWith(join(sep, "skills", name)) && isKfPackageRoot(resolve(resolved, "..", ".."))) return true;
+  if (basename(resolved) === name && kfPackageRootOf(resolved, "skills") !== null) return true;
   // A pre-plugin install linked into the npm package dir, which carries the product name; such a
   // target may already be gone, so only its path can identify it.
-  return resolved.endsWith(join(sep, PRODUCT_PKG_DIR, "skills", name));
+  return resolved.endsWith(join(sep, PRODUCT_PKG_DIR, "skills", name)) || resolved.endsWith(join(sep, PRODUCT_PKG_DIR, "assets", "skills", name));
 }
 
 /** True when every entry under dir is a regular file whose sha256 is in `known`, SKILL.md among them. */
@@ -519,10 +538,13 @@ function legacyBase(root: string, scope: SkillScope): string {
  * carrying the product name; such a target may already be gone, so its path is enough there.
  */
 function isLegacySkillLink(skillsDir: string, target: string): boolean {
-  const parent = dirname(resolve(skillsDir, target));
+  const resolved = resolve(skillsDir, target);
+  const parent = dirname(resolved);
   if (basename(parent) !== "skills") return false;
   const pkg = dirname(parent);
-  return basename(pkg) === PRODUCT_PKG_DIR || isKfPackageRoot(pkg);
+  if (basename(pkg) === PRODUCT_PKG_DIR) return true;
+  if (basename(pkg) === "assets" && basename(dirname(pkg)) === PRODUCT_PKG_DIR) return true;
+  return kfPackageRootOf(resolved, "skills") !== null;
 }
 
 /** A kanban-* directory is kf's by its prefix, local edits included; a bare travel only by its link, its content or the sidecar digest. */

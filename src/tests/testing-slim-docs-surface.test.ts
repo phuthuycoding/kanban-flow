@@ -33,7 +33,7 @@ const STOP_REASONS = [
   "BLOCKED",
 ];
 const REMOVED_PHRASES = ["one fix cycle", "Failed again → STOP", "Auto-fix benign blockers once"];
-const LOOP_SKILLS = ["skills/implement/SKILL.md", "skills/test/SKILL.md", "skills/flow/SKILL.md"];
+const LOOP_SKILLS = ["assets/skills/implement/SKILL.md", "assets/skills/test/SKILL.md", "assets/skills/flow/SKILL.md"];
 
 let dir: string | undefined;
 afterEach(async () => {
@@ -59,16 +59,16 @@ describe("one fix rule and one stop list across implement, test and flow", () =>
   }
 
   it("kf:flow states the stop list once, not twice", () => {
-    const text = read("skills/flow/SKILL.md");
+    const text = read("assets/skills/flow/SKILL.md");
     expect(text.split("a plan too broken to act on").length - 1).toBe(1);
   });
 
   it("kf:implement keeps the five-things sentence", () => {
-    expect(read("skills/implement/SKILL.md")).toContain("Five things stop you");
+    expect(read("assets/skills/implement/SKILL.md")).toContain("Five things stop you");
   });
 
   it("kf:test and kf:flow send a testing FAIL, a review FAIL and red CI to Repairing after the loop", () => {
-    for (const skill of ["skills/test/SKILL.md", "skills/flow/SKILL.md"]) {
+    for (const skill of ["assets/skills/test/SKILL.md", "assets/skills/flow/SKILL.md"]) {
       const text = read(skill);
       expect(text, skill).toContain("Repairing after the loop");
       expect(text, skill).toMatch(/testing FAIL/i);
@@ -88,9 +88,9 @@ describe("no surface offers REJECT as a status to write", () => {
   });
 
   const surfaces = [
-    ...walkMd("skills"),
-    ...flatMd("kanban-flow/templates"),
-    "kanban-flow/README.md",
+    ...walkMd("assets/skills"),
+    ...flatMd("assets/templates"),
+    "assets/README.md",
     ...flatMd("docs/workflow"),
   ];
 
@@ -110,7 +110,7 @@ describe("no surface offers REJECT as a status to write", () => {
   });
 
   it("the testing result template Summary has no Rejected row", () => {
-    expect(read("kanban-flow/templates/phase-4-testing-result.md")).not.toMatch(/\|\s*Rejected\s*\|/);
+    expect(read("assets/templates/phase-4-testing-result.md")).not.toMatch(/\|\s*Rejected\s*\|/);
   });
 });
 

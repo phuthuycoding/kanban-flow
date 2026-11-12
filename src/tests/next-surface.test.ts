@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { PKG_ROOT } from "../shared/paths.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const skill = read("skills", "implement", "SKILL.md");
-const taskLoop = read("skills", "implement", "references", "task-loop.md");
-const travel = read("skills", "travel", "SKILL.md");
+const skill = read("assets", "skills", "implement", "SKILL.md");
+const taskLoop = read("assets", "skills", "implement", "references", "task-loop.md");
+const travel = read("assets", "skills", "travel", "SKILL.md");
 
 // Opening phrases of the paragraphs whose rules now live in `kf next`.
 const MOVED_PHRASES = [
@@ -119,7 +119,7 @@ describe("the minimal-fix-past-the-cap rule", () => {
   });
 
   it("carries the minimal-fix exception into the flow skill", () => {
-    expect(read("skills", "flow", "SKILL.md")).toContain(
+    expect(read("assets", "skills", "flow", "SKILL.md")).toContain(
       "apart from the one minimal fix past the cap `kf:implement` makes",
     );
   });

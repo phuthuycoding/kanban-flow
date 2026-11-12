@@ -203,10 +203,10 @@ describe("closure guidance and repository docs", () => {
     });
 
   it("the archive skill points to the living docs edited at review and neither copies nor banners", () => {
-    const skill = readFileSync(join(repo, "skills", "archive", "SKILL.md"), "utf8");
-    const review = readFileSync(join(repo, "skills", "review", "SKILL.md"), "utf8");
+    const skill = readFileSync(join(repo, "assets", "skills", "archive", "SKILL.md"), "utf8");
+    const review = readFileSync(join(repo, "assets", "skills", "review", "SKILL.md"), "utf8");
     expect(skill).toContain("](reconcile.md)");
-    expect(existsSync(join(repo, "skills", "archive", "reconcile.md"))).toBe(true);
+    expect(existsSync(join(repo, "assets", "skills", "archive", "reconcile.md"))).toBe(true);
     expect(skill).toContain("docs/specs/");
     expect(skill).toContain("the close copies nothing");
     expect(skill).toContain("docs({context}): update living docs for {feature_name}");
@@ -216,7 +216,7 @@ describe("closure guidance and repository docs", () => {
   });
 
   it("the feature report template asks for the reconciled docs", () => {
-    expect(readFileSync(join(repo, "kanban-flow", "templates", "phase-6-feature-report.md"), "utf8")).toContain("## Docs Reconciled");
+    expect(readFileSync(join(repo, "assets", "templates", "phase-6-feature-report.md"), "utf8")).toContain("## Docs Reconciled");
   });
 
   it("no canonical use case or test plan is left in planning, and superseded docs are marked", async () => {

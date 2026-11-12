@@ -79,7 +79,7 @@ export interface GitHubProject {
 
 export const CONFIG_FILE = "config.json";
 
-/** Stack ids that have a shipped review rule pack (kanban-flow/review/stacks/{id}.md). */
+/** Stack ids that have a shipped review rule pack (assets/review/stacks/{id}.md). */
 export const STACK_IDS = ["node", "go", "rust", "python", "php", "ruby", "java"] as const;
 export type StackId = (typeof STACK_IDS)[number];
 

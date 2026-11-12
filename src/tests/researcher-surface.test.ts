@@ -8,8 +8,8 @@ import { LEGACY_SKILLS, MANAGED_AGENTS, MANAGED_SKILLS } from "../integrations/m
 import { loopStats, parseLedger } from "../workflow/loop-stats.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
-const AGENT = ["agents", "researcher.md"];
-const BRIEF = ["skills", "flow", "references", "researcher-brief.md"];
+const AGENT = ["assets", "agents", "researcher.md"];
+const BRIEF = ["assets", "shared", "researcher-brief.md"];
 
 /** The YAML frontmatter block between the leading `---` fences. */
 function frontmatter(text: string): string {
@@ -115,13 +115,13 @@ describe("the managed names", () => {
   it("lists researcher among seven managed agents and ships its definition file", () => {
     expect(MANAGED_AGENTS).toHaveLength(7);
     expect(MANAGED_AGENTS).toContain("researcher");
-    for (const agent of MANAGED_AGENTS) expect(existsSync(join(PKG_ROOT, "agents", `${agent}.md`)), agent).toBe(true);
+    for (const agent of MANAGED_AGENTS) expect(existsSync(join(PKG_ROOT, "assets", "agents", `${agent}.md`)), agent).toBe(true);
   });
 
   it("keeps the eight legacy kanban-* names and a bare name per managed skill dir", () => {
     expect(LEGACY_SKILLS).toHaveLength(8);
     for (const name of LEGACY_SKILLS) expect(name).toMatch(/^kanban-/);
-    for (const skill of MANAGED_SKILLS) expect(existsSync(join(PKG_ROOT, "skills", skill, "SKILL.md")), skill).toBe(true);
+    for (const skill of MANAGED_SKILLS) expect(existsSync(join(PKG_ROOT, "assets", "skills", skill, "SKILL.md")), skill).toBe(true);
   });
 });
 
@@ -140,14 +140,14 @@ describe("the researcher dispatch brief", () => {
 
   it("is referenced by the brainstorm, plan and implement skills", () => {
     for (const skill of ["brainstorm", "plan", "implement"]) {
-      expect(read("skills", skill, "SKILL.md"), skill).toContain("researcher-brief.md");
+      expect(read("assets", "skills", skill, "SKILL.md"), skill).toContain("researcher-brief.md");
     }
   });
 });
 
 describe("the brainstorm trigger", () => {
   it("dispatches the researcher before asking the user, without asking first, and cites the report in the spec", () => {
-    const sec = section(read("skills", "brainstorm", "SKILL.md"), /\n## 1\. Understand the challenge/);
+    const sec = section(read("assets", "skills", "brainstorm", "SKILL.md"), /\n## 1\. Understand the challenge/);
     expect(sec).toContain("Agent(kf:researcher)");
     expect(sec).toMatch(/library|API|service|standard/);
     expect(sec).toMatch(/other tools|prior art/i);
@@ -158,7 +158,7 @@ describe("the brainstorm trigger", () => {
 });
 
 describe("the plan trigger", () => {
-  const plan = () => read("skills", "plan", "SKILL.md");
+  const plan = () => read("assets", "skills", "plan", "SKILL.md");
 
   it("dispatches the researcher next to the scouts when a choice or an external dependency appears", () => {
     const text = plan();
@@ -180,7 +180,7 @@ describe("the plan trigger", () => {
 
 /** The 3.2 bullet that dispatches the researcher. */
 function researcherBullet(): string {
-  const sec = section(read("skills", "implement", "SKILL.md"), /\n### 3\.2 /);
+  const sec = section(read("assets", "skills", "implement", "SKILL.md"), /\n### 3\.2 /);
   const bullet = sec.split("\n").find((l) => l.startsWith("- ") && l.includes("Agent(kf:researcher)"));
   expect(bullet, "a 3.2 bullet that dispatches Agent(kf:researcher)").toBeDefined();
   return bullet!;

@@ -357,7 +357,7 @@ describe("kf doctor --fix", () => {
     const agentsDir = join(process.env.HOME!, ".claude", "agents");
     await mkdir(agentsDir, { recursive: true });
     const agent = join(agentsDir, "code-reviewer.md");
-    await symlink(join(PKG_ROOT, "agents", "code-reviewer.md"), agent);
+    await symlink(join(PKG_ROOT, "assets", "agents", "code-reviewer.md"), agent);
     const before = runDoctor(root).findings.filter((f) => f.area === agentsDir || f.message.includes("code-reviewer"));
     expect(before.length).toBeGreaterThan(0);
     expect(before.some((f) => f.message.includes("code-reviewer"))).toBe(true);
@@ -383,7 +383,7 @@ describe("kf doctor --fix", () => {
     const mine = "---\nname: scout\ndescription: mine\n---\nkeep\n";
     await mkdir(agentsDir, { recursive: true });
     await writeFile(join(agentsDir, "scout.md"), mine);
-    await symlink(join(PKG_ROOT, "agents", "code-reviewer.md"), join(agentsDir, "code-reviewer.md"));
+    await symlink(join(PKG_ROOT, "assets", "agents", "code-reviewer.md"), join(agentsDir, "code-reviewer.md"));
     expect(runDoctor(root).findings.some((f) => f.message.includes("code-reviewer"))).toBe(true);
     await cmdDoctor(args("doctor", [], { fix: true }), root);
     expect(existsSync(join(agentsDir, "code-reviewer.md"))).toBe(false);
