@@ -1,6 +1,7 @@
+import { homedir } from "node:os";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import { LEGACY_STAGE_NAMES, STAGES } from "../workflow/schema.js";
@@ -15,7 +16,8 @@ import { checkHarnessLegacyKeys, checkLegacyRunState, fixFailure, removeLegacyHa
 import { checkGithubHooks, checkOrphanedHooks, repairHooks } from "./doctor-hooks.js";
 import { checkSkills, repairSkills } from "./doctor-install.js";
 import type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
-import { readProjectConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, PROJECT_CONFIG_KEYS, serializeConfigPreserving, type ProjectConfig } from "./config.js";
+import { readProjectConfig, readProjectFileConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, PROJECT_CONFIG_KEYS, ProjectConfigError, serializeConfigPreserving, type ProjectConfig } from "./config.js";
+import { findWorkspaceConfigPath, globalConfigPath, parseLayerConfig, type ConfigLayer } from "./config-layers.js";
 import { detectRepository } from "./repository.js";
 import { appendIgnoreWorks, bootstrapDefaults, ignoreEntriesMissing, saveConfig, TRAVEL_IGNORE_ENTRY } from "./bootstrap.js";
 import { writeFileAtomic } from "../shared/paths.js";
@@ -103,7 +105,7 @@ function checkTravelIgnore(root: string): DoctorFinding[] {
  * readProjectConfig throws on bad JSON and on a bad shape, so the throw is caught here and turned
  * into the diagnosis. This is not swallowing: the error becomes the answer the command returns.
  */
-function checkConfig(root: string): { findings: DoctorFinding[]; cfg: ReturnType<typeof readProjectConfig> | null } {
+function checkConfig(root: string): { findings: DoctorFinding[]; cfg: ReturnType<typeof readProjectFileConfig> | null } {
   const path = configPath(root);
   if (!existsSync(path)) {
     return {
@@ -112,7 +114,7 @@ function checkConfig(root: string): { findings: DoctorFinding[]; cfg: ReturnType
     };
   }
   try {
-    return { findings: [], cfg: readProjectConfig(root) };
+    return { findings: [], cfg: readProjectFileConfig(root) };
   } catch (err) {
     return {
       findings: [{
@@ -124,6 +126,47 @@ function checkConfig(root: string): { findings: DoctorFinding[]; cfg: ReturnType
       cfg: null,
     };
   }
+}
+
+/**
+ * The global and workspace files that exist: listed as active, each parsed on its own so one invalid
+ * file is a finding naming it rather than a throw. A key not applied at its layer is a WARNING.
+ * Read-only; --fix never touches these files.
+ */
+function checkConfigLayers(root: string): { findings: DoctorFinding[]; layers: { layer: ConfigLayer; path: string }[]; invalid: boolean } {
+  const findings: DoctorFinding[] = [];
+  const layers: { layer: ConfigLayer; path: string }[] = [];
+  let invalid = false;
+  const candidates: { layer: "global" | "workspace"; path: string }[] = [];
+  const global = globalConfigPath();
+  if (resolve(root) !== resolve(homedir()) && existsSync(global)) candidates.push({ layer: "global", path: global });
+  const workspace = findWorkspaceConfigPath(root);
+  if (workspace) candidates.push({ layer: "workspace", path: workspace });
+  for (const { layer, path } of candidates) {
+    layers.push({ layer, path });
+    try {
+      const { notApplied } = parseLayerConfig(readFileSync(path, "utf8"), path, layer);
+      for (const key of notApplied) {
+        findings.push({
+          level: "WARNING",
+          area: path,
+          message: `${path}: key "${key}" is not applied at the ${layer} layer and is ignored.`,
+          action: `remove "${key}" from ${path}, or set it in .kf/config.json`,
+        });
+      }
+    } catch (err) {
+      // An unreadable or invalid layer file is the diagnosis; ProjectConfigError names the path, an fs error gets it added.
+      if (!(err instanceof Error)) throw err;
+      invalid = true;
+      findings.push({
+        level: "ERROR",
+        area: path,
+        message: err instanceof ProjectConfigError ? err.message : `Cannot read the ${layer} config ${path}: ${err.message}`,
+        action: `fix or delete ${path} (kf doctor never edits it)`,
+      });
+    }
+  }
+  return { findings, layers, invalid };
 }
 
 /** A work item whose metadata cannot be read is invisible to every other command. */
@@ -220,7 +263,7 @@ function checkDocsBranches(root: string): DoctorFinding[] {
 }
 
 /** statusMap.delivered became inert when archive took over delivery — flag the dead key. */
-function checkStatusMap(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+function checkStatusMap(cfg: ReturnType<typeof readProjectFileConfig> | null): DoctorFinding[] {
   if (!cfg?.project?.statusMap?.delivered) return [];
   return [{
     level: "WARNING" as const,
@@ -231,7 +274,7 @@ function checkStatusMap(cfg: ReturnType<typeof readProjectConfig> | null): Docto
 }
 
 /** A statusMap still keyed by `dones`/`shipping` is read under the new names; the file says otherwise until --fix rewrites it. */
-function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectFileConfig> | null): DoctorFinding[] {
   if (!cfg?.project?.statusMapLegacy) return [];
   return [{
     level: "WARNING" as const,
@@ -242,7 +285,7 @@ function checkStatusMapLegacy(cfg: ReturnType<typeof readProjectConfig> | null):
 }
 
 /** Config fields that still parse but no longer mean what someone reading them would assume. */
-function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectFileConfig> | null): DoctorFinding[] {
   if (!cfg) return [];
   const findings: DoctorFinding[] = [];
   const raw = readRawConfig(root);
@@ -277,7 +320,7 @@ function checkLegacyFields(root: string, cfg: ReturnType<typeof readProjectConfi
 const HINT_EXCLUDED = new Set(["ship", "stack", "defaultContext"]);
 
 /** A top-level config key kf does not read is silently ignored, so a typo turns a setting off; name it, and the key it likely meant. */
-function checkUnknownConfigKeys(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+function checkUnknownConfigKeys(root: string, cfg: ReturnType<typeof readProjectFileConfig> | null): DoctorFinding[] {
   if (!cfg) return [];
   const raw = readRawConfig(root);
   if (!raw) return [];
@@ -297,7 +340,7 @@ function checkUnknownConfigKeys(root: string, cfg: ReturnType<typeof readProject
  * The repo link is opt-in, so its absence is only worth reporting when a GitHub origin exists
  * to link to — otherwise the warning would nag projects that have nothing to record.
  */
-function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+function checkRepository(root: string, cfg: ReturnType<typeof readProjectFileConfig> | null): DoctorFinding[] {
   if (!cfg || cfg.repository !== undefined) return [];
   const detected = detectRepository(root);
   if (!detected) return [];
@@ -310,7 +353,7 @@ function checkRepository(root: string, cfg: ReturnType<typeof readProjectConfig>
 }
 
 /** A configured board needs `gh project` commands, which need the project scope. */
-function checkGhProjectScope(cfg: ReturnType<typeof readProjectConfig> | null): DoctorFinding[] {
+function checkGhProjectScope(cfg: ReturnType<typeof readProjectFileConfig> | null): DoctorFinding[] {
   if (!cfg?.project) return [];
   const res = spawnSync("gh", ["auth", "status", "-h", "github.com"], { encoding: "utf8", timeout: 10_000 });
   if (res.error || res.status !== 0) {
@@ -377,6 +420,9 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkLegacyStageDirs(root));
   findings.push(...checkTravelIgnore(root));
 
+  // Layers first: readProjectConfig throws on an invalid layer file, so it is only read once they parse.
+  const layerCheck = checkConfigLayers(root);
+  findings.push(...layerCheck.findings);
   const config = checkConfig(root);
   findings.push(...config.findings);
   findings.push(...checkLegacyFields(root, config.cfg));
@@ -386,8 +432,9 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkOrphanedHooks(root));
   findings.push(...checkGhProjectScope(config.cfg));
 
-  const agents = config.cfg?.agents ? parseAgentIds(config.cfg.agents) : [DEFAULT_AGENT];
-  const scope = effectiveSkillsScope(config.cfg ?? ({} as Partial<ProjectConfig>));
+  const effective = layerCheck.invalid || config.findings.some((f) => f.level === "ERROR") ? config.cfg : readProjectConfig(root);
+  const agents = effective?.agents ? parseAgentIds(effective.agents) : [DEFAULT_AGENT];
+  const scope = effectiveSkillsScope(effective ?? ({} as Partial<ProjectConfig>));
   findings.push(...checkSkills(root, agents.length > 0 ? agents : [DEFAULT_AGENT], scope));
 
   findings.push(...checkItemMetadata(root));
@@ -413,6 +460,7 @@ export function runDoctor(root: string): DoctorReport {
     invalidItems,
     totalItems: items.length,
     legacyDocs,
+    configLayers: layerCheck.layers,
     ok: findings.every((f) => f.level !== "ERROR"),
   };
 }
