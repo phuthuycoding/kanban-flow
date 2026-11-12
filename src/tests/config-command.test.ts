@@ -59,11 +59,12 @@ describe("kf config show", () => {
     expect(json.code).toBe(0);
     const parsed: unknown = JSON.parse(json.stdout);
     expect(parsed).toBeTypeOf("object");
-    const flat = JSON.stringify(parsed);
-    expect(flat).toContain("global");
-    expect(flat).toContain("workspace");
-    expect(flat).toContain("project");
-    expect(flat).toContain(wsFile);
+    const sources = (parsed as { sources: Record<string, string> }).sources;
+    expect(sources.reviewer).toBe("global");
+    expect(sources["skills.scope"]).toBe("workspace");
+    expect(sources.agents).toBe("project");
+    expect(sources.stacks).toBe("project");
+    expect(JSON.stringify(parsed)).toContain(wsFile);
   });
 
   it("prints only one layer's file and marks keys that layer does not apply as not applied", async () => {
@@ -152,7 +153,6 @@ describe("kf config set", () => {
     const proj = makeProject(join(scratch, "proj"), '{"schema":"kanban-flow"}\n');
     const g = '{"reviewer":"A"}\n';
     write(globalFile(), g);
-    const wsFile = join(scratch, "ws.json");
 
     const repo = await kf(proj, "set", "--global", "repository", "x/y");
     expect(repo.code).not.toBe(0);
@@ -165,7 +165,7 @@ describe("kf config set", () => {
     const bad = await kf(proj, "set", "--global", "agents", '["nope"]');
     expect(bad.code).not.toBe(0);
     expect(read(globalFile())).toBe(g);
-    expect(existsSync(wsFile)).toBe(false);
+    expect(existsSync(join(scratch, ".kf", "workspace.json"))).toBe(false);
 
     write(globalFile(), "{ not json");
     const invalid = await kf(proj, "set", "--global", "reviewer", "A");
@@ -198,6 +198,21 @@ describe("kf config set --workspace", () => {
     expect(res.all).toMatch(/nearer|shadow/i);
     expect(existsSync(join(scratch, ".kf", "workspace.json"))).toBe(false);
     expect(read(join(ws, ".kf", "workspace.json"))).toBe(near);
+  });
+
+  it("writes the --workspace-dir file even when a workspace file exists at a farther ancestor", async () => {
+    const far = join(scratch, "far");
+    const near = join(far, "near");
+    const proj = makeProject(join(near, "proj"), '{"schema":"kanban-flow"}\n');
+    const farText = '{"reviewer":"far"}\n';
+    write(join(far, ".kf", "workspace.json"), farText);
+
+    const res = await kf(proj, "set", "--workspace", "reviewer", "A", "--workspace-dir", near);
+    expect(res.code).toBe(0);
+    const target = join(near, ".kf", "workspace.json");
+    expect(JSON.parse(read(target))).toEqual({ reviewer: "A" });
+    expect(res.stdout).toContain(target);
+    expect(read(join(far, ".kf", "workspace.json"))).toBe(farText);
   });
 
   it("refuses the home directory and a directory that is not an ancestor, creating no file", async () => {

@@ -163,6 +163,11 @@ function cmdGet(args: ParsedArgs, scope: Scope, root: string | null): CmdResult 
   return { code: 0, stdout: formatValue(value) };
 }
 
+function isStrictAncestor(dir: string, of: string): boolean {
+  const rel = relative(resolve(dir), resolve(of));
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
 /** The workspace file `set --workspace` may write: one kf would read for this project, never one a nearer file shadows. */
 function workspaceSetPath(root: string, cwd: string, dirOption: unknown): Resolved<string> {
   const nearest = findWorkspaceConfigPath(root);
@@ -174,12 +179,12 @@ function workspaceSetPath(root: string, cwd: string, dirOption: unknown): Resolv
       "home directory",
     );
   }
-  const rel = relative(dir, resolve(root));
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  if (!isStrictAncestor(dir, root)) {
     return refuse(`${dir} is not an ancestor of the project root ${root}: kf would never read a workspace file there.`, "not an ancestor");
   }
   const path = join(dir, ".kf", WORKSPACE_CONFIG_FILE);
-  if (nearest !== null && nearest !== path) {
+  // The walk stops at the first file from the project up, so only one strictly between dir and the project shadows dir's.
+  if (nearest !== null && isStrictAncestor(dir, dirname(dirname(nearest)))) {
     return refuse(`A nearer workspace file ${nearest} shadows ${path}: kf reads the nearest one only. Edit ${nearest} instead.`, "shadowed by a nearer workspace file");
   }
   return { ok: true, value: path };
