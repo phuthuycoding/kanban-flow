@@ -17,7 +17,7 @@ The PR number comes from `kf status --change <feature> --json` — its `pr` fiel
 
 ## Step 2: Watch the runs in the background
 
-Run the loop as a background command that wakes the session when it exits (`${CLAUDE_PLUGIN_ROOT}/assets/skills/flow/references/harness-tools.md`, "Wait on a background process"), then tell the human in one line what is being watched and end the turn; do not poll it yourself. `WATCH` is 5400 (90 min).
+Run the loop as a background command that wakes the session when it exits (`${CLAUDE_PLUGIN_ROOT}/assets/shared/harness-tools.md`, "Wait on a background process"), then tell the human in one line what is being watched and end the turn; do not poll it yourself. `WATCH` is 5400 (90 min).
 
 ```bash
 REPO=<owner/repo>; SHA=<full sha>; WATCH=<seconds>; appear=$((SECONDS+300)); deadline=$((SECONDS+WATCH)); errs=0; last=; settle=0

@@ -348,7 +348,7 @@ describe("the docs name the commit-list form beside the range form", () => {
     "docs/workflow/source-layout.md",
     "assets/templates/phase-2-implementation-plan.md",
     "assets/skills/flow/SKILL.md",
-    "assets/skills/flow/references/harness-tools.md",
+    "assets/shared/harness-tools.md",
     "assets/agents/developer.md",
     "assets/skills/plan/SKILL.md",
     "assets/skills/implement/SKILL.md",

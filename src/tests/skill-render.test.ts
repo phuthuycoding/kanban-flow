@@ -42,7 +42,11 @@ describe("renderForCopy", () => {
   });
 
   it("points a plugin skill path at the copy dir", () => {
-    expect(renderForCopy(`${PLUGIN_VAR}/assets/skills/flow/references/harness-tools.md`, ROOT)).toBe(`${ROOT}/kf-flow/references/harness-tools.md`);
+    expect(renderForCopy(`${PLUGIN_VAR}/assets/skills/implement/references/task-loop.md`, ROOT)).toBe(`${ROOT}/kf-implement/references/task-loop.md`);
+  });
+
+  it("points the plugin shared dir at kf-flow/shared inside the copy dir", () => {
+    expect(renderForCopy(`${PLUGIN_VAR}/assets/shared/harness-tools.md`, ROOT)).toBe(`${ROOT}/kf-flow/shared/harness-tools.md`);
   });
 
   it("points the plugin agents dir at kf-flow/agents inside the copy dir", () => {

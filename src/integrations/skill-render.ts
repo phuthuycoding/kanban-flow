@@ -26,6 +26,7 @@ export function renderForCopy(text: string, copyRoot: string): string {
     .replace(BARE_HANDOFF, "kf-$1")
     .replace(new RegExp(`${PLUGIN}/assets/skills/(${NAME})`, "g"), (_m, x: string) => `${copyRoot}/kf-${x}`)
     .replace(new RegExp(`${PLUGIN}/assets/agents`, "g"), () => `${copyRoot}/kf-flow/agents`)
+    .replace(new RegExp(`${PLUGIN}/assets/shared`, "g"), () => `${copyRoot}/kf-flow/shared`)
     .replace(new RegExp(PLUGIN, "g"), () => PKG_ROOT);
 }
 

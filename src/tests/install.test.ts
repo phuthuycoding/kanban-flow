@@ -340,6 +340,7 @@ describe("a linked git worktree as the package root", () => {
     cpSync(join(PKG_ROOT, "dist"), join(pkg, "dist"), { recursive: true });
     cpSync(join(PKG_ROOT, "assets", "skills"), join(pkg, "assets", "skills"), { recursive: true });
     cpSync(join(PKG_ROOT, "assets", "agents"), join(pkg, "assets", "agents"), { recursive: true });
+    cpSync(join(PKG_ROOT, "assets", "shared"), join(pkg, "assets", "shared"), { recursive: true });
     cpSync(join(PKG_ROOT, "package.json"), join(pkg, "package.json"));
     symlinkSync(join(PKG_ROOT, "node_modules"), join(pkg, "node_modules"), "dir");
     if (gitMarker === "file") {

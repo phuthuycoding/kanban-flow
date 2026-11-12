@@ -156,7 +156,7 @@ describe("the flow skill wiring", () => {
 });
 
 describe("the harness tools reference", () => {
-  const tools = () => read("assets/skills/flow/references/harness-tools.md");
+  const tools = () => read("assets/shared/harness-tools.md");
 
   it("lists the seven agents in the dispatch-by-name row", () => {
     const r = row(tools(), /Dispatch a kanban agent by name/);

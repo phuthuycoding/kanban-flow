@@ -239,7 +239,7 @@ describe("the documentation surfaces", () => {
     ["docs", "workflow", "harness.md"],
     ["docs", "workflow", "lifecycle.md"],
     ["assets", "skills", "flow", "SKILL.md"],
-    ["assets", "skills", "flow", "references", "harness-tools.md"],
+    ["assets", "shared", "harness-tools.md"],
   ];
   const STALE_COUNT = /\b(3|three) (kanban )?(agents|agent definitions|agent bodies|subagents)\b/i;
 
@@ -306,7 +306,7 @@ describe("the skills tree after the runner and drive removal", () => {
     const section = slice(read("assets", "skills", "flow", "SKILL.md"), "\n## Multi-agent harness", "\n## ");
     expect(section).not.toMatch(/runner|headless|harness\.(stages|roles|runners)/i);
     expect(section).toContain("Agent(");
-    expect(read("assets", "skills", "flow", "references", "harness-tools.md")).not.toMatch(/runner/i);
+    expect(read("assets", "shared", "harness-tools.md")).not.toMatch(/runner/i);
   });
 
   it("says a review without a subagent tool cannot complete and the human is told, without kf run", () => {

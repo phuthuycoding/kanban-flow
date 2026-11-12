@@ -55,6 +55,8 @@ const PRODUCT_PKG_DIR = "kanban-flow";
 const PKG_SKILLS_DIR = join(PKG_ROOT, "assets", "skills");
 /** The agent bodies sit under assets/agents, where the plugin manifest lists them for Claude Code. */
 export const PKG_AGENTS_DIR = join(PKG_ROOT, "assets", "agents");
+/** The references several skills cite; copy runtimes get them inside the flow copy, as they get the agents. */
+export const PKG_SHARED_DIR = join(PKG_ROOT, "assets", "shared");
 
 /** Text a caller prints. This module does not depend on the CLI result type. */
 export interface InstallReport {
@@ -116,7 +118,7 @@ function snapshotDigest(snap: Map<string, Buffer>): string {
 
 /**
  * Every file of the kf-<name> copy of managed skill <name> rendered for skillsDir, keyed by relative
- * path: .md files rendered, other files as packaged, and the flow copy carries the agent bodies.
+ * path: .md files rendered, other files as packaged, and the flow copy carries the agent bodies and the shared references.
  */
 function renderedSkill(skillsDir: string, name: string): Map<string, Buffer> {
   const out = new Map<string, Buffer>();
@@ -126,6 +128,7 @@ function renderedSkill(skillsDir: string, name: string): Map<string, Buffer> {
   }
   if (name === "flow") {
     for (const a of MANAGED_AGENTS) out.set(join("agents", `${a}.md`), Buffer.from(renderForCopy(readFileSync(join(PKG_AGENTS_DIR, `${a}.md`), "utf8"), skillsDir)));
+    for (const [rel, bytes] of dirSnapshot(PKG_SHARED_DIR)) out.set(join("shared", rel), Buffer.from(renderForCopy(bytes.toString("utf8"), skillsDir)));
   }
   return out;
 }

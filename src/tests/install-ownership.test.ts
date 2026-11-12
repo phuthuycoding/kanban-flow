@@ -14,6 +14,7 @@ vi.mock("../shared/paths.js", async (importOriginal) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kfw-pkg-"));
   fs.cpSync(path.join(original.PKG_ROOT, "assets", "skills"), path.join(root, "assets", "skills"), { recursive: true });
   fs.cpSync(path.join(original.PKG_ROOT, "assets", "agents"), path.join(root, "assets", "agents"), { recursive: true });
+  fs.cpSync(path.join(original.PKG_ROOT, "assets", "shared"), path.join(root, "assets", "shared"), { recursive: true });
   return { ...original, PKG_ROOT: root };
 });
 

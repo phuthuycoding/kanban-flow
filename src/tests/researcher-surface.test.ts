@@ -9,7 +9,7 @@ import { loopStats, parseLedger } from "../workflow/loop-stats.js";
 
 const read = (...parts: string[]) => readFileSync(join(PKG_ROOT, ...parts), "utf8");
 const AGENT = ["assets", "agents", "researcher.md"];
-const BRIEF = ["assets", "skills", "flow", "references", "researcher-brief.md"];
+const BRIEF = ["assets", "shared", "researcher-brief.md"];
 
 /** The YAML frontmatter block between the leading `---` fences. */
 function frontmatter(text: string): string {
