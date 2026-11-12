@@ -124,13 +124,23 @@ function parseProjectBlock(value: unknown, file: string): GitHubProject | undefi
   return p as GitHubProject;
 }
 
-export function parseSkillsBlock(value: unknown, file: string): SkillsConfig | undefined {
+/** `layer` names the file's layer in the error, so a bad global or workspace file is not called a project config. */
+export function parseSkillsBlock(value: unknown, file: string, layer = "project"): SkillsConfig | undefined {
   if (value === undefined) return undefined;
-  const bad = () => new Error(`Invalid project config: ${file} — skills.scope must be "global" or "project"`);
+  const bad = () => new Error(`Invalid ${layer} config: ${file} — skills.scope must be "global" or "project"`);
   if (!value || typeof value !== "object" || Array.isArray(value)) throw bad();
   const s = value as Partial<SkillsConfig>;
   if (s.scope !== "global" && s.scope !== "project") throw bad();
   return s as SkillsConfig;
+}
+
+/** One shape rule per person-level key, shared by the project parser and the global/workspace layer parser. */
+export function isReviewerValue(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+export function isAgentsValue(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((a) => typeof a === "string");
 }
 
 /**
@@ -172,12 +182,12 @@ function parseConfigText(text: string, f: string): Partial<ProjectConfig> {
   if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)
     || (cfg.defaultContext !== undefined && typeof cfg.defaultContext !== "string")
     || (cfg.repository !== undefined && typeof cfg.repository !== "string")
-    || (cfg.reviewer !== undefined && typeof cfg.reviewer !== "string")
+    || (cfg.reviewer !== undefined && !isReviewerValue(cfg.reviewer))
     || (cfg.created !== undefined && typeof cfg.created !== "string")
     || (cfg.schema !== undefined && cfg.schema !== "kanban-flow")
     || (cfg.stack !== undefined && cfg.stack !== null && typeof cfg.stack !== "string")
     || (cfg.stacks !== undefined && (!Array.isArray(cfg.stacks) || !cfg.stacks.every((s) => typeof s === "string")))
-    || (cfg.agents !== undefined && (!Array.isArray(cfg.agents) || !cfg.agents.every((a) => typeof a === "string")))) {
+    || (cfg.agents !== undefined && !isAgentsValue(cfg.agents))) {
     throw new Error(`Invalid project config: ${f}`);
   }
   if (cfg.contexts !== undefined) {

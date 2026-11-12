@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseAgentIds } from "../integrations/agents.js";
-import { configPath, parseSkillsBlock, ProjectConfigError, readProjectFileConfig, type ProjectConfig } from "./config.js";
+// config.ts imports this module back (readProjectConfig → readConfigLayers). The cycle is safe only while
+// neither module touches the other's bindings at evaluation time: keep every use below inside a function.
+import { configPath, isAgentsValue, isReviewerValue, parseProjectConfig, parseSkillsBlock, ProjectConfigError, type ProjectConfig } from "./config.js";
 
 /**
  * Config layers: global `~/.kf/config.json`, the nearest ancestor `.kf/workspace.json`, and the project
@@ -70,10 +72,10 @@ function validateLayerValue(key: string, value: unknown, path: string, layer: Co
   const bad = (detail: string) => new ProjectConfigError(`Invalid ${layer} config: ${path} — ${detail}`);
   switch (key) {
     case "reviewer":
-      if (typeof value !== "string") throw bad("reviewer must be a string");
+      if (!isReviewerValue(value)) throw bad("reviewer must be a string");
       return value;
     case "agents":
-      if (!Array.isArray(value) || !value.every((a) => typeof a === "string")) throw bad("agents must be an array of strings");
+      if (!isAgentsValue(value)) throw bad("agents must be an array of strings");
       try {
         parseAgentIds(value);
       } catch (err) {
@@ -83,7 +85,7 @@ function validateLayerValue(key: string, value: unknown, path: string, layer: Co
       return value;
     case "skills":
       try {
-        return parseSkillsBlock(value, path);
+        return parseSkillsBlock(value, path, layer);
       } catch (err) {
         if (err instanceof Error) throw new ProjectConfigError(err.message, { cause: err });
         throw err;
@@ -187,8 +189,10 @@ export function readConfigLayers(projectRoot: string): ResolvedConfig {
   const workspace = findWorkspaceConfigPath(projectRoot);
   if (workspace) layers.push(readLayerFile(workspace, "workspace"));
   const projectFile = configPath(projectRoot);
-  const projectValues = existsSync(projectFile) ? readProjectFileConfig(projectRoot) : {};
-  if (existsSync(projectFile)) layers.push({ layer: "project", path: projectFile, values: projectValues, notApplied: [] });
+  // One existence check for the project file: readProjectFileConfig would repeat it.
+  const hasProject = existsSync(projectFile);
+  const projectValues = hasProject ? parseProjectConfig(readFileSync(projectFile, "utf8"), projectFile) : {};
+  if (hasProject) layers.push({ layer: "project", path: projectFile, values: projectValues, notApplied: [] });
   const sources: Record<string, ConfigLayer> = {};
   for (const l of layers) recordSources(sources, l.values as Record<string, unknown>, l.layer, "");
   // With no layer file above the project, hand back the project object itself: byte-for-byte as before.
