@@ -4,6 +4,8 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-12
+
 ### Added
 - **Config layers and `kf config`.** `reviewer`, `agents` and `skills` can come from a global `~/.kf/config.json` or from the nearest `.kf/workspace.json` in a parent folder, which lets one setting cover every repository under that folder. The project's `.kf/config.json` always wins. Every other key stays project-only: in a global or workspace file it is not applied, and kf warns, naming the file and the keys. `kf config show [--json]` prints the effective config and the layer each value came from, `kf config get <key>` prints one value, and `kf config set <key> <value> [--global|--workspace]` writes one (refusing a key that does not apply at that layer). `kf init`, onboarding and `kf doctor --fix` keep writing `.kf/config.json` from the project file alone; onboarding prompts now suggest the inherited `reviewer`, `agents` and `skills` values, and accepting one leaves that key out of the project file. `kf doctor` lists the layer files, reports an invalid one, and warns per key that is not applied (#176).
 
