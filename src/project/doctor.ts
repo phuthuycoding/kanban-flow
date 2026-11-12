@@ -484,8 +484,19 @@ export async function runDoctorFixes(root: string): Promise<DoctorFixResult> {
   }
 
   if (!existsSync(configPath(root))) {
-    saveConfig(root, bootstrapDefaults(root));
-    fixed.push("wrote .kf/config.json defaults (as kf init --defaults does)");
+    try {
+      saveConfig(root, bootstrapDefaults(root));
+      fixed.push("wrote .kf/config.json defaults (as kf init --defaults does)");
+    } catch (err) {
+      // Building the defaults reads the layer files; an invalid one is a finding (its message names the file), and no project file is written.
+      if (!(err instanceof ProjectConfigError || (err instanceof Error && "code" in err))) throw err;
+      failures.push({
+        level: "ERROR",
+        area: ".kf/config.json",
+        message: `kf doctor --fix did not write the project config defaults: ${err.message}`,
+        action: "fix or delete the config file named above (kf doctor never edits it), then re-run kf doctor --fix",
+      });
+    }
   } else {
     // Field-level repairs on the raw file: keys we do not touch keep their spelling and order.
     const read = readRawConfigText(root);

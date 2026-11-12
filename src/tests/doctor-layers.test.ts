@@ -139,3 +139,16 @@ describe("kf doctor with an invalid workspace layer", () => {
     expect(res.stdout).toContain(path);
   });
 });
+
+describe("kf doctor --fix with an invalid global layer and no project file", () => {
+  it("reports an error naming the global file, exits non-zero and writes no project file", async () => {
+    await currentPluginStub();
+    await mkdir(join(root, ".kf"), { recursive: true });
+    await mkdir(join(root, ".works"), { recursive: true });
+    const path = await writeGlobal(JSON.stringify({ agents: "claude" }));
+    const res = await cmdDoctor(args({ fix: true }), root);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toContain(path);
+    await expect(readFile(join(root, ".kf", "config.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
