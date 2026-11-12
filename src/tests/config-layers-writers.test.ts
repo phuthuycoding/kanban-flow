@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { cmdInit } from "../cli/commands/init.js";
 import { runDoctorFixes } from "../project/doctor.js";
+import { askAll, saveConfig } from "../project/bootstrap.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
@@ -129,5 +130,50 @@ describe("kf doctor --fix creating a missing project file", () => {
     expect(typeof written.reviewer).toBe("string");
     expect(Array.isArray(written.agents)).toBe(true);
     expect(written.skills).toBeDefined();
+  });
+});
+
+describe("interactive init offers the inherited values as prompt defaults", () => {
+  // A scripted readline: answers by prompt substring, records every prompt it was asked.
+  const scripted = (answers: Record<string, string>) => {
+    const prompts: string[] = [];
+    const rl = {
+      question: async (prompt: string): Promise<string> => {
+        prompts.push(prompt);
+        for (const [key, ans] of Object.entries(answers)) if (prompt.includes(key)) return ans;
+        return "";
+      },
+    };
+    return { rl, prompts };
+  };
+  const prompt = (prompts: string[], key: string) => prompts.find((p) => p.includes(key)) ?? "";
+
+  beforeEach(() => {
+    mkdirSync(join(root, ".kf"), { recursive: true });
+  });
+
+  it("offers the global reviewer as the default and leaves the key out when it is accepted", async () => {
+    const { rl, prompts } = scripted({});
+    const answers = await askAll(rl as never, root);
+    expect(prompt(prompts, "Default reviewer")).toContain("[A]");
+    expect(answers.reviewer).toBe("A");
+    saveConfig(root, answers);
+    expect(Object.keys(readProject())).not.toContain("reviewer");
+  });
+
+  it("offers the global agents as the default and leaves the key out when they are accepted", async () => {
+    const { rl, prompts } = scripted({});
+    const answers = await askAll(rl as never, root);
+    expect(prompt(prompts, "which agents")).toContain("default: claude, codex");
+    saveConfig(root, answers);
+    expect(Object.keys(readProject())).not.toContain("agents");
+  });
+
+  it("writes the reviewer when another one is answered", async () => {
+    const { rl } = scripted({ "Default reviewer": "B" });
+    const answers = await askAll(rl as never, root);
+    expect(answers.reviewer).toBe("B");
+    saveConfig(root, answers);
+    expect(readProject().reviewer).toBe("B");
   });
 });
