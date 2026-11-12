@@ -31,7 +31,7 @@ review-rule seeds, for a project that wants only the state machine.
 
 Four sections, in order:
 
-1. **Project context** — the resolved root, the stacks (configured in `.kf/config.json`, or detected), a one-line config summary (default context, reviewer, agents) and which agents already have the skills at project scope.
+1. **Project context** — the resolved root, the stacks (configured in `.kf/config.json`, or detected), a one-line config summary (default context, reviewer, agents — the effective values, so a `reviewer` or `agents` from `~/.kf/config.json` or a workspace `.kf/workspace.json` shows here; `kf config show` names each value's layer) and which agents already have the skills at project scope.
 2. **Setup checklist** — every setup item, marked done or missing. Each missing item carries the command that fixes it.
 3. **Review rules to enforce** — the full text of the effective review rules, each labelled with its source. The agent adopts them as coding conventions *now*, not only when the review phase reads them.
 4. **Workflow guide** — the pipeline, the three human gates (requirement, plan approval, merging the PR), the in-session task loop and `kf verify`, and a reminder that every transition is additionally gated on artifacts and report status (`kf validate` lists what blocks the next move; the full contract lives in [gates](gates.md)). It ends with the loop semantics, the `--force` policy and the commands the agent drives — the command list is generated from the registered CLI help strings, so it cannot drift from the parser.
