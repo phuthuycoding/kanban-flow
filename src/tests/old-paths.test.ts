@@ -30,19 +30,16 @@ interface Allowed {
 
 // Keep this list narrow: every entry names a file and why the old path is legitimate there.
 const ALLOWED: Allowed[] = [
-  { file: "src/integrations/install.ts", reason: "upgrade recognition of installs made by older kf versions" },
-  { file: "src/tests/migration.test.ts", reason: "legacy install fixtures that model kf 0.14 and older" },
-  { file: "src/tests/doctor-plugin.test.ts", reason: "legacy install fixtures that model kf 0.14 and older" },
-  { file: "src/tests/install-checkout-root.test.ts", reason: "fixtures that model older installs" },
   {
     file: "src/tests/install-ownership.test.ts",
     line: /git show v0\.13\.0:skills\/kanban-ship\/SKILL\.md/,
-    reason: "points at the released skill body that older installs shipped",
+    reason: "historical git tag reference used to model a pre-0.14 install (upgrade-recognition context)",
   },
   {
     file: "src/tests/next-schedule.test.ts",
     line: /TASK-005 overlaps TASK-002/,
-    reason: "recorded scheduler wording quoting a past plan, not a live path",
+    reason:
+      "the why string annotates the recorded replay-adaptive-cap ledger under src/tests/fixtures/kf-next; that ledger is history the FR-008 pathspec excludes, and the string names the path that historical plan used",
   },
 ];
 
@@ -77,7 +74,7 @@ describe("old asset-layout paths", () => {
 
   it("keeps every allowlist entry in use so the list cannot grow stale", () => {
     const hits = grepOldPaths();
-    const unused = ALLOWED.filter((a) => a.line && !hits.some((h) => h.split(":")[0] === a.file && a.line!.test(h)));
+    const unused = ALLOWED.filter((a) => !hits.some((h) => h.split(":")[0] === a.file && (!a.line || a.line.test(h))));
     expect(unused.map((a) => a.file)).toEqual([]);
   });
 });
