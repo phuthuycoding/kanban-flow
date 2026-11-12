@@ -91,3 +91,45 @@ describe("workflow docs", () => {
     expect(unreleased).toMatch(/### Changed[\s\S]*assets\//);
   });
 });
+
+// The FR-008 pattern needs a name after the slash and a non-slash character before it, so it misses a
+// bare package directory in prose and a plugin-root citation. These narrower greps close that gap.
+// Runtime destinations (`.claude/agents/`, `~/.claude/skills/`, `.<agent>/skills`) never match either
+// pattern, so no allowlist is needed; add an explicit file + reason entry here if one ever does.
+function gitGrepHits(pattern: string, pathspec: string[]): string[] {
+  try {
+    const out = execFileSync("git", ["grep", "-nE", pattern, "--", ...pathspec], { cwd: repo, encoding: "utf8" });
+    return out.split("\n").filter(Boolean);
+  } catch (e) {
+    // git grep exits 1 when nothing matches; any other failure is a real error.
+    if ((e as { status?: number }).status === 1) return [];
+    throw e;
+  }
+}
+
+describe("stale package-layout references the FR-008 pattern cannot see", () => {
+  it("docs do not name a bare package directory such as `skills/`, `agents/` or `kanban-flow/`", () => {
+    const hits = gitGrepHits("`(skills|agents|kanban-flow)/`", [
+      "README.md",
+      "docs/workflow",
+      "docs/specs",
+      "assets/**/*.md",
+      ".github/pages/index.html",
+    ]);
+    expect(hits, `bare package directories:\n${hits.join("\n")}`).toEqual([]);
+  });
+
+  it("no tracked file cites a plugin-root path into the old package layout", () => {
+    const hits = gitGrepHits("PLUGIN_ROOT\\}/(skills/|agents|kanban-flow/)", [
+      ".",
+      ":!CHANGELOG.md",
+      ":!BACKLOG.md",
+      ":!docs/requirement",
+      ":!docs/use-cases",
+      ":!docs/testplan",
+      ":!.works",
+      ":!src/tests/fixtures/kf-next",
+    ]);
+    expect(hits, `plugin-root citations:\n${hits.join("\n")}`).toEqual([]);
+  });
+});
