@@ -229,7 +229,7 @@ Skills (11) and agents (7): Claude Code gets them through the kf plugin (\`kf in
 \`/plugin marketplace add <package root>\` then \`/plugin install kf@kanban-flow\`). Start with \`/kf:flow\`;
 the phase skills are /kf:brainstorm, /kf:plan, /kf:implement, /kf:test, /kf:review, /kf:archive,
 /kf:bug, /kf:spike, /kf:travel and /kf:docs. Other runtimes get kf-<name> skill copies (kf-flow, kf-plan, ...).
-Loop semantics: FAIL/REJECT in testing or review sends the item back to implementation
+Loop semantics: FAIL in testing or review sends the item back to implementation
 with a new execution id; BLOCKED stops; REQUIREMENT_BUG freezes all movement.
 Never bypass a failed gate with --force or --skip-hooks unless the user explicitly approves;
 every bypass is recorded in the work item's metadata and reported by kf status/validate.`;

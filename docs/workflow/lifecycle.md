@@ -31,17 +31,17 @@ flowchart TD
     R -- Not yet --> O
     R -- Yes --> S[kf stage item testing]
     S --> T[Mint a new execution id]
-    T --> U[Run the tests from the Test Strategy]
+    T --> U[Read the stage record at HEAD, map every TC to its test, run uncovered changed behaviour for real, measure line coverage per changed file]
     U --> V[Write testing-result carrying the execution id]
     V --> W{Testing PASS?}
-    W -- FAIL/REJECT --> O
+    W -- FAIL --> O
     W -- BLOCKED --> X([Stop and report the blocker])
     W -- PASS --> Y[kf stage item review]
     Y --> Z[Facts and review pack: lint, build, suite counts, rules project then user then package]
     Z --> Z2[Independent code-reviewer agents, tier from the diff; evidence verified]
     Z2 --> AA[Write review-report carrying the execution id]
     AA --> AB{Review result?}
-    AB -- FAIL/REJECT --> O
+    AB -- FAIL --> O
     AB -- REQUIREMENT_BUG --> AC([Stop and ask the user to decide])
     AB -- PASS --> PR[Push the item branch, open the PR, watch CI, record ci and landing in the report]
     PR -- CI red --> O
@@ -58,17 +58,17 @@ flowchart TD
 
 There is a second way out of this flow: `kf cancel <feature> --reason "<why>"` stops a work item for good at any stage, `done` included when something supersedes it. The reason is mandatory and is stored in `.kfw.json` together with the stage it stopped in, so reopening it is `kf stage <feature> <that stage>`. This is the user's decision; the agent only suggests it on a `REQUIREMENT_BUG` or a dead scope.
 
-Phase 1 and the Phase 2 approval are the two points where the user decides; `kf approve` is both the approval and the start (`kf approve --backlog` approves and defers). There is no ship-or-archive decision after a PASS review: the item is closed by the merge on GitHub. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once the item has started the agent runs on its own inside the execution contract. Two exceptions still need the user: `REQUIREMENT_BUG`, and any change of scope.
+Phase 1 and the Phase 2 approval are the two points where the user decides; `kf approve` is both the approval and the start (`kf approve --backlog` approves and defers). There is no ship-or-archive decision after a PASS review: the item is closed by the merge on GitHub. A feature produces all four planning artifacts; a bug uses its bug report as the triage contract and produces no feature use cases or test plan. If behaviour appears beyond the scope of the fix, tell the user and let them decide before opening a separate feature. Once the item has started the agent runs on its own inside the execution contract. In a project that pins no `harness.verify.stage`, the waiver before review is also the user's decision. Beyond that, the agent stops for the user only on the stop list: an irreversible or destructive operation; a security-sensitive action; a side effect outside this worktree; a reopened task at its round cap, apart from the one minimal fix past the cap; a plan too broken to act on, a scope change being one; a review `REQUIREMENT_BUG`; a testing `BLOCKED`.
 
 ## Two layers
 
 The flow above is the **item** layer: one work item, from brainstorm to `done`. Above it sits the **day** layer: travel (the day orchestrator) decides which items to start, keeps several of them moving in its own session, and reports what needs the human and what waits to merge. It runs the phase skills itself, one slot per item — it never approves, merges or archives an item. `kf status --all` ends with the same buckets computed from kf state: `Needs you`, `Waiting to merge` (the PR URL and `gh pr merge <n>`, plus any docs branch awaiting push or not proven merged, with its `git push -u origin <branch>`). `Needs you` also lists a review PASS item whose close was refused, as `review PASS but not closed: <refusal heading> <failed check codes>`.
 
-"Runs on its own" is the in-session loop: the session asks `kf next` what is due, records each step with `kf record`, dispatches the test-writer, developer and code-reviewer per task, runs `kf verify --task` (`--base`, or `--commits` for the pipelined loop, where developers share the worktree under the live developer cap (starts at min(2, ceiling), ceiling `harness.developers.max`) on tasks whose Files overlap no open task, each committing through `commit-task.mjs`, tasks may complete out of order, and the next task's test-writer runs beside them) after each task commit, `kf verify --wave <w>` once each wave is complete (the next wave's developers wait for it), and `kf verify --stage` before testing and again after the last commit of testing when `kf status` does not already show PASS at HEAD (its record — HEAD sha, clean tree, each command's outcome — is what `kf stage <f> review` reads; a project with no `harness.verify.stage` enters review on a waiver the human gives), and carries the item through testing and review to an open PR and a review report with `ci` and `landing`, or stops earlier with a named blocker the human must act on. See [the harness guide](harness.md).
+"Runs on its own" is the in-session loop: the session asks `kf next` what is due, records each step with `kf record`, dispatches the test-writer, developer and code-reviewer per task, runs `kf verify --task` (`--base`, or `--commits` for the pipelined loop, where developers share the worktree under the live developer cap (starts at min(2, ceiling), ceiling `harness.developers.max`) on tasks whose Files overlap no open task, each committing through `commit-task.mjs`, tasks may complete out of order, and the next task's test-writer runs beside them) after each task commit, `kf verify --wave <w>` once each wave is complete (the next wave's developers wait for it), and `kf verify --stage` before testing when `kf status` does not already show PASS at HEAD (its record — HEAD sha, clean tree, each command's outcome — is what testing cites and `kf stage <f> review` reads; testing commits nothing and runs no suite of its own, so the record stays at HEAD; a project with no `harness.verify.stage` enters review on a waiver the human gives), and carries the item through testing and review to an open PR and a review report with `ci` and `landing`, or stops earlier with a named blocker the human must act on. See [the harness guide](harness.md).
 
 ## Review and closing
 
-Review runs in a fixed order. An independent `code-reviewer` reads the branch diff first; FAIL or REJECT returns to implementation before any PR exists. Only after a reviewer PASS is the item branch pushed and a PR opened (when none is recorded). If the repository has CI on the PR, its checks are watched until green or red; red returns the item to implementation, and the fix is re-tested and re-reviewed on the same PR. The review report records `ci: green|red|none` and `landing: pr|none`.
+Review runs in a fixed order. An independent `code-reviewer` reads the branch diff first; FAIL returns to implementation before any PR exists. Only after a reviewer PASS is the item branch pushed and a PR opened (when none is recorded). If the repository has CI on the PR, its checks are watched until green or red; red returns the item to implementation, and the fix is re-tested and re-reviewed on the same PR. A testing FAIL, a review FAIL and red CI share one fix rule: each failure is repaired on the task that owns the failing file, continuing its round count, and five rounds is the task's whole life. The review report records `ci: green|red|none` and `landing: pr|none`.
 
 The report is gated at review → done: a PASS needs `ci` green or none (`review_ci_missing`, `review_ci_red`), a `landing` value (`review_landing_missing`), and with `landing: pr` a recorded PR (`review_pr_missing`).
 
@@ -117,10 +117,10 @@ sequenceDiagram
 
     Test->>CLI: kf stage feature review
     CLI-->>Test: Refused when the testing report is not PASS on the current execution
-    Test->>FS: Write testing-result with status FAIL or REJECT
+    Test->>FS: Write testing-result with status FAIL
     Test->>CLI: kf stage feature implementation
     CLI->>FS: Retire the current execution id
-    Impl->>FS: Fix the code and tick the tasks
+    Impl->>FS: Repair each failure on the task that owns it
     Impl->>CLI: kf stage feature testing
     CLI->>FS: Mint a new execution id
     Test->>FS: Write testing-result for the new execution

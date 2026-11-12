@@ -44,7 +44,7 @@ export function checkDirectionGate(feature: Feature, to: Stage, legacyPrMerged =
     const status = read(file);
     if (to === "review" && status !== "PASS") {
       issues.push(finding(feature, "ERROR", file, "testing_not_pass",
-        `testing-result status is ${status ?? "missing"}; only PASS may enter review (FAIL/REJECT must loop back to implementation)`));
+        `testing-result status is ${status === "REJECT" ? "FAIL" : status ?? "missing"}; only PASS may enter review (FAIL must loop back to implementation)`));
     }
     if (to === "implementation" && status === "PASS") {
       issues.push(finding(feature, "ERROR", file, "testing_already_pass",
@@ -60,7 +60,7 @@ export function checkDirectionGate(feature: Feature, to: Stage, legacyPrMerged =
     const status = read(file);
     if (to === "done" && status !== "PASS") {
       issues.push(finding(feature, "ERROR", file, "review_not_pass",
-        `review-report status is ${status ?? "missing"}; only PASS may enter ${to} (FAIL/REJECT loop to implementation)`));
+        `review-report status is ${status === "REJECT" ? "FAIL" : status ?? "missing"}; only PASS may enter ${to} (FAIL loops back to implementation)`));
     }
     if (to === "done" && status === "PASS") {
       const { fm } = splitFrontmatter(readFileSync(join(feature.dir, file), "utf8"));

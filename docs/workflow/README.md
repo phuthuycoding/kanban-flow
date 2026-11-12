@@ -37,7 +37,7 @@ Features and bugs share one state machine. Create a bug with `kf new <name> --ty
 - Planning needs human approval. A feature's fingerprint covers the requirement, the four planning artifacts and every UC file; a bug's fingerprint covers only the bug report.
 - Editing the execution contract after approval forces a return to planning and a fresh approval.
 - Every entry into testing mints a new execution id. The testing and review reports must reference that exact id.
-- A FAIL or a REJECT, or red CI on the PR, returns to implementation and must be tested again. BLOCKED stops the pipeline.
+- A FAIL, or red CI on the PR, returns to implementation, where each failure is repaired on the task that owns it, and must be tested again. BLOCKED stops the pipeline.
 - Review runs the independent `code-reviewer` first; only after its PASS is the branch pushed and the PR opened, and the review report is PASS only when CI is green or absent. The human merges the PR on GitHub; `kf status`, `kf sync` or `kf archive` then closes the item into `done`, removes its worktree and deletes the merged branch.
 - REQUIREMENT_BUG stops every ordinary transition so the user can decide.
 - The feature report must be written before the close, and the close copies nothing under `docs/`: review edits the living docs under `docs/specs/` and the review report records `docs:`. A bug only updates an existing living doc when there is a docs impact.

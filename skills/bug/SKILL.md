@@ -54,4 +54,4 @@ Then load `kf:plan` on its bug branch. The bug report is the execution contract:
 Bug report confirmed. Load kf:plan on the bug branch to approve the triage contract (the approval starts the fix, or --backlog defers it); keep the reproduction and the regression test inside the approved scope.
 ```
 
-A FAIL or a REJECT, in testing or in review, sends the item back to implementation. `REQUIREMENT_BUG` still stops for the user to decide; do not use it in place of a bug report.
+A FAIL, in testing or in review, sends the item back to implementation. `REQUIREMENT_BUG` still stops for the user to decide; do not use it in place of a bug report.

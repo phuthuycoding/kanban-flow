@@ -263,7 +263,9 @@ tests, dual writes, why the code exists — a `file:line` map under 40 lines) an
 runs the plan task by task: a `test-writer` writes the failing tests, a `developer`
 makes them pass (an `automation-writer` adds the UI specs under the full level), a
 `code-reviewer` reads the diff, a fix loop capped at five rounds (one minimal fix past the cap when only the smallest change is left), every decision in a ledger that survives
-compaction. `/kf:review` establishes the facts mechanically — lint, build, the
+compaction. One fix rule holds after the loop too: a testing FAIL, a review FAIL or red CI
+reopens the task that owns the failing file, and its round count continues — five rounds is
+the task's whole life. `/kf:review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
 surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
@@ -272,9 +274,9 @@ reviewer said it is before it reaches the report. After the review PASS, `/kf:re
 pushed commit's GitHub Actions runs and the PR's mergeability in the background. A red
 run is not handed to the human at first: it writes a `ci: red` / `FAIL` report with the
 failed run and its log tail and sends the item back through implementation, testing and
-review; the fix is pushed to the same PR and watched again. A second red round goes to
-the human with both rounds' failed runs, as does anything the watcher cannot settle (a
-conflict, a blocked or timed-out PR). It never re-runs, cancels or approves a workflow.
+review, where the owning task repairs it under its five-round cap; the fix is pushed to the
+same PR and watched again. Anything the watcher cannot settle (a conflict, a blocked or
+timed-out PR) goes to the human. It never re-runs, cancels or approves a workflow.
 
 ### From approval to the merge gate
 
@@ -300,8 +302,10 @@ table names a `Files` allowlist for every task, and `kf approve` seals it.
   it passed at HEAD on a clean tree, so `--stage` runs only when `kf status` does
   not already show PASS at HEAD. A project with no `harness.verify.stage` enters
   review on a waiver the human gives (`--waive "<reason>"`), shown by `kf status`
-  and in the review report. The testing report's Commands table describes the
-  run; it is no longer what the gate reads.
+  and in the review report. Testing reads the stage record instead of re-running
+  the suite: it maps every test case to its test, runs the changed behaviour no
+  test covers and measures line coverage per changed file. Its Commands table
+  cites the record; it is not what the gate reads.
 - Testing and review run through the normal gates and stop at **review PASS:
   merge the PR**, or earlier with a blocker that names the human step.
 - The loop is pipelined: developers, up to the live developer cap, share one worktree on ready tasks whose

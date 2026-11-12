@@ -46,7 +46,7 @@ status: DONE
 | Test cases | {total_cases} |
 | Passed | {passed} |
 | Failed | {failed} |
-| Coverage | {overall_coverage}% |
+| Coverage | {coverage_per_file} (line % per changed file from the testing report, or `none — <reason>`) |
 
 ## Review Summary
 {review_summary}

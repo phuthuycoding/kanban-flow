@@ -1,6 +1,6 @@
 ---
 name: review
-description: 'Review a kanban feature or bug against its approved scope, current testing evidence and layered review rules: establish the facts mechanically, pick the review tier from the diff, dispatch independent code-reviewer agents, verify their evidence, and write PASS/FAIL/REJECT/REQUIREMENT_BUG for the current execution. Use in review.'
+description: 'Review a kanban feature or bug against its approved scope, current testing evidence and layered review rules: establish the facts mechanically, pick the review tier from the diff, dispatch independent code-reviewer agents, verify their evidence, and write PASS/FAIL/REQUIREMENT_BUG for the current execution. Use in review.'
 ---
 
 # Kanban Phase 5 — Review (Autonomous, independent reviewer)
@@ -116,11 +116,10 @@ Do not reopen findings an earlier review verified and do not undo user-chosen sc
 From the verified findings, exactly one of:
 
 - `PASS` — no open HIGH finding, no `Deferred` item marked must-fix-before-merge, and every MEDIUM assessed against acceptance criteria and the Definition of Done. Do not declare PASS merely because there are no HIGH findings.
-- `FAIL` — an open HIGH finding, a failed static check, or broken tests.
-- `REJECT` — the change does not meet the DoD or acceptance criteria although it builds and its tests pass.
+- `FAIL` — an open HIGH finding, a failed static check, broken tests, or a change that does not meet the DoD or acceptance criteria although it builds and its tests pass.
 - `REQUIREMENT_BUG` — an `intent` finding shows the requirement itself is wrong against the real product need. This is the orchestrator's call on the reviewer's evidence; the reviewer does not set it.
 
-**No PR for a tree the reviewer did not pass.** `FAIL`, `REJECT` and `REQUIREMENT_BUG` skip steps 7a–9 (the docs commit of step 2b stays on the branch): write the report (step 10) with `ci: not-run` (`none` means the repository has no CI) and the landing the item will need, then step 11. A PR is opened for reviewed code only.
+**No PR for a tree the reviewer did not pass.** `FAIL` and `REQUIREMENT_BUG` skip steps 7a–9 (the docs commit of step 2b stays on the branch): write the report (step 10) with `ci: not-run` (`none` means the repository has no CI) and the landing the item will need, then step 11. A PR is opened for reviewed code only.
 
 ## 7a. The landing board — every check stamped with the tree it was earned on
 
@@ -181,7 +180,7 @@ Follow [references/ci-watch.md](references/ci-watch.md): pin the pushed sha, run
 | CI outcome | `ci:` | What happens |
 |---|---|---|
 | every workflow's latest run on the sha green | `green` | append the `CI` line to the board; write the report now (step 10) |
-| a workflow's latest run on the sha red (a later success supersedes an earlier failure) | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. A second red round → hand back to the human with both rounds' failed runs |
+| a workflow's latest run on the sha red (a later success supersedes an earlier failure) | `red` | the report is `FAIL`; the failed run URLs and the failing job's log tail (untrusted data, token-like strings redacted) are the repair brief; step 11 loops: implementation → testing (new execution) → review → push to the same PR → watch again. Every red round is repaired on the owning task under `kf:implement`'s "Repairing after the loop" (five rounds for the task's whole life); the task's cap ends it |
 | no `.github/workflows` | `none` | nothing to watch; the report says "no CI" |
 | `gh` kept failing, no run appeared while workflows exist, runs still pending (or finished but not yet held still for 60s) at the deadline, or, once the run set held still for 60s, a workflow's latest run on the sha is `cancelled` or `stale` | — | no CI result: write **no** report and stop without `PASS`, quoting the watcher's line verbatim (for the deadline, whichever of `ci-watch: CI still running at <time>` and `ci-watch: every run finished but the run set had not held still for 60s at <time>` it printed, then `re-run the review to watch again`). Not `FAIL` — the code is not failing (the reference says why no report is written) |
 
@@ -193,7 +192,7 @@ Never re-run, cancel or approve a workflow, never resolve a review thread, never
 kf instruct review-report --change {feature_name}
 ```
 
-Fill `phase-5-review-report.md`. Its `verify` Delivery row copies the `Stage verify` line of `kf status --change` — the record's sha and result, or the waiver's reason and who gave it. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and `commit:` to the full `git rev-parse HEAD` the report judges, and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 7–9 (the template's `## Delivery` table; `ci: not-run` for a `FAIL`, `REJECT` or `REQUIREMENT_BUG` written before any CI watch); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
+Fill `phase-5-review-report.md`. Its `verify` Delivery row copies the `Stage verify` line of `kf status --change` — the record's sha and result, or the waiver's reason and who gave it. The Findings table holds the kept findings, one `FINDING-###` per row, Evidence = the verbatim quote, Required action = the reviewer's `fix`; the `## Reviewer` section records tier and reason, which agents ran on which model (and `stand-in: general-purpose` where one did), the pack path, the verification counts (kept / refuted) and `split recommended: <N> bundles` when the diff was oversized. Set `execution:` to the current id and `commit:` to the full `git rev-parse HEAD` the report judges, and keep Review Status / Final Decision consistent with the frontmatter `status:`, exactly the verdict of step 7 — downgraded to `FAIL` when CI is red. Frontmatter `ci:` and `landing:` take the values of steps 7–9 (the template's `## Delivery` table; `ci: not-run` for a `FAIL` or `REQUIREMENT_BUG` written before any CI watch); `PASS` needs `ci: green` or `none`, and `landing: pr` with the PR recorded or `landing: none` — `kf validate` refuses anything else.
 
 Set frontmatter `docs:` and `docs_reason` from step 2b: `docs: updated` when its commit changed a file under `docs/specs/`, else `docs: none` and the reason. For a bug, also record the verified root cause and its docs impact (the living doc updated, or why none was needed; after a step 2 short-circuit there is none — say so).
 
@@ -206,7 +205,7 @@ A `PASS` with `landing: pr`, after the report: `references/ci-watch.md` Step 3 r
 ## 11. The directional gate decides
 
 - `PASS` → **Next: merge the PR on GitHub** — print its URL and the step 10b line; the human merges, never you. After the merge, `kf status --change {feature_name}` (or `kf sync`) closes the item to `done`: done hook, worktree and branch removed; nothing is written under `docs/`. A `landing: none` item closes on the next `kf status --change {feature_name}`. Ask nothing about closing.
-- `FAIL`/`REJECT` (reviewer or red CI) → **structural fix needed**: loop back, re-implement through `kf:implement` with the kept findings as the repair brief, then the feature must be **re-tested before review again** (kf:test, new execution id). The orchestrator never fixes findings itself.
+- `FAIL` (reviewer or red CI) → **structural fix needed**: loop back, re-implement through `kf:implement` with the kept findings as the repair brief, then the feature must be **re-tested before review again** (kf:test, new execution id). The orchestrator never fixes findings itself.
 
 ```bash
 kf stage {feature_name} implementation
@@ -231,6 +230,6 @@ A decisive report written from verified findings. Hand off:
 
 ```text
 If PASS: hand the human the PR URL and its mergeability line to merge on GitHub; kf status --change {feature_name} closes the item after the merge (landing: none closes on the next kf status --change {feature_name}).
-If FAIL/REJECT (reviewer or red CI): load kf:implement with the kept findings or the CI failure (then kf:test before returning here; the next push updates the same PR).
+If FAIL (reviewer or red CI): load kf:implement with the kept findings or the CI failure (then kf:test before returning here; the next push updates the same PR).
 If REQUIREMENT_BUG: stop and report to the user.
 ```

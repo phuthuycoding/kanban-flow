@@ -200,44 +200,30 @@ describe("the task loop seats", () => {
 describe("the testing stage dispatch", () => {
   const section = () => slice(testing(), "\n## 2.", "\n## 3.");
 
-  it("dispatches the automation-writer under the full level when the UI suite or a UI spec is missing", () => {
-    const text = section();
-    expect(text).toContain("`Agent(kf:automation-writer)`");
-    expect(text).toContain("`${CLAUDE_PLUGIN_ROOT}/skills/implement/references/automation-writer-brief.md`");
-    expect(text).toContain("`full`");
-    expect(text).toContain("a UI test case has no spec");
-    expect(text).toContain("still missing after the run, or the tests are skipped, that's a gap");
+  it("dispatches no automation-writer at the testing stage", () => {
+    const text = testing();
+    expect(text).not.toContain("Agent(kf:automation-writer)");
+    expect(text).not.toContain("automation-writer-brief.md");
+    expect(text).not.toContain("testing-e2e-brief");
+    expect(text).not.toContain("testing-e2e-report");
   });
 
-  it("records the playwright rows with real exit codes and refuses a PASS on a non-zero row", () => {
-    const text = section();
-    expect(text).toContain("`## Commands and Evidence`");
-    expect(text).toContain("`npx playwright test`");
-    expect(text).toContain("real exit code");
-    expect(text).toContain("non-zero row means the report is not PASS");
+  it("fails an approved UI or E2E test case with no spec instead of writing one", () => {
+    expect(section().replace(/\s+/g, " ")).toMatch(/approved UI\/E2E TC with no spec[^.]*`?FAIL`?[^.]*owning task/);
   });
 
-  it("names the brief, the report and the allowlist the testing-stage dispatch fills", () => {
-    const text = section();
-    expect(text).toContain("`<item>/loop/testing-e2e-brief.md`");
-    expect(text).toContain("`<item>/loop/testing-e2e-report.md`");
-    expect(text).toContain("the Playwright `testDir` as the Files allowlist");
-    const brief = reference("automation-writer-brief.md");
-    expect(brief).toContain("`<item>/loop/testing-e2e-brief.md` at the testing stage");
-    expect(brief).toContain("`<item>/loop/testing-e2e-report.md` at the testing stage");
-    expect(brief).toContain("the Playwright `testDir` at the testing stage");
-  });
-
-  it("has the in-session controller commit the testing-stage specs before the testing report", () => {
-    const text = section();
-    expect(text).toContain("the in-session controller commits the automation-writer's spec files unchanged in one commit on the item branch before writing the testing report");
+  it("commits nothing at testing, so HEAD stays at the stage record", () => {
+    const text = testing().replace(/\s+/g, " ");
+    expect(text).toMatch(/commits? nothing/i);
     expect(text).not.toContain("A `kf run` worker");
-    expect(agentBody("automation-writer")).toContain("the in-session testing controller commits your spec files unchanged in one commit on the item branch before the testing report");
-    expect(read("docs", "workflow", "harness.md")).toContain("committed unchanged by the developer in the task loop and by the in-session controller at the testing stage");
+    expect(agentBody("automation-writer")).not.toContain("the in-session testing controller commits your spec files");
+    expect(read("docs", "workflow", "harness.md")).not.toContain("by the in-session controller at the testing stage");
   });
 
-  it("limits the Playwright MCP to selector discovery, one agent at a time", () => {
-    expect(section()).toMatch(/the Playwright MCP is for selector discovery only, one agent at a time/i);
+  it("keeps the playwright rows in the evidence table with real exit codes when the project runs a UI suite", () => {
+    const text = testing();
+    expect(text).toContain("`## Commands and Evidence`");
+    expect(text).toContain("real numeric exit code");
   });
 });
 

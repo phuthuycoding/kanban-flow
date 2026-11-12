@@ -9,7 +9,7 @@ Argument: optional `slots=N` (default 3).
 
 Travel runs the **day**, and after approval it is the controller: this session runs each item's phase skills itself (implementation, testing, review, each with its seats), the way one `kf:flow` session would. It keeps up to `slots=N` items started. One started item = one slot = its own worktree. It dispatches an item's seats (test-writer, developer, code-reviewer) in the background and advances another item while they run, so the slots overlap. `slots=1` behaves like one kanban-flow session: one item at a time, its phases in order. Travel writes no product code and edits no work item artifact.
 
-**Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main. It may run the forward `kf stage` moves (implementation to testing to review), `kf stage <f> implementation` from testing or review on a FAIL or REJECT verdict (the repair loop), and the item branch push and `gh pr create` that kf:test and kf:review prescribe, inside the item worktree. Every other backward, planning or backlog `kf stage` move, and every REQUIREMENT_BUG, is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
+**Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf ship`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main. It may run the forward `kf stage` moves (implementation to testing to review), `kf stage <f> implementation` from testing or review on a FAIL verdict (the repair loop), and the item branch push and `gh pr create` that kf:test and kf:review prescribe, inside the item worktree. Every other backward, planning or backlog `kf stage` move, and every REQUIREMENT_BUG, is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
 
 State lives in two files under `.kf/travel/`, which is gitignored: `kf init` adds the `.gitignore` entry, and `kf doctor --fix` adds it to an upgraded project:
 
@@ -115,7 +115,7 @@ A phase skill stops for the human in a few ways. Travel does not retry or work a
 | Stop | Ledger line | Action |
 |---|---|---|
 | REQUIREMENT_BUG, a plan change | `blocked` · `owner=travel` | the contract needs the human: Needs you with the next command the phase skill names (a `kf stage … planning` travel prints, never runs) |
-| FAIL or REJECT in testing or review | stays `driving` | run `kf stage <f> implementation` in the item worktree and continue the fix loop the phase skill names |
+| FAIL in testing or review | stays `driving` | run `kf stage <f> implementation` in the item worktree and continue the fix loop the phase skill names |
 | fix-loop breaker, or a reopened task's `cap reached` stop, after any minimal fix past the cap the phase skill makes | `blocked` · `owner=travel` | reason + next command → Needs you |
 | a usage limit on a seat | stays `driving`, note `usage limit — reset <text>` | dispatch nothing new; wait for the reset, then re-dispatch the seat that was running |
 | any other stop the phase skill reports | `blocked` · `owner=travel` | its reason + next command → Needs you |

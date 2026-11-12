@@ -4,6 +4,12 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Changed
+- **`/kf:test` reads the stage record instead of re-running the suite.** Testing cites the passing `kf verify --stage` record at HEAD and runs no full suite, lint, build or typecheck of its own; while stage commands are pinned, a missing, failed or stale record is `BLOCKED` naming `kf verify <f> --stage`. Only a project with no `harness.verify.stage` has testing run the test command once. It maps every approved TC to the test that covers it (a TC with no test, or only a skipped one, is `FAIL` on its owning task), runs each changed behaviour no test exercises, commits nothing and dispatches no automation-writer.
+- **Coverage is line coverage per changed file.** Testing measures it once, scoped to the item's changed source files, against the spec's Coverage Target; a file below target is `FAIL` naming its owning task, and a docs-only item or a spec with no target runs nothing and states why.
+- **One fix rule.** A testing FAIL, a review FAIL and red CI are each repaired on the task that owns the failing file, continuing its round count: five rounds is a task's whole life, plus one minimal fix past the cap. Red CI no longer stops at a second red round, and `/kf:implement`, `/kf:test` and `/kf:flow` share one stop list.
+- **`REJECT` folds into `FAIL`.** The skills, templates and docs no longer offer `REJECT`. `kf validate`, `kf stage` and `kf status` still accept `status: REJECT` in an existing report and treat it exactly as `FAIL`; their messages name only `FAIL`.
+
 ## [0.18.0] - 2026-11-11
 
 ### Added

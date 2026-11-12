@@ -4,7 +4,7 @@ context: "{context}"
 created: "{timestamp}"
 execution: "{execution_id}"
 commit: "{commit}"
-status: REJECT
+status: FAIL
 ci: "{ci}"
 landing: "{landing}"
 docs: "{docs}"
@@ -23,7 +23,7 @@ docs_reason: "{docs_reason}"
 
 | Field | Value | Meaning |
 |---|---|---|
-| `ci` | {ci} | `green`: the PR checks passed on the reviewed sha. `red`: a check failed; the report cannot be PASS, write FAIL and return to implementation. `none`: the repository runs no GitHub Actions on the PR (no `.github/workflows`), so no watch ran. `not-run`: a FAIL, REJECT or REQUIREMENT_BUG written before any CI watch — no PR was pushed for this tree, so CI has not been asked; never valid on PASS. |
+| `ci` | {ci} | `green`: the PR checks passed on the reviewed sha. `red`: a check failed; the report cannot be PASS, write FAIL and return to implementation. `none`: the repository runs no GitHub Actions on the PR (no `.github/workflows`), so no watch ran. `not-run`: a FAIL or REQUIREMENT_BUG written before any CI watch — no PR was pushed for this tree, so CI has not been asked; never valid on PASS. |
 | `landing` | {landing} | `pr`: the reviewed code lands through the PR recorded with `kf issues link <feature> <url> --pr`. `none`: nothing to land (no tracked code changed), no PR is opened and the item closes without a merge. |
 | `verify` | {verify} | The `Stage verify` line of `kf status --change <feature>` the item entered review on: `PASS <sha7> at HEAD`, or `waived — <reason> (<by>, <date>)` when the project pins no `harness.verify.stage`. |
 

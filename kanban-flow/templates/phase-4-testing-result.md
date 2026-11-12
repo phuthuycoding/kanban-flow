@@ -25,7 +25,6 @@ status: BLOCKED
 | Total | {total} |
 | Passed | {passed} |
 | Failed | {failed} |
-| Rejected | {rejected} |
 | Blocked | {blocked} |
 
 ## Test Results
@@ -34,7 +33,7 @@ status: BLOCKED
 |---|---|---|---|---|---|
 | TC-001 | {test_type} | {tc_status} | {expected_outcome} | {actual_outcome} | {evidence} |
 
-Use the approved TC IDs for features; use reproduction/regression test names for bugs. Include every required test, including blocked or unexecuted tests.
+Use the approved TC IDs for features; use reproduction/regression test names for bugs. Include every required test, including blocked or unexecuted tests. For an automated case, Evidence names the test file and the test name that cover it and cites the stage record (or the no-stage-commands run). A case with no test or only a skipped test is `FAIL`, naming the owning task.
 
 ## Commands and Evidence
 
@@ -48,13 +47,19 @@ Use the approved TC IDs for features; use reproduction/regression test names for
 |---|---|---|---|
 | {affected_test} | {error} | {failure_impact} | {next_action} |
 
+## Behaviour run
+
+{behaviour_run}
+
+Each changed behaviour no test exercises and each `TASK-NNN: unverified — <claim>` ledger line: the command and its real output. With nothing to run, write `none — <why>`.
+
 ## Coverage
 
-| Metric / scope | Target | Measured | Evidence |
+| File | Target | Line % | Command |
 |---|---:|---:|---|
-| Overall code coverage | {coverage_target}% | {overall_coverage}% | {coverage_evidence} |
+| {changed_file} | {coverage_target}% | {line_coverage}% | {coverage_command} |
 
-Do not equate test pass rate with code coverage. Use `N/A` with a reason for an unrequired metric; required but unmeasured coverage blocks PASS.
+Line coverage per changed source file, from one run of the project's coverage tool. Do not equate test pass rate with code coverage. A file below the target is `FAIL`; required but unmeasurable coverage is `BLOCKED`. With no target or no changed source files, write the reason instead of a row.
 
 ## Regression
 {regression}
