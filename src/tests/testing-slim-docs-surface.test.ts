@@ -146,9 +146,9 @@ describe("user docs describe the slimmed testing stage and the one fix rule", ()
     expect(read("README.md")).toMatch(/\btest(ing|s)?\b[^]{0,300}?reads? the stage record/i);
   });
 
-  it("CHANGELOG [Unreleased] records the testing change and the REJECT fold", () => {
+  it("CHANGELOG [0.19.0] records the testing change and the REJECT fold", () => {
     const log = read("CHANGELOG.md");
-    const start = log.indexOf("## [Unreleased]");
+    const start = log.indexOf("## [0.19.0]");
     const next = log.indexOf("\n## [", start + 1);
     const section = log.slice(start, next === -1 ? undefined : next);
     expect(section).toMatch(/### Changed/);

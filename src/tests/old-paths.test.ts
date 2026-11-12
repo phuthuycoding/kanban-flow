@@ -85,9 +85,9 @@ describe("workflow docs", () => {
     expect(text).toContain("assets/agents");
   });
 
-  it("the changelog records the layout move under Unreleased", () => {
+  it("the changelog records the layout move under 0.19.0", () => {
     const text = readFileSync(join(repo, "CHANGELOG.md"), "utf8");
-    const unreleased = text.split(/^## \[/m).find((s) => s.startsWith("Unreleased")) ?? "";
+    const unreleased = text.split(/^## \[/m).find((s) => s.startsWith("0.19.0]")) ?? "";
     expect(unreleased).toMatch(/### Changed[\s\S]*assets\//);
   });
 });
