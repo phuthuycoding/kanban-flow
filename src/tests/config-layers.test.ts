@@ -215,6 +215,15 @@ describe("invalid layer files", () => {
     });
   }
 
+  it("keeps the fs error code on the error for an unreadable global file so guards can report it", () => {
+    mkdirSync(globalConfigPath(), { recursive: true });
+    let thrown: unknown;
+    try { readProjectConfig(root); } catch (err) { thrown = err; }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain(globalConfigPath());
+    expect((thrown as NodeJS.ErrnoException).code).toBe("EISDIR");
+  });
+
   it("throws naming the workspace file when the workspace file is invalid", () => {
     const wsDir = join(base, "ws");
     writeWorkspace(wsDir, { agents: "claude" });

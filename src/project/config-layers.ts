@@ -129,7 +129,11 @@ function readLayerFile(path: string, layer: "global" | "workspace"): ConfigLayer
   try {
     text = readFileSync(path, "utf8");
   } catch (err) {
-    throw new Error(`Cannot read ${layer} config: ${path}`, { cause: err });
+    // Keep the fs code: callers (doctor-install, status) tell "reported elsewhere" fs failures by it.
+    const wrapped: Error & { code?: string } = new Error(`Cannot read ${layer} config: ${path}`, { cause: err });
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (typeof code === "string") wrapped.code = code;
+    throw wrapped;
   }
   const { values, notApplied } = parseLayerConfig(text, path, layer);
   if (notApplied.length > 0 && !warned.has(path)) {
