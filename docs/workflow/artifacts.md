@@ -100,7 +100,7 @@ Each record has these fields:
 | `approval-restored` | `kf approve` whose move was refused, when kf put the previous approval back | The approval the item had before |
 | `cancelled` | `kf cancel` | `from`, the stage `cancelled`, the cancellation (by, reason, the stage it left) and the status |
 | `waiver` | `kf verify <feature> --stage --waive` | The verify waiver |
-| `linked` | `kf issues create`, `kf issues link` (an issue, a pull request, `--replace`) | The issue or pull request URL |
+| `linked` | `kf issues create`, `kf issues link` (an issue, a pull request, `--replace`) | The issue or pull request URL, and the `goal` when `kf issues create --title` saves the title on an item that had none |
 | `delivered` | The close into `done` (`kf archive`, `kf stage <feature> done`, and the same close run by `kf status` or `kf sync`) | `from`, the stage `done`, the delivery stamp and the archived status |
 | `delivered` | A later close of an item already in `done`, when it changes a field | What it set — a docs branch the close recorded, a missing delivery stamp — with no `from` and no `stage`, because the item does not move |
 | `docs` | `kf status --all` proving a docs branch landed | The landing record |

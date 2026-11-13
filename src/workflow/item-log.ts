@@ -62,6 +62,7 @@ const SHARED_KEYS = Object.keys({
   delivered: true, deliveredAt: true, docsBranch: true, docsCommit: true, docsLanded: true, approval: true,
   executionId: true, status: true, cancellation: true, bypasses: true, verifyWaiver: true, ship: true, id: true,
 } satisfies Record<keyof SharedMeta, true>);
+const SHARED_KEY_SET: ReadonlySet<string> = new Set(SHARED_KEYS);
 
 export function itemLogPath(dir: string): string {
   return join(dir, ITEM_LOG_FILE);
@@ -162,8 +163,10 @@ export function foldItemLog(text: string): FoldResult {
     const record = parsed as ItemRecord;
     if (record.stage !== undefined) stage = record.stage;
     if (stage === null) return { ok: false, line: i + 1, reason: "the first record names no stage" };
-    for (const [key, value] of Object.entries(record.set ?? {})) meta[key] = value;
-    for (const key of record.unset ?? []) delete meta[key];
+    // Only the shared keys: a replicated log is read by programs that did not write it (#184), so a
+    // `__proto__`, `worktree` or unknown key in a record changes nothing.
+    for (const [key, value] of Object.entries(record.set ?? {})) if (SHARED_KEY_SET.has(key)) meta[key] = value;
+    for (const key of record.unset ?? []) if (SHARED_KEY_SET.has(key)) delete meta[key];
     records += 1;
   }
   return { ok: true, state: stage === null ? null : { stage, meta: meta as unknown as SharedMeta }, records };

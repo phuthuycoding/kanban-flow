@@ -1,11 +1,11 @@
 # Task reviewer brief — the dispatch for one task's review
 
-Use this template verbatim after the developer reports DONE (and, for a UI task under `Level: full`, has committed the automation-writer's specs). The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/code-reviewer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim after the developer reports DONE (and, for a UI task under `Level: full`, has committed the automation-writer's specs). The reviewer reads the task's diff once and returns two verdicts: spec compliance and code quality. Prefer `code-reviewer` (read-only by definition — it has no write tool, so **its reply is the report** and the controller saves it to `[REVIEW_REPORT_FILE]`); when the agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/code-reviewer.md` pasted first and a `Note TASK-NNN: code-reviewer stand-in general-purpose` line in the ledger.
 
 ```
 Agent:
   subagent_type: kf:code-reviewer     # or general-purpose (stand-in; paste the agent body first)
-  model: [MODEL]                          # REQUIRED — sonnet; opus for a high-risk or subtle diff
+  model: [MODEL]                          # REQUIRED — opus
   description: "Review TASK-NNN (spec + quality)"
   prompt: |
     Read first: [DOCTRINE_FILE] (${CLAUDE_PLUGIN_ROOT}/assets/skills/review/references/reviewer-doctrine.md). Then the rule
@@ -79,7 +79,7 @@ Agent:
 
 **Placeholders**
 
-- `[MODEL]` — REQUIRED. `sonnet` by default; `opus` for a subtle or high-risk diff (concurrency, auth, data migration).
+- `[MODEL]` — REQUIRED. `opus`.
 - `[DOCTRINE_FILE]` — absolute path of `${CLAUDE_PLUGIN_ROOT}/assets/skills/review/references/reviewer-doctrine.md` (the reviewer has Read; do not paste it on every dispatch).
 - `[RULE_FILES]` — the rule files resolved once by the controller, project → user → package (`.kf/review/rules/*.md`, `~/.kf/review/rules/*.md`, the package's `${CLAUDE_PLUGIN_ROOT}/assets/review/rules/*.md`) plus `AGENTS.md`/`CLAUDE.md` when present.
 - `[BRIEF_FILE]`, `[REPORT_FILE]` — the brief the developer worked from and the `<item>/loop/task-NNN-report.md` it wrote.

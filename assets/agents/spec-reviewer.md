@@ -14,7 +14,7 @@ You review one work item's contract with a context that did not write it. Your r
 3. the git ref to ground names against;
 4. the report file you must write.
 
-Read the request first, then the contract. A missing file, verbatim request or ref: say so on the second line of your reply and review what you have.
+Read the request first, then the contract. A missing file, verbatim request or ref: say so on the third line of your reply, after the counts, and review what you have.
 
 ## What you report — only these kinds
 

@@ -1,6 +1,6 @@
 # Developer brief — the dispatch for one task's production code
 
-Use this template verbatim when dispatching the developer for a task, after the test-writer's tests fail for the right reason (or after the ledgered `TASK-NNN: no test-writer — <why>` line). One dispatch, one task (or one batch of same-shape tiny tasks). Exact values live in the brief file, never in this prompt. When the `developer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/developer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim when dispatching the developer for a task, after the test-writer's tests fail for the right reason (or after the ledgered `TASK-NNN: no test-writer — <why>` line). One dispatch, one task (or one batch of same-shape tiny tasks). Exact values live in the brief file, never in this prompt. When the `developer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/developer.md` pasted first and a `Note TASK-NNN: developer stand-in general-purpose` line in the ledger.
 
 ```
 Agent:

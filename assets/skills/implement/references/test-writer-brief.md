@@ -1,6 +1,6 @@
 # Test-writer brief — the dispatch for one task's tests
 
-Use this template verbatim when dispatching the test-writer for a task whose test cases include `Unit` or `Integration` types, or for a bug's regression task. One dispatch, one task, before the developer. Exact values live in the brief file, never in this prompt. When the `test-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/test-writer.md` pasted first and `stand-in: general-purpose` written in the ledger line.
+Use this template verbatim when dispatching the test-writer for a task whose test cases include `Unit` or `Integration` types, or for a bug's regression task. One dispatch, one task, before the developer. Exact values live in the brief file, never in this prompt. When the `test-writer` agent is not registered, a general-purpose subagent stands in with the body of `${CLAUDE_PLUGIN_ROOT}/assets/agents/test-writer.md` pasted first and a `Note TASK-NNN: test-writer stand-in general-purpose` line in the ledger.
 
 ```
 Agent:
@@ -62,6 +62,6 @@ Agent:
 - `[REPORT_FILE]` — `<item>/loop/task-NNN-tests-report.md`.
 - `[WORKTREE]`, `[BRANCH]` — from `kf status --change <feature>`.
 - `[FILES]` — the task row's Files allowlist.
-- `[IN_FLIGHT]` — `none`, or the other seats in flight at dispatch (e.g. `developer TASK-002`).
+- `[IN_FLIGHT]` — `none`, or every other seat in flight at dispatch, including the seats dispatched in the same turn (e.g. `developer TASK-002`).
 
 **What never goes in the dispatch:** the session's history, the whole plan, the developer's code, another task's findings.

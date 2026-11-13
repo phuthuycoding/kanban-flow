@@ -80,7 +80,7 @@ export interface GitHubProject {
 export const CONFIG_FILE = "config.json";
 
 /** Stack ids that have a shipped review rule pack (assets/review/stacks/{id}.md). */
-export const STACK_IDS = ["node", "go", "rust", "python", "php", "ruby", "java"] as const;
+export const STACK_IDS = ["node", "go", "rust", "python", "php", "ruby", "java", "frontend", "mvvm", "monorepo"] as const;
 export type StackId = (typeof STACK_IDS)[number];
 
 export function projectKabanDir(root: string): string {
@@ -317,6 +317,19 @@ const STACK_PROBES: Array<[string, string]> = [
   ["composer.json", "php"],
   ["Gemfile", "ruby"],
   ["pom.xml", "java"],
+  // Config files, not manifests: a frontend build or a workspace root. `mvvm` is an architecture, so it has no probe.
+  ["next.config.js", "frontend"],
+  ["next.config.mjs", "frontend"],
+  ["next.config.ts", "frontend"],
+  ["vite.config.js", "frontend"],
+  ["vite.config.ts", "frontend"],
+  ["nuxt.config.ts", "frontend"],
+  ["svelte.config.js", "frontend"],
+  ["angular.json", "frontend"],
+  ["pnpm-workspace.yaml", "monorepo"],
+  ["turbo.json", "monorepo"],
+  ["nx.json", "monorepo"],
+  ["lerna.json", "monorepo"],
 ];
 
 /** Dirs never worth scanning for manifests (deps, VCS, build output). */

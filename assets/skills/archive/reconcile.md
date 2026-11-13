@@ -12,7 +12,7 @@ Read, from the work item:
 - `## Affected surfaces` and `## Scope` in `phase-1-spec-requirement.md`
 - the business rules and postconditions of each `use-cases/UC-###*.md`
 
-Write down each changed behavior as a short phrase plus the commands, flags, files or terms it uses (e.g. "archive closes the issue" → `kf archive`, `issues done`, `close_issue`).
+Write down each changed behavior as a short phrase plus the commands, flags, files or terms it uses (e.g. "archive closes the issue" → `kf archive`, `kf status`, `close_issue_done`).
 
 ## 2. Edit the living docs
 

@@ -126,6 +126,26 @@ every project and tracks package upgrades); a project that wants its own sets
 `skills.scope: "project"` in `.kf/config.json` (the onboarding question asks), and
 `kf install --scope` / `kf uninstall --scope` overrides it per run.
 
+On a terminal, `kf install` and `kf uninstall` ask for what you did not pass.
+`kf install` with no option first offers **Setup mode**: Quick installs exactly
+what a plain `kf install` always did (`claude`, the configured scope), Customize
+walks through the agents, the scope and a confirm step. `kf uninstall` asks the
+agents, the scope, whether to also delete `.works/` and `.kf/` (only inside a
+project), then confirms. Cancel changes nothing; Ctrl+C aborts with exit 1. In a
+script or CI (no terminal) nothing is asked and the commands behave as before.
+
+A third scope, **workspace**, is for Claude Code only: it installs the plugin at
+Claude Code's `local` scope in a workspace folder, so `/kf:*` is available when
+Claude Code is started in that folder (Claude Code reads `local` settings from the
+session's working directory only). The folder is the nearest one holding
+`.kf/workspace.json` (searching up from where you run it); outside a project, the
+current folder becomes the workspace and `.kf/workspace.json` is created there
+once the install succeeds. If kf is also installed at user scope, the onboarding
+offers to remove that install after the workspace one succeeded (No keeps it);
+when nothing was asked, the output reminds you of `kf uninstall --global`. When
+claude cannot be asked during the onboarding, the removal question is skipped and
+the install output reports the failed check or names `kf uninstall --global`.
+
 Other runtimes (`--agent codex|gemini|kiro|cursor|opencode|devin`) have no plugin
 system, so `kf install` copies the skills as `kf-<name>` directories (`kf-flow`,
 `kf-plan`, ...) into the runtime's skills dir (`.agents/skills` for codex, which
@@ -280,8 +300,8 @@ reopens the task that owns the failing file, and its round count continues — f
 the task's whole life. `/kf:review` establishes the facts mechanically — lint, build, the
 suite's real counts, the rules — writes a review pack, picks the reviewer set from the
 diff size (one reviewer under 200 code lines, plus a contracts reviewer when a shared
-surface changed; five dimensions in parallel above; `opus` above 600 or on a critical
-area), and refutes any finding whose evidence quote is missing or not where the
+surface changed; five dimensions in parallel above; every reviewer on `opus`, `fable`
+only on a critical area), and refutes any finding whose evidence quote is missing or not where the
 reviewer said it is before it reaches the report. After the review PASS, `/kf:review` pushes the branch, opens the PR and watches the
 pushed commit's GitHub Actions runs and the PR's mergeability in the background. A red
 run is not handed to the human at first: it writes a `ci: red` / `FAIL` report with the
