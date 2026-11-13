@@ -34,6 +34,11 @@ describe("reply language survives compaction", () => {
     expect(p).toContain(LANGUAGE_NOTE);
   });
 
+  it("flow names the full kf record command that writes the language note", () => {
+    const p = paragraphStarting(flow(), "**Reply language.**");
+    expect(p).toContain("kf record {feature_name} line -- 'Note reply language: <language>'");
+  });
+
   it("implement's resume step records and recovers the reply language", () => {
     expect(paragraphStarting(implement(), "**Resume.**")).toContain(LANGUAGE_NOTE);
   });
@@ -54,6 +59,17 @@ describe("reply language survives compaction", () => {
 
   it("travel's resume after compaction reads the language from the travel ledger", () => {
     expect(paragraphStarting(travel(), "**Resume after compaction.**")).toContain("language:");
+  });
+
+  it("travel's open-the-day section template carries the language line so a new day keeps it", () => {
+    const text = travel();
+    const at = text.indexOf("session: <ISO time from the clock>");
+    expect(at, "session line in the day section template").toBeGreaterThanOrEqual(0);
+    const open = text.lastIndexOf("```", at);
+    const close = text.indexOf("```", at);
+    expect(open).toBeGreaterThanOrEqual(0);
+    expect(close).toBeGreaterThan(at);
+    expect(text.slice(open, close).split("\n")).toContain("language: <language>");
   });
 
   it("the travel ledger format documents a language line", () => {

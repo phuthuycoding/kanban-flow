@@ -58,11 +58,12 @@ After approval, append to `.kf/travel/progress.md`:
 ## YYYY-MM-DD
 slots: N · budget: <budget line>
 session: <ISO time from the clock>
+language: <language>
 t1 · <feature> · <kind> · <size> · queued · est0=<size> · estmin=<n> · <note>
 …
 ```
 
-Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already), leaving `blocked` and `owner=human` lines as they are; a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
+Copy the `language:` line from the previous section (omit it while the human has only written in English), and rewrite it whenever the human switches language. Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already), leaving `blocked` and `owner=human` lines as they are; a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
 
 ## 3. The loop
 
