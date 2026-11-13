@@ -14,6 +14,7 @@ import { worktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
 import { evaluateStageEvidence, stageEvidenceFindings } from "./stage-evidence.js";
+import { recordChange, sharedMeta, withItemId } from "./item-log.js";
 
 export interface TransitionOptions {
   force?: boolean;
@@ -228,6 +229,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
         return refuse("changed-concurrently", "changed concurrently", `Cannot move '${name}': it changed while the transition was running. ${stageRetryHint(name, to)}`);
       }
       if (existsSync(target)) return refuse("target-exists", "target exists", `Target already exists: ${target}`);
+      const before = { stage: cur.stage, meta: sharedMeta(cur.meta) };
       let metadataUpdated = false;
       try {
         let meta = recorded.length > 0 ? { ...cur.meta, bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : cur.meta;
@@ -236,18 +238,17 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
         // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
         // which can legitimately refuse on an item that was never fully valid.
         if (cur.stage === "cancelled") meta = { ...meta, cancellation: undefined, status: isReopen && to === "done" ? "archived" : undefined };
-        if (to === "planning") {
-          await writeFeatureMeta(cur.dir, { ...meta, approval: { status: "pending" }, executionId: undefined });
-          metadataUpdated = true;
-        } else if (to === "testing" || to === "implementation") {
-          await writeFeatureMeta(cur.dir, { ...meta, executionId: to === "testing" ? randomUUID() : undefined });
-          metadataUpdated = true;
-        } else if (recorded.length > 0 || cur.stage === "cancelled" || worktree) {
-          await writeFeatureMeta(cur.dir, meta);
+        if (to === "planning") meta = { ...meta, approval: { status: "pending" }, executionId: undefined };
+        else if (to === "testing" || to === "implementation") meta = { ...meta, executionId: to === "testing" ? randomUUID() : undefined };
+        // A missing id forces the write even on a move that changes no other metadata.
+        const next = withItemId(meta);
+        if (next !== cur.meta) {
+          await writeFeatureMeta(cur.dir, next);
           metadataUpdated = true;
         }
         await mkdir(dest, { recursive: true });
         await rename(cur.dir, target);
+        recordChange(root, target, f.name, "stage", before, { stage: to, meta: sharedMeta(next) });
       } catch (err) {
         if (metadataUpdated) {
           try {

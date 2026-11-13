@@ -12,6 +12,7 @@ import { nowTimestamp } from "../shared/time.js";
 import { recordBypasses } from "./bypass.js";
 import { worktreeConfig } from "../worktree/config.js";
 import { teardownWorktree, type TeardownResult } from "../worktree/lifecycle.js";
+import { recordChange, sharedMeta, withItemId } from "./item-log.js";
 
 export interface CancelOptions {
   /** Raw reason as given; trimmed here. Empty or credential-like is refused. */
@@ -155,13 +156,15 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
     if (!cur?.meta || cur.stage !== f.stage || cur.dir !== f.dir) {
       return refuse("changed-concurrently", "changed concurrently", `Cannot cancel '${name}': it changed while the cancel was running. Re-run: kf cancel ${name}`);
     }
-    await writeFeatureMeta(cur.dir, {
+    const before = { stage: cur.stage, meta: sharedMeta(cur.meta) };
+    const next = withItemId({
       ...cur.meta,
       status: "cancelled",
       cancellation,
       worktree: undefined,
       ...(recorded.length > 0 ? { bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : {}),
     });
+    await writeFeatureMeta(cur.dir, next);
     try {
       await rename(cur.dir, target);
     } catch (err) {
@@ -172,6 +175,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
       }
       throw err;
     }
+    recordChange(root, target, f.name, "cancelled", before, { stage: "cancelled", meta: sharedMeta(next) });
     return null;
   });
   if (moveError) return moveError;

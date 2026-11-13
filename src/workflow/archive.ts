@@ -25,6 +25,7 @@ import { assertWorktreeClean, deleteItemBranch, teardownWorktree, tipPastMergedH
 import { branchExists, WorktreeDirtyError } from "../worktree/manager.js";
 import { branchPushed, countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
+import { recordChange, sharedMeta, withItemId } from "./item-log.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
 export type ArchiveTrigger = "status" | "sync" | "archive" | "stage" | "issues";
@@ -365,7 +366,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
         // Reconciling an item already stamped keeps its first delivery timestamp.
         delivered: true,
         deliveredAt: meta.deliveredAt ?? new Date().toISOString(),
-      }));
+      }), {}, "delivered");
     } catch (err) {
       const committed = written?.branch ?? null;
       const rollback = await Promise.allSettled([
@@ -520,6 +521,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       return refuse("changed-concurrently", "changed concurrently", `Cannot archive '${name}': it changed while the archive was running.${alreadyRemoved(teardown, f.meta?.worktree?.path ?? null, branch)} Re-run: ${rerun}`);
     }
     const originalMeta = readFileSync(join(cur.dir, METADATA_FILE), "utf8");
+    const before = { stage: cur.stage, meta: sharedMeta(cur.meta) };
     let moved = false;
     try {
       // Move → meta stamp.
@@ -527,7 +529,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
       await rename(cur.dir, target);
       moved = true;
       // `delivered` is the terminal fact — written last, after every other side effect landed.
-      await writeFeatureMeta(target, {
+      const stamped = withItemId({
         ...cur.meta,
         bypasses: recorded.length > 0 ? [...(cur.meta.bypasses ?? []), ...recorded] : cur.meta.bypasses,
         status: "archived",
@@ -535,6 +537,9 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
         delivered: true,
         deliveredAt: new Date().toISOString(),
       });
+      await writeFeatureMeta(target, stamped);
+      // Only after the stamp: a failed stamp moves the folder back, and a record in it would travel along.
+      recordChange(root, target, name, "delivered", before, { stage: "done", meta: sharedMeta(stamped) });
     } catch (err) {
       const failures: unknown[] = [];
       if (moved) {
