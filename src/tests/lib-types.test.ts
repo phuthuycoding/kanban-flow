@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DIST = join(PACKAGE_ROOT, "dist");
@@ -21,8 +22,25 @@ function documentedStability(markdown: string): Map<string, string> {
   return marks;
 }
 
-function isInPackage(decl: ts.Declaration): boolean {
-  return decl.getSourceFile().fileName.split("/").join(sep).startsWith(DIST + sep);
+function isUnder(dir: string, decl: ts.Declaration): boolean {
+  return decl.getSourceFile().fileName.split("/").join(sep).startsWith(dir + sep);
+}
+
+function loadDeclarations(entry: string): { checker: ts.TypeChecker; exported: ts.Symbol[] } {
+  const program = ts.createProgram([entry], {
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    target: ts.ScriptTarget.ES2022,
+    strict: true,
+    noEmit: true,
+    types: ["node"],
+  });
+  const checker = program.getTypeChecker();
+  const source = program.getSourceFile(entry);
+  if (source === undefined) throw new Error(`no program source for ${entry}`);
+  const moduleSymbol = checker.getSymbolAtLocation(source);
+  if (moduleSymbol === undefined) throw new Error(`${entry} has no module symbol`);
+  return { checker, exported: checker.getExportsOfModule(moduleSymbol) };
 }
 
 function resolveAlias(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
@@ -31,10 +49,13 @@ function resolveAlias(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Symbol {
 
 /**
  * The named types the declarations of `symbol` reference, followed transitively through types declared
- * in the package. A `typeof <value>` query names a value, not a type, and is not followed; type
- * parameters and types from outside the package (Error, Map, node types) are not collected.
+ * under `root`. A type is named by a reference (`X`), a heritage clause (`extends X`) or an import type
+ * (`import("./x.js").X`, which tsc writes for an inferred or un-imported type). A `typeof <value>` query,
+ * including `typeof import("./x.js")`, names a value, not a type, and is not followed; type parameters
+ * and types from outside `root` (Error, Map, node types) are not collected.
  */
-function referencedTypes(checker: ts.TypeChecker, symbol: ts.Symbol): Set<string> {
+function referencedTypes(checker: ts.TypeChecker, symbol: ts.Symbol, root: string): Set<string> {
+  const isInPackage = (decl: ts.Declaration): boolean => isUnder(root, decl);
   const found = new Set<string>();
   const visited = new Set<ts.Symbol>();
 
@@ -46,8 +67,7 @@ function referencedTypes(checker: ts.TypeChecker, symbol: ts.Symbol): Set<string
     }
   };
 
-  const reference = (nameNode: ts.Node): void => {
-    const raw = checker.getSymbolAtLocation(nameNode);
+  const reference = (raw: ts.Symbol | undefined): void => {
     if (raw === undefined) return;
     const target = resolveAlias(checker, raw);
     if (target.flags & ts.SymbolFlags.TypeParameter) return;
@@ -59,8 +79,13 @@ function referencedTypes(checker: ts.TypeChecker, symbol: ts.Symbol): Set<string
 
   const walk = (node: ts.Node): void => {
     if (ts.isTypeQueryNode(node)) return;
-    if (ts.isTypeReferenceNode(node)) reference(node.typeName);
-    else if (ts.isExpressionWithTypeArguments(node)) reference(node.expression);
+    if (ts.isTypeReferenceNode(node)) reference(checker.getSymbolAtLocation(node.typeName));
+    else if (ts.isExpressionWithTypeArguments(node)) reference(checker.getSymbolAtLocation(node.expression));
+    else if (ts.isImportTypeNode(node)) {
+      if (node.isTypeOf || node.qualifier === undefined) return;
+      const name = ts.isQualifiedName(node.qualifier) ? node.qualifier.right : node.qualifier;
+      reference(checker.getSymbolAtLocation(name));
+    }
     ts.forEachChild(node, walk);
   };
 
@@ -75,20 +100,7 @@ describe("types referenced by the stable library exports", () => {
   let referencedByExport: Map<string, Set<string>>;
 
   beforeAll(() => {
-    const program = ts.createProgram([LIB_DTS], {
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      target: ts.ScriptTarget.ES2022,
-      strict: true,
-      noEmit: true,
-      types: ["node"],
-    });
-    const checker = program.getTypeChecker();
-    const source = program.getSourceFile(LIB_DTS);
-    if (source === undefined) throw new Error(`no program source for ${LIB_DTS}`);
-    const moduleSymbol = checker.getSymbolAtLocation(source);
-    if (moduleSymbol === undefined) throw new Error(`${LIB_DTS} has no module symbol`);
-    const exported = checker.getExportsOfModule(moduleSymbol);
+    const { checker, exported } = loadDeclarations(LIB_DTS);
     exportNames = new Set(exported.map((s) => s.getName()));
 
     stability = documentedStability(readFileSync(LIBRARY_DOC, "utf8"));
@@ -96,7 +108,7 @@ describe("types referenced by the stable library exports", () => {
     referencedByExport = new Map();
     for (const symbol of exported) {
       if (stability.get(symbol.getName()) !== "stable") continue;
-      referencedByExport.set(symbol.getName(), referencedTypes(checker, resolveAlias(checker, symbol)));
+      referencedByExport.set(symbol.getName(), referencedTypes(checker, resolveAlias(checker, symbol), DIST));
     }
   });
 
@@ -125,5 +137,45 @@ describe("types referenced by the stable library exports", () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+describe("type-closure walker on hand-written declarations", () => {
+  let dir: string;
+  let referenced: Map<string, Set<string>>;
+
+  beforeAll(() => {
+    // Declarations shaped like tsc's output for an inferred type: the type is named through import("..."),
+    // never imported, so only an import-type path can reach it.
+    dir = realpathSync(mkdtempSync(join(tmpdir(), "kf-lib-types-")));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+    writeFileSync(
+      join(dir, "x.d.ts"),
+      "export interface Inner { n: number; }\nexport interface Target { inner: Inner; }\nexport declare const VALUE: { readonly a: 1 };\n",
+    );
+    writeFileSync(
+      join(dir, "entry.d.ts"),
+      [
+        'export interface UsesImportType { t: import("./x.js").Target; }',
+        'export declare function returnsImportType(): import("./x.js").Target;',
+        'export type UsesTypeofImport = typeof import("./x.js");',
+        "",
+      ].join("\n"),
+    );
+    const { checker, exported } = loadDeclarations(join(dir, "entry.d.ts"));
+    referenced = new Map(exported.map((s) => [s.getName(), referencedTypes(checker, resolveAlias(checker, s), dir)]));
+  });
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("collects a type named through import(...) and the types it references in turn", () => {
+    expect([...(referenced.get("UsesImportType") ?? [])].sort()).toEqual(["Inner", "Target"]);
+    expect([...(referenced.get("returnsImportType") ?? [])].sort()).toEqual(["Inner", "Target"]);
+  });
+
+  it("does not follow typeof import(...), which names a module value", () => {
+    expect([...(referenced.get("UsesTypeofImport") ?? [])]).toEqual([]);
   });
 });
