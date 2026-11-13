@@ -90,7 +90,7 @@ export async function repairItemLogs(root: string, fixed: string[], failures: Do
         else if (before.state === null) verb = "opened";
         else if (differingFields(before.state, snapshot(f)).length > 0) verb = "reconciled";
         else return;
-        const meta = withItemId(f.meta);
+        const meta = withItemId(f.meta, f.dir);
         if (meta !== f.meta) {
           await writeFileAtomic(file, `${JSON.stringify({ ...raw, id: meta.id }, null, jsonIndent(text))}${text.endsWith("\n") ? "\n" : ""}`);
         }
