@@ -254,7 +254,8 @@ function leftovers(supervisorPid: number, runPid: number): Record<string, unknow
 async function item(name: string, extra: Record<string, unknown>): Promise<{ file: string; kept: Record<string, unknown> }> {
   const dir = join(root, ".works", "implementation", `${name}_${TS}`);
   await mkdir(dir, { recursive: true });
-  const kept = { schema: "kanban-flow", feature: name, context: "app", created: TS, executionId: "run-1" };
+  // The id keeps doctor --fix from stamping one (and rewriting this file) when it opens the lifecycle log.
+  const kept = { schema: "kanban-flow", feature: name, context: "app", created: TS, executionId: "run-1", id: "5b1c1f4e-0000-4000-8000-000000000001" };
   const file = join(dir, ".kfw.json");
   await writeFile(file, JSON.stringify({ ...kept, ...extra }, null, 2));
   return { file, kept };
