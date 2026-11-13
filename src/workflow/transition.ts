@@ -241,7 +241,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
         if (to === "planning") meta = { ...meta, approval: { status: "pending" }, executionId: undefined };
         else if (to === "testing" || to === "implementation") meta = { ...meta, executionId: to === "testing" ? randomUUID() : undefined };
         // A missing id forces the write even on a move that changes no other metadata.
-        const next = withItemId(meta);
+        const next = withItemId(meta, cur.dir);
         if (next !== cur.meta) {
           await writeFeatureMeta(cur.dir, next);
           metadataUpdated = true;

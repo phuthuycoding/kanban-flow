@@ -536,7 +536,7 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
         worktree: undefined,
         delivered: true,
         deliveredAt: new Date().toISOString(),
-      });
+      }, target);
       await writeFeatureMeta(target, stamped);
       // Only after the stamp: a failed stamp moves the folder back, and a record in it would travel along.
       recordChange(root, target, name, "delivered", before, { stage: "done", meta: sharedMeta(stamped) });

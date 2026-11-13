@@ -163,7 +163,7 @@ async function runCancel(root: string, name: string, opts: CancelOptions): Promi
       cancellation,
       worktree: undefined,
       ...(recorded.length > 0 ? { bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : {}),
-    });
+    }, cur.dir);
     await writeFeatureMeta(cur.dir, next);
     try {
       await rename(cur.dir, target);
