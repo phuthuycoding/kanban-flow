@@ -37,6 +37,7 @@ describe("the lifecycle log is described on every declared surface", () => {
   it("kf doctor -h names the lifecycle log check and that --fix repairs it", () => {
     const help = commandHelp("doctor");
     expect(help).toContain("lifecycle");
-    expect(help).toContain("--fix");
+    expect(help).toContain("--fix applies the repairs");
+    expect(help).toContain("a missing or behind lifecycle log");
   });
 });

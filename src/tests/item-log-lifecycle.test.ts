@@ -104,8 +104,14 @@ describe("the lifecycle log across a whole item life", () => {
     expect(snapshot().worktree).toBeDefined();
     expectFoldEqualsSnapshot("worktree registered");
 
-    expect((await cmdStage(args("stage", [name, "testing"]), root)).code).toBe(0);
+    // A hook for the testing stage, skipped on this move: the bypass lands in `.kfw.json` with the
+    // hook's absolute path, and the log must keep only its file name.
+    await mkdir(join(root, ".kf", "hooks"), { recursive: true });
+    const hookFile = join(root, ".kf", "hooks", "testing.sh");
+    await writeFile(hookFile, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+    expect((await cmdStage(args("stage", [name, "testing"], { "skip-hooks": true }), root)).code).toBe(0);
     expect(feature().stage).toBe("testing");
+    expect(JSON.stringify(snapshot().bypasses)).toContain(hookFile);
     expectFoldEqualsSnapshot("stage testing");
 
     await reportFor("testing-result");
@@ -134,6 +140,11 @@ describe("the lifecycle log across a whole item life", () => {
     expect(itemLogPath(dir).endsWith(ITEM_LOG_FILE)).toBe(true);
     const lines = text.split("\n").filter((l) => l !== "");
     expect(lines.length).toBeGreaterThan(0);
+    const records = lines.map((l) => JSON.parse(l) as { event: string; derived?: true; set?: { bypasses?: Array<{ flag?: string; codes?: string[] }> } });
+    expect(records.map((r) => r.event)).toEqual(["created", "stage", "approved", "stage", "stage", "waiver", "stage", "delivered"]);
+    expect(records.filter((r) => r.derived === true)).toEqual([]);
+    const skipped = records.flatMap((r) => r.set?.bypasses ?? []).filter((b) => b.flag === "skip-hooks");
+    expect(skipped.flatMap((b) => b.codes ?? [])).toEqual(["hook:testing.sh"]);
     const leaks = ["\"worktree\"", hostname(), homedir(), scratch, root, worktreePath];
     for (const line of lines) {
       for (const leak of leaks) expect(line, `a record holds ${leak}`).not.toContain(leak);
