@@ -3,10 +3,10 @@ import { mkdir, copyFile, readdir } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { emitKeypressEvents } from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
-import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 
 import { nowTimestamp } from "../shared/time.js";
+import { detectReviewer } from "../shared/actor.js";
 import { detectStacks, writeProjectConfig, configPath, type ProjectConfig } from "./config.js";
 import { detectRepository, normalizeRepository } from "./repository.js";
 import { effectiveDefaultContext, normalizeContext } from "./contexts.js";
@@ -15,6 +15,9 @@ import { assertPathName } from "../workflow/features.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId, type SkillScope } from "../integrations/agents.js";
 import { readProjectConfig, readProjectFileConfig, effectiveSkillsScope } from "./config.js";
 import { runGit } from "../shared/git.js";
+
+// Lives in shared/actor.ts so src/workflow can resolve the actor without importing this module.
+export { detectReviewer };
 
 export interface BootstrapAnswers {
   /** Declared contexts; the first is the default. Empty means "leave the project unrestricted". */
@@ -35,16 +38,6 @@ export interface BootstrapAnswers {
   skillScope: SkillScope;
 }
 
-/** git user.name, else $USER, else "human". */
-export function detectReviewer(root = process.cwd()): string {
-  try {
-    const name = execFileSync("git", ["-C", root, "config", "user.name"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    if (name) return name;
-  } catch (err) {
-    if (!(err instanceof Error && (("status" in err && err.status === 1) || ("code" in err && err.code === "ENOENT")))) throw err;
-  }
-  return process.env.USER || process.env.USERNAME || "human";
-}
 
 /** Local-only kanban-flow state: work items, item worktrees and the travel ledger. */
 const IGNORED_ENTRIES = [".works/", ".worktrees/", ".kf/travel/"];

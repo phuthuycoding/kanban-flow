@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ARTIFACTS, type WorkItemKind } from "../../workflow/schema.js";
@@ -6,6 +7,7 @@ import { readProjectConfig } from "../../project/config.js";
 import { checkContext, contextRefusal, declaredDefaultContext, effectiveDefaultContext } from "../../project/contexts.js";
 import { readTemplate } from "../../shared/paths.js";
 import { nowTimestamp } from "../../shared/time.js";
+import { recordChange, sharedMeta } from "../../workflow/item-log.js";
 import { runHook } from "../../integrations/hooks.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
@@ -53,14 +55,17 @@ export async function cmdNew(args: ParsedArgs, cwd: string): Promise<CmdResult> 
     }
     throw err;
   }
-  await writeFeatureMeta(dir, {
-    schema: "kanban-flow",
+  const meta = {
+    schema: "kanban-flow" as const,
+    id: randomUUID(),
     feature,
     context: ctx,
     created: ts,
     kind,
     goal: typeof args.options.goal === "string" ? args.options.goal : undefined,
-  });
+  };
+  await writeFeatureMeta(dir, meta);
+  recordChange(root.root, dir, feature, "created", null, { stage: "brainstorm", meta: sharedMeta(meta) });
 
   const rendered = tpl
     .replaceAll("{feature_name}", feature)

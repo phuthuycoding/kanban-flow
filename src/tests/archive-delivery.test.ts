@@ -480,7 +480,7 @@ describe("visibility — awaiting merge states surface", () => {
     }));
 
     const findings = runDoctor(root).findings;
-    const undelivered = findings.find((f) => f.area.includes("shipit"));
+    const undelivered = findings.find((f) => f.area.includes("shipit") && !f.area.endsWith("lifecycle.jsonl"));
     expect(undelivered?.level).toBe("WARNING");
     expect(undelivered?.action).toContain("kf archive shipit");
     const deadKey = findings.find((f) => f.area === ".kf/config.json" && f.message.includes("statusMap.delivered"));

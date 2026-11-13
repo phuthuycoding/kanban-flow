@@ -76,6 +76,11 @@ A testing report that does not say `PASS` does not reach review; a review report
 that does not say `PASS` does not archive. `--force` overrides a gate and is
 recorded in `.kfw.json` where a reviewer will find it.
 
+Every lifecycle change — a new item, a stage move, an approval, a cancel, a link,
+the close — is also appended to the item's `lifecycle.jsonl`, one record per
+change with who made it and when, so an item's history survives the snapshot in
+`.kfw.json` being overwritten. `kf doctor` reports a log that fell behind.
+
 Three decisions belong to a human: marking the requirement `status: confirmed`,
 approving the execution contract (the approval also starts the item; `kf approve
 --backlog` defers it), and merging the pull request after a review PASS. The approval is bound to a SHA-256 fingerprint of the contract, so

@@ -212,4 +212,18 @@ describe("feature meta tasks", () => {
     expect(() => readWith({ verifyWaiver: "x" })).toThrow("Invalid feature metadata");
     expect(() => readWith({ verifyWaiver: { reason: 1 } })).toThrow("Invalid feature metadata");
   });
+
+  it("loads metadata that has no id", () => {
+    const meta = readWith({});
+    expect(meta?.feature).toBe("demo");
+    expect(meta?.id).toBeUndefined();
+  });
+
+  it("loads a string id and refuses a non-string one", () => {
+    const id = "0b6f2a54-3c1d-4c63-9a0e-5d1f6f1f7a11";
+    expect(readWith({ id })?.id).toBe(id);
+    for (const bad of [5, true, null, ["x"], { a: 1 }]) {
+      expect(() => readWith({ id: bad }), JSON.stringify(bad)).toThrow("Invalid feature metadata");
+    }
+  });
 });

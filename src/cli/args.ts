@@ -168,7 +168,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     options: {},
   },
   doctor: {
-    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, the kf plugin and skill copies at the configured scope (missing, stale, broken links); exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing or stale skills, removed harness keys and leftover drive/run item metadata)",
+    help: "Usage: kf doctor [--fix] [--json]  — diagnose the project: stage dirs, config, work item metadata, a lifecycle log (lifecycle.jsonl) that cannot be read or is behind its .kfw.json, the kf plugin and skill copies at the configured scope (missing, stale, broken links); exits 1 when something is broken. --fix applies the repairs that need no human decision (missing stage dirs, a missing or stale config field, a missing repository link, missing or stale skills, removed harness keys and leftover drive/run item metadata, a missing or behind lifecycle log)",
     options: {
       fix: { type: "boolean" },
       json: { type: "boolean" },

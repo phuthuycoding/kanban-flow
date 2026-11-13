@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { STAGES, ARTIFACTS, STAGE_GATES, METADATA_FILE, UC_FILE_PATTERN, isStageOrLegacy, type Stage, type LegacyStageName, type ApprovalStatus, type WorkItemKind } from "./schema.js";
 import { writeFileAtomic } from "../shared/paths.js";
 import { withLock, type LockOptions } from "../shared/lock.js";
+import { recordChange, sharedMeta, withItemId, type ItemEvent } from "./item-log.js";
 
 export interface Approval {
   status: ApprovalStatus;
@@ -58,6 +59,8 @@ export interface VerifyWaiver {
 }
 
 export interface FeatureMeta {
+  /** The item's uuid, written by `kf new`; an item of an earlier release gets one at its first lifecycle write. */
+  id?: string;
   schema: string;
   feature: string;
   context: string;
@@ -186,6 +189,7 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
   }
   if (!meta || meta.schema !== "kanban-flow" || typeof meta.feature !== "string"
     || typeof meta.context !== "string" || typeof meta.created !== "string"
+    || (meta.id !== undefined && typeof meta.id !== "string")
     || (meta.kind !== undefined && !["feature", "bug"].includes(meta.kind))
     || (meta.issue !== undefined && (typeof meta.issue !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(meta.issue)))
     || (meta.pr !== undefined && (typeof meta.pr !== "string" || !/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/\d+$/.test(meta.pr)))
@@ -249,18 +253,27 @@ export async function writeFeatureMeta(
 /**
  * Read-modify-write of one item's `.kfw.json` under its lock. The item is re-found by name
  * inside the lock because a stage move may have renamed its folder since the caller looked.
+ * With `event`, the write is a lifecycle change: the item gets an id when it has none, and the
+ * change is appended to its lifecycle log once the write has succeeded. Without it (a machine-local
+ * write such as the worktree record) nothing is stamped or recorded.
  */
 export async function updateFeatureMeta(
   root: string,
   name: string,
   fn: (meta: FeatureMeta) => FeatureMeta | Promise<FeatureMeta>,
   lock: LockOptions = {},
+  event?: ItemEvent,
 ): Promise<Feature> {
   return withLock(root, name, async () => {
     const feature = findFeature(root, name);
     if (!feature?.meta) throw new Error(`Work item '${name}' disappeared or lost its metadata while it was being updated.`);
-    const meta = await fn(feature.meta);
+    const changed = await fn(feature.meta);
+    const meta = event ? withItemId(changed, feature.dir) : changed;
     await writeFeatureMeta(feature.dir, meta);
+    if (event) {
+      recordChange(root, feature.dir, feature.name, event,
+        { stage: feature.stage, meta: sharedMeta(feature.meta) }, { stage: feature.stage, meta: sharedMeta(meta) });
+    }
     return { ...feature, meta };
   }, lock);
 }

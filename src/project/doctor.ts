@@ -14,6 +14,7 @@ import { validateFeature } from "../workflow/validate.js";
 import { isLegacyItemFolder, isOsLitter, legacyFolders } from "../workflow/migrate.js";
 import { checkHarnessLegacyKeys, checkLegacyRunState, fixFailure, removeLegacyHarnessKeys, stripLegacyRunState } from "./legacy-migration.js";
 import { checkGithubHooks, checkOrphanedHooks, repairHooks } from "./doctor-hooks.js";
+import { checkItemLogs, repairItemLogs } from "./doctor-item-log.js";
 import { checkSkills, repairSkills } from "./doctor-install.js";
 import type { DoctorFinding, DoctorFixResult, DoctorReport } from "./doctor-types.js";
 import { readProjectConfig, readProjectFileConfig, configPath, effectiveSkillsScope, hasLegacyShipBlock, PROJECT_CONFIG_KEYS, ProjectConfigError, serializeConfigPreserving, type ProjectConfig } from "./config.js";
@@ -438,6 +439,7 @@ export function runDoctor(root: string): DoctorReport {
   findings.push(...checkSkills(root, agents.length > 0 ? agents : [DEFAULT_AGENT], scope));
 
   findings.push(...checkItemMetadata(root));
+  findings.push(...checkItemLogs(root));
   findings.push(...checkUndelivered(root));
   findings.push(...checkAwaitingMerge(root));
   findings.push(...checkDocsBranches(root));
@@ -550,6 +552,7 @@ export async function runDoctorFixes(root: string): Promise<DoctorFixResult> {
     }
   }
   await stripLegacyRunState(root, fixed, failures);
+  await repairItemLogs(root, fixed, failures);
 
   if (ignoreEntriesMissing(root).missing.includes(TRAVEL_IGNORE_ENTRY)) {
     appendIgnoreWorks(root, [TRAVEL_IGNORE_ENTRY]);

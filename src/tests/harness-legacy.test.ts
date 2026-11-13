@@ -16,6 +16,8 @@ const KF = join(PKG_ROOT, "dist", "index.js");
 const LEGACY = ["main", "roles", "stages", "runners", "parallel", "retries", "maxLoops", "budget"] as const;
 const META_LEFTOVERS = ["drive", "runs", "sessions", "tasks"] as const;
 const TS = "20260916_1800";
+/** What --fix adds to a cleaned item: the id the lifecycle log is opened with. */
+const STAMPED = { id: expect.stringMatching(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/) };
 
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs =>
   ({ command, positionals, options });
@@ -319,7 +321,7 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
 
     const after = JSON.parse(await readFile(dead.file, "utf8")) as Record<string, unknown>;
     for (const key of META_LEFTOVERS) expect(after, key).not.toHaveProperty(key);
-    expect(after).toEqual(dead.kept);
+    expect(after).toEqual({ ...dead.kept, ...STAMPED });
     expect(withCode(runDoctor(root).findings, "meta_legacy_run_state")).toEqual([]);
   });
 
@@ -339,7 +341,7 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(res.failures[0].area).toContain("alpha_");
     expect(res.failures[0].message).toContain(String(worker.pid));
     expect(res.failures[0].message).toContain("stop");
-    expect(JSON.parse(await readFile(dead.file, "utf8"))).toEqual(dead.kept);
+    expect(JSON.parse(await readFile(dead.file, "utf8"))).toEqual({ ...dead.kept, ...STAMPED });
     expect(isAlive(worker.pid!)).toBe(true);
     expect(worker.exitCode).toBeNull();
     expect(worker.signalCode).toBeNull();
@@ -357,7 +359,7 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(res.failures).toEqual([]);
     const after = JSON.parse(await readFile(recycled.file, "utf8")) as Record<string, unknown>;
     for (const key of META_LEFTOVERS) expect(after, key).not.toHaveProperty(key);
-    expect(after).toEqual(recycled.kept);
+    expect(after).toEqual({ ...recycled.kept, ...STAMPED });
     expect(isAlive(unrelated.pid!)).toBe(true);
   });
 
@@ -404,7 +406,10 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
 
     await cmdDoctor(args("doctor", [], { fix: true }), root);
 
-    expect(await readFile(file, "utf8")).toBe(`${JSON.stringify(kept, null, indent)}\n`);
+    // The stamped id is the one new field; the layout stays the file's own.
+    const after = await readFile(file, "utf8");
+    expect(JSON.parse(after)).toEqual({ ...kept, ...STAMPED });
+    expect(after).toBe(`${JSON.stringify({ ...kept, id: (JSON.parse(after) as { id: string }).id }, null, indent)}\n`);
   });
 
   it("kf doctor --fix reports an ambiguous item as an error and still fixes the others", async () => {
@@ -421,7 +426,7 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(res.failures[0].area).toContain(`a_${TS}/.kfw.json`);
     expect(res.failures[0].message).toContain("Ambiguous");
     expect(await readFile(first.file, "utf8")).toBe(firstText);
-    expect(JSON.parse(await readFile(second.file, "utf8"))).toEqual(second.kept);
+    expect(JSON.parse(await readFile(second.file, "utf8"))).toEqual({ ...second.kept, ...STAMPED });
   });
 
   it("kf doctor's live-pid finding tells the user to stop the pid first, then run kf doctor --fix", async () => {
@@ -473,7 +478,7 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     expect(errors, res.stdout).toHaveLength(1);
     expect(errors[0]).toContain(syntaxText);
     expect(await readFile(join(broken, ".kfw.json"), "utf8")).toBe(brokenText);
-    expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual(ok.kept);
+    expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual({ ...ok.kept, ...STAMPED });
   });
 
   it.skipIf(process.getuid?.() === 0)("kf doctor --fix reports an item it cannot rewrite as an error, not as fixed, and still fixes the others", async () => {
@@ -493,7 +498,7 @@ describe("work items still holding drive, runs, sessions and tasks", () => {
     }
 
     expect(res.code, res.out).toBe(1);
-    expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual(ok.kept);
+    expect(JSON.parse(await readFile(ok.file, "utf8"))).toEqual({ ...ok.kept, ...STAMPED });
     expect(await readFile(locked.file, "utf8")).toBe(lockedText);
 
     const lines = res.out.split("\n");

@@ -88,7 +88,7 @@ async function recordWaiver(root: string, name: string, reason: string): Promise
     return badInput(`harness.verify.stage pins ${pinned.length} command(s), so '${name}' needs a stage record, not a waiver. Run: kf verify ${name} --stage`);
   }
   const waiver = { reason, at: new Date().toISOString(), by: detectReviewer(root) };
-  await updateFeatureMeta(root, name, (meta) => ({ ...meta, verifyWaiver: waiver }));
+  await updateFeatureMeta(root, name, (meta) => ({ ...meta, verifyWaiver: waiver }), {}, "waiver");
   return { code: 0, stdout: `Recorded a stage verify waiver for '${name}' (by ${waiver.by}): ${reason}` };
 }
 

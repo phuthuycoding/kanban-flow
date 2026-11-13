@@ -145,7 +145,7 @@ async function cmdCreate(root: string, repo: string, name: string | undefined, l
   if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(url)) {
     return { code: 1, stdout: `gh did not return an issue URL:\n${res.stdout.trim()}`, stderr: "no issue url" };
   }
-  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, issue: url, ...(override && !meta.goal ? { goal: override } : {}) }));
+  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, issue: url, ...(override && !meta.goal ? { goal: override } : {}) }), {}, "linked");
   return { code: 0, stdout: `Created ${url}\nRecorded on work item '${f.name}' (${f.dir}/.kfw.json).` };
 }
 
@@ -185,7 +185,7 @@ async function cmdLink(root: string, repo: string, name: string | undefined, tar
     const unfit = replacementRefusal(url, repo, f.meta.worktree?.branch);
     if (unfit) return { code: 1, stdout: `Not replaced: ${unfit}.`, stderr: "replacement refused" };
   }
-  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, ...(isPrRef ? { pr: url } : { issue: url }) }));
+  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, ...(isPrRef ? { pr: url } : { issue: url }) }), {}, "linked");
   return { code: 0, stdout: replaced ? `Linked '${f.name}' → ${url} (replaced ${replaced}, closed without merging)` : `Linked '${f.name}' → ${url}` };
 }
 

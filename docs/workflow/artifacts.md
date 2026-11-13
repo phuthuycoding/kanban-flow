@@ -74,6 +74,50 @@ The `/kf:implement` loop keeps its state in the ledger `<item>/loop/progress.md`
 | `Note TASK-NNN: decided — <what>` | The session's decision that closes one open `decide` of the task |
 | `Note TASK-NNN: verify routed — TASK-MMM` | The task's verify failure was sent to TASK-MMM as a fix round of TASK-MMM |
 
+## The lifecycle log `<item>/lifecycle.jsonl`
+
+Every work item carries a lifecycle log at the root of its folder: `lifecycle.jsonl`, one JSON record per line. kf only ever appends to it. `.kfw.json` stays the snapshot every command reads; the log is written beside it, by the same code that changes the snapshot or moves the folder and inside the same item lock, and it can rebuild the snapshot: folding the records in order gives the item's stage and its shared metadata — every `.kfw.json` field except `worktree`, with one value shortened: a hook skipped with `--skip-hooks` is `hook:<absolute path>` in `.kfw.json` and `hook:<file name>` in the log.
+
+Each record has these fields:
+
+| Field | Meaning |
+|---|---|
+| `v` | The format version, `1` |
+| `at` | When the record was written, an ISO-8601 UTC time with milliseconds |
+| `actor` | Who ran the command: git `user.name`, else `$USER`, else `$USERNAME`, else `human` |
+| `origin` | `{ "machine": "<id>", "via": "cli" }` — which machine wrote it. The id is a random uuid kf creates once per machine in `~/.kf/machine-id`; it is `unknown` when that file cannot be read or created, or holds something that is not a uuid |
+| `event` | What happened, one of the events below |
+| `from`, `stage` | On a command's own record that moves the item: the stage it left and the stage it entered. `created`, `opened` and a `reconciled` record that moves the stage carry `stage` alone. The fold reads `stage` only |
+| `set` | Each shared metadata field the change set, with its whole new value |
+| `unset` | The shared metadata fields the change removed |
+| `derived` | `true` on `opened` and `reconciled` only: the record was taken from the snapshot, not written by the change itself |
+
+| Event | Written by | Carries |
+|---|---|---|
+| `created` | `kf new`, before its brainstorm hook runs | The stage `brainstorm` and every field of the new metadata, the item's `id` among them |
+| `stage` | `kf stage`, the move of `kf approve`, the reopen of a cancelled item | `from`, `stage`, and what the move set or cleared: a new `executionId` on entering testing, the approval reset to pending on a return to planning, a cleared cancellation, a bypass (a `--force` bypass with the codes it ignored, a `--skip-hooks` bypass as `hook:<file name>`, without the hook's directory) |
+| `approved` | `kf approve`, before the `stage` record of its move | The approval: status, by, at, contract hash and the living-docs marker |
+| `approval-restored` | `kf approve` whose move was refused, when kf put the previous approval back | The approval the item had before |
+| `cancelled` | `kf cancel` | `from`, the stage `cancelled`, the cancellation (by, reason, the stage it left) and the status |
+| `waiver` | `kf verify <feature> --stage --waive` | The verify waiver |
+| `linked` | `kf issues create`, `kf issues link` (an issue, a pull request, `--replace`) | The issue or pull request URL, and the `goal` when `kf issues create --title` saves the title on an item that had none |
+| `delivered` | The close into `done` (`kf archive`, `kf stage <feature> done`, and the same close run by `kf status` or `kf sync`) | `from`, the stage `done`, the delivery stamp and the archived status |
+| `delivered` | A later close of an item already in `done`, when it changes a field | What it set — a docs branch the close recorded, a missing delivery stamp — with no `from` and no `stage`, because the item does not move |
+| `docs` | `kf status --all` proving a docs branch landed | The landing record |
+| `opened` | Any lifecycle write on an item that has no log yet | The stage and every shared field as they were before that write, plus the item's new `id` when it had none |
+| `reconciled` | Any lifecycle write on an item whose log disagrees with its `.kfw.json` | Only the fields that differ, and the stage when it differs |
+
+Rules that hold for every record:
+
+- **The id.** `kf new` gives each item a uuid, stored in `.kfw.json` as `id` and carried by the log; `kf status --change <feature> --json` prints it. An item created by an earlier release gets one at its first lifecycle write. A `.kfw.json` that lost its `id` gets back the one its log holds, at the next write or `kf doctor --fix`; kf mints a new uuid only when the log holds none. The folder name stays the local name; the id is what identifies the item across machines.
+- **Nothing machine-local is written.** The `worktree` block of `.kfw.json` (path, branch, domain, port) never enters a record, and kf writes no host name, home directory or project path of its own: the one metadata value that holds a path, the hook a `--skip-hooks` bypass names, is recorded by its file name. `kf worktree create` and `kf worktree remove` write no record. What a person typed into the metadata — a goal, a cancellation reason — is recorded as typed.
+- **A record follows a change that happened.** A refused command and a move that is rolled back leave the log byte-identical; a write that changes no shared field and no stage appends no record of its own. The one case with more than one record for a refusal is `kf approve` whose move is refused after the approval was written: the log holds `approved`, then `approval-restored`.
+- **The log catches up by itself.** Before a lifecycle write appends its own record, kf compares the fold of the log with the item as it was before the change. A missing log is opened, a log that is behind — a `.kfw.json` edited by hand, a folder moved by hand, a record lost to a failed write — is reconciled, and the command's own record follows.
+- **The log never changes a command's result.** When the log cannot be written the command keeps its exit code and its effect and prints one line on stderr, `⚠ lifecycle log not written for '<feature>': <path>: <reason>`; the next lifecycle write catches up. A log with an unreadable line is never appended to.
+- **`kf doctor`** warns for an item whose log cannot be read or is behind its `.kfw.json`, naming the fields, and stays silent for an item with no log. `kf doctor --fix` opens a log for every item that has none and reconciles one that is behind, stamping a missing `id` without changing the file's indentation; it never rewrites a log it cannot read, and it leaves alone an item that still holds the run state of the removed `kf drive`.
+
+The log protects against lost history, not against a file rewritten on purpose: it lives in the item folder, which the agent can write.
+
 ## The loop metrics file `.works/loop-metrics.md`
 
 `kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `assets/skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, or `verify done` lines the `kf verify` log does not back, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.
