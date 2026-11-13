@@ -102,7 +102,7 @@ export async function planInstall(given: Given, ctx: Ctx, p: Prompter): Promise<
   if (given.agents === undefined && given.scope === undefined) {
     const quick = { agents: [DEFAULT_AGENT], scope: ctx.configuredScope };
     const mode = await p.select(
-      "How do you want to install kanban-flow?",
+      "Setup mode — how do you want to install kanban-flow?",
       [{ label: `Quick — ${quick.agents.join(", ")}, scope ${quick.scope}` }, { label: "Customize — choose each step" }],
       0,
     );
