@@ -71,7 +71,7 @@ describe("the user-facing surface is English", () => {
       join(ROOT, "assets", "README.md"),
       ...walk(join(ROOT, "docs", "workflow"), (p) => p.endsWith(".md")),
     ];
-    expect(docs).toHaveLength(14);
+    expect(docs).toHaveLength(15);
     expect(offenders(docs)).toEqual([]);
   });
 

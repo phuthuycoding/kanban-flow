@@ -358,7 +358,7 @@ The full reference lives in [docs/workflow](docs/workflow/README.md): the [state
 machine](docs/workflow/state-machine.md), every [gate](docs/workflow/gates.md), the
 [artifacts](docs/workflow/artifacts.md), the [CLI reference](docs/workflow/cli-reference.md),
 [agent onboarding](docs/workflow/autoconfig.md) including phase hooks, the
-[in-session harness, `kf next`, `kf record` and `kf verify`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md). Release
+[in-session harness, `kf next`, `kf record` and `kf verify`](docs/workflow/harness.md), the [dashboard](docs/workflow/dashboard.md), the [library entry](docs/workflow/library.md) `@phuthuycoding/kanban-flow/lib` for programs that read kf's ledgers. Release
 notes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License — MIT
