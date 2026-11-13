@@ -18,6 +18,7 @@ The readers were written for the CLI, which runs one command over the user's own
 - **Synchronous, without a timeout.** Every reader blocks: they read files with the synchronous `fs` calls. Call them off a request path, in a worker or a job.
 - **A lookup is a full scan.** `listFeatures` is a full scan of `.works/`: it lists every stage folder and reads and checks every `.kfw.json`. `findFeature` runs one `listFeatures` per call, so a service that resolves many items calls `listFeatures` once and indexes the result by name or folder.
 - **Whole files in memory.** `readItemLog` and `readStageRecords` read the whole file into memory, and so do the other readers; no reader bounds file size.
+- **The fold checks only the keys.** `foldItemLog` and `readItemLog` keep only the shared metadata keys a record sets, but they check only the keys, not the values: a replicated log can give `feature`, `issue` or `approval` a value `readFeatureMeta` would refuse, although the result is typed `SharedMeta`. A service checks the values before it builds a path, a link or a page from them.
 - **Links are followed.** The readers follow symbolic links, and a FIFO blocks them, so a link in a materialised tree makes a reader open a path outside the folder it was given. A service materialises regular files only: no links, no FIFOs, with a size limit of its own.
 - **TypeScript resolution.** The types resolve through the `exports` map, so a TypeScript consumer needs `moduleResolution` `node16`, `nodenext` or `bundler`.
 
@@ -26,7 +27,7 @@ The readers were written for the CLI, which runs one command over the user's own
 - **stable** — removing or renaming the export, or changing a parameter or the shape it returns in a way existing callers notice, is a breaking change: a major version. While the package is `0.x`, this package bumps the minor for such a change (`0.19` → `0.20`) and lists it under **Changed** in the changelog — SemVer itself promises nothing for `0.y.z`; from `1.0` the change bumps the major.
 - **experimental** — may change in any minor release. These are the task-loop scheduler's internals and the shapes the CLI prints as text; they are exported so a service can run the same fold, not because their shape is settled.
 
-A field added to a returned object or an event added to a union is not breaking.
+A new optional field on a returned object is not breaking. A new member of an exported union (an event, a stage, a cause) is listed under **Changed** in the changelog: TypeScript code that switches on the union exhaustively stops compiling.
 
 ## Exports
 
@@ -79,8 +80,8 @@ A field added to a returned object or an event added to a union is not breaking.
 | `StageRecord` | type | stable | One stage-verify record |
 | `StepOutcome` | type | stable | The outcome of one command in a stage-verify record |
 | `ITEM_LOG_FILE` | constant | stable | `lifecycle.jsonl`, the lifecycle log's file name |
-| `readItemLog` | function | stable | Reads and folds an item folder's lifecycle log |
-| `foldItemLog` | function | stable | Folds lifecycle-log text into the stage and shared metadata |
+| `readItemLog` | function | stable | Reads and folds an item folder's lifecycle log; the folded values are not validated (see Trust and cost) |
+| `foldItemLog` | function | stable | Folds lifecycle-log text into the stage and shared metadata; the folded values are not validated (see Trust and cost) |
 | `sharedMeta` | function | stable | The metadata without machine-local and legacy keys, as the log records it |
 | `ItemRecord` | type | stable | One lifecycle record |
 | `ItemOrigin` | type | stable | The machine and channel that wrote a lifecycle record |

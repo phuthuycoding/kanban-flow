@@ -188,6 +188,20 @@ describe("library stability document", () => {
     expect(what).toMatch(/rethrown/);
   });
 
+  // The fold checks only that each event's keys are present, so a caller must not trust the values it returns.
+  it("says in the foldItemLog and readItemLog rows that the values are not validated", () => {
+    expect(rows.find((r) => r.name === "foldItemLog")?.what).toMatch(/not\s+validated/);
+    expect(rows.find((r) => r.name === "readItemLog")?.what).toMatch(/not\s+validated/);
+  });
+
+  // Adding a member to an exported union breaks a consumer's exhaustive switch, so it is not a silent change.
+  it("says in the Stability section that a new member of an exported union is listed under Changed", () => {
+    const stability = sectionOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"), "Stability");
+    expect(stability).not.toMatch(/event\s+added\s+to\s+a\s+union\s+is\s+not\s+breaking/);
+    expect(stability).toMatch(/new\s+member\s+of\s+an\s+exported\s+union/);
+    expect(stability).toMatch(/Changed/);
+  });
+
   describe("trust and cost section", () => {
     const trustSection = (): string => sectionOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"), "Trust and cost");
 
@@ -215,6 +229,12 @@ describe("library stability document", () => {
       const section = trustSection();
       expect(section).not.toMatch(/reads\s+only\s+the\s+files\s+of\s+the\s+folder/);
       expect(section).toMatch(/plus\s+whatever\s+a\s+link/);
+    });
+
+    it("says the lifecycle fold checks only the keys, not the values, so a service checks the values before use", () => {
+      const section = trustSection();
+      expect(section).toMatch(/only\s+the\s+keys/);
+      expect(section).toMatch(/not\s+the\s+values/);
     });
 
     it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
