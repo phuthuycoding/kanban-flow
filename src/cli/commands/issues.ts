@@ -137,14 +137,15 @@ async function cmdCreate(root: string, repo: string, name: string | undefined, l
   const kind = f.meta.kind === "bug" ? "bug" : "enhancement";
   const labelArgs = (Array.isArray(labels) && labels.length > 0 ? labels as string[] : [kind])
     .flatMap((l) => ["--label", l]);
-  const title = issueTitle(f.meta, f.name, typeof titleOverride === "string" && titleOverride !== "" ? titleOverride : undefined);
+  const override = typeof titleOverride === "string" && titleOverride !== "" ? titleOverride : undefined;
+  const title = issueTitle(f.meta, f.name, override);
   const res = gh(["issue", "create", "-R", repo, "--title", title, "--body", issueBody(f.dir), ...labelArgs]);
   if (!res.ok) return ghFailure(res, `create issue for '${f.name}'`);
   const url = res.stdout.trim().split("\n").at(-1) ?? "";
   if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+\/issues\/\d+$/.test(url)) {
     return { code: 1, stdout: `gh did not return an issue URL:\n${res.stdout.trim()}`, stderr: "no issue url" };
   }
-  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, issue: url }));
+  await updateFeatureMeta(root, f.name, (meta) => ({ ...meta, issue: url, ...(override && !meta.goal ? { goal: override } : {}) }));
   return { code: 0, stdout: `Created ${url}\nRecorded on work item '${f.name}' (${f.dir}/.kfw.json).` };
 }
 

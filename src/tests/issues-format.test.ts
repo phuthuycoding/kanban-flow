@@ -183,3 +183,18 @@ describe("kf issues sync title", () => {
     expect(call!.argv).not.toContain("--title");
   });
 });
+
+describe("kf issues create --title then sync", () => {
+  it("keeps the title given at create when the next sync runs on an item without a goal", async () => {
+    await item();
+    await writeSpec("Objective", "Objective line.");
+    const created = await cmdIssues(args("issues", ["create", "demo-item"], { title: "X" }), dir);
+    expect(created.code).toBe(0);
+    const synced = await cmdIssues(args("issues", ["sync", "demo-item"]), dir);
+    expect(synced.code).toBe(0);
+    const all = await calls();
+    expect(valueAfter(all[0]!.argv, "--title")).toBe("X");
+    expect(all[1]!.argv.slice(0, 2)).toEqual(["issue", "edit"]);
+    expect(all[1]!.argv).not.toContain("--title");
+  });
+});
