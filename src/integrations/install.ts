@@ -7,6 +7,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { findWorksRoot } from "../workflow/features.js";
 import { selectOption } from "../project/bootstrap.js";
 import { readProjectConfig } from "../project/config.js";
+import { createWorkspaceFile, resolveWorkspaceFolder } from "../project/config-layers.js";
 import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
 import {
   AGENTS,
@@ -19,7 +20,7 @@ import {
   type SkillScope,
 } from "./agents.js";
 import { copyName, LEGACY_AGENTS_DIR, LEGACY_SKILL_DIRS, LEGACY_SKILLS, MANAGED_AGENTS, MANAGED_SKILLS } from "./managed.js";
-import { claudeRunner, ensurePlugin, removePlugin } from "./claude-plugin.js";
+import { ClaudePluginError, claudeRunner, ensurePlugin, pluginState, removePlugin } from "./claude-plugin.js";
 import { ephemeralPackageWarning, renderForCopy, renderSkillMd } from "./skill-render.js";
 
 export { MANAGED_AGENTS, MANAGED_SKILLS };
@@ -713,30 +714,88 @@ function sameFiles(snapA: Map<string, Buffer>, snapB: Map<string, Buffer>): bool
   return true;
 }
 
+/** A skill scope, or `workspace`: the kf plugin at Claude Code `local` scope in the workspace folder. */
+export type InstallTarget = SkillScope | "workspace";
+
 export interface InstallScope {
   cwd?: string;
   /** Explicit `--scope`/`--global`/`--project`; undefined resolves to the configured scope. */
-  scope?: SkillScope;
+  scope?: InstallTarget;
   /** Also delete project data (.works/, .kf/) after confirmation. */
   purge?: boolean;
   /** Skip the interactive purge confirmation (required on non-TTY). */
   force?: boolean;
+  /** Remove the user-scope kf plugin once a workspace install succeeded; undefined means the question was not asked. */
+  removeUserPlugin?: boolean;
+  /** The onboarding confirm step already covered the purge, so its own confirmation is not asked again. */
+  purgeConfirmed?: boolean;
 }
 
-/** Resolve the --scope flag / --global / --project shorthand into a SkillScope. */
-export function scopeFromArgs(options: Record<string, unknown>): SkillScope | undefined {
+/** Resolve the --scope flag / --global / --project shorthand into an InstallTarget. */
+export function scopeFromArgs(options: Record<string, unknown>): InstallTarget | undefined {
   const scope = typeof options.scope === "string" ? options.scope : undefined;
   const g = Boolean(options.global);
   const p = Boolean(options.project);
   if (g && p) throw new Error("--global and --project cannot be combined");
   const flag = g ? "global" : p ? "project" : scope;
-  if (flag !== undefined && flag !== "global" && flag !== "project") {
-    throw new Error(`--scope must be "global" or "project", got '${flag}'`);
+  if (flag !== undefined && flag !== "global" && flag !== "project" && flag !== "workspace") {
+    throw new Error(`--scope must be "global", "project" or "workspace", got '${flag}'`);
   }
   if (scope && (g || p) && scope !== flag) {
     throw new Error(`--scope '${scope}' conflicts with ${g ? "--global" : "--project"}`);
   }
-  return flag as SkillScope | undefined;
+  return flag as InstallTarget | undefined;
+}
+
+/** Workspace scope installs the Claude Code plugin only; any other agent is refused before a change. */
+function workspaceAgentRefusal(ids: AgentId[]): InstallReport | null {
+  const others = ids.filter((id) => id !== "claude");
+  if (others.length === 0) return null;
+  return {
+    code: 1,
+    stdout: "",
+    stderr: `workspace scope supports claude only — drop ${others.join(", ")} from --agent or pick another scope`,
+  };
+}
+
+/** Plugin at `local` scope in the workspace folder; `.kf/workspace.json` is written only once the plugin is in place. */
+async function installWorkspace(ids: AgentId[], base: string, root: string | null, removeUserPlugin: boolean | undefined): Promise<InstallReport> {
+  const refused = workspaceAgentRefusal(ids);
+  if (refused) return refused;
+  // The local-scope registration records this package root too, which dangles once a linked worktree is removed.
+  const refusal = globalLinkRefusal();
+  if (refusal) return { code: 1, stdout: "", stderr: refusal };
+  const where = resolveWorkspaceFolder(base, root);
+  if ("unavailable" in where) return { code: 1, stdout: "", stderr: where.unavailable };
+  const { folder, create } = where;
+  const plugin = await ensurePlugin({ workspace: folder });
+  if (plugin.code !== 0) return { code: 1, stdout: plugin.stdout, stderr: plugin.stderr };
+  if (create) await createWorkspaceFile(folder);
+  const lines = [plugin.stdout, `✓ Workspace folder: ${folder}${create ? " (created .kf/workspace.json)" : ""}`];
+  const run = claudeRunner(folder);
+  let failed: string | undefined;
+  // Removed only now: dropping the user install first could leave no install anywhere if the workspace one failed.
+  if (removeUserPlugin) {
+    const removed = await removePlugin("global", run);
+    lines.push(removed.stdout);
+    if (removed.code !== 0) failed = removed.stderr;
+  } else if (removeUserPlugin === undefined) {
+    try {
+      if ((await pluginState(run, "global")).status !== "missing") {
+        lines.push(`Note: kf is also installed for every project (user scope), so /kf:* still appears outside ${folder} — remove it with: kf uninstall --global`);
+      }
+    } catch (err) {
+      // The workspace install already succeeded; an unreadable plugin list only leaves the user-scope question open.
+      if (!(err instanceof ClaudePluginError)) throw err;
+      lines.push(`⚠ Could not check for a user-scope kf install — ${err.message}`);
+    }
+  }
+  const restart = plugin.changed ? "\n\nRestart Claude Code to load the plugin." : "";
+  return {
+    code: failed ? 1 : 0,
+    ...(failed ? { stderr: failed } : {}),
+    stdout: `${lines.join("\n")}${restart}`,
+  };
 }
 
 const PURGE_DIRS = [".works", ".kf"];
@@ -832,6 +891,7 @@ export async function cmdInstall(agents: AgentId[] = [DEFAULT_AGENT], opts: Inst
   const declaredScope = root ? readProjectConfig(root).skills?.scope : undefined;
   const configured = declaredScope ?? "global";
   const scope = opts.scope ?? configured;
+  if (scope === "workspace") return installWorkspace(ids, base, root, opts.removeUserPlugin);
   if (scope === "project" && !root) {
     return {
       code: 1,
@@ -884,8 +944,17 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
   const foundRoot = findWorksRoot(base);
   const root = foundRoot ?? base;
   const scope = opts.scope ?? (foundRoot ? readProjectConfig(foundRoot).skills?.scope : undefined) ?? "global";
+  let workspace: string | null = null;
+  if (scope === "workspace") {
+    const refused = workspaceAgentRefusal(ids);
+    if (refused) return refused;
+    // Uninstall never creates .kf/workspace.json: with none found, the working directory is used as is.
+    const where = resolveWorkspaceFolder(base, foundRoot);
+    if ("unavailable" in where) return { code: 1, stdout: "", stderr: where.unavailable };
+    workspace = where.folder;
+  }
   const purgeTargets = opts.purge ? PURGE_DIRS.filter((d) => existsSync(join(root, d))) : [];
-  if (opts.purge && purgeTargets.length > 0 && !opts.force) {
+  if (opts.purge && purgeTargets.length > 0 && !opts.force && !opts.purgeConfirmed) {
     if (!process.stdin.isTTY) {
       return {
         code: 1,
@@ -909,7 +978,7 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
     if (id === "claude") {
-      const plugin = await removePlugin(scope, claudeRunner(root));
+      const plugin = workspace !== null ? await removePlugin({ workspace }) : await removePlugin(scope as SkillScope, claudeRunner(root));
       pluginFailed = plugin.code !== 0;
       lines.push(plugin.stdout);
       continue;
@@ -940,7 +1009,8 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
   if (lines.length === 0) {
     return { code: 1, stdout: "No valid agents given for uninstall.", stderr: "no agent" };
   }
-  lines.push(...legacyLines(await removeLegacy(root, scope)));
+  if (workspace !== null) lines.push(`· Workspace folder: ${workspace}`);
+  else lines.push(...legacyLines(await removeLegacy(root, scope as SkillScope)));
   let purged = "";
   if (opts.purge) {
     if (purgeTargets.length > 0) {
