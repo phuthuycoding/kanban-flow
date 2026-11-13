@@ -74,6 +74,10 @@ describe("manyReducer", () => {
     expect(manyReducer(start(), key("c", true), count).abort).toBe(true);
   });
 
+  it("aborts on ctrl+d (EOF in raw mode)", () => {
+    expect(manyReducer(start(), key("d", true), count).abort).toBe(true);
+  });
+
   it("never mutates the input state or its selection set", () => {
     const before = start([0], 0);
     const snapshot = [...before.selected];
@@ -122,6 +126,10 @@ describe("selectReducer", () => {
 
   it("aborts on ctrl+c", () => {
     expect(selectReducer(start(), key("c", true), choices).abort).toBe(true);
+  });
+
+  it("aborts on ctrl+d (EOF in raw mode)", () => {
+    expect(selectReducer(start(), key("d", true), choices).abort).toBe(true);
   });
 
   it("leaves the state unchanged on an unrelated key", () => {

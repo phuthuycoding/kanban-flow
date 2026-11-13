@@ -21,12 +21,14 @@ export type ManyState = {
   abort: boolean;
 };
 
+const isAbortKey = (key: Key): boolean => !!key.ctrl && (key.name === "c" || key.name === "d");
+
 const isDigitRow = (key: Key, count: number): boolean =>
   /^[1-9]$/.test(key.name) && Number(key.name) <= count;
 
 export function selectReducer(state: SelectState, key: Key, choices: readonly Choice[]): SelectState {
   const n = choices.length;
-  if (key.name === "c" && key.ctrl) return { ...state, abort: true };
+  if (isAbortKey(key)) return { ...state, abort: true };
   if (key.name === "up") return { ...state, cursor: (state.cursor - 1 + n) % n };
   if (key.name === "down") return { ...state, cursor: (state.cursor + 1) % n };
   if (isDigitRow(key, n)) return { ...state, cursor: Number(key.name) - 1 };
@@ -35,7 +37,7 @@ export function selectReducer(state: SelectState, key: Key, choices: readonly Ch
 }
 
 export function manyReducer(state: ManyState, key: Key, count: number): ManyState {
-  if (key.name === "c" && key.ctrl) return { ...state, selected: new Set(state.selected), abort: true };
+  if (isAbortKey(key)) return { ...state, selected: new Set(state.selected), abort: true };
   if (key.name === "up") return { ...state, selected: new Set(state.selected), cursor: (state.cursor - 1 + count) % count };
   if (key.name === "down") return { ...state, selected: new Set(state.selected), cursor: (state.cursor + 1) % count };
   if (isDigitRow(key, count)) return { ...state, selected: new Set(state.selected), cursor: Number(key.name) - 1 };
