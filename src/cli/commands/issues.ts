@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { readProjectConfig } from "../../project/config.js";
 import { issueUrl, prUrl } from "../../project/repository.js";
@@ -67,13 +67,31 @@ function specBody(dir: string): string | null {
   const raw = existsSync(spec) ? readFileSync(spec, "utf8") : "";
   const { body } = splitFrontmatter(raw);
   if (!raw || !isFilledFile(raw, body)) return null;
-  return `${body.trim()}\n\n---\n**Work item kf:** \`${dir}\` — synced from \`${ARTIFACTS["spec-requirement"].file}\`.`;
+  return `${body.trim()}\n\n---\n**Work item kf:** \`${basename(dir)}\` — synced from \`${ARTIFACTS["spec-requirement"].file}\`.`;
+}
+
+/** First non-empty line under the kind's summary heading, trimmed to GitHub's 256-char title limit; null when absent or empty. */
+function specTitle(dir: string, kind: string | undefined): string | null {
+  const spec = join(dir, ARTIFACTS["spec-requirement"].file);
+  if (!existsSync(spec)) return null;
+  const { body } = splitFrontmatter(readFileSync(spec, "utf8"));
+  const heading = kind === "bug" ? "Bug Summary" : "Objective";
+  let inSection = false;
+  for (const line of body.split("\n")) {
+    if (/^#{1,6}\s/.test(line)) {
+      if (inSection) return null;
+      inSection = new RegExp(`^##\\s+${heading}\\s*$`, "i").test(line.trim());
+      continue;
+    }
+    if (inSection && line.trim() !== "") return line.trim().slice(0, 256);
+  }
+  return null;
 }
 
 function issueBody(dir: string): string {
   const filled = specBody(dir);
   if (filled) return filled;
-  return `Work item \`${dir}\` created by kf; the requirement is being drafted in \`${ARTIFACTS["spec-requirement"].file}\` and will be synced when it is confirmed.\n\nConvention: one branch + one PR into the default branch, the PR notes \`Closes #<this issue>\`.`;
+  return `Work item \`${basename(dir)}\` created by kf; the requirement is being drafted in \`${ARTIFACTS["spec-requirement"].file}\` and will be synced when it is confirmed.\n\nConvention: one branch + one PR into the default branch, the PR notes \`Closes #<this issue>\`.`;
 }
 
 async function cmdSync(root: string, repo: string, name: string | undefined): Promise<CmdResult> {
@@ -91,7 +109,8 @@ async function cmdSync(root: string, repo: string, name: string | undefined): Pr
   try {
     const file = join(tmp, "body.md");
     await writeFile(file, body, "utf8");
-    const res = gh(["issue", "edit", f.meta.issue, "-R", repo, "--body-file", file]);
+    const title = f.meta.goal ? null : specTitle(f.dir, f.meta.kind);
+    const res = gh(["issue", "edit", f.meta.issue, "-R", repo, "--body-file", file, ...(title ? ["--title", title] : [])]);
     if (!res.ok) return ghFailure(res, `sync '${f.name}' into its issue`);
   } finally {
     await rm(tmp, { recursive: true, force: true });
