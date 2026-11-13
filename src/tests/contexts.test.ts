@@ -688,7 +688,7 @@ describe("edges nothing else reaches", () => {
     expect((await cmdContexts(args("contexts"), dir)).stdout).toContain("No work item uses a context yet.");
   });
 
-  it("treats an unreadable stage directory as an existing project rather than dying", async () => {
+  it.skipIf(process.getuid?.() === 0)("treats an unreadable stage directory as an existing project rather than dying", async () => {
     // Declining to declare changes nothing; declaring would be the act that locks someone out.
     ensureWorksStructure(dir);
     await chmod(join(dir, ".works", "brainstorm"), 0o000);
