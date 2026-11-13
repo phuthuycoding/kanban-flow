@@ -10,6 +10,12 @@ const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LIBRARY_DOC = "docs/workflow/library.md";
 const STABILITY_MARKS = ["stable", "experimental"];
 const KINDS = ["function", "constant", "type"];
+const PACKAGE_NAME = "@phuthuycoding/kanban-flow";
+
+// Escapes regex metacharacters so the package name can sit inside a RegExp built from a string.
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 interface DocRow {
   name: string;
@@ -121,13 +127,15 @@ describe("library stability document", () => {
 
   it("calls the bare package the CLI entry that runs a kf command from process.argv", () => {
     const doc = readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8");
-    expect(doc).toMatch(/bare\s+`@phuthuycoding\/kanban-flow`\s+is\s+the\s+CLI\s+entry/);
+    expect(doc).toMatch(new RegExp(`bare\\s+\`${escapeRegExp(PACKAGE_NAME)}\`\\s+is\\s+the\\s+CLI\\s+entry`));
     expect(doc).toMatch(/importing\s+it\s+runs\s+a\s+`kf`\s+command\s+from\s+`process\.argv`/);
   });
 
   it("tells consumers to import the lib subpath and never the bare package", () => {
     const doc = readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8");
-    expect(doc).toMatch(/Import\s+`@phuthuycoding\/kanban-flow\/lib`,\s+never\s+the\s+bare\s+package,\s+to\s+use\s+the\s+library/);
+    expect(doc).toMatch(
+      new RegExp(`Import\\s+\`${escapeRegExp(PACKAGE_NAME)}/lib\`,\\s+never\\s+the\\s+bare\\s+package,\\s+to\\s+use\\s+the\\s+library`),
+    );
   });
 
   it("states in the Stability section that breaking a stable export is a major version", () => {
