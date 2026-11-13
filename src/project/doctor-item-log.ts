@@ -1,8 +1,13 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { AmbiguousFeatureError, findFeature, listFeatures, writeFeatureMeta, type Feature } from "../workflow/features.js";
+import { AmbiguousFeatureError, findFeature, listFeatures, type Feature } from "../workflow/features.js";
 import { readItemLog, sharedMeta, syncItemLog, withItemId, type FoldResult, type ItemState } from "../workflow/item-log.js";
 import { withLock } from "../shared/lock.js";
+import { writeFileAtomic } from "../shared/paths.js";
+import { jsonIndent } from "./config.js";
+import { isFixFailure } from "./legacy-migration.js";
 import type { DoctorFinding } from "./doctor-types.js";
 
 const ACTION_UNREADABLE = "Fix or remove the line by hand; kf doctor --fix does not rewrite a log.";
@@ -56,38 +61,55 @@ export function checkItemLogs(root: string): DoctorFinding[] {
   return findings;
 }
 
+// The run-state keys stripLegacyRunState removes (src/project/legacy-migration.ts LEGACY_META_KEYS, not exported).
+const LEGACY_META_KEYS = ["drive", "runs", "sessions", "tasks"] as const;
+
 /** Opens a missing log and reconciles a behind one, under each item's lock; an unparsable log is left alone. */
 export async function repairItemLogs(root: string, fixed: string[], failures: DoctorFinding[]): Promise<void> {
   for (const listed of listFeatures(root)) {
     if (!listed.meta) continue;
     const area = areaOf(listed);
-    const failure: DoctorFinding = { level: "ERROR", area, message: `Lifecycle log of '${listed.name}' could not be written.`, action: "kf doctor --fix" };
+    const failure = (message: string, cause?: string): DoctorFinding =>
+      ({ level: "ERROR", area, message, action: cause ? `${cause}; then re-run kf doctor --fix` : "kf doctor --fix" });
     try {
       await withLock(root, listed.name, async () => {
         const f = findFeature(root, listed.folder);
         if (!f?.meta) return;
+        const file = join(f.dir, ".kfw.json");
+        const text = readFileSync(file, "utf8");
+        const raw = JSON.parse(text) as Record<string, unknown>;
+        // An item still holding run-state keys is one the strip left alone on purpose; it has already been reported.
+        if (LEGACY_META_KEYS.some((key) => Object.hasOwn(raw, key))) return;
         const before = tryRead(f.dir);
+        if ("error" in before) {
+          failures.push(failure(`Lifecycle log of '${f.name}' could not be written.`, before.error));
+          return;
+        }
         let verb: "opened" | "reconciled";
-        if ("error" in before) verb = "opened";
-        else if (!before.ok) return;
+        if (!before.ok) return;
         else if (before.state === null) verb = "opened";
         else if (differingFields(before.state, snapshot(f)).length > 0) verb = "reconciled";
         else return;
         const meta = withItemId(f.meta);
-        if (meta !== f.meta) await writeFeatureMeta(f.dir, meta);
+        if (meta !== f.meta) {
+          await writeFileAtomic(file, `${JSON.stringify({ ...raw, id: meta.id }, null, jsonIndent(text))}${text.endsWith("\n") ? "\n" : ""}`);
+        }
         const current = { stage: f.stage, meta: sharedMeta(meta) } as ItemState;
         syncItemLog(root, f.dir, f.name, current);
         const after = tryRead(f.dir);
         if (!("error" in after) && after.ok && after.state !== null && differingFields(after.state, current).length === 0) {
           fixed.push(`lifecycle log of ${f.name} ${verb}`);
         } else {
-          failures.push({ ...failure, area: areaOf(f) });
+          failures.push({ ...failure(`Lifecycle log of '${f.name}' could not be written.`), area: areaOf(f) });
         }
       });
     } catch (err) {
-      // A folder name two items answer to is reported by the metadata repair; it is not a log write failure.
-      if (err instanceof AmbiguousFeatureError) continue;
-      failures.push(failure);
+      if (err instanceof AmbiguousFeatureError) {
+        if (!failures.some((x) => x.area.startsWith(`${listed.stage}/${listed.folder}/`))) failures.push(failure(`Lifecycle log of '${listed.name}' was left unchanged: ${err.message}`));
+        continue;
+      }
+      if (!isFixFailure(err)) throw err;
+      failures.push(failure(`Lifecycle log of '${listed.name}' could not be written.`, err.message));
     }
   }
 }
