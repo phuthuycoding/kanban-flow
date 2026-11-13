@@ -1,0 +1,124 @@
+import {
+  ITEM_LOG_FILE,
+  computeBuckets,
+  computeStatus,
+  dashboardData,
+  executionContractHash,
+  findFeature,
+  findWorksRoot,
+  foldItemLog,
+  foldWorld,
+  listFeatures,
+  liveCap,
+  loopStats,
+  parseLedger,
+  readFeatureMeta,
+  readItemLog,
+  readLedgerState,
+  readStageRecords,
+  sharedMeta,
+  statusToJson,
+} from "@phuthuycoding/kanban-flow/lib";
+import type {
+  Action,
+  ApprovalStatus,
+  Buckets,
+  Cap,
+  CapCause,
+  DashboardFilters,
+  Feature,
+  FeatureMeta,
+  FeatureStatus,
+  Finding,
+  FoldResult,
+  HeldRerun,
+  ItemEvent,
+  ItemRecord,
+  ItemState,
+  LedgerEvent,
+  LedgerLine,
+  LedgerRead,
+  LedgerState,
+  LegacyStageName,
+  LoopInputs,
+  LoopStats,
+  LoopTask,
+  ParsedLedger,
+  RepairLine,
+  Seat,
+  SharedMeta,
+  Stage,
+  StageEvidence,
+  StageRecord,
+  TaskState,
+  WaitingToMergeEntry,
+  WorkItemKind,
+  World,
+} from "@phuthuycoding/kanban-flow/lib";
+
+// Ledger readers.
+const read: LedgerRead = readLedgerState("");
+const state: LedgerState = read.ok ? read.state : { events: [] };
+const repairs: RepairLine[] = read.ok ? [] : read.repair;
+const events: LedgerEvent[] = state.events;
+const parsed: ParsedLedger = parseLedger("");
+const lines: LedgerLine[] = parsed.lines;
+const stats: LoopStats = loopStats(parsed);
+const tasksSeen: number = stats.tasks;
+
+const task: LoopTask = { id: "TASK-001", dependencies: [], files: null, wave: 1, overlaps: [], inline: false, testTypes: ["Unit"] };
+const inputs: LoopInputs = {
+  feature: "demo", kind: "feature", level: null, tasks: [task],
+  ceiling: { max: 2, source: "default" }, reportCommits: {}, verifyRuns: {}, gitLog: [],
+};
+const cap: Cap = liveCap(state, inputs);
+const world: World = foldWorld(state, inputs, cap);
+const taskState: TaskState | undefined = world.tasks.get("TASK-001");
+const seat: Seat = "developer";
+const cause: CapCause = { kind: "start" };
+const actions: Action[] = cap.owed;
+const held: HeldRerun[] = cap.contention.held;
+const liveN: number = cap.n;
+
+// Item readers.
+const kind: WorkItemKind = "feature";
+const stage: Stage = "planning";
+const legacy: LegacyStageName = "shipping";
+const approval: ApprovalStatus = "pending";
+const root: string | null = findWorksRoot(".");
+const meta: FeatureMeta | null = readFeatureMeta(".");
+const features: Feature[] = listFeatures(".");
+const one: Feature | null = findFeature(".", "demo");
+const hash: string | null = executionContractHash(".", kind);
+const records: StageRecord[] = one ? readStageRecords(one) : [];
+
+// Read models.
+const status: FeatureStatus | null = one ? computeStatus(one, ".") : null;
+const json = status ? statusToJson(status) : null;
+const buckets: Buckets = computeBuckets(status ? [status] : [], []);
+const waiting: WaitingToMergeEntry[] = buckets.waitingToMerge;
+const filters: DashboardFilters = { context: "cli", kind: "bug" };
+const board = dashboardData(".", filters);
+const blockers: Finding[] = status ? status.blockers : [];
+const evidence: StageEvidence | null = status ? status.stageVerify : null;
+
+// Lifecycle log.
+const logFile: string = ITEM_LOG_FILE;
+const folded: FoldResult = foldItemLog("");
+const itemState: ItemState | null = folded.ok ? folded.state : null;
+const fromDisk: FoldResult = readItemLog(".");
+const shared: SharedMeta = sharedMeta({});
+const event: ItemEvent = "created";
+const record: Pick<ItemRecord, "v" | "event"> = { v: 1, event };
+
+// A type that resolved to `any` would make these directives unused, which is an error.
+// @ts-expect-error Cap.n is a number, not a string
+const notAString: string = cap.n;
+// @ts-expect-error "bogus" is not a Stage
+const notAStage: Stage = "bogus";
+
+export const used = [
+  repairs, events, lines, tasksSeen, taskState, seat, cause, actions, held, liveN, legacy, approval, root, meta,
+  features, hash, records, json, waiting, board, blockers, evidence, logFile, itemState, fromDisk, shared, record,
+  notAString, notAStage, stage, world,
+];
