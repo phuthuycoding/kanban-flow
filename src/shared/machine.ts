@@ -15,9 +15,16 @@ function readId(path: string): string | null {
   return UUID.test(text) ? text : null;
 }
 
+function hasCode(err: unknown, code?: string): err is NodeJS.ErrnoException {
+  return err instanceof Error && "code" in err && (code === undefined || err.code === code);
+}
+
 /**
  * A random id for this machine, created once and kept under ~/.kf. It tells records written here from
- * records written elsewhere without naming the host. "unknown" when it cannot be read or created.
+ * records written elsewhere without naming the host. "unknown" when the file system refuses to give or
+ * keep one: an unreadable or read-only home must not stop a lifecycle command, and a record with an
+ * unknown machine is still a record. Only file system errors are answered that way; anything else is a
+ * defect and is thrown.
  */
 export function machineId(): string {
   const path = machineIdPath();
@@ -25,7 +32,7 @@ export function machineId(): string {
     try {
       return readId(path) ?? "unknown";
     } catch (err) {
-      if (!(err instanceof Error && "code" in err && err.code === "ENOENT")) return "unknown";
+      if (!hasCode(err, "ENOENT")) throw err;
     }
     const id = randomUUID();
     mkdirSync(dirname(path), { recursive: true });
@@ -34,10 +41,11 @@ export function machineId(): string {
       return id;
     } catch (err) {
       // Another process created it between the read and the write: its id is the machine's.
-      if (err instanceof Error && "code" in err && err.code === "EEXIST") return readId(path) ?? "unknown";
-      return "unknown";
+      if (!hasCode(err, "EEXIST")) throw err;
+      return readId(path) ?? "unknown";
     }
-  } catch {
-    return "unknown";
+  } catch (err) {
+    if (hasCode(err)) return "unknown";
+    throw err;
   }
 }
