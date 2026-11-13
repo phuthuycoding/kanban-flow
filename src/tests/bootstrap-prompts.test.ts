@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,6 +35,12 @@ beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "kf-prompts-")));
   execFileSync("git", ["-C", root, "init", "-q"]);
   execFileSync("git", ["-C", root, "config", "user.name", "Test Author"]);
+  // The project layer wins over the global and workspace layers, so pinning the person-level
+  // values here keeps every expectation independent of any config above the temporary project.
+  mkdirSync(join(root, ".kf"));
+  writeFileSync(join(root, ".kf", "config.json"), JSON.stringify({
+    schema: "kanban-flow", reviewer: "Test Author", agents: ["claude"], skills: { scope: "global" },
+  }));
   rawCalls = [];
   written = [];
   script.answer = () => "";
@@ -136,8 +142,8 @@ describe("asking the setup questions", () => {
     expect(answers.defaultContextStated).toBe(false);
     expect(answers.defaultContext).toBe(defaults.defaultContext);
     expect(answers.reviewer).toBe("Test Author");
-    expect(answers.agents).toEqual(defaults.agents);
-    expect(answers.skillScope).toBe(defaults.skillScope);
+    expect(answers.agents).toEqual(["claude"]);
+    expect(answers.skillScope).toBe("global");
     expect(answers.seedFeature).toBe(false);
     expect(answers.repository).toBe(defaults.repository);
   });
