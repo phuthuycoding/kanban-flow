@@ -217,6 +217,10 @@ export async function runInstallCommand(
   const allGiven = agents.length > 0 && scope !== undefined;
   if (command === "install" && allGiven) return asIs();
   const ctx = contextFor(cwd);
+  // cmdInstall refuses these scopes; it must do so before any prompt.
+  const scopeUnusable =
+    (scope === "project" && ctx.projectRoot === null) || (scope === "workspace" && "unavailable" in ctx.workspace);
+  if (command === "install" && scopeUnusable) return asIs();
   if (command === "uninstall" && allGiven && (purge || !purgeStepApplies(ctx))) return asIs();
   const given: Given = { agents: agents.length > 0 ? agents : undefined, scope, purge: purge ? true : undefined };
   const prompter = deps.prompter ?? terminalPrompter;

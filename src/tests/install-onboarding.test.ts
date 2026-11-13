@@ -740,5 +740,77 @@ describe("runInstallCommand dispatch", () => {
       expect(res).toEqual({ code: 1, stdout: "Aborted — nothing changed.", stderr: "aborted" });
       expect(d.cmdInstall).not.toHaveBeenCalled();
     });
+
+    // A given scope the command will refuse must fail with today's error before any prompt.
+    it("calls cmdInstall exactly as off a TTY without asking or planning when --scope project is given outside a project", async () => {
+      const d = spies();
+      const plan = vi.fn(planInstall);
+      await runInstallCommand("install", { scope: "project" }, plainDir(), true, {
+        prompter: refusingPrompter(),
+        planInstall: plan,
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+      const offTty = spies();
+      await runInstallCommand("install", { scope: "project" }, plainDir(), false, offTty);
+
+      expect(plan).not.toHaveBeenCalled();
+      expect(d.cmdUninstall).not.toHaveBeenCalled();
+      expect(d.cmdInstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdInstall).toHaveBeenCalledWith([], { cwd: plainDir(), scope: "project" });
+      expect(d.cmdInstall.mock.calls[0][1]).not.toHaveProperty("removeUserPlugin");
+      expect(d.cmdInstall.mock.calls).toEqual(offTty.cmdInstall.mock.calls);
+    });
+
+    it("calls cmdInstall exactly as off a TTY without asking or planning when --scope workspace is given in a project with no workspace file above it", async () => {
+      const d = spies();
+      const plan = vi.fn(planInstall);
+      await runInstallCommand("install", { scope: "workspace" }, projDir(), true, {
+        prompter: refusingPrompter(),
+        planInstall: plan,
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+      const offTty = spies();
+      await runInstallCommand("install", { scope: "workspace" }, projDir(), false, offTty);
+
+      expect(plan).not.toHaveBeenCalled();
+      expect(d.cmdUninstall).not.toHaveBeenCalled();
+      expect(d.cmdInstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdInstall).toHaveBeenCalledWith([], { cwd: projDir(), scope: "workspace" });
+      expect(d.cmdInstall.mock.calls[0][1]).not.toHaveProperty("removeUserPlugin");
+      expect(d.cmdInstall.mock.calls).toEqual(offTty.cmdInstall.mock.calls);
+    });
+
+    // Drives the real context: the user-scope probe must ask claude for the user-scope install.
+    it("asks to remove the user-scope plugin when claude reports kf at user scope and the workspace scope is chosen", async () => {
+      const userScopeKf = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true }]);
+      await writeFile(
+        join(bin, "claude"),
+        [
+          "#!/bin/sh",
+          'echo "$*" >> "$KF_STUB_LOG"',
+          `if [ "$1 $2" = "plugin list" ]; then echo '${userScopeKf}'; fi`,
+          "exit 0",
+          "",
+        ].join("\n"),
+      );
+      const d = spies();
+      const { prompter, calls: asked } = scripted({
+        mode: "Customize",
+        agents: ["claude"],
+        scope: "workspace",
+        removeUser: "Yes",
+        confirm: "Install",
+      });
+      await runInstallCommand("install", {}, plainDir(), true, { prompter, cmdInstall: d.cmdInstall, cmdUninstall: d.cmdUninstall });
+
+      expect(kinds(asked)).toEqual(["mode", "agents", "scope", "removeUser", "confirm"]);
+      expect(selectCall(asked, "removeUser").question).toMatch(/^Step 3\/4 — /);
+      expect(selectCall(asked, "removeUser").question).toContain(plainDir());
+      expect(await calls()).toContain("plugin list --json");
+      expect(d.cmdInstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdInstall).toHaveBeenCalledWith(["claude"], { cwd: plainDir(), scope: "workspace", removeUserPlugin: true });
+    });
   });
 });
