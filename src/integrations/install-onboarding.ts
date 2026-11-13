@@ -25,7 +25,7 @@ export type Ctx = {
   workspace: { folder: string; create: boolean } | { unavailable: string };
   /** Asks claude, so it is called only once the workspace scope is chosen. */
   hasUserPlugin: () => Promise<boolean>;
-  /** The existing .works/ and .kf/ under projectRoot; [] when there is no project root. */
+  /** The existing .works/ and .kf/ cmdUninstall would purge: under projectRoot, else under cwd. */
   purgeTargets: string[];
 };
 
@@ -37,6 +37,11 @@ const NO_PROJECT = "no .works/ — run kf init";
 const CLAUDE_ONLY = "workspace scope supports claude only";
 // cmdUninstall's PURGE_DIRS; the purge step lists what that command will delete.
 const PURGE_DIRS = [".works", ".kf"];
+
+/** The purge step is offered only in a kanban project, never for a folder holding just .kf/ (a workspace's). */
+function purgeStepApplies(ctx: Ctx): boolean {
+  return ctx.projectRoot !== null && ctx.purgeTargets.length > 0;
+}
 
 /** "Step n/N — " where N counts the steps known to be asked when the label is drawn. */
 class Steps {
@@ -124,7 +129,7 @@ export async function planInstall(given: Given, ctx: Ctx, p: Prompter): Promise<
 
 /** Agents, scope, purge (only when .works/ was found), confirm — each only when not given. */
 export async function planUninstall(given: Given, ctx: Ctx, p: Prompter): Promise<UninstallPlan> {
-  const askPurge = given.purge === undefined && ctx.purgeTargets.length > 0;
+  const askPurge = given.purge === undefined && purgeStepApplies(ctx);
   if (given.agents !== undefined && given.scope !== undefined && !askPurge) {
     return { agents: given.agents, scope: given.scope, purge: given.purge ?? false, purgeConfirmed: false };
   }
@@ -142,8 +147,8 @@ export async function planUninstall(given: Given, ctx: Ctx, p: Prompter): Promis
   }
   const deletes = purge && ctx.purgeTargets.length > 0 ? ` and permanently delete ${ctx.purgeTargets.map((t) => `${t}/`).join(", ")}` : "";
   if (!(await confirm(p, steps.next(), `Uninstall ${agents.join(", ")} at ${where(scope, ctx)}${deletes}?`, "Uninstall"))) return { cancelled: true };
-  // The confirm step listed the directories, so cmdUninstall does not ask its own purge question again.
-  return { agents, scope, purge, purgeConfirmed: purge };
+  // Only a confirm that listed the directories stands in for cmdUninstall's own purge question.
+  return { agents, scope, purge, purgeConfirmed: purge && ctx.purgeTargets.length > 0 };
 }
 
 function contextFor(cwd: string): Ctx {
@@ -154,7 +159,7 @@ function contextFor(cwd: string): Ctx {
     configuredScope: (projectRoot ? readProjectConfig(projectRoot).skills?.scope : undefined) ?? "global",
     workspace: resolveWorkspaceFolder(cwd, projectRoot),
     hasUserPlugin: async () => (await pluginState(claudeRunner(cwd), "global")).status !== "missing",
-    purgeTargets: projectRoot ? PURGE_DIRS.map((d) => join(projectRoot, d)).filter((d) => existsSync(d)) : [],
+    purgeTargets: PURGE_DIRS.map((d) => join(projectRoot ?? cwd, d)).filter((d) => existsSync(d)),
   };
 }
 
@@ -198,7 +203,7 @@ export async function runInstallCommand(
   const allGiven = agents.length > 0 && scope !== undefined;
   if (command === "install" && allGiven) return asIs();
   const ctx = contextFor(cwd);
-  if (command === "uninstall" && allGiven && (purge || ctx.purgeTargets.length === 0)) return asIs();
+  if (command === "uninstall" && allGiven && (purge || !purgeStepApplies(ctx))) return asIs();
   const given: Given = { agents: agents.length > 0 ? agents : undefined, scope, purge: purge ? true : undefined };
   const prompter = deps.prompter ?? terminalPrompter;
   // Only the planning is guarded: an abort there has changed nothing yet.

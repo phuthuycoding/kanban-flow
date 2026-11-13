@@ -365,6 +365,15 @@ describe("planUninstall", () => {
     expect(plan).toEqual({ agents: ["claude"], scope: "project", purge: true, purgeConfirmed: true });
   });
 
+  // The confirm step stands in for cmdUninstall's purge prompt only when it listed what gets deleted.
+  it("leaves --purge unconfirmed when the confirm step listed no directories to delete", async () => {
+    const { prompter, calls } = scripted({ agents: ["claude"], scope: "global", confirm: "Uninstall" });
+    const plan = await planUninstall({ purge: true }, ctxOf({ projectRoot: null, purgeTargets: [] }), prompter);
+
+    expect(kinds(calls)).toEqual(["agents", "scope", "confirm"]);
+    expect(plan).toMatchObject({ agents: ["claude"], scope: "global", purgeConfirmed: false });
+  });
+
   it("asks nothing when agents, scope and purge are given outside a project", async () => {
     const plan = await planUninstall(
       { agents: ["claude"], scope: "global", purge: false },
@@ -554,6 +563,26 @@ describe("runInstallCommand dispatch", () => {
       expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], {
         cwd: projDir(),
         scope: "project",
+        purge: true,
+        purgeConfirmed: true,
+        force: false,
+      });
+    });
+
+    // A workspace folder has .kf/ but no .works/; cmdUninstall purges cwd there, so the confirm must name it.
+    it("names the .kf/ of a folder without .works/ at the confirm step before confirming --purge", async () => {
+      const ws = join(dir, "ws");
+      await mkdir(join(ws, ".kf"), { recursive: true });
+      await writeFile(join(ws, ".kf", "workspace.json"), "{}\n");
+      const d = spies();
+      const { prompter, calls: asked } = scripted({ agents: ["claude"], scope: "global", confirm: "Uninstall" });
+      await runInstallCommand("uninstall", { purge: true }, ws, true, { prompter, cmdInstall: d.cmdInstall, cmdUninstall: d.cmdUninstall });
+
+      expect(selectCall(asked, "confirm").question).toContain(`${join(ws, ".kf")}/`);
+      expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], {
+        cwd: ws,
+        scope: "global",
         purge: true,
         purgeConfirmed: true,
         force: false,
