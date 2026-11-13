@@ -176,9 +176,26 @@ export function readItemLog(dir: string): FoldResult {
   return foldItemLog(readFileSync(path, "utf8"));
 }
 
-/** The metadata with an id: the same object when it has one, a copy with a new uuid when it has none. */
-export function withItemId<T extends FeatureMeta>(meta: T): T {
-  return typeof meta.id === "string" ? meta : { ...meta, id: randomUUID() };
+/** The id the item's log already holds, or undefined when there is no readable log or it names none. */
+function loggedId(dir: string): string | undefined {
+  try {
+    const fold = readItemLog(dir);
+    const id = fold.ok ? fold.state?.meta.id : undefined;
+    return typeof id === "string" ? id : undefined;
+  } catch {
+    // An unreadable log path is reported by the write that follows; here it only means no id to reuse.
+    return undefined;
+  }
+}
+
+/**
+ * The metadata with an id: the same object when it has one. Otherwise a copy with the id the item's
+ * log already holds, when `dir` is given and the log names one — an id is generated once, so a
+ * `.kfw.json` that lost it gets the same one back — or else with a new uuid.
+ */
+export function withItemId<T extends FeatureMeta>(meta: T, dir?: string): T {
+  if (typeof meta.id === "string") return meta;
+  return { ...meta, id: (dir === undefined ? undefined : loggedId(dir)) ?? randomUUID() };
 }
 
 type RecordBody = Pick<ItemRecord, "event" | "from" | "stage" | "set" | "unset" | "derived">;

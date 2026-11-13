@@ -268,7 +268,7 @@ export async function updateFeatureMeta(
     const feature = findFeature(root, name);
     if (!feature?.meta) throw new Error(`Work item '${name}' disappeared or lost its metadata while it was being updated.`);
     const changed = await fn(feature.meta);
-    const meta = event ? withItemId(changed) : changed;
+    const meta = event ? withItemId(changed, feature.dir) : changed;
     await writeFeatureMeta(feature.dir, meta);
     if (event) {
       recordChange(root, feature.dir, feature.name, event,

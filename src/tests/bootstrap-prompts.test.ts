@@ -159,7 +159,6 @@ describe("asking the setup questions", () => {
   it("uses the typed reviewer, stacks, agents and the no answers", async () => {
     script.answer = (q) => {
       if (q.startsWith("Default reviewer")) return "Quinn";
-      if (q.startsWith("Detected stacks")) return "n";
       if (q.startsWith("Stacks")) return "node, go";
       if (q.startsWith("Install skills for which agents")) return "Claude";
       if (q.startsWith("Install skills globally")) return "no";
@@ -174,6 +173,20 @@ describe("asking the setup questions", () => {
     expect(answers.skillScope).toBe("project");
     expect(answers.seedFeature).toBe(true);
     expect(answers.ignoreWorks).toBe(false);
+  });
+
+  it("keeps the detected stacks on Enter and replaces them after a no with the typed ones", async () => {
+    writeFileSync(join(root, "package.json"), "{}");
+    const kept = await askAll(rlOf(), root);
+    expect(kept.stacks).toEqual(["node"]);
+    expect(script.asked.some((q) => q.startsWith("Detected stacks: node. Use them?"))).toBe(true);
+    expect(script.asked.some((q) => q.startsWith("Stacks (comma-separated"))).toBe(false);
+
+    script.asked = [];
+    script.answer = (q) => (q.startsWith("Detected stacks") ? "n" : q.startsWith("Stacks (comma-separated") ? "go, rust" : "");
+    const replaced = await askAll(rlOf(), root);
+    expect(replaced.stacks).toEqual(["go", "rust"]);
+    expect(script.asked.some((q) => q.startsWith("Stacks (comma-separated"))).toBe(true);
   });
 
   it("sets the repository from a URL, clears it with none, and keeps the old one for junk", async () => {

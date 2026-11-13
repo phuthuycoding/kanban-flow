@@ -144,12 +144,17 @@ describe("folding a log", () => {
     if (!result.ok) expect(result.line).toBe(4);
   });
 
-  it("refuses a record that is not version 1, has no time, or names an unknown event", () => {
+  it("refuses a record that is not version 1, has no time, or names an unknown event, stage, set or unset", () => {
     const created = line({ event: "created", stage: "planning", set: { ...BASE } });
     const bad = [
       JSON.stringify({ v: 2, at: "2026-11-13T05:00:00.000Z", event: "linked" }),
       JSON.stringify({ v: 1, event: "linked" }),
       JSON.stringify({ v: 1, at: "2026-11-13T05:00:00.000Z", event: "exploded" }),
+      JSON.stringify({ v: 1, at: "2026-11-13T05:00:00.000Z", event: "stage", stage: "bogus" }),
+      JSON.stringify({ v: 1, at: "2026-11-13T05:00:00.000Z", event: "linked", set: ["pr"] }),
+      JSON.stringify({ v: 1, at: "2026-11-13T05:00:00.000Z", event: "linked", set: "pr" }),
+      JSON.stringify({ v: 1, at: "2026-11-13T05:00:00.000Z", event: "linked", unset: [1] }),
+      JSON.stringify({ v: 1, at: "2026-11-13T05:00:00.000Z", event: "linked", unset: "pr" }),
     ];
     for (const record of bad) {
       const result = foldItemLog(`${created}\n${record}\n`);
