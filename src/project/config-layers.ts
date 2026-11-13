@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseAgentIds } from "../integrations/agents.js";
+import { writeFileAtomic } from "../shared/paths.js";
 // config.ts imports this module back (readProjectConfig → readConfigLayers). The cycle is safe only while
 // neither module touches the other's bindings at evaluation time: keep every use below inside a function.
 import { configPath, isAgentsValue, isReviewerValue, parseProjectConfig, parseSkillsBlock, ProjectConfigError, type ProjectConfig } from "./config.js";
@@ -51,6 +52,31 @@ export function findWorkspaceConfigPath(projectRoot: string): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+const WORKSPACE_UNAVAILABLE = "no .kf/workspace.json above this project — run kf install from the workspace folder";
+
+/**
+ * The folder a workspace-scope install targets: the nearest folder holding `.kf/workspace.json`, searching
+ * `cwd` itself and then its ancestors (home skipped); else `cwd` to create it when outside any project and
+ * not at home; else unavailable.
+ */
+export function resolveWorkspaceFolder(cwd: string, projectRoot: string | null): { folder: string; create: boolean } | { unavailable: string } {
+  const home = resolve(homedir());
+  let dir = resolve(cwd);
+  for (;;) {
+    if (dir !== home && existsSync(join(dir, ".kf", WORKSPACE_CONFIG_FILE))) return { folder: dir, create: false };
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  const start = resolve(cwd);
+  if (projectRoot === null && start !== home) return { folder: start, create: true };
+  return { unavailable: WORKSPACE_UNAVAILABLE };
+}
+
+export async function createWorkspaceFile(folder: string): Promise<void> {
+  await writeFileAtomic(join(folder, ".kf", WORKSPACE_CONFIG_FILE), "{}");
 }
 
 export interface ConfigLayerFile {
