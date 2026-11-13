@@ -511,8 +511,30 @@ const IMPLEMENTER = {
   ],
 } satisfies { [K in ImplementerStep["kind"]]: (t: TaskState, world: World, s: Extract<ImplementerStep, { kind: K }>) => Intent[] };
 
+/**
+ * An item with exactly one task gains nothing from a seat relay: once the scan is written, the controller fills every
+ * seat of it. A loop that already opened a seat for the task keeps its seats.
+ */
+const oneTaskItem = (t: TaskState, world: World): boolean =>
+  world.inputs.tasks.length === 1 && world.scan !== "none" && SEATS.every((seat) => t.seats[seat].kind === "idle");
+
+/** Not a judgement: no fold state opens it, and the implemented line it names completes the task. */
+const oneTaskDecide = (t: TaskState): Intent =>
+  act(
+    t.id,
+    {
+      kind: "decide",
+      task: t.id,
+      rule: "One-task item",
+      reason: "the item has one task — the controller writes the tests and the fix, commits, runs kf verify --task, no subagent",
+      closes: `${t.id}: implemented, test-writer seat: none, review seat: none`,
+    },
+    ["implemented"],
+  );
+
 const PHASES = {
   pending: (t, world) => {
+    if (oneTaskItem(t, world)) return [oneTaskDecide(t)];
     const plan = planOf(world, t.id);
     if (plan.testTypes.includes("Unit") || plan.testTypes.includes("Integration")) {
       return [act(t.id, dispatch(t, world, "test-writer", "new"), ["dispatched"])];
