@@ -679,3 +679,56 @@ describe("workspace target: Claude Code local scope", () => {
     expect(marketplaceRemoved(calls)).toBe(true);
   });
 });
+
+describe("workspace target: where claude runs and what remains after removal", () => {
+  it("keeps the marketplace when the local entry of the workspace survives an uninstall run in another folder", async () => {
+    const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "local", projectPath: "/ws/a", enabled: true, readFromFolder: PKG_ROOT }]);
+    const { run, calls } = stub(list, { "plugin uninstall": { code: 1, stdout: "", stderr: 'Plugin "kf" not found' } });
+    const res = await removePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls.some((c) => c[1] === "marketplace" && c[2] === "remove")).toBe(false);
+    expect(res.stdout).toMatch(/kept/i);
+  });
+
+  describe("without a runner", () => {
+    let bin: string;
+    let ws: string;
+    let log: string;
+    let prevPath: string | undefined;
+    beforeEach(async () => {
+      bin = await mkdtemp(join(tmpdir(), "kf-claude-cwd-bin-"));
+      ws = await mkdtemp(join(tmpdir(), "kf-claude-cwd-ws-"));
+      log = join(bin, "cwd.log");
+      await writeFile(join(ws, "kf-workspace-marker"), "");
+      // Logs whether claude runs in the workspace folder (its marker file is in the cwd).
+      await writeFile(
+        join(bin, "claude"),
+        `#!/bin/sh\nif [ -f kf-workspace-marker ]; then echo "$2 in-workspace" >> "${log}"; else echo "$2 elsewhere" >> "${log}"; fi\nif [ "$2" = list ]; then echo '[]'; fi\nexit 0\n`,
+      );
+      await chmod(join(bin, "claude"), 0o755);
+      prevPath = process.env.PATH;
+      process.env.PATH = `${bin}:${prevPath}`;
+    });
+    afterEach(async () => {
+      process.env.PATH = prevPath;
+      await rm(bin, { recursive: true, force: true });
+      await rm(ws, { recursive: true, force: true });
+    });
+
+    it("ensurePlugin runs claude in the workspace folder", async () => {
+      const res = await ensurePlugin({ workspace: ws });
+      expect(res.code).toBe(0);
+      const lines = (await readFile(log, "utf8")).trim().split("\n");
+      expect(lines).toContain("install in-workspace");
+      expect(lines.every((l) => l.endsWith("in-workspace"))).toBe(true);
+    });
+
+    it("removePlugin runs claude in the workspace folder", async () => {
+      const res = await removePlugin({ workspace: ws });
+      expect(res.code).toBe(0);
+      const lines = (await readFile(log, "utf8")).trim().split("\n");
+      expect(lines).toContain("uninstall in-workspace");
+      expect(lines.every((l) => l.endsWith("in-workspace"))).toBe(true);
+    });
+  });
+});

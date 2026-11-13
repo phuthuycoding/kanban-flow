@@ -78,6 +78,11 @@ function targetScope(target: PluginTarget): "user" | "project" | "local" {
   return typeof target === "string" ? claudeScope(target) : "local";
 }
 
+/** Claude Code's `local` scope writes `.claude/settings.local.json` in the folder claude runs in, so a workspace runs claude there. */
+function runnerFor(target: PluginTarget): ClaudeRun {
+  return typeof target === "string" ? defaultRun : claudeRunner(target.workspace);
+}
+
 /** A `local` entry belongs to one folder only; `user` and `project` entries match by scope alone. */
 function matchesTarget(entry: Record<string, unknown>, target: PluginTarget): boolean {
   if (typeof target === "string") return entry.scope === claudeScope(target);
@@ -160,7 +165,7 @@ function failureReason(err: unknown): string {
 }
 
 /** Bring the kf plugin to the state the package root asks for, writing only what differs. */
-export async function ensurePlugin(scope: PluginTarget, run: ClaudeRun = defaultRun): Promise<PluginReport> {
+export async function ensurePlugin(scope: PluginTarget, run: ClaudeRun = runnerFor(scope)): Promise<PluginReport> {
   const target = targetScope(scope);
   try {
     const state = await pluginState(run, scope);
@@ -208,12 +213,13 @@ async function removeStep(run: ClaudeRun, args: string[], absentPattern: RegExp,
   throw failed(args, res);
 }
 
-export async function removePlugin(scope: PluginTarget, run: ClaudeRun = defaultRun): Promise<PluginReport> {
+export async function removePlugin(scope: PluginTarget, run: ClaudeRun = runnerFor(scope)): Promise<PluginReport> {
   const lines: string[] = [];
   try {
     lines.push(await removeStep(run, ["plugin", "uninstall", PLUGIN_NAME, "--scope", targetScope(scope)], PLUGIN_ABSENT, `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`));
-    // The marketplace is registered per user, so a kf install at any other scope or workspace folder still reads from it.
-    const remaining = (await kfEntries(run)).filter((e) => !matchesTarget(e, scope));
+    // The marketplace is registered per user, so any kf install claude still lists, at any scope or folder, reads from it;
+    // the target's own entry counts too, since an uninstall run outside its folder answers "not installed" and leaves it.
+    const remaining = await kfEntries(run);
     if (remaining.length > 0) {
       const where = remaining.map((e) => (e.scope === "local" && typeof e.projectPath === "string" ? `local scope in ${e.projectPath}` : `${String(e.scope)} scope`));
       lines.push(`· Claude Code: marketplace ${MARKETPLACE_NAME} kept (kf still installed at ${[...new Set(where)].join(", ")})`);
