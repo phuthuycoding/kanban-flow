@@ -40,7 +40,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const to = args.options.backlog ? "backlog" : "implementation";
   const previous = { approval: f.meta.approval, executionId: f.meta.executionId };
   const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash, livingDocs: true as const };
-  await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined }));
+  await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined }), {}, "approved");
   const outcome = await transitionItem(root.root, f.name, to, { cwd });
   if (outcome.kind !== "moved") {
     // A failed move leaves the item in planning; an `approved` item there would read as started to every skill.
@@ -90,7 +90,7 @@ async function restoreApproval(
       return meta;
     }
     return { ...meta, approval: previous.approval, executionId: previous.executionId };
-  });
+  }, {}, "approval-restored");
   return changed ? `the previous approval was not restored: '${name}' was approved again meanwhile; its metadata is left as it is` : "";
 }
 

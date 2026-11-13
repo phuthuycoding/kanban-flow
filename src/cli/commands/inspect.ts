@@ -276,7 +276,7 @@ async function docsBranchesUnpushed(root: string, features: Feature[]): Promise<
     const proof = docsLandedProof(root, f, run);
     if (proof.landed) {
       try {
-        await updateFeatureMeta(root, f.name, (meta) => withDocsLanded(meta, branch, proof.by), { timeoutMs: DOCS_LANDED_LOCK_MS });
+        await updateFeatureMeta(root, f.name, (meta) => withDocsLanded(meta, branch, proof.by), { timeoutMs: DOCS_LANDED_LOCK_MS }, "docs");
       } catch (err) {
         if (!(err instanceof LockTimeoutError)) throw err;
         warnings.push(`⚠ ${f.name}: docs branch ${branch} landed; the item is locked by another kf command, so the landing is recorded on a later run`);

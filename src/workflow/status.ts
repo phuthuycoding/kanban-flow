@@ -320,6 +320,7 @@ export function renderStatusText(s: FeatureStatus): string {
 export function statusToJson(s: FeatureStatus) {
   return {
     feature: s.feature.name,
+    id: s.feature.meta?.id ?? null,
     kind: s.feature.meta?.kind ?? "feature",
     context: s.feature.context,
     stage: s.feature.stage,
