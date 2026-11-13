@@ -65,7 +65,7 @@ function introOf(markdown: string): string {
   return first === -1 ? markdown : markdown.slice(0, first);
 }
 
-// The sentence that the library spawns nothing and reads only the folders it is given.
+// The sentence that the library runs no git and reads no host config.
 const NO_GIT_NO_HOST_CONFIG = /library\s+runs\s+no\s+git\s+and\s+reads\s+no\s+host\s+config/;
 
 // The named types a stable export's declaration references; each must be exported and stable itself.
@@ -198,8 +198,32 @@ describe("library stability document", () => {
   it("says in the Stability section that a new member of an exported union is listed under Changed", () => {
     const stability = sectionOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"), "Stability");
     expect(stability).not.toMatch(/event\s+added\s+to\s+a\s+union\s+is\s+not\s+breaking/);
-    expect(stability).toMatch(/new\s+member\s+of\s+an\s+exported\s+union/);
-    expect(stability).toMatch(/Changed/);
+    expect(stability).toMatch(/new\s+member\s+of\s+an\s+exported\s+union[^.]*listed\s+under\s+\*\*Changed\*\*/);
+  });
+
+  // The reader drops a malformed line silently, so a caller cannot treat the last element as the gate's view.
+  it("says in the readStageRecords row that a bad line is skipped without notice and the last element is not the gate's latest record", () => {
+    const what = rows.find((r) => r.name === "readStageRecords")?.what;
+    expect(what).toMatch(/skipped\s+without\s+notice/);
+    expect(what).toMatch(/not\s+the\s+gate's\s+latest\s+record/);
+  });
+
+  // The fold copies these fields as the log records them, so a caller must check them before use.
+  it("says in the sharedMeta row that values are copied unchecked", () => {
+    const what = rows.find((r) => r.name === "sharedMeta")?.what;
+    expect(what).toMatch(/values\s+are\s+copied\s+unchecked/);
+    expect(what).not.toMatch(/machine-local\s+and\s+legacy\s+keys/);
+  });
+
+  // An invalid metadata file does not abort the scan; it surfaces on the item instead.
+  it("names dir, context and metaError in the Feature row and says listFeatures lists an invalid metadata file with metaError, never thrown", () => {
+    const feature = rows.find((r) => r.name === "Feature")?.what;
+    expect(feature).toMatch(/`metaError`/);
+    expect(feature).toMatch(/`dir`/);
+    expect(feature).toMatch(/`context`/);
+    const list = rows.find((r) => r.name === "listFeatures")?.what;
+    expect(list).toMatch(/`metaError`/);
+    expect(list).toMatch(/never\s+thrown/);
   });
 
   describe("trust and cost section", () => {
@@ -255,6 +279,12 @@ describe("library stability document", () => {
       expect(section).toMatch(/`readItemLog`/);
       expect(section).toMatch(/`readStageRecords`/);
       expect(section).toMatch(/whole\s+file/);
+    });
+
+    it("warns that stage records skip bad lines without notice in readStageRecords", () => {
+      const section = trustSection();
+      expect(section).toMatch(/Stage\s+records\s+skip\s+bad\s+lines/);
+      expect(section).toContain("readStageRecords");
     });
 
     it("says the readers follow symbolic links and do not bound file size, so a service materialises regular files only", () => {

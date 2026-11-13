@@ -19,6 +19,7 @@ The readers were written for the CLI, which runs one command over the user's own
 - **A lookup is a full scan.** `listFeatures` is a full scan of `.works/`: it lists every stage folder and reads and checks every `.kfw.json`. `findFeature` runs one `listFeatures` per call, so a service that resolves many items calls `listFeatures` once and indexes the result by name or folder.
 - **Whole files in memory.** `readItemLog` and `readStageRecords` read the whole file into memory, and so do the other readers; no reader bounds file size.
 - **The fold checks only the keys.** `foldItemLog` and `readItemLog` keep only the shared metadata keys a record sets, but they check only the keys, not the values: a replicated log can give `feature`, `issue` or `approval` a value `readFeatureMeta` would refuse, although the result is typed `SharedMeta`. A service checks the values before it builds a path, a link or a page from them.
+- **Stage records skip bad lines.** `readStageRecords` skips a line that is not JSON or not a stage record, and says nothing. kf's own gate reads only the latest record and reports an unreadable last line, so the last element of `readStageRecords` is not the gate's answer: after a cut-off or edited line it is an older record.
 - **Links are followed.** The readers follow symbolic links, and a FIFO blocks them, so a link in a materialised tree makes a reader open a path outside the folder it was given. A service materialises regular files only: no links, no FIFOs, with a size limit of its own.
 - **TypeScript resolution.** The types resolve through the `exports` map, so a TypeScript consumer needs `moduleResolution` `node16`, `nodenext` or `bundler`.
 
@@ -59,12 +60,12 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `CapCause` | type | stable | Why the cap changed, as a `capRuling` ledger event carries it |
 | `Action` | type | experimental | An action the scheduler owes |
 | `HeldRerun` | type | experimental | A contention re-run held back |
-| `listFeatures` | function | stable | Every work item of a project |
+| `listFeatures` | function | stable | Every work item of a project; an item whose `.kfw.json` is invalid is listed with `metaError`, never thrown |
 | `findFeature` | function | stable | One work item by name; throws `AmbiguousFeatureError` when the name matches more than one folder |
 | `AmbiguousFeatureError` | class | stable | The error `findFeature` throws on an ambiguous name; its message names the matching folders |
 | `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid; returns `null` when the folder has no `.kfw.json`, and an fs error is rethrown as is |
 | `executionContractHash` | function | stable | The contract fingerprint `approval.contractHash` is compared with |
-| `Feature` | type | stable | A work item: name, stage, folder, metadata |
+| `Feature` | type | stable | A work item: name, `context`, stage, folder, `dir` and metadata; an item whose `.kfw.json` is invalid has `meta` null and `metaError` set |
 | `FeatureMeta` | type | stable | The `.kfw.json` snapshot |
 | `Approval` | type | stable | The approval block of the metadata |
 | `Bypass` | type | stable | One recorded `--force` or `--skip-hooks` bypass |
@@ -76,13 +77,13 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `WorkItemKind` | type | stable | `feature` or `bug` |
 | `ApprovalStatus` | type | stable | The approval state in the metadata |
 | `LegacyStageName` | type | stable | A stage name an earlier release wrote |
-| `readStageRecords` | function | stable | The item's `loop/stage-verify.jsonl` records |
+| `readStageRecords` | function | stable | The item's `loop/stage-verify.jsonl` records, in file order; a line that is not JSON or not a stage record is skipped without notice, so the last element is not the gate's latest record |
 | `StageRecord` | type | stable | One stage-verify record |
 | `StepOutcome` | type | stable | The outcome of one command in a stage-verify record |
 | `ITEM_LOG_FILE` | constant | stable | `lifecycle.jsonl`, the lifecycle log's file name |
 | `readItemLog` | function | stable | Reads and folds an item folder's lifecycle log; the folded values are not validated (see Trust and cost) |
 | `foldItemLog` | function | stable | Folds lifecycle-log text into the stage and shared metadata; the folded values are not validated (see Trust and cost) |
-| `sharedMeta` | function | stable | The metadata without machine-local and legacy keys, as the log records it |
+| `sharedMeta` | function | stable | The metadata without `worktree`, the run-state keys of the removed `kf drive` and unknown keys, as the log records it; values are copied unchecked |
 | `ItemRecord` | type | stable | One lifecycle record |
 | `ItemOrigin` | type | stable | The machine and channel that wrote a lifecycle record |
 | `ItemEvent` | type | stable | A lifecycle event name |
