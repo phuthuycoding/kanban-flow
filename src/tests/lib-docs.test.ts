@@ -178,11 +178,26 @@ describe("library stability document", () => {
       expect(section).toMatch(/Call\s+them\s+off\s+a\s+request\s+path/);
     });
 
-    it("says computeStatus keeps a per-process cache", () => {
+    it("says dashboardData keeps a per-process cache whose entries are never evicted", () => {
       const section = trustSection();
       expect(section).toMatch(/A\s+per-process\s+cache/);
-      expect(section).toMatch(/`computeStatus`\s+caches\s+the\s+project's\s+`worktree\.domains`\s+flag\s+per\s+root/);
+      expect(section).toMatch(/`dashboardData`,\s+through\s+the\s+status\s+text\s+it\s+renders\s+for\s+each\s+item\s+that\s+has\s+a\s+worktree,\s+caches\s+the\s+project's\s+`worktree\.domains`\s+flag\s+per\s+root\s+and\s+config\s+version/);
       expect(section).toMatch(/for\s+the\s+life\s+of\s+the\s+process/);
+      expect(section).toMatch(/Entries\s+are\s+never\s+evicted/);
+    });
+
+    it("says dashboardData runs git for each item in implementation, testing or review", () => {
+      expect(trustSection()).toMatch(/`dashboardData`\s+runs\s+git\s+for\s+each\s+item\s+in\s+implementation,\s+testing\s+or\s+review/);
+    });
+
+    it("says the excluded git is the kind that changes state, not the read-only git the readers run", () => {
+      expect(trustSection()).toMatch(/requirement\s+#184\s+excludes\s+git\s+that\s+changes\s+state,\s+not\s+this\s+read-only\s+git/);
+    });
+
+    it("says computeStatus reads the config only with a root and an item in implementation, testing or review, and no reader writes under .works", () => {
+      const section = trustSection();
+      expect(section).toMatch(/`computeStatus`\s+when\s+it\s+is\s+given\s+a\s+root\s+and\s+the\s+item\s+is\s+in\s+implementation,\s+testing\s+or\s+review/);
+      expect(section).toMatch(/No\s+reader\s+writes\s+a\s+file\s+under\s+`\.works\/`/);
     });
 
     it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
