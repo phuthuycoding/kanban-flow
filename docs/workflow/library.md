@@ -6,13 +6,13 @@
 import { readLedgerState, computeStatus, listFeatures } from "@phuthuycoding/kanban-flow/lib";
 ```
 
-The bare `@phuthuycoding/kanban-flow` is the CLI entry: importing it runs a `kf` command from `process.argv`. Importing `/lib` runs no command, reads no argv, prints nothing and leaves the exit code alone. No other path resolves: a deep import such as `@phuthuycoding/kanban-flow/dist/workflow/status.js` is refused by the package's `exports` map. The package is ESM only and ships type declarations for this path.
+The bare `@phuthuycoding/kanban-flow` is the CLI entry: importing it runs a `kf` command from `process.argv`. Import `@phuthuycoding/kanban-flow/lib`, never the bare package, to use the library. Importing `/lib` runs no command, reads no argv, prints nothing and leaves the exit code alone. No other path resolves: a deep import such as `@phuthuycoding/kanban-flow/dist/workflow/status.js` is refused by the package's `exports` map. The package is ESM only and ships type declarations for this path.
 
-The readers need a filesystem: the item readers and read models read `.works/<stage>/<item>/` folders under a project root, so a service materialises the folders before calling them. Nothing here writes, runs git or runs a hook.
+The readers need a filesystem: the item readers and read models read `.works/<stage>/<item>/` folders under a project root, so a service materialises the folders before calling them. Nothing here writes or runs a hook. Some readers run read-only git commands, as `kf status` does: `findWorksRoot` asks `git rev-parse --git-common-dir` for the main checkout when no folder at or above the path holds `.works/` (a linked worktree), and `computeStatus` — so `dashboardData` too — validates the item's reports and living docs against its git checkout. A service that has no checkout gets the answers `kf status` gives without one.
 
 ## Stability
 
-- **stable** — removing or renaming the export, or changing a parameter or the shape it returns in a way existing callers notice, is a breaking change: a major version. While the package is `0.x`, SemVer's rule for `0.y.z` applies and such a change bumps the minor (`0.19` → `0.20`) and is listed under **Changed** in the changelog; from `1.0` it bumps the major.
+- **stable** — removing or renaming the export, or changing a parameter or the shape it returns in a way existing callers notice, is a breaking change: a major version. While the package is `0.x`, this package bumps the minor for such a change (`0.19` → `0.20`) and lists it under **Changed** in the changelog — SemVer itself promises nothing for `0.y.z`; from `1.0` the change bumps the major.
 - **experimental** — may change in any minor release. These are the task-loop scheduler's internals and the shapes the CLI prints as text; they are exported so a service can run the same fold, not because their shape is settled.
 
 A field added to a returned object or an event added to a union is not breaking.
@@ -22,8 +22,8 @@ A field added to a returned object or an event added to a union is not breaking.
 | Export | Kind | Stability | What it does |
 |---|---|---|---|
 | `readLedgerState` | function | stable | Reads a task-loop ledger (`loop/progress.md` text) into its events and state |
-| `LedgerRead` | type | stable | What `readLedgerState` returns |
-| `LedgerState` | type | stable | The ledger's events and per-task state |
+| `LedgerRead` | type | stable | What `readLedgerState` returns: `{ ok: true, state }`, or `{ ok: false, repair }` when any line cannot be read |
+| `LedgerState` | type | stable | The ledger's events, in order |
 | `LedgerEvent` | type | stable | One ledger event |
 | `RepairLine` | type | stable | A ledger line the reader could not place, with its number |
 | `parseLedger` | function | stable | Parses ledger text into lines for measurement |
@@ -42,7 +42,7 @@ A field added to a returned object or an event added to a union is not breaking.
 | `CapCause` | type | experimental | Why the cap changed |
 | `Action` | type | experimental | An action the scheduler owes |
 | `HeldRerun` | type | experimental | A contention re-run held back |
-| `findWorksRoot` | function | stable | The project root above a folder that holds `.works/`, or null |
+| `findWorksRoot` | function | stable | The nearest folder at or above a path that holds `.works/` (a linked worktree resolves to its main checkout), or null |
 | `listFeatures` | function | stable | Every work item of a project |
 | `findFeature` | function | stable | One work item by name |
 | `readFeatureMeta` | function | stable | An item folder's `.kfw.json` |
@@ -64,7 +64,7 @@ A field added to a returned object or an event added to a union is not breaking.
 | `ItemState` | type | stable | The stage and shared metadata a fold gives |
 | `FoldResult` | type | stable | What `foldItemLog` and `readItemLog` return |
 | `SharedMeta` | type | stable | What `sharedMeta` returns |
-| `statusToJson` | function | stable | The object `kf status --change <feature> --json` prints |
+| `statusToJson` | function | experimental | The object `kf status --change <feature> --json` prints |
 | `computeStatus` | function | experimental | One item's status, the input of `statusToJson` |
 | `FeatureStatus` | type | experimental | What `computeStatus` returns |
 | `Finding` | type | experimental | A validation finding in a status |
