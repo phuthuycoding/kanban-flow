@@ -221,6 +221,10 @@ export async function runInstallCommand(
   const scopeUnusable =
     (scope === "project" && ctx.projectRoot === null) || (scope === "workspace" && "unavailable" in ctx.workspace);
   if (command === "install" && scopeUnusable) return asIs();
+  // cmdUninstall refuses a workspace scope with no folder or with a non-claude agent; refuse before any prompt too.
+  const workspaceRefused =
+    scope === "workspace" && ("unavailable" in ctx.workspace || agents.some((id) => id !== "claude"));
+  if (command === "uninstall" && workspaceRefused) return asIs();
   if (command === "uninstall" && allGiven && (purge || !purgeStepApplies(ctx))) return asIs();
   const given: Given = { agents: agents.length > 0 ? agents : undefined, scope, purge: purge ? true : undefined };
   const prompter = deps.prompter ?? terminalPrompter;

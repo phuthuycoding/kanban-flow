@@ -782,6 +782,51 @@ describe("runInstallCommand dispatch", () => {
       expect(d.cmdInstall.mock.calls).toEqual(offTty.cmdInstall.mock.calls);
     });
 
+    // cmdUninstall refuses a workspace scope it cannot resolve; that refusal must come before any prompt.
+    it("calls cmdUninstall exactly as off a TTY without asking or planning when --scope workspace is given in a project with no workspace file above it", async () => {
+      const d = spies();
+      const plan = vi.fn(planUninstall);
+      await runInstallCommand("uninstall", { scope: "workspace" }, projDir(), true, {
+        prompter: refusingPrompter(),
+        planUninstall: plan,
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+      const offTty = spies();
+      await runInstallCommand("uninstall", { scope: "workspace" }, projDir(), false, offTty);
+
+      expect(plan).not.toHaveBeenCalled();
+      expect(d.cmdInstall).not.toHaveBeenCalled();
+      expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdUninstall.mock.calls).toEqual(offTty.cmdUninstall.mock.calls);
+    });
+
+    // The project sits under a workspace folder, so only the non-claude agent makes cmdUninstall refuse;
+    // being a project, it would otherwise get the purge step.
+    it("calls cmdUninstall exactly as off a TTY without asking or planning when a non-claude agent is given with --scope workspace", async () => {
+      const ws = join(dir, "ws");
+      const proj = join(ws, "proj");
+      await mkdir(join(ws, ".kf"), { recursive: true });
+      await writeFile(join(ws, ".kf", "workspace.json"), "{}\n");
+      await mkdir(proj);
+      ensureWorksStructure(proj);
+      const d = spies();
+      const plan = vi.fn(planUninstall);
+      await runInstallCommand("uninstall", { agent: "codex", scope: "workspace" }, proj, true, {
+        prompter: refusingPrompter(),
+        planUninstall: plan,
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+      const offTty = spies();
+      await runInstallCommand("uninstall", { agent: "codex", scope: "workspace" }, proj, false, offTty);
+
+      expect(plan).not.toHaveBeenCalled();
+      expect(d.cmdInstall).not.toHaveBeenCalled();
+      expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdUninstall.mock.calls).toEqual(offTty.cmdUninstall.mock.calls);
+    });
+
     // Drives the real context: the user-scope probe must ask claude for the user-scope install.
     it("asks to remove the user-scope plugin when claude reports kf at user scope and the workspace scope is chosen", async () => {
       const userScopeKf = JSON.stringify([{ id: "kf@kanban-flow", scope: "user", enabled: true }]);
