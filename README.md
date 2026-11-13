@@ -130,13 +130,16 @@ project), then confirms. Cancel changes nothing; Ctrl+C aborts with exit 1. In a
 script or CI (no terminal) nothing is asked and the commands behave as before.
 
 A third scope, **workspace**, is for Claude Code only: it installs the plugin at
-Claude Code's `local` scope in a workspace folder, so `/kf:*` appears in every
-project under that folder and nowhere else. The folder is the nearest one holding
+Claude Code's `local` scope in a workspace folder, so `/kf:*` is available when
+Claude Code is started in that folder (Claude Code reads `local` settings from the
+session's working directory only). The folder is the nearest one holding
 `.kf/workspace.json` (searching up from where you run it); outside a project, the
 current folder becomes the workspace and `.kf/workspace.json` is created there
 once the install succeeds. If kf is also installed at user scope, the onboarding
 offers to remove that install after the workspace one succeeded (No keeps it);
-when nothing was asked, the output reminds you of `kf uninstall --global`.
+when nothing was asked, the output reminds you of `kf uninstall --global`. When
+claude cannot be asked during the onboarding, the removal question is skipped and
+the install output reports the failed check or names `kf uninstall --global`.
 
 Other runtimes (`--agent codex|gemini|kiro|cursor|opencode|devin`) have no plugin
 system, so `kf install` copies the skills as `kf-<name>` directories (`kf-flow`,
