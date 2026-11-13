@@ -70,4 +70,4 @@ project/
     └── testplan/{context}/{feature}{,-result}.md
 ```
 
-Each work item folder is named `{feature}_{YYYYMMDD_HHmm}` and carries a `.kfw.json`. The standard artifacts all use the `phase-{number}-` prefix.
+Each work item folder is named `{feature}_{YYYYMMDD_HHmm}` and carries a `.kfw.json` (the snapshot every command reads) and a `lifecycle.jsonl` (the append-only log of every lifecycle change, see [artifacts](artifacts.md#the-lifecycle-log-itemlifecyclejsonl)). The standard artifacts all use the `phase-{number}-` prefix.

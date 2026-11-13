@@ -4,6 +4,11 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- **A lifecycle log per work item.** Every item folder carries `lifecycle.jsonl`, an append-only file with one JSON record per lifecycle change: `created`, `stage`, `approved`, `approval-restored`, `cancelled`, `waiver`, `linked`, `delivered` and `docs`, each with the time, the actor, the machine that wrote it (a random id in `~/.kf/machine-id`, never the host name) and the values the change set. The record is written by the code that makes the change, inside the item lock, only once the change has succeeded. `.kfw.json` stays the snapshot every command reads; folding the log gives the item's stage and its metadata without the machine-local `worktree` block. A log that is missing or behind is brought up to date by the next lifecycle write (`opened`, `reconciled`), and a log that cannot be written never changes a command's result.
+- **An item id.** `kf new` writes a uuid `id` into `.kfw.json`; an item of an earlier release gets one at its first lifecycle write. `kf status --change <feature> --json` prints it.
+- **`kf doctor` checks the lifecycle log.** It warns for an item whose log cannot be read or is behind its `.kfw.json`, and stays silent for an item with no log. `kf doctor --fix` opens a log for every item that has none and reconciles one that is behind.
+
 ## [0.19.0] - 2026-11-12
 
 ### Added
