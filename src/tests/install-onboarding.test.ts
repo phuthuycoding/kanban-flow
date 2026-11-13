@@ -330,7 +330,7 @@ describe("planUninstall", () => {
     await mkdir(join(ws, ".kf"), { recursive: true });
     await writeFile(join(ws, ".kf", "workspace.json"), "{}\n");
     const { prompter, calls } = scripted({ agents: ["claude"], scope: "global", confirm: "Uninstall" });
-    const plan = await planUninstall({}, ctxOf({ cwd: ws, projectRoot: null, purgeTargets: [] }), prompter);
+    const plan = await planUninstall({}, ctxOf({ cwd: ws, projectRoot: null, purgeTargets: [join(ws, ".kf")] }), prompter);
 
     expect(kinds(calls)).toEqual(["agents", "scope", "confirm"]);
     expect(stepLabels(calls)).toEqual(["1/3", "2/3", "3/3"]);
@@ -371,7 +371,7 @@ describe("planUninstall", () => {
     const plan = await planUninstall({ purge: true }, ctxOf({ projectRoot: null, purgeTargets: [] }), prompter);
 
     expect(kinds(calls)).toEqual(["agents", "scope", "confirm"]);
-    expect(plan).toMatchObject({ agents: ["claude"], scope: "global", purgeConfirmed: false });
+    expect(plan).toEqual({ agents: ["claude"], scope: "global", purge: true, purgeConfirmed: false });
   });
 
   it("asks nothing when agents, scope and purge are given outside a project", async () => {
@@ -543,6 +543,22 @@ describe("runInstallCommand dispatch", () => {
 
       expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
       expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], { cwd: plainDir(), scope: "global", purge: false, force: false });
+    });
+
+    // Without .works/ the folder is not a project, so its .kf/ is never offered for purging.
+    it("calls cmdUninstall exactly as today without asking when agents and scope are given in a folder holding only .kf/", async () => {
+      const ws = join(dir, "ws");
+      await mkdir(join(ws, ".kf"), { recursive: true });
+      await writeFile(join(ws, ".kf", "workspace.json"), "{}\n");
+      const d = spies();
+      await runInstallCommand("uninstall", { agent: "claude", scope: "global" }, ws, true, {
+        prompter: refusingPrompter(),
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+
+      expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], { cwd: ws, scope: "global", purge: false, force: false });
     });
 
     it("runs cmdInstall with the planned agents and scope", async () => {
