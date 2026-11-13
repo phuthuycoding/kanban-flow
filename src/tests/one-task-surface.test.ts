@@ -66,9 +66,17 @@ describe("the plan skill's bug Task Breakdown", () => {
     expect(p).toContain("Execution:");
   });
 
-  it("includes the task graph and Execution lines in the approval summary for such a bug", () => {
+  it("includes the task graph and Execution lines in the approval summary for a multi-task bug", () => {
     const p = bugParagraph();
-    expect(p).toContain("kf tasks --graph");
+    expect(p).toMatch(/approval summary[^.]*includes[^.]*kf tasks --graph[^.]*Execution:/);
+  });
+
+  it("scopes the leave-out list of feature-only content to a one-task bug", () => {
+    // Otherwise the paragraph says both "leave out the graph" and "include the graph".
+    const p = bugParagraph();
+    const leaveOut = p.match(/[^.]*\b(?:leaving out|leaves out|leave out)\b[^.]*\./);
+    expect(leaveOut, "a sentence names what a bug's approval leaves out").not.toBeNull();
+    expect(leaveOut![0]).toMatch(/one-task/i);
     expect(p).toMatch(/report-only/i);
   });
 });
