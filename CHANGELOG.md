@@ -4,7 +4,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
-## [0.20.0] - 2026-11-12
+## [0.20.0] - 2026-11-13
 
 ### Added
 - **Three review rule packs: `frontend`, `monorepo` and `mvvm`.** `kf rules` now ships ten packs. `frontend` is detected from a build config (`vite.config.*`, `next.config.*`, `nuxt.config.ts`, `svelte.config.js`, `angular.json`) and `monorepo` from a workspace file (`pnpm-workspace.yaml`, `turbo.json`, `nx.json`, `lerna.json`); `mvvm` is an architecture, installed by name with `kf rules --stack mvvm`.
