@@ -15,7 +15,7 @@ Use the least powerful model that can do the role, and **name it on every dispat
 
 ## The ledger
 
-Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/loop/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection.
+Conversation memory does not survive compaction. Controllers that lost their place have re-dispatched entire completed task sequences — the single most expensive failure observed. The ledger (`<item>/loop/progress.md`) is the recovery map: the commits it names exist in `git log` even when your context no longer remembers creating them. After compaction, trust the ledger and `git log` over your recollection. The human's reply language is recovered the same way, from the latest `Note reply language: <language>` line.
 
 Every line after the header ends with ` @ <ISO-8601 timestamp with offset>` — the moment the line was written, stamped by `kf record` from the clock (the form `date +%Y-%m-%dT%H:%M:%S%z | sed 's/\(..\)$/:\1/'` prints) and never estimated, a `T` between date and time and the offset as `±hh:mm`, e.g. ` @ 2026-11-01T18:41:26+07:00` — and nothing follows it; a line gets exactly one suffix, never a second suffix, and never starts with a markdown bullet. The suffix comes last so the `TASK-NNN:` that travel and the resume rule read stays first.
 
@@ -67,6 +67,7 @@ The other lines carry the same suffix and are not parsed for figures — rulings
 # Task loop ledger — <feature> — plan: <abs path>
 Scan: <TASK-A> vs <TASK-B> — <what one produces / the other consumes> — <ok | Ruling: ...> @ <ts>
 Scan: clean @ <ts>
+Note reply language: <language> @ <ts>
 Ruling: <decision> — <why> — <cost if wrong> @ <ts>
 TASK-002: no test-writer — <why> @ <ts>
 TASK-001: test hashes <file>=<sha> … @ <ts>
