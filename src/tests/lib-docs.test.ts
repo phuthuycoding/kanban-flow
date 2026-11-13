@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as source from "../lib.js";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LIBRARY_DOC = "docs/workflow/library.md";
@@ -29,13 +30,35 @@ function parseExportRows(markdown: string): DocRow[] {
   return rows;
 }
 
+// Names in every `export type { ... } from` statement of the source entry (exported name after `as`).
+function parseTypeExportNames(entrySource: string): string[] {
+  const names: string[] = [];
+  for (const m of entrySource.matchAll(/export\s+type\s*\{([^}]*)\}\s*from/g)) {
+    for (const part of (m[1] ?? "").split(",")) {
+      const spec = part.trim().replace(/^type\s+/, "");
+      if (spec === "") continue;
+      names.push(spec.split(/\s+as\s+/).pop() ?? spec);
+    }
+  }
+  return names.sort();
+}
+
+// Body of a `## <heading>` section, up to the next `## ` heading.
+function sectionOf(markdown: string, heading: string): string {
+  const start = markdown.search(new RegExp(`^## ${heading}\\s*$`, "m"));
+  if (start === -1) return "";
+  const rest = markdown.slice(start).split("\n").slice(1).join("\n");
+  const next = rest.search(/^## /m);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
 describe("library stability document", () => {
   let tmp: string;
   let builtNames: string[];
   let sourceNames: string[];
   let rows: DocRow[];
 
-  beforeAll(async () => {
+  beforeAll(() => {
     // The built library is imported the way an installed package would be: through the exports map.
     tmp = mkdtempSync(join(tmpdir(), "kf-lib-docs-"));
     const scope = join(tmp, "node_modules", "@phuthuycoding");
@@ -49,13 +72,9 @@ describe("library stability document", () => {
       'import * as lib from "@phuthuycoding/kanban-flow/lib";\nprocess.stdout.write(JSON.stringify(Object.keys(lib).sort()));\n',
     );
     const r = spawnSync(process.execPath, [script], { cwd: tmp, env: { ...process.env, HOME: home }, encoding: "utf8" });
-    expect(r.stderr).toBe("");
-    expect(r.status).toBe(0);
+    expect(r.status, `names.mjs exited with ${String(r.status)}; stderr: ${r.stderr}`).toBe(0);
     builtNames = JSON.parse(r.stdout) as string[];
 
-    // The source entry is imported in-process; the specifier is a variable so typecheck does not need the file to exist yet.
-    const sourceEntry = "../lib.js";
-    const source = (await import(/* @vite-ignore */ sourceEntry)) as Record<string, unknown>;
     sourceNames = Object.keys(source).sort();
 
     rows = parseExportRows(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"));
@@ -93,15 +112,31 @@ describe("library stability document", () => {
     expect(phantom).toEqual([]);
   });
 
-  it("tells consumers to import the lib subpath and calls the bare package the CLI entry", () => {
-    const doc = readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8");
-    expect(doc).toContain("@phuthuycoding/kanban-flow/lib");
-    expect(doc).toMatch(/CLI/);
+  it("documents a type row for exactly the types src/lib.ts exports", () => {
+    const typeNames = parseTypeExportNames(readFileSync(join(PACKAGE_ROOT, "src", "lib.ts"), "utf8"));
+    expect(typeNames.length).toBeGreaterThan(0);
+    const documentedTypes = rows.filter((r) => r.kind === "type").map((r) => r.name).sort();
+    expect(documentedTypes).toEqual(typeNames);
   });
 
-  it("states the versioning rule for stable exports", () => {
+  it("calls the bare package the CLI entry that runs a kf command from process.argv", () => {
     const doc = readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8");
-    expect(doc).toMatch(/major/i);
+    expect(doc).toMatch(/bare\s+`@phuthuycoding\/kanban-flow`\s+is\s+the\s+CLI\s+entry/);
+    expect(doc).toMatch(/importing\s+it\s+runs\s+a\s+`kf`\s+command\s+from\s+`process\.argv`/);
+  });
+
+  it("tells consumers to import the lib subpath and never the bare package", () => {
+    const doc = readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8");
+    expect(doc).toMatch(/Import\s+`@phuthuycoding\/kanban-flow\/lib`,\s+never\s+the\s+bare\s+package,\s+to\s+use\s+the\s+library/);
+  });
+
+  it("states in the Stability section that breaking a stable export is a major version", () => {
+    const doc = readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8");
+    const stability = sectionOf(doc, "Stability");
+    expect(stability).not.toBe("");
+    expect(stability).toMatch(
+      /^- \*\*stable\*\* — removing or renaming the export, or changing a parameter or the shape it returns in a way existing callers notice, is a breaking change: a major version\./m,
+    );
   });
 
   it("links the document from the README", () => {
