@@ -14,6 +14,7 @@ import {
 } from "../integrations/install-onboarding.js";
 import { PromptAbort, type Choice } from "../project/prompts.js";
 import { agentLabel } from "../integrations/agents.js";
+import { ClaudePluginError } from "../integrations/claude-plugin.js";
 import type { cmdInstall, cmdUninstall } from "../integrations/install.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 
@@ -201,6 +202,30 @@ describe("planInstall scope step", () => {
     expect(scope.choices[indexOfWord(scope.choices, "workspace")].unavailable).toBeUndefined();
     expect(plan).toEqual({ agents: ["claude"], scope: "workspace", removeUserPlugin: false });
   });
+
+  // Claude Code reads local settings from the session's working directory only, so the label must not promise more.
+  it("labels the available workspace scope as reaching Claude Code only when started in the workspace folder", async () => {
+    const { prompter, calls } = scripted({ mode: "Customize", agents: ["claude"], scope: "global", confirm: "Install" });
+    await planInstall({}, ctxOf({ workspace: { folder: "/tmp/kf-onboarding-ws", create: false } }), prompter);
+
+    const scope = selectCall(calls, "scope");
+    expect(scope.choices[indexOfWord(scope.choices, "workspace")].label).toBe(
+      "workspace — Claude Code, only when started in /tmp/kf-onboarding-ws",
+    );
+  });
+
+  it("labels an unavailable workspace scope as reaching Claude Code only when started in the workspace folder", async () => {
+    const expected = "workspace — Claude Code, only when started in the workspace folder";
+    const nonClaude = scripted({ mode: "Customize", agents: ["claude", "codex"], scope: "global", confirm: "Install" });
+    await planInstall({}, ctxOf(), nonClaude.prompter);
+    const noFolder = scripted({ mode: "Customize", agents: ["claude"], scope: "global", confirm: "Install" });
+    await planInstall({}, ctxOf({ workspace: { unavailable: "no workspace folder above this directory" } }), noFolder.prompter);
+
+    const byAgent = selectCall(nonClaude.calls, "scope");
+    expect(byAgent.choices[indexOfWord(byAgent.choices, "workspace")].label).toBe(expected);
+    const byResolver = selectCall(noFolder.calls, "scope");
+    expect(byResolver.choices[indexOfWord(byResolver.choices, "workspace")].label).toBe(expected);
+  });
 });
 
 describe("planInstall with some choices given", () => {
@@ -276,6 +301,44 @@ describe("planInstall user-scope plugin removal", () => {
     await planInstall({}, wsCtx(), prompter);
 
     expect(kinds(calls)).toEqual(["mode", "agents", "scope", "confirm"]);
+  });
+
+  // A probe that cannot ask claude leaves the question open; cmdInstall then reports the claude failure
+  // with the manual /plugin steps instead of the onboarding crashing after every answer was given.
+  const probeFailures: [string, () => Error][] = [
+    ["claude answered badly (ClaudePluginError)", () => new ClaudePluginError("`claude plugin list --json` exited 1:\nboom")],
+    ["claude is not on PATH (spawn ENOENT)", () => Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" })],
+  ];
+
+  it.each(probeFailures)("skips the removal step and leaves removeUserPlugin unset when %s", async (_why, failure) => {
+    const { prompter, calls } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", confirm: "Install" });
+    const plan = await planInstall(
+      {},
+      ctxOf({
+        workspace: { folder: "/tmp/kf-onboarding-ws", create: false },
+        hasUserPlugin: () => Promise.reject(failure()),
+      }),
+      prompter,
+    );
+
+    expect(kinds(calls)).toEqual(["mode", "agents", "scope", "confirm"]);
+    expect(stepLabels(calls)).toEqual(["1/3", "2/3", "3/3"]);
+    // toEqual matches only an absent or undefined removeUserPlugin, never false or true.
+    expect(plan).toEqual({ agents: ["claude"], scope: "workspace", removeUserPlugin: undefined });
+    expect(plan).not.toHaveProperty("removeUserPlugin", true);
+  });
+
+  it("rejects with an unrelated error the user-scope probe throws", async () => {
+    const bug = new Error("unrelated probe bug");
+    const { prompter } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", removeUser: "No", confirm: "Install" });
+
+    await expect(
+      planInstall(
+        {},
+        ctxOf({ workspace: { folder: "/tmp/kf-onboarding-ws", create: false }, hasUserPlugin: () => Promise.reject(bug) }),
+        prompter,
+      ),
+    ).rejects.toBe(bug);
   });
 });
 
@@ -559,6 +622,40 @@ describe("runInstallCommand dispatch", () => {
 
       expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
       expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], { cwd: ws, scope: "global", purge: false, force: false });
+    });
+
+    it("asks the purge step in a project when agents and scope are given without --purge, then confirms the purge", async () => {
+      const d = spies();
+      const { prompter, calls: asked } = scripted({ purge: "Yes", confirm: "Uninstall" });
+      await runInstallCommand("uninstall", { agent: "claude", scope: "project" }, projDir(), true, {
+        prompter,
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+
+      expect(kinds(asked)).toEqual(["purge", "confirm"]);
+      expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], {
+        cwd: projDir(),
+        scope: "project",
+        purge: true,
+        purgeConfirmed: true,
+        force: false,
+      });
+    });
+
+    // With --purge given, cmdUninstall keeps its own purge question, so the dispatch adds no purgeConfirmed.
+    it("calls cmdUninstall exactly as today without asking in a project when agents, scope and --purge are given", async () => {
+      const d = spies();
+      await runInstallCommand("uninstall", { agent: "claude", scope: "project", purge: true }, projDir(), true, {
+        prompter: refusingPrompter(),
+        cmdInstall: d.cmdInstall,
+        cmdUninstall: d.cmdUninstall,
+      });
+
+      expect(d.cmdUninstall).toHaveBeenCalledTimes(1);
+      expect(d.cmdUninstall).toHaveBeenCalledWith(["claude"], { cwd: projDir(), scope: "project", purge: true, force: false });
+      expect(d.cmdUninstall.mock.calls[0][1]).not.toHaveProperty("purgeConfirmed");
     });
 
     it("runs cmdInstall with the planned agents and scope", async () => {

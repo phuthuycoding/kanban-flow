@@ -7,7 +7,7 @@ import { resolveWorkspaceFolder } from "../project/config-layers.js";
 import { PromptAbort, selectChoice, selectMany, type Choice } from "../project/prompts.js";
 import { findWorksRoot } from "../workflow/features.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "./agents.js";
-import { claudeRunner, pluginState } from "./claude-plugin.js";
+import { ClaudePluginError, claudeRunner, pluginState } from "./claude-plugin.js";
 import { cmdInstall, cmdUninstall, scopeFromArgs, type InstallTarget } from "./install.js";
 
 export type Given = { agents?: AgentId[]; scope?: InstallTarget; purge?: boolean };
@@ -29,7 +29,8 @@ export type Ctx = {
   purgeTargets: string[];
 };
 
-export type InstallPlan = { agents: AgentId[]; scope: InstallTarget; removeUserPlugin: boolean } | { cancelled: true };
+/** removeUserPlugin is absent when claude could not be asked: cmdInstall then reports that failure itself. */
+export type InstallPlan = { agents: AgentId[]; scope: InstallTarget; removeUserPlugin?: boolean } | { cancelled: true };
 export type UninstallPlan = { agents: AgentId[]; scope: InstallTarget; purge: boolean; purgeConfirmed: boolean } | { cancelled: true };
 
 const SCOPES: readonly InstallTarget[] = ["global", "project", "workspace"];
@@ -75,10 +76,10 @@ async function askScope(p: Prompter, label: string, agents: AgentId[], ctx: Ctx,
       ? { label: "project — this project only", unavailable: NO_PROJECT }
       : { label: "project — this project only" },
     agents.some((a) => a !== "claude")
-      ? { label: "workspace — Claude Code, every project in the workspace folder", unavailable: CLAUDE_ONLY }
+      ? { label: "workspace — Claude Code, only when started in the workspace folder", unavailable: CLAUDE_ONLY }
       : "unavailable" in ws
-        ? { label: "workspace — Claude Code, every project in the workspace folder", unavailable: ws.unavailable }
-        : { label: `workspace — Claude Code, every project in ${ws.folder}` },
+        ? { label: "workspace — Claude Code, only when started in the workspace folder", unavailable: ws.unavailable }
+        : { label: `workspace — Claude Code, only when started in ${ws.folder}` },
   ];
   const pick = await p.select(`${label}Which scope?`, choices, SCOPES.indexOf(ctx.configuredScope));
   return SCOPES[pick];
@@ -92,6 +93,17 @@ async function confirm(p: Prompter, label: string, summary: string, action: "Ins
 
 function where(scope: InstallTarget, ctx: Ctx): string {
   return scope === "workspace" && "folder" in ctx.workspace ? `scope workspace (${ctx.workspace.folder})` : `scope ${scope}`;
+}
+
+/** The user-scope probe; undefined when claude is missing or answered badly, any other failure propagates. */
+async function probeUserPlugin(ctx: Ctx): Promise<boolean | undefined> {
+  try {
+    return await ctx.hasUserPlugin();
+  } catch (err) {
+    if (err instanceof ClaudePluginError) return undefined;
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
 }
 
 /** Asks only the steps whose choice was not given; with nothing given, a Quick/Customize choice comes first. */
@@ -111,9 +123,11 @@ export async function planInstall(given: Given, ctx: Ctx, p: Prompter): Promise<
   const steps = new Steps((given.agents === undefined ? 1 : 0) + (given.scope === undefined ? 1 : 0) + 1);
   const agents = given.agents ?? (await askAgents(p, steps.next()));
   const scope = given.scope ?? (await askScope(p, steps.next(), agents, ctx, true));
-  let removeUserPlugin = false;
   const ws = ctx.workspace;
-  if (scope === "workspace" && "folder" in ws && agents.every((a) => a === "claude") && (await ctx.hasUserPlugin())) {
+  const userPlugin = scope === "workspace" && "folder" in ws && agents.every((a) => a === "claude") ? await probeUserPlugin(ctx) : false;
+  let removeUserPlugin = userPlugin === undefined ? undefined : false;
+  // "folder" in ws again only narrows the type for the question text.
+  if (userPlugin === true && "folder" in ws) {
     steps.add();
     const pick = await p.select(
       `${steps.next()}kf is also installed for every project (user scope). Remove it so /kf:* only appears in ${ws.folder}?`,
