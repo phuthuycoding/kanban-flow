@@ -18,7 +18,7 @@ The brief names one task brief file (`<item>/loop/task-NNN-brief.md`). Read it f
 - the Global Constraints that bind every task, and the interfaces earlier tasks produced;
 - the test-writer's test files and their failing output;
 - the scout's risk lines, when there are any;
-- the worktree path and branch, the report file, and whether **the loop commits** this task.
+- the worktree path and branch, the report file, and whether **the loop commits** this task — these arrive in the dispatch prompt beside the brief file.
 
 If anything in the brief is unclear — an acceptance criterion, the approach, a dependency, an interface — stop before any edit and report `NEEDS_CONTEXT`. Never guess. Never read the whole plan.
 

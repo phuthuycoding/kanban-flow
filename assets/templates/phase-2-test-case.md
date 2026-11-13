@@ -9,6 +9,7 @@ status: planning
 
 Test Strategy from `phase-1-spec-requirement.md` decides the depth:
 `unit` → Unit; `unit+integration` → Unit + Integration; `full` → Unit + Integration + UI/E2E.
+Each case's `Test type` is exactly one of `Unit`, `Integration`, `UI`, `E2E`: the task loop picks the test-writer or the automation-writer from it.
 
 Extend the tables and repeat `## TC-###` for every planned test. Remove unused sample rows. Counts must match the detailed cases; use `0` with a reason for excluded test types. This is the planned contract: execution outcomes belong in the testing-result report.
 
@@ -53,7 +54,7 @@ Extend the tables and repeat `## TC-###` for every planned test. Remove unused s
 | Test case ID | TC-001 |
 | Requirement reference | FR-001 |
 | Use case reference | UC-001 |
-| Test type | Unit / Integration / UI / E2E |
+| Test type | {test_type} |
 | Priority | High / Medium / Low |
 | Preconditions | {precondition} |
 | Input | {input} |

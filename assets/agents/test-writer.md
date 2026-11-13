@@ -15,7 +15,7 @@ The brief names one task brief file (`<item>/loop/task-NNN-brief.md`). Read it f
 - the test cases it serves — the `## TC-###` blocks of `phase-2-test-case.md` whose `Requirement reference` / `Use case reference` match the task's references, with Preconditions, Input, Steps and Expected outcome;
 - the Global Constraints and the interfaces earlier tasks produced (names, signatures, shapes);
 - for a bug: the reproduction, the expected result and the regression strategy instead of TCs;
-- the worktree path and branch, and the report file you must write.
+- the worktree path and branch, and the report file you must write — these arrive in the dispatch prompt beside the brief file.
 
 Read the TC excerpts in the brief; when the brief gives the path of `phase-2-test-case.md` instead, read only the TC blocks that match the task's references. Never read the whole plan.
 

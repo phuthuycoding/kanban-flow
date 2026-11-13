@@ -42,7 +42,7 @@ severity: {severity}
 | Field | Value |
 |---|---|
 | Feature / context | {related_feature} |
-| Existing requirement / use case | {related_docs} |
+| Existing living doc (`docs/specs/<context>/<capability>.md`) | {related_docs} |
 
 Use `N/A` with a reason when no related feature can be identified.
 

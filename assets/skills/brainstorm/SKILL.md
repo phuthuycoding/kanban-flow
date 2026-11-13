@@ -34,7 +34,7 @@ Orientation before ideation. Cheap questions here prevent expensive ones later.
 3. **Read one similar existing feature** (if any) for house patterns.
    **Research before you ask.** When the idea names an external library, API, service or standard that the repository does not define, or asks how other tools do something (prior art), dispatch **`Agent(kf:researcher)`** with `${CLAUDE_PLUGIN_ROOT}/assets/shared/researcher-brief.md` (mode `web` or `prior-art`) before asking the user any question. Do not ask the user first and do not wait for a go-ahead: research triggers on need. The item does not exist yet, so the report goes to the brief's no-item location (`$CLAUDE_JOB_DIR/tmp`, else the OS temp dir); after `kf new` in section 3, copy it to `<item>/reviews/research-<slug>.md`, and cite each report in the spec under *Assumptions* or *Open Questions*. Without a web tool the researcher replies `BLOCKED`: say so in *Open Questions* instead of answering from memory.
 4. **Restate the challenge.** In one or two sentences, play the user's idea back: *"You want X in order to achieve Y, in the context of Z — is that right?"*. Fix misunderstandings before generating ideas against the wrong target. Describe the real user journey — what they see and type — and have the user agree to it before any FR list or structural naming; the human decides whether the journey is right, and a spec written before that agreement is rework waiting to happen.
-5. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, `.gitignore`).
+5. **If no `.works/` → `kf init --defaults`** (full bootstrap without prompts: config, seeded `.kf` overrides, the skills and agents, `AGENTS.md`, `docs/specs/README.md`, and `.gitignore` when `.works/` is ignored).
 
 Rules of engagement:
 - **Material ambiguity** (missing scope, unclear behavior, conflicting acceptance criteria) → ask **up to 3 focused questions**, then proceed. Each question names the decision it feeds.
@@ -229,7 +229,7 @@ kf contexts --json   # declared: [...], restricted: true|false
 - `restricted: true` — use one of the declared names, spelled exactly. `Auth` is refused next to `auth`, because accepting both is how a second docs tree appears.
 - `restricted: false` — nothing is declared; any valid name works, and the `brief` field tells you how to propose a list. Show the proposal to the human; once they confirm it, write only the list they confirmed to `.kf/config.json` as `"contexts"` (the first entry is the default). Never write a list they have not confirmed. The edit dirties the checkout and makes `kf stage` skip its base fast-forward, so ask the human to commit it before the stage move.
 
-If `kf new` refuses the name, it prints the nearest declared one. Take that suggestion or ask the human — do not invent a new context to get past the refusal, and do not add one to `.kf/config.json` on your own.
+If `kf new` refuses the name, it prints the declared contexts, and the nearest one when a declared name is close. Take that suggestion or ask the human — do not invent a new context to get past the refusal, and do not add one to `.kf/config.json` on your own.
 
 ```bash
 kf new {feature_name} --context {context}
@@ -252,8 +252,9 @@ kf instruct spec-requirement --change {feature_name}
 Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence to sections:
 
 - **Objective / Problem Statement** — the restated challenge (sharpened by the framework).
-- **Scope (in & out)** — the SCOPE DECISION from synthesis; on the bounded path, the restated journey and the user's answers. Explicit "out" items are valuable: they stop Phase 2-3 from drifting.
+- **Scope (in & out)** — the SCOPE DECISION from synthesis; on the bounded path, or when no framework ran, the restated journey and the user's answers. Explicit "out" items are valuable: they stop Phase 2-3 from drifting.
 - **Affected surfaces** — every user-facing surface the change touches (README, docs site, landing page, CLI `-h`, examples, changelog, packaging, API reference), one bullet each, or the literal `N/A`. Each bullet is the bare surface name (`README.md`, not `README.md — new flag`): `kf validate` matches it as a lowercase substring of the plan. The spec cannot leave brainstorm without it. Ask the human when the surface list is ambiguous — they own what counts as user-facing.
+- **Feature / Actors** — the feature in one or two lines, and one bullet per actor (a person or a system that triggers or receives the behaviour); an untouched `{actor}` blocks the gate.
 - **Functional Requirements `FR-###`** — **the traceability anchor.** One behavior per FR, phrased so a test could pass/fail on it. Include the priority (must/should/could) and a note carrying any framework rationale.
 - **Non-Functional Requirements** — performance, security, UX, accessibility, compliance.
 - **Main Use Cases** — one line each with `UC-###` ids (full narratives live in Phase 2).
@@ -263,7 +264,7 @@ Fill **every section** of `phase-1-spec-requirement.md`. Mapping from divergence
     - `unit` — unit tests only, for logic and state. The default for a pure backend or utility feature.
     - `unit+integration` — unit tests plus tests where the change meets another system, the database or an API. The default for an API or a datastore.
     - `full` — unit, integration and **UI/E2E** (Playwright, Cypress, Detox and so on). The default for anything with a user interface or a critical flow, such as a web todo list, a login or a checkout.
-  - When the user picks `full`, ask how wide the UI coverage goes: *"UI tests for every flow, or only the critical ones?"* → `{test_level}: full`, `{ui_test_scope}: critical|all`.
+  - When the user picks `full`, ask how wide the UI coverage goes: *"UI tests for every flow, or only the critical ones?"* → `Level: full`, `UI Tests: critical` or `UI Tests: all`. Below `full`, write `UI Tests: none`: an unfilled `{ui_test_scope}` blocks the gate. `Level` is the bare word (`unit`, `unit+integration`, `full`) — `kf next` reads it exactly.
   - Record it in the spec under the labels that template actually uses: the feature template has `Level`, `UI Tests`, `Tools` (the framework name and the file that runs it) and `Coverage Target` (80% by default); the bug template has `Test Level`, `Tools` and `Coverage Target`, and no `UI Tests`.
   - **Let the nature of the feature set the default.** Do not ask again when the answer is obvious: a CRUD API is `unit+integration`, an app with a UI is `full`. Ask only when you genuinely cannot decide.
 - **Acceptance Criteria** — each `[ ]` must be independently verifiable by a human or a test. Under `full`, at least one criterion per FR must read as a UI action: what is clicked, what is typed, what appears on screen.
@@ -282,7 +283,7 @@ The checklist reports content completion; human confirmation is still required b
 
 **Self-review first**, with fresh eyes: placeholders or vague requirements; sections that contradict each other; a scope too wide for one implementation plan; a requirement that could be read two ways. Fix inline.
 
-**Then dispatch `Agent(kf:spec-reviewer)` once**, `model: opus`, with a fresh context: the brief names the work item folder, carries a verbatim excerpt of the user's original request (in the brief or a file you write under the item folder; never only the Objective), names the git ref to ground names against and names a report file (`<item>/reviews/spec-review.md`). It reports only requirement gaps, untestable FRs or acceptance criteria, internal contradictions and ungrounded names — never new scope. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report`. HIGH findings go into the confirmation ask below; the review never blocks on its own, the human does. When the runtime has no subagent tool, run the same four checks yourself and say so.
+**Then dispatch `Agent(kf:spec-reviewer)` once**, `model: fable`, with a fresh context: the brief names the work item folder, carries a verbatim excerpt of the user's original request (in the brief or a file you write under the item folder; never only the Objective), names the git ref to ground names against and names a report file (`<item>/reviews/spec-review.md`). It reports only requirement gaps, untestable FRs or acceptance criteria, internal contradictions and ungrounded names — never new scope. Print `spec review ran on: <its model line>`; with no report, print `spec review: no report`. HIGH findings go into the confirmation ask below; the review never blocks on its own, the human does. When the runtime has no subagent tool, run the same four checks yourself and say so.
 
 Present a tight summary (do not dump the whole file):
 

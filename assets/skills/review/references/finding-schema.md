@@ -7,7 +7,7 @@ Every reviewer the kanban skills dispatch — the whole-branch review in `kf:rev
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `dimension` | yes | `bugs` \| `security` \| `perf` \| `contracts` \| `intent` \| `quality`. `intent` judges the diff against the approved requirement and plan: intent not implemented, scope added, behaviour the requirement rules out. `quality` covers the AI-risk lens and rule violations that are none of the others. |
-| `severity` | yes | `HIGH` \| `MEDIUM` \| `LOW` — the same three levels the review rules use. HIGH must be fixed before merge (security risk, data loss, crash, a requirement not met, a test that asserts nothing where the requirement needs one). MEDIUM should be fixed before merge (performance, maintainability, a weak test). LOW is a suggestion. |
+| `severity` | yes | `HIGH` \| `MEDIUM` \| `LOW` — the same three levels the review rules use. HIGH must be fixed before merge (security risk, data loss, crash, a requirement not met, a test that asserts nothing where the requirement needs one). MEDIUM should be fixed before merge (performance, maintainability, a weak test). LOW is a suggestion. A per-task review (`kf:implement`) grades by its brief's `## Calibration`, which wins where the two differ. |
 | `title` | yes | Short label; `verify-findings.mjs` dedups kept findings by `title + file`. |
 | `issue` | yes | One sentence: what is wrong and why it matters. |
 | `fix` | yes | A concrete recommendation. |

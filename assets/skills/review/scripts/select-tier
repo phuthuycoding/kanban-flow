@@ -9,7 +9,7 @@
 #
 # Output: line 1 = T1|T1C|T2|T3 ; line 2 = reason: <why>.  See references/review-tiers.md.
 #   T1  one reviewer, all dimensions          T1C  T1 plus one `contracts` reviewer
-#   T2  five dimensions in parallel            T3   five dimensions, all on the most capable model
+#   T2  five dimensions in parallel            T3   five dimensions; the most capable model when CRITICAL=1
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -26,7 +26,7 @@ if [ "$critical" = "1" ]; then
   exit 0
 fi
 if [ "$loc" -gt 600 ]; then
-  echo "T3"; echo "reason: large diff (>600 LOC) -> five dimensions on the most capable model"
+  echo "T3"; echo "reason: large diff (>600 LOC) -> five dimensions"
 elif [ "$loc" -gt 200 ]; then
   echo "T2"; echo "reason: medium diff (201-600 LOC) -> five-dimension fan-out"
 elif [ "$shared" = "1" ]; then
