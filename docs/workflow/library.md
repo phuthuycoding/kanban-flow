@@ -10,6 +10,16 @@ The bare `@phuthuycoding/kanban-flow` is the CLI entry: importing it runs a `kf`
 
 The readers need a filesystem: the item readers and read models read `.works/<stage>/<item>/` folders under a project root, so a service materialises the folders before calling them. Nothing here writes or runs a hook. Some readers run read-only git commands, as `kf status` does: `findWorksRoot` asks `git rev-parse --git-common-dir` for the main checkout when no folder at or above the path holds `.works/` (a linked worktree), and `computeStatus` — so `dashboardData` too — validates the item's reports and living docs against its git checkout. A service that has no checkout gets the answers `kf status` gives without one.
 
+## Trust and cost
+
+The readers were written for the CLI, which runs one command over the user's own checkout. A long-running service that calls them should know five things:
+
+- **Only trusted trees.** `computeStatus`, and so `dashboardData`, runs git in the item's worktree, the directory its `.kfw.json` names in `worktree.path`, or in the project root when it names none. git reads the config of the repository it runs in, so whoever can write a tree's `.kfw.json`, or a `.git` directory inside it, chooses where git runs and what that config runs. Pass these readers only trees the caller trusts; requirement #184 excludes git that changes state, not this read-only git. A service that reads replicated, untrusted folders needs its own guard.
+- **The host's config.** `computeStatus` and `dashboardData` read the project's `.kf/config.json` merged with the reading host's global `~/.kf/config.json` and any `.kf/workspace.json` above the project root, so the same tree can read differently on another host. A layer with keys that do not apply prints one `kf: <path>: not applied …` warning on stderr, once per file per process. No reader writes a file.
+- **Synchronous, without a timeout.** Every reader blocks: they read files with the synchronous `fs` calls and run git as a child process that has no timeout. `dashboardData` runs git for each item in implementation, testing or review. Call them off a request path, in a worker or a job.
+- **A per-process cache.** `computeStatus` caches the project's `worktree.domains` flag per root and config version for the life of the process; a service that reads many roots keeps one entry for each.
+- **TypeScript resolution.** The types resolve through the `exports` map, so a TypeScript consumer needs `moduleResolution` `node16`, `nodenext` or `bundler`.
+
 ## Stability
 
 - **stable** — removing or renaming the export, or changing a parameter or the shape it returns in a way existing callers notice, is a breaking change: a major version. While the package is `0.x`, this package bumps the minor for such a change (`0.19` → `0.20`) and lists it under **Changed** in the changelog — SemVer itself promises nothing for `0.y.z`; from `1.0` the change bumps the major.

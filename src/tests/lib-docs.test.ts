@@ -147,6 +147,50 @@ describe("library stability document", () => {
     );
   });
 
+  describe("trust and cost section", () => {
+    const trustSection = (): string => sectionOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"), "Trust and cost");
+
+    it("has a Trust and cost section with content", () => {
+      expect(trustSection().trim()).not.toBe("");
+    });
+
+    it("tells callers to pass only trees they trust because git runs where .kfw.json points", () => {
+      const section = trustSection();
+      expect(section).toMatch(/\*\*Only\s+trusted\s+trees\.\*\*/);
+      expect(section).toMatch(/`computeStatus`/);
+      expect(section).toMatch(/`worktree\.path`/);
+      expect(section).toMatch(/`\.kfw\.json`/);
+      expect(section).toMatch(/Pass\s+these\s+readers\s+only\s+trees\s+the\s+caller\s+trusts/);
+    });
+
+    it("says the readers depend on the host's global and workspace config and warn on stderr", () => {
+      const section = trustSection();
+      expect(section).toMatch(/`~\/\.kf\/config\.json`/);
+      expect(section).toMatch(/`\.kf\/workspace\.json`/);
+      expect(section).toMatch(/`kf:\s+<path>:\s+not\s+applied[^`]*`\s+warning\s+on\s+stderr/);
+    });
+
+    it("says the readers are synchronous with no timeout and belong off a request path", () => {
+      const section = trustSection();
+      expect(section).toMatch(/Synchronous,\s+without\s+a\s+timeout/);
+      expect(section).toMatch(/synchronous\s+`fs`\s+calls/);
+      expect(section).toMatch(/git\s+as\s+a\s+child\s+process\s+that\s+has\s+no\s+timeout/);
+      expect(section).toMatch(/Call\s+them\s+off\s+a\s+request\s+path/);
+    });
+
+    it("says computeStatus keeps a per-process cache", () => {
+      const section = trustSection();
+      expect(section).toMatch(/A\s+per-process\s+cache/);
+      expect(section).toMatch(/`computeStatus`\s+caches\s+the\s+project's\s+`worktree\.domains`\s+flag\s+per\s+root/);
+      expect(section).toMatch(/for\s+the\s+life\s+of\s+the\s+process/);
+    });
+
+    it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
+      const section = trustSection();
+      expect(section).toMatch(/`moduleResolution`\s+`node16`,\s+`nodenext`\s+or\s+`bundler`/);
+    });
+  });
+
   it("links the document from the README", () => {
     const readme = readFileSync(join(PACKAGE_ROOT, "README.md"), "utf8");
     expect(readme).toMatch(/\]\((?:\.\/)?docs\/workflow\/library\.md[^)]*\)/);
