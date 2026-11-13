@@ -39,6 +39,11 @@ describe("reply language survives compaction", () => {
     expect(p).toContain("kf record {feature_name} line -- 'Note reply language: <language>'");
   });
 
+  it("flow's mid-pipeline resume reads the reply language note before replying", () => {
+    const p = paragraphWith(flow(), "If you are resuming mid-pipeline");
+    expect(p).toContain("Note reply language:");
+  });
+
   it("implement's resume step recovers the reply language from the ledger", () => {
     expect(paragraphStarting(implement(), "**Resume.**")).toContain(LANGUAGE_NOTE);
   });
