@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 import {
   manyReducer,
+  PromptAbort,
+  selectChoice,
+  selectMany,
   selectReducer,
   type Choice,
   type ManyState,
@@ -142,5 +145,109 @@ describe("selectReducer", () => {
     const after = selectReducer(before, key("down"), choices);
     expect(after).not.toBe(before);
     expect(before).toEqual({ cursor: 0, done: false, abort: false });
+  });
+});
+
+// The prompts read the real process.stdin/stdout, so the terminal is faked on those objects:
+// a test run has no TTY, and resume() is stubbed so the real stdin never starts reading.
+describe("interactive prompts on the terminal", () => {
+  type Stubbed = "isTTY" | "setRawMode" | "resume" | "pause";
+  const stubbedKeys: Stubbed[] = ["isTTY", "setRawMode", "resume", "pause"];
+  const stdin = process.stdin as unknown as Record<Stubbed, unknown> & NodeJS.ReadStream;
+  let saved: Map<Stubbed, PropertyDescriptor | undefined>;
+  let rawModeCalls: boolean[];
+  let written: string[];
+
+  const fakeTerminal = () => {
+    saved = new Map(stubbedKeys.map((k) => [k, Object.getOwnPropertyDescriptor(stdin, k)]));
+    rawModeCalls = [];
+    written = [];
+    Object.defineProperty(stdin, "isTTY", { value: true, configurable: true, writable: true });
+    Object.defineProperty(stdin, "setRawMode", {
+      value: (mode: boolean) => {
+        rawModeCalls.push(mode);
+        return stdin;
+      },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(stdin, "resume", { value: () => stdin, configurable: true, writable: true });
+    Object.defineProperty(stdin, "pause", { value: () => stdin, configurable: true, writable: true });
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk: string | Uint8Array) => {
+      written.push(String(chunk));
+      return true;
+    });
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [k, desc] of saved) {
+      if (desc) Object.defineProperty(stdin, k, desc);
+      else delete stdin[k];
+    }
+  });
+
+  const press = (name: string, ctrl = false) => stdin.emit("keypress", "", ctrl ? { name, ctrl } : { name });
+  const keypressListeners = () => stdin.listenerCount("keypress");
+  const endListeners = () => stdin.listenerCount("end");
+
+  const choices: Choice[] = [{ label: "global" }, { label: "project" }, { label: "workspace" }];
+
+  it("resolves to the row chosen with down then return and restores the terminal", async () => {
+    fakeTerminal();
+    const before = { key: keypressListeners(), end: endListeners() };
+    const answer = selectChoice("Where?", choices, 0);
+    press("down");
+    press("return");
+    await expect(answer).resolves.toBe(1);
+    expect(rawModeCalls).toEqual([true, false]);
+    expect(written.at(-1)).toBe("\x1b[?25h");
+    expect(written.join("")).toContain("Where?");
+    expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+  });
+
+  it("rejects with PromptAbort on ctrl+c and turns raw mode off", async () => {
+    fakeTerminal();
+    const answer = selectChoice("Where?", choices, 0);
+    press("c", true);
+    await expect(answer).rejects.toBeInstanceOf(PromptAbort);
+    expect(rawModeCalls).toEqual([true, false]);
+    expect(written.at(-1)).toBe("\x1b[?25h");
+  });
+
+  it("rejects with PromptAbort when the input stream ends and turns raw mode off", async () => {
+    fakeTerminal();
+    const answer = selectChoice("Where?", choices, 0);
+    stdin.emit("end");
+    await expect(answer).rejects.toBeInstanceOf(PromptAbort);
+    expect(rawModeCalls).toEqual([true, false]);
+    expect(written.at(-1)).toBe("\x1b[?25h");
+  });
+
+  it("shows the hint on an empty return, then resolves to the rows toggled with space", async () => {
+    fakeTerminal();
+    const answer = selectMany("Which?", ["alpha", "beta", "gamma"], new Set(), "Select at least one");
+    press("return");
+    expect(written.join("")).toContain("Select at least one");
+    expect(rawModeCalls).toEqual([true]);
+    press("down");
+    press("space");
+    press("down");
+    press("space");
+    press("return");
+    await expect(answer).resolves.toEqual([1, 2]);
+    expect(rawModeCalls).toEqual([true, false]);
+    expect(written.at(-1)).toBe("\x1b[?25h");
+  });
+
+  it("rejects the multi-select with PromptAbort when the input stream ends and restores the terminal", async () => {
+    fakeTerminal();
+    const before = { key: keypressListeners(), end: endListeners() };
+    const answer = selectMany("Which?", ["alpha", "beta"], new Set([0]), "Select at least one");
+    stdin.emit("end");
+    await expect(answer).rejects.toBeInstanceOf(PromptAbort);
+    expect(rawModeCalls).toEqual([true, false]);
+    expect(written.at(-1)).toBe("\x1b[?25h");
+    expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
   });
 });
