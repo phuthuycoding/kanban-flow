@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -329,6 +329,16 @@ describe("no git and no host config through the library", () => {
       ceiling: { max: 4, source: "default" }, reportCommits: {}, verifyRuns: {}, gitLog: [],
     };
     writeFileSync(join(consumer.dir, "no-git.mjs"), NO_GIT_PROBE);
+    // Every path under the project root with its size and mtime, so a reader that wrote, touched or created anything is seen.
+    const snapshot = (): string[] =>
+      (readdirSync(root, { recursive: true }) as string[])
+        .map((rel) => {
+          const st = lstatSync(join(root, rel));
+          return `${rel} ${String(st.size)} ${String(st.mtimeMs)}`;
+        })
+        .sort();
+    const before = snapshot();
+    expect(before.length).toBeGreaterThan(0);
     const res = spawnSync(
       process.execPath,
       [join(consumer.dir, "no-git.mjs"), LEDGER, join(FIXTURES, "lifecycle.jsonl"), FIXTURES, root, planningDir, reviewDir, JSON.stringify(inputs)],
@@ -338,6 +348,7 @@ describe("no git and no host config through the library", () => {
     expect(res.stderr).toBe("");
     expect(res.status).toBe(0);
     expect(existsSync(marker)).toBe(false);
+    expect(snapshot()).toEqual(before);
     const out = JSON.parse(res.stdout) as { table: string[]; exported: string[]; results: Record<string, unknown> };
     expect(out.table).toEqual(out.exported);
     expect(out.results.listFeatures).toEqual(["beta@review", "demo@planning"]);

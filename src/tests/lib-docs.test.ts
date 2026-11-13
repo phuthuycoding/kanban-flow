@@ -181,6 +181,10 @@ describe("library stability document", () => {
     expect(introOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"))).toMatch(NO_GIT_NO_HOST_CONFIG);
   });
 
+  it("says in the readFeatureMeta row that it throws on invalid metadata", () => {
+    expect(rows.find((r) => r.name === "readFeatureMeta")?.what).toMatch(/throws/);
+  });
+
   describe("trust and cost section", () => {
     const trustSection = (): string => sectionOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"), "Trust and cost");
 
@@ -206,6 +210,27 @@ describe("library stability document", () => {
     it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
       const section = trustSection();
       expect(section).toMatch(/`moduleResolution`\s+`node16`,\s+`nodenext`\s+or\s+`bundler`/);
+    });
+
+    it("says listFeatures is a full scan, findFeature runs one per call, and to call listFeatures once and index it", () => {
+      const section = trustSection();
+      expect(section).toMatch(/`listFeatures`/);
+      expect(section).toMatch(/`findFeature`/);
+      expect(section).toMatch(/full\s+scan/);
+      expect(section).toMatch(/\bonce\b/);
+    });
+
+    it("says readItemLog and readStageRecords read the whole file into memory", () => {
+      const section = trustSection();
+      expect(section).toMatch(/`readItemLog`/);
+      expect(section).toMatch(/`readStageRecords`/);
+      expect(section).toMatch(/whole\s+file/);
+    });
+
+    it("says the readers follow symbolic links and do not bound file size, so a service materialises regular files only", () => {
+      const section = trustSection();
+      expect(section).toMatch(/symbolic\s+links?/);
+      expect(section).toMatch(/regular\s+files\s+only/);
     });
   });
 
