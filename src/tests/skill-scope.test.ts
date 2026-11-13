@@ -114,6 +114,14 @@ describe("scopeFromArgs (FR-003, FR-008)", () => {
     expect(() => scopeFromArgs({ global: true, project: true })).toThrow(/cannot be combined/);
     expect(() => scopeFromArgs({ scope: "global", project: true })).toThrow(/conflicts/);
   });
+
+  it("accepts workspace as a scope", () => {
+    expect(scopeFromArgs({ scope: "workspace" })).toBe("workspace");
+  });
+
+  it("lists the three scopes when the value is bad", () => {
+    expect(() => scopeFromArgs({ scope: "banana" })).toThrow('--scope must be "global", "project" or "workspace"');
+  });
 });
 
 describe("link-or-copy install (FR-001)", () => {

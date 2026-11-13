@@ -39,6 +39,11 @@ describe("detectStack", () => {
       ["composer.json", "php"],
       ["Gemfile", "ruby"],
       ["pom.xml", "java"],
+      ["vite.config.ts", "frontend"],
+      ["next.config.mjs", "frontend"],
+      ["angular.json", "frontend"],
+      ["pnpm-workspace.yaml", "monorepo"],
+      ["turbo.json", "monorepo"],
     ];
     for (const [file, stack] of cases) {
       const dir = await mkdtemp(join(tmpdir(), "kf-detect-"));
@@ -61,6 +66,15 @@ describe("detectStacks", () => {
     await mkdir(join(root, "crates"), { recursive: true });
     await writeFile(join(root, "crates", "Cargo.toml"), "");
     expect(detectStacks(root).sort()).toEqual(["go", "node", "rust"]);
+  });
+
+  it("adds the frontend and monorepo packs beside node, with node still first", async () => {
+    await writeFile(join(root, "package.json"), "{}");
+    await writeFile(join(root, "pnpm-workspace.yaml"), "");
+    await mkdir(join(root, "apps", "web"), { recursive: true });
+    await writeFile(join(root, "apps", "web", "vite.config.ts"), "");
+    expect(detectStack(root)).toBe("node");
+    expect(detectStacks(root).sort()).toEqual(["frontend", "monorepo", "node"]);
   });
 
   it("skips dependency and build dirs", async () => {
@@ -139,6 +153,14 @@ describe("cmdRules", () => {
     expect(r.code).toBe(0);
     const pack = await readFile(join(PKG_STACK_RULES_DIR, "node.md"), "utf8");
     expect(await readFile(dest("node"), "utf8")).toBe(pack);
+  });
+
+  it("installs the mvvm pack only on request: it has no probe", async () => {
+    await writeFile(join(root, "package.json"), "{}");
+    expect(detectStacks(root)).not.toContain("mvvm");
+    const r = await cmdRules(args([], { stack: ["mvvm"] }), root);
+    expect(r.code).toBe(0);
+    expect(await readFile(dest("mvvm"), "utf8")).toContain("# MVVM Review Rules");
   });
 
   it("rejects an unknown stack", async () => {

@@ -18,6 +18,7 @@
 - Shared mutable state guarded (locks, concurrent collections) — no unsynchronized lazy init
 - `ExecutorService` over raw `Thread`; pools are sized, named, and shut down on lifecycle end
 - Interrupted status restored (`Thread.currentThread().interrupt()`) or propagated, not swallowed
+- `@Transactional` sits on a public method called through the proxy — a self-call or a private method starts no transaction
 - No `Future.get()` without a timeout on blocking waits
 
 ## Security
@@ -25,6 +26,9 @@
 - No Java native deserialization (`ObjectInputStream`) of untrusted bytes
 - `Runtime.exec`/`ProcessBuilder` never interpolate user input into commands
 - File paths validated against traversal (`normalize` + root check) before access
+- XML parsers disable external entities and DTDs before parsing untrusted input
+- No `MD5`/`SHA-1` for passwords or signatures, no `ECB` mode, `SecureRandom` for tokens — never `Random`
+- Request bodies are validated (`@Valid` or explicit checks) before use; no binding of a whole entity from the request
 
 ## Dependencies & Build
 - `pom.xml`/`build.gradle` changes reviewed — versions pinned, scopes correct, no unused deps

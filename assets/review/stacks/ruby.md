@@ -14,7 +14,7 @@
 - Migrations reversible and deploy-safe — no rename-and-drop in a single release
 
 ## Code Quality
-- `rubocop` (project config) clean on changed files — inline disables carry a comment why
+- A `rubocop:disable` added by the change carries a comment why (running `rubocop` belongs in the project's verify commands)
 - No monkey-patching core or third-party classes; refinements/wrappers where unavoidable
 - `frozen_string_literal` respected — no mutation of string literals
 - Predicate methods end in `?`; bang (`!`) reserved for raising/dangerous variants
@@ -25,6 +25,11 @@
 - SQL fragments (`where`, `order`, `joins` strings) use bind params — no interpolation of input
 - `system`/backticks/`Open3` never interpolate user input into commands
 - Secrets via credentials/env — no keys in code, fixtures, or committed config
+- No `html_safe` or `raw` on a string that carries user input
+- No `YAML.load` or `Marshal.load` on untrusted data (`YAML.safe_load`)
+- `redirect_to` a target from params only when it is relative or allowlisted
+- No `skip_before_action :verify_authenticity_token` on a browser-facing action
+- Records are loaded through the caller's scope (`current_user.orders.find`), not `Model.find(params[:id])`
 
 ## Performance
 - No `Model.all.each` on unbounded tables — `find_each`/`in_batches` for iteration

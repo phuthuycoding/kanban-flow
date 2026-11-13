@@ -67,5 +67,6 @@ status: pending
 ## Test Strategy
 - Level: {test_level}
 - UI Tests: {ui_test_scope}
+<!-- Level is the bare word: unit | unit+integration | full. UI Tests is critical | all under full, otherwise none. Delete this comment. -->
 - Tools: {test_tools}
 - Coverage Target: {coverage_target}%

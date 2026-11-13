@@ -23,9 +23,9 @@ docs_reason: "{docs_reason}"
 
 | Field | Value | Meaning |
 |---|---|---|
-| `ci` | {ci} | `green`: the PR checks passed on the reviewed sha. `red`: a check failed; the report cannot be PASS, write FAIL and return to implementation. `none`: the repository runs no GitHub Actions on the PR (no `.github/workflows`), so no watch ran. `not-run`: a FAIL or REQUIREMENT_BUG written before any CI watch — no PR was pushed for this tree, so CI has not been asked; never valid on PASS. |
-| `landing` | {landing} | `pr`: the reviewed code lands through the PR recorded with `kf issues link <feature> <url> --pr`. `none`: nothing to land (no tracked code changed), no PR is opened and the item closes without a merge. |
-| `verify` | {verify} | The `Stage verify` line of `kf status --change <feature>` the item entered review on: `PASS <sha7> at HEAD`, or `waived — <reason> (<by>, <date>)` when the project pins no `harness.verify.stage`. |
+| `ci` | {ci} | `green`: the PR checks passed on the reviewed sha. `red`: a check failed; the report cannot be PASS, write FAIL and return to implementation. `none`: no CI ran for this tree, so no watch ran — the repository has no `.github/workflows`, there is nothing to land, or the human confirmed no workflow triggers on the PR. `not-run`: a FAIL or REQUIREMENT_BUG written before any CI watch — no PR was pushed for this tree, so CI has not been asked; never valid on PASS. |
+| `landing` | {landing} | `pr`: the reviewed code lands through the PR recorded with `kf issues link <feature> <url> --pr`. `none`: nothing to land (the item branch is 0 commits ahead of `origin/<default>`), no PR is opened and the item closes without a merge. |
+| `verify` | {verify} | The `Stage verify` line of `kf status --change <feature>` the item entered review on: `PASS <sha7> at HEAD, <age> ago`, or `waived — <reason> (<by>, <date>)` when the project pins no `harness.verify.stage`. |
 
 PASS requires `ci: green` or `ci: none` (any other or missing value is refused), and either `landing: pr` with the PR recorded or `landing: none`.
 
@@ -46,8 +46,9 @@ PASS requires `ci: green` or `ci: none` (any other or missing value is refused),
 | Reviewers dispatched (agent, dimension, model) | {reviewer_dispatch} |
 | Review pack | {review_pack} |
 | Evidence verification (kept / refuted) | {evidence_verification} |
+| Split recommended (`none`, or `<N> bundles` for an oversized diff) | {split_recommended} |
 
-The orchestrator writes facts and the pack; the findings below come from the independent reviewer(s) named here, after their evidence quotes were checked against the real files.
+The orchestrator writes facts and the pack; the findings below come from the independent reviewer(s) named here, after their evidence quotes were checked against the real files. The model is the one each reply reported on its `Model:` line; mark `stand-in: general-purpose` where one ran.
 
 ## Requirement Compliance
 {requirement_compliance}

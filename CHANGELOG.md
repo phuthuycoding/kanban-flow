@@ -9,6 +9,30 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - **An item id.** `kf new` writes a uuid `id` into `.kfw.json`; an item of an earlier release gets one at its first lifecycle write. `kf status --change <feature> --json` prints it.
 - **`kf doctor` checks the lifecycle log.** It warns for an item whose log cannot be read or is behind its `.kfw.json`, and stays silent for an item with no log. `kf doctor --fix` opens a log for every item that has none and reconciles one that is behind.
 
+## [0.21.0] - 2026-11-14
+
+### Added
+- **Onboarding for `kf install` and `kf uninstall` on a terminal.** A choice not given on the command line is asked. `kf install` with no option offers a `Setup mode` step: Quick installs exactly what a plain `kf install` installed before, and Customize asks the agents (multi-select), the scope and a confirm. `kf uninstall` asks the agents, the scope, whether to purge `.works/` and `.kf/` (only when a `.works/` is found), and a confirm that lists what gets deleted. Steps are labelled `Step n/N`. Cancel prints `Nothing changed.` (exit 0), and Ctrl+C or end of input prints `Aborted — nothing changed.` (exit 1). Without a terminal, or with every choice given, nothing is asked and output and exit codes are unchanged.
+- **`--scope workspace` (Claude Code only).** Installs the kf plugin at Claude Code `local` scope in the workspace folder, so `/kf:*` is available when Claude Code is started in that folder (Claude Code reads `local` settings from the session's working directory only). The workspace folder is the nearest folder holding `.kf/workspace.json`, searching from the working directory up (the home directory is skipped). Outside a project, the working directory becomes the workspace and `.kf/workspace.json` is created there once the plugin install succeeds. Inside a project with no workspace file above it, the install is refused. `kf uninstall --scope workspace` removes the local install in that folder. Any agent other than `claude` with this scope is refused before any change.
+- **Optional removal of the user-scope plugin.** When the workspace install is chosen in the onboarding and kf is also installed at user scope, one extra step asks whether to remove the user install (No preselected). It is removed only after the workspace install succeeded. Without the step, the output names `kf uninstall --global`.
+
+### Changed
+- **The `kanban-flow` marketplace is kept while any kf install remains.** Removing the kf plugin at one scope no longer removes the marketplace while kf is still installed at another scope, a workspace `local` install included. The marketplace is removed with the last install.
+
+### Fixed
+- **GitHub issues no longer carry the local path or the slug as title (#191).** The body written by `kf issues create` and the footer written by `kf issues sync` name the item folder instead of its absolute path. `kf issues sync` titles the issue from the first line under `## Objective` (feature) or `## Bug Summary` (bug), unless the item has a `goal`; a `--title` given at `kf issues create` is saved as `goal` and kept.
+
+## [0.20.0] - 2026-11-13
+
+### Added
+- **Three review rule packs: `frontend`, `monorepo` and `mvvm`.** `kf rules` now ships ten packs. `frontend` is detected from a build config (`vite.config.*`, `next.config.*`, `nuxt.config.ts`, `svelte.config.js`, `angular.json`) and `monorepo` from a workspace file (`pnpm-workspace.yaml`, `turbo.json`, `nx.json`, `lerna.json`); `mvvm` is an architecture, installed by name with `kf rules --stack mvvm`.
+- **Model tiers for other runtimes.** `assets/shared/harness-tools.md` maps the Claude Code aliases the skills name (`sonnet`, `opus`, `fable`) to three tiers, so a Codex or Gemini session picks its own model for each seat, and says what to record when the top tier is unavailable.
+
+### Changed
+- **Review seats run on `opus`.** The `code-reviewer` agent, the per-task review, its re-reviews and every whole-branch tier moved from `sonnet` to `opus`; a `CRITICAL=1` whole-branch review and the `spec-reviewer` run on `fable`. A reviewer ends its reply with a `Model:` line, and the review report records that model.
+- **Review rules a reviewer can check.** `security.md` gains object-level authorization and the common injection, traversal, SSRF, redirect, deserialization and webhook rules; `performance.md` opens with an evidence-first section and drops rules no diff can prove; `general.md` gains a Tests section. The seven language packs each gain the rules they lacked (a Security section for `node`, `go` and `rust`), and rules that only a tool run can prove (`go test -race`, `cargo clippy`, `rubocop`, `composer audit`) now point at `harness.verify`. A project that already installed a pack keeps its copy until `kf rules --force`.
+- **Skills, briefs and templates agree with the CLI.** `/kf:review` captures the `Stage verify` line before its docs commit; a refused `kf stage` is read from its own message, not from `kf validate`; a bug's regression task line must contain `regression` to get a test-writer; a stand-in seat is ledgered as a `Note` line; the test-case template's `Test type` and the use-case diagram are gated placeholders; the testing and review report templates gain the rows the skills ask for. `kf init -i`, `kf ship` and other retired wording are gone from the skills.
+
 ## [0.19.0] - 2026-11-12
 
 ### Added

@@ -5,7 +5,7 @@ Use this template after a fix round. The re-reviewer verdicts each finding and i
 ```
 Agent:
   subagent_type: kf:code-reviewer     # or general-purpose (stand-in; paste the agent body first)
-  model: [MODEL]                          # REQUIRED — a small fix diff takes sonnet
+  model: [MODEL]                          # REQUIRED — opus, as the review this follows
   description: "Re-review TASK-NNN fix round R"
   prompt: |
     You are re-reviewing one task's fix round. A previous review produced findings; the
@@ -57,7 +57,7 @@ Agent:
 
 **Placeholders**
 
-- `[MODEL]` — REQUIRED; `sonnet` for a small fix diff.
+- `[MODEL]` — REQUIRED; `opus`, the model the task's review ran on.
 - `[BRIEF_FILE]` — the task's brief, `<item>/loop/task-NNN-brief.md`.
 - `[REPORT_FILE]` — the fixing seat's report, where its fix report is appended: developer → `<item>/loop/task-NNN-report.md`, test-writer → `<item>/loop/task-NNN-tests-report.md`, automation-writer → `<item>/loop/task-NNN-e2e-report.md`.
 - `[FINDINGS]` — copied verbatim from the previous review, one bullet each.

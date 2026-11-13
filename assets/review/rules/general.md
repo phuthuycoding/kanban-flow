@@ -5,10 +5,10 @@
 - Catch only specific exception types
 - Every catch must handle or rethrow with context
 - App must not panic on exception
-- Log with stack trace, request id, input, and correct level
+- Log with stack trace, request id, the relevant input with sensitive fields redacted, and correct level
 
 ## Code Quality
-- One file max 500 lines (if longer, re-evaluate responsibilities)
+- A file this change grows past 500 lines is a warning sign: re-evaluate its responsibilities (a file that was already long is not this change's finding)
 - Split by responsibility, not by line count
 - One file = one clear responsibility
 - Separate UI logic from display logic when file grows
@@ -34,6 +34,12 @@
 ## Stable Artifacts
 - Do not embed plan IDs, phase numbers, or finding codes (FR-001, TC-002, HIGH-1) in code comments, test names, or commit messages — they rot when the plan changes
 - Reference artifacts by stable names in docs; keep mutable anchors out of the codebase
+
+## Tests
+- A test asserts observable behaviour; a test with no assertion, or one that restates the implementation, is a finding
+- No skipped or focused tests left in the change (`.skip`, `.only`, `xit`, the framework's equivalent)
+- Mocks only at system boundaries — never a mock of the project's own module under test
+- A bug fix ships a test that fails without the fix
 
 ## Security
 - Never commit secrets or keys

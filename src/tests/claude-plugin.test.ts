@@ -531,3 +531,204 @@ describe("kf doctor --fix from a linked worktree when claude cannot be probed", 
     }
   });
 });
+
+describe("workspace target: Claude Code local scope", () => {
+  const kfEntry = (scope: string, projectPath?: string, extra: Record<string, unknown> = {}) => ({
+    id: "kf@kanban-flow",
+    scope,
+    enabled: true,
+    readFromFolder: PKG_ROOT,
+    ...(projectPath === undefined ? {} : { projectPath }),
+    ...extra,
+  });
+
+  /** A claude that remembers installs: `uninstall` drops the entry of that scope (a local one only for the folder claude runs in). */
+  function stateful(entries: Record<string, unknown>[], cwd?: string): { run: Run; calls: string[][] } {
+    const calls: string[][] = [];
+    let live = [...entries];
+    const run: Run = async (args) => {
+      calls.push(args);
+      if (args[1] === "list") return ok(JSON.stringify(live));
+      if (args[1] === "uninstall") {
+        const scope = args[args.indexOf("--scope") + 1];
+        live = live.filter((e) => !(e.scope === scope && (scope !== "local" || e.projectPath === cwd)));
+      }
+      return ok();
+    };
+    return { run, calls };
+  }
+
+  const marketplaceRemoved = (calls: string[][]) => calls.some((c) => c[1] === "marketplace" && c[2] === "remove");
+
+  it("installs a workspace target with --scope local", async () => {
+    const { run, calls } = stub("[]");
+    const res = await ensurePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "marketplace", "add", PKG_ROOT]);
+    expect(calls).toContainEqual(["plugin", "install", "kf@kanban-flow", "--scope", "local"]);
+  });
+
+  it("leaves a current local install of the same folder alone", async () => {
+    const { run, calls } = stub(JSON.stringify([kfEntry("local", "/ws/a")]));
+    const res = await ensurePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(res.changed).toBe(false);
+    expect(calls).toEqual([["plugin", "list", "--json"]]);
+  });
+
+  it("installs locally when only another folder has a local install", async () => {
+    const { run, calls } = stub(JSON.stringify([kfEntry("local", "/ws/a")]));
+    await ensurePlugin({ workspace: "/ws/b" }, run);
+    expect(calls).toContainEqual(["plugin", "install", "kf@kanban-flow", "--scope", "local"]);
+  });
+
+  it("installs locally when kf is only installed at user scope", async () => {
+    const { run, calls } = stub(JSON.stringify([kfEntry("user")]));
+    await ensurePlugin({ workspace: "/ws/a" }, run);
+    expect(calls).toContainEqual(["plugin", "install", "kf@kanban-flow", "--scope", "local"]);
+  });
+
+  it("enables a disabled local install at --scope local", async () => {
+    const { run, calls } = stub(JSON.stringify([kfEntry("local", "/ws/a", { enabled: false })]));
+    const res = await ensurePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "enable", "kf", "--scope", "local"]);
+  });
+
+  it("reports a local install as installed only for the folder in projectPath", async () => {
+    const list = JSON.stringify([kfEntry("local", "/ws/a")]);
+    expect((await pluginState(stub(list).run, { workspace: "/ws/a" })).status).toBe("current");
+    expect((await pluginState(stub(list).run, { workspace: "/ws/b" })).status).toBe("missing");
+  });
+
+  it("does not count a local entry as a global or project install", async () => {
+    const list = JSON.stringify([kfEntry("local", "/ws/a")]);
+    expect((await pluginState(stub(list).run, "global")).status).toBe("missing");
+    expect((await pluginState(stub(list).run, "project")).status).toBe("missing");
+  });
+
+  it("does not count a user entry as a workspace install", async () => {
+    const list = JSON.stringify([kfEntry("user")]);
+    expect((await pluginState(stub(list).run, { workspace: "/ws/a" })).status).toBe("missing");
+  });
+
+  it("uninstalls a workspace target with --scope local", async () => {
+    const { run, calls } = stateful([kfEntry("local", "/ws/a")], "/ws/a");
+    const res = await removePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls[0]).toEqual(["plugin", "uninstall", "kf", "--scope", "local"]);
+  });
+
+  it("keeps the marketplace when removing the user install while a local install remains", async () => {
+    const { run, calls } = stateful([kfEntry("user"), kfEntry("local", "/ws/a")]);
+    const res = await removePlugin("global", run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "uninstall", "kf", "--scope", "user"]);
+    expect(marketplaceRemoved(calls)).toBe(false);
+    expect(res.stdout).toMatch(/kept/i);
+  });
+
+  it("keeps the marketplace when removing the project install while a local install remains", async () => {
+    const { run, calls } = stateful([kfEntry("project"), kfEntry("local", "/ws/a")]);
+    const res = await removePlugin("project", run);
+    expect(res.code).toBe(0);
+    expect(marketplaceRemoved(calls)).toBe(false);
+  });
+
+  it("keeps the marketplace when removing the local install while a user install remains", async () => {
+    const { run, calls } = stateful([kfEntry("user"), kfEntry("local", "/ws/a")], "/ws/a");
+    const res = await removePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "uninstall", "kf", "--scope", "local"]);
+    expect(marketplaceRemoved(calls)).toBe(false);
+    expect(res.stdout).toMatch(/kept/i);
+  });
+
+  it("keeps the marketplace when removing a local install while another folder has one", async () => {
+    const { run, calls } = stateful([kfEntry("local", "/ws/a"), kfEntry("local", "/ws/b")], "/ws/a");
+    const res = await removePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(marketplaceRemoved(calls)).toBe(false);
+  });
+
+  it("keeps the marketplace when removing the user install while a project install remains", async () => {
+    const { run, calls } = stateful([kfEntry("user"), kfEntry("project")]);
+    await removePlugin("global", run);
+    expect(marketplaceRemoved(calls)).toBe(false);
+  });
+
+  it("removes the marketplace only after the last install is gone", async () => {
+    const { run, calls } = stateful([kfEntry("user")]);
+    const res = await removePlugin("global", run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "marketplace", "remove", "kanban-flow"]);
+  });
+
+  it("removes the marketplace after the last local install", async () => {
+    const { run, calls } = stateful([kfEntry("local", "/ws/a")], "/ws/a");
+    const res = await removePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls).toContainEqual(["plugin", "marketplace", "remove", "kanban-flow"]);
+  });
+
+  it("removes the marketplace in the final of three removals and not before", async () => {
+    const { run, calls } = stateful([kfEntry("user"), kfEntry("local", "/ws/a")], "/ws/a");
+    await removePlugin("global", run);
+    expect(marketplaceRemoved(calls)).toBe(false);
+    await removePlugin({ workspace: "/ws/a" }, run);
+    expect(marketplaceRemoved(calls)).toBe(true);
+  });
+});
+
+describe("workspace target: where claude runs and what remains after removal", () => {
+  it("keeps the marketplace when the local entry of the workspace survives an uninstall run in another folder", async () => {
+    const list = JSON.stringify([{ id: "kf@kanban-flow", scope: "local", projectPath: "/ws/a", enabled: true, readFromFolder: PKG_ROOT }]);
+    const { run, calls } = stub(list, { "plugin uninstall": { code: 1, stdout: "", stderr: 'Plugin "kf" not found' } });
+    const res = await removePlugin({ workspace: "/ws/a" }, run);
+    expect(res.code).toBe(0);
+    expect(calls.some((c) => c[1] === "marketplace" && c[2] === "remove")).toBe(false);
+    expect(res.stdout).toMatch(/kept/i);
+  });
+
+  describe("without a runner", () => {
+    let bin: string;
+    let ws: string;
+    let log: string;
+    let prevPath: string | undefined;
+    beforeEach(async () => {
+      bin = await mkdtemp(join(tmpdir(), "kf-claude-cwd-bin-"));
+      ws = await mkdtemp(join(tmpdir(), "kf-claude-cwd-ws-"));
+      log = join(bin, "cwd.log");
+      await writeFile(join(ws, "kf-workspace-marker"), "");
+      // Logs whether claude runs in the workspace folder (its marker file is in the cwd).
+      await writeFile(
+        join(bin, "claude"),
+        `#!/bin/sh\nif [ -f kf-workspace-marker ]; then echo "$2 in-workspace" >> "${log}"; else echo "$2 elsewhere" >> "${log}"; fi\nif [ "$2" = list ]; then echo '[]'; fi\nexit 0\n`,
+      );
+      await chmod(join(bin, "claude"), 0o755);
+      prevPath = process.env.PATH;
+      process.env.PATH = `${bin}:${prevPath}`;
+    });
+    afterEach(async () => {
+      process.env.PATH = prevPath;
+      await rm(bin, { recursive: true, force: true });
+      await rm(ws, { recursive: true, force: true });
+    });
+
+    it("ensurePlugin runs claude in the workspace folder", async () => {
+      const res = await ensurePlugin({ workspace: ws });
+      expect(res.code).toBe(0);
+      const lines = (await readFile(log, "utf8")).trim().split("\n");
+      expect(lines).toContain("install in-workspace");
+      expect(lines.every((l) => l.endsWith("in-workspace"))).toBe(true);
+    });
+
+    it("removePlugin runs claude in the workspace folder", async () => {
+      const res = await removePlugin({ workspace: ws });
+      expect(res.code).toBe(0);
+      const lines = (await readFile(log, "utf8")).trim().split("\n");
+      expect(lines).toContain("uninstall in-workspace");
+      expect(lines.every((l) => l.endsWith("in-workspace"))).toBe(true);
+    });
+  });
+});

@@ -13,6 +13,7 @@ flowchart LR
   A --> UC2[UC-002 {use_case_002_name}]
 ```
 
+- Diagram filled (every actor and use case of the index drawn, no sample node left): {diagram_checked}
 - Actors: {actors}
 - Use cases: {use_cases}
 - Relationships: {relationships}

@@ -14,7 +14,7 @@ The brief names one brief file. Read it first. It carries:
 - the `Test Strategy` from `phase-1-spec-requirement.md` — `Level`, `UI Tests` (`critical` or `all`), `Tools` (the framework and the file that runs it);
 - the UI test cases — the `## TC-###` blocks of `phase-2-test-case.md` whose `Test type` is `UI` or `E2E` and whose requirement/use case references match the task, with Preconditions, Input, Steps and Expected outcome;
 - the task row and its **Files allowlist**, and the `data-testid` contract when the plan fixes one;
-- the worktree path, the `Domain:` URL and the `127.0.0.1:<port>` fallback that `kf status --change <feature>` prints (When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`), and the report file you must write.
+- the worktree path, the `Domain:` URL and the `127.0.0.1:<port>` fallback that `kf status --change <feature>` prints (When `worktree.domains` is `false` in `.kf/config.json`, use `http://127.0.0.1:<port>`), and the report file you must write — these arrive in the dispatch prompt beside the brief file.
 
 **You run only when the Test Level is `full`.** Under `UI Tests: critical`, cover the TCs the plan marks as critical flows; under `all`, every UI/E2E TC. Any other level: report `BLOCKED — test level is not full`.
 
