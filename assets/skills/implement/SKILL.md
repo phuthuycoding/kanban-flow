@@ -27,7 +27,7 @@ kf stage {feature_name} implementation
 
 **Owner rule:** a `driving` or `blocked` line for this item in `.kf/travel/progress.md` carries an owner token. Only one travel session runs per day; a session that is not travel never runs a task loop for an `owner=travel` line. A `blocked` item the human opens in this session is rewritten to `owner=human` and is yours to fix until they say it is done; travel then sets it back to `owner=travel`.
 
-Create tasks.md if missing: `- [ ] 1. TASK-001: <what to do>` checkboxes, each line carrying its task id (`kf next` reads a bug's tasks from these ids, in file order, and gives a test-writer only to a line that contains the word `regression` — write it in the regression task's line), mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. A bug whose approved plan (`phase-2-implementation-plan.md`) has a Task Breakdown takes its tasks from that plan, as a feature does; the tasks.md checkboxes still mirror it. Preserve completed tasks on resume. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes. When a worktree exists, the baseline HEAD is the worktree branch's branch point, recorded from inside the worktree.
+Create tasks.md if missing: `- [ ] 1. TASK-001: <what to do>` checkboxes, each line carrying its task id (`kf next` reads a bug's tasks from these ids, in file order, and gives a test-writer only to a line that contains the word `regression` — write it in the regression task's line; for a bug with a Task Breakdown the regression task's Description cell in the plan must contain the word `regression`), mapping tasks to the approved test cases for a feature, or reproduction/acceptance/regression scope in the bug report for a bug. A bug whose approved plan (`phase-2-implementation-plan.md`) has a Task Breakdown takes its tasks from that plan, as a feature does; the tasks.md checkboxes still mirror it. Preserve completed tasks on resume. Record the starting HEAD and pre-existing working-tree changes in a `## Baseline` section at the top of `tasks.md` so review can distinguish this work item's changes. When a worktree exists, the baseline HEAD is the worktree branch's branch point, recorded from inside the worktree.
 
 ## 2. Read the verify configuration
 
@@ -170,6 +170,10 @@ Do not modify the approved requirement, plan or test-case contract. Project-spec
 ## Decisions
 
 `kf next` prints a `decide` where the next step is a judgement, not a rule. Each holds its own task's actions — a task-less one holds every new seat, except the two Wave verify decides, which hold only later-wave developers — until the ledger gains the line it names under `closes with`. A `Note TASK-NNN: decided — <what>` note closes one decide of its task, the earliest still open. A `stop` prints no rule name; its reason names the line or the human step that ends it (verify exit 2, a verify wait no task can release, the cap stop below, the liveness guard).
+
+### One-task item
+
+The item has one task: follow the **One-task item.** paragraph (3). Closes only with `TASK-NNN: implemented, test-writer seat: none, review seat: none`; a `Note TASK-NNN: decided — <what>` note does not close it.
 
 ### Conflict scan
 

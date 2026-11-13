@@ -80,3 +80,32 @@ describe("the plan skill's bug Task Breakdown", () => {
     expect(p).toMatch(/report-only/i);
   });
 });
+
+describe("the regression task of a bug with a plan", () => {
+  it("must carry the word regression in its Description cell, per the plan skill", () => {
+    const p = paragraph(PLAN(), "Read work item kind from");
+    expect(p).toMatch(/Description cell[^.]*\bregression\b|\bregression\b[^.]*Description cell/);
+  });
+
+  it("must carry the word regression in its Description cell, per the implement skill", () => {
+    const p = paragraph(IMPLEMENT(), "Create tasks.md if missing");
+    expect(p).toMatch(/Description cell[^.]*\bregression\b|\bregression\b[^.]*Description cell/);
+  });
+});
+
+describe("the implement skill's One-task item decision", () => {
+  const section = () => {
+    const text = IMPLEMENT();
+    const start = text.indexOf("### One-task item");
+    expect(start, "a '### One-task item' heading exists").toBeGreaterThanOrEqual(0);
+    const decisions = text.indexOf("\n## Decisions");
+    expect(decisions).toBeGreaterThanOrEqual(0);
+    expect(start).toBeGreaterThan(decisions);
+    const next = text.slice(start + 1).search(/\n#{2,3} /);
+    return text.slice(start, next === -1 ? undefined : start + 1 + next);
+  };
+
+  it("sits under Decisions and names the record line that closes the decide", () => {
+    expect(section()).toContain("TASK-NNN: implemented, test-writer seat: none, review seat: none");
+  });
+});
