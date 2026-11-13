@@ -23,9 +23,8 @@ import { cmdApprove } from "./cli/commands/approve.js";
 import { cmdShip } from "./cli/commands/ship.js";
 import { cmdWorktree, cmdProxyServe } from "./cli/commands/worktree.js";
 import { cmdConfig } from "./cli/commands/config.js";
-import { cmdInstall, cmdUninstall, scopeFromArgs } from "./integrations/install.js";
+import { runInstallCommand } from "./integrations/install-onboarding.js";
 import { cmdDashboard } from "./dashboard/dashboard.js";
-import { parseAgentIds } from "./integrations/agents.js";
 import { nounKindGate } from "./cli/noun-gate.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -135,14 +134,8 @@ async function main(argv: string[]): Promise<CmdResult> {
         ? cmdProxyServe(parsed)
         : { code: 1, stdout: commandHelp("proxy"), stderr: "unknown proxy subcommand" };
     case "install":
-      return cmdInstall(parseAgentIds(parsed.options.agent), { cwd, scope: scopeFromArgs(parsed.options) });
     case "uninstall":
-      return cmdUninstall(parseAgentIds(parsed.options.agent), {
-        cwd,
-        scope: scopeFromArgs(parsed.options),
-        purge: Boolean(parsed.options.purge),
-        force: Boolean(parsed.options.force),
-      });
+      return runInstallCommand(parsed.command, parsed.options, cwd, Boolean(process.stdin.isTTY && process.stdout.isTTY));
     default:
       return unknownInvocation(parsed);
   }

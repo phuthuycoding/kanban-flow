@@ -4,6 +4,14 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- **Onboarding for `kf install` and `kf uninstall` on a terminal.** A choice not given on the command line is asked. `kf install` with no option offers a `Setup mode` step: Quick installs exactly what a plain `kf install` installed before, and Customize asks the agents (multi-select), the scope and a confirm. `kf uninstall` asks the agents, the scope, whether to purge `.works/` and `.kf/` (only when a `.works/` is found), and a confirm that lists what gets deleted. Steps are labelled `Step n/N`. Cancel prints `Nothing changed.` (exit 0), and Ctrl+C or end of input prints `Aborted — nothing changed.` (exit 1). Without a terminal, or with every choice given, nothing is asked and output and exit codes are unchanged.
+- **`--scope workspace` (Claude Code only).** Installs the kf plugin at Claude Code `local` scope in the workspace folder, so `/kf:*` is available when Claude Code is started in that folder (Claude Code reads `local` settings from the session's working directory only). The workspace folder is the nearest folder holding `.kf/workspace.json`, searching from the working directory up (the home directory is skipped). Outside a project, the working directory becomes the workspace and `.kf/workspace.json` is created there once the plugin install succeeds. Inside a project with no workspace file above it, the install is refused. `kf uninstall --scope workspace` removes the local install in that folder. Any agent other than `claude` with this scope is refused before any change.
+- **Optional removal of the user-scope plugin.** When the workspace install is chosen in the onboarding and kf is also installed at user scope, one extra step asks whether to remove the user install (No preselected). It is removed only after the workspace install succeeded. Without the step, the output names `kf uninstall --global`.
+
+### Changed
+- **The `kanban-flow` marketplace is kept while any kf install remains.** Removing the kf plugin at one scope no longer removes the marketplace while kf is still installed at another scope, a workspace `local` install included. The marketplace is removed with the last install.
+
 ## [0.20.0] - 2026-11-13
 
 ### Added
