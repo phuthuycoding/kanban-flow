@@ -39,8 +39,13 @@ describe("reply language survives compaction", () => {
     expect(p).toContain("kf record {feature_name} line -- 'Note reply language: <language>'");
   });
 
-  it("implement's resume step records and recovers the reply language", () => {
+  it("implement's resume step recovers the reply language from the ledger", () => {
     expect(paragraphStarting(implement(), "**Resume.**")).toContain(LANGUAGE_NOTE);
+  });
+
+  it("implement tells the controller to write the reply language note beside the scan line", () => {
+    const p = paragraphStarting(implement(), "**Pre-Task-1 conflict scan.**");
+    expect(p).toContain("kf record {feature_name} line -- 'Note reply language: <language>'");
   });
 
   it("the task loop compaction paragraph points at the reply language ledger line", () => {
@@ -58,7 +63,8 @@ describe("reply language survives compaction", () => {
   });
 
   it("travel's resume after compaction reads the language from the travel ledger", () => {
-    expect(paragraphStarting(travel(), "**Resume after compaction.**")).toContain("language:");
+    const p = paragraphStarting(travel(), "**Resume after compaction.**");
+    expect(p).toContain("keep replying to the human in the `language:` line of its last section until the human writes in another");
   });
 
   it("travel's open-the-day section template carries the language line so a new day keeps it", () => {

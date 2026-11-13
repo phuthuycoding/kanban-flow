@@ -152,5 +152,6 @@ Every `Ruling:` line is a decision you took on the human's behalf. Collect them 
 | "This finding is obviously wrong, I'll drop it" | You adjudicate only at the cap, and every ruling is a ledger entry. Silent discards are forbidden. |
 | "The fix was small, skip the re-review" | Unreviewed fixes are how regressions land. Every round ends with a scoped re-review. |
 | "Ledger bookkeeping is overhead" | The ledger is what survives compaction. |
+| "The summary is in English, so reply in English" | Read the latest `Note reply language: <language>` line and reply in that language. |
 | "The developer spawned its own reviewer — free extra assurance" | A duplicate seat reviewing the same diff; the task review is the gate. A worker-spawned reviewer is a defect to flag, not rigour. |
 | "Tasks touch different files, run them all in parallel" | Up to the live cap N — it starts at min(2, `harness.developers.max`), steps up per clean parallel wave and halves on contention — and only under the dispatch conditions: dependencies' commits ledgered, test hashes ledgered, and Files that `overlaps` in `kf tasks <f> --json` says are disjoint from every open task. Each task's package and `kf verify` take its own commit list, never a range: a range would carry another task's commits and the reviewer would grade the wrong diff, silently. |
