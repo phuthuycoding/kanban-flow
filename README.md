@@ -135,8 +135,8 @@ project under that folder and nowhere else. The folder is the nearest one holdin
 `.kf/workspace.json` (searching up from where you run it); outside a project, the
 current folder becomes the workspace and `.kf/workspace.json` is created there
 once the install succeeds. If kf is also installed at user scope, the onboarding
-offers to remove that install after the workspace one succeeded; otherwise the
-output reminds you of `kf uninstall --global`.
+offers to remove that install after the workspace one succeeded (No keeps it);
+when nothing was asked, the output reminds you of `kf uninstall --global`.
 
 Other runtimes (`--agent codex|gemini|kiro|cursor|opencode|devin`) have no plugin
 system, so `kf install` copies the skills as `kf-<name>` directories (`kf-flow`,
