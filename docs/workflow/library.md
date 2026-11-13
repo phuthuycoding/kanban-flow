@@ -1,23 +1,21 @@
 # Library entry
 
-`@phuthuycoding/kanban-flow/lib` exposes kf's readers and read models to another program — the hosted ledger service (#182), or a script — so it computes an item's state with the code the CLI runs. Import that path:
+`@phuthuycoding/kanban-flow/lib` exposes kf's readers to another program — the hosted ledger service (#182), or a script — so it reads replicated task-loop ledgers, lifecycle logs and item folders with the code the CLI runs. Import that path:
 
 ```ts
-import { readLedgerState, computeStatus, listFeatures } from "@phuthuycoding/kanban-flow/lib";
+import { readLedgerState, readItemLog, listFeatures } from "@phuthuycoding/kanban-flow/lib";
 ```
 
 The bare `@phuthuycoding/kanban-flow` is the CLI entry: importing it runs a `kf` command from `process.argv`. Import `@phuthuycoding/kanban-flow/lib`, never the bare package, to use the library. Importing `/lib` runs no command, reads no argv, prints nothing and leaves the exit code alone. No other path resolves: a deep import such as `@phuthuycoding/kanban-flow/dist/workflow/status.js` is refused by the package's `exports` map. The package is ESM only and ships type declarations for this path.
 
-The readers need a filesystem: the item readers and read models read `.works/<stage>/<item>/` folders under a project root, so a service materialises the folders before calling them. Nothing here writes or runs a hook. Some readers run read-only git commands, as `kf status` does: `findWorksRoot` asks `git rev-parse --git-common-dir` for the main checkout when no folder at or above the path holds `.works/` (a linked worktree), and `computeStatus` — so `dashboardData` too — validates the item's reports and living docs against its git checkout. A service that has no checkout gets the answers `kf status` gives without one.
+The readers need a filesystem: the item readers read `.works/<stage>/<item>/` folders under the project root the caller passes, so a service materialises the folders before calling them. The library runs no git and reads no host config: no export starts git or another child process, and none reads the global `~/.kf/config.json` or a `.kf/workspace.json`, whatever folder it is given, so a path a replicated `.kfw.json` names steers nothing on the reading host. Nothing here writes a file or runs a hook. kf's status read models (`computeStatus`, `kf dashboard`'s data) and `findWorksRoot` run git or read those layers, so the library does not export them; a status computed without git belongs to the cloud service (#187).
 
 ## Trust and cost
 
-The readers were written for the CLI, which runs one command over the user's own checkout. A long-running service that calls them should know five things:
+The readers were written for the CLI, which runs one command over the user's own checkout. A long-running service that calls them should know three things:
 
-- **Only trusted trees.** `computeStatus`, and so `dashboardData`, runs git in the item's worktree, the directory its `.kfw.json` names in `worktree.path`, or in the project root when it names none. git reads the config of the repository it runs in, so whoever can write a tree's `.kfw.json`, or a `.git` directory inside it, chooses where git runs and what that config runs. Pass these readers only trees the caller trusts; requirement #184 excludes git that changes state, not this read-only git. A service that reads replicated, untrusted folders needs its own guard.
-- **The host's config.** `dashboardData` always, and `computeStatus` when it is given a root and the item is in implementation, testing or review, read the project's `.kf/config.json` merged with the reading host's global `~/.kf/config.json` and any `.kf/workspace.json` above the project root, so the same tree can read differently on another host. A layer with keys that do not apply prints one `kf: <path>: not applied …` warning on stderr, once per file per process. No reader writes a file under `.works/`; the `git status` they run may refresh the repository's git index, as it does under `kf status`.
-- **Synchronous, without a timeout.** Every reader blocks: they read files with the synchronous `fs` calls and run git as a child process that has no timeout. `dashboardData` runs git for each item in implementation, testing or review. Call them off a request path, in a worker or a job.
-- **A per-process cache.** `dashboardData`, through the status text it renders for each item that has a worktree, caches the project's `worktree.domains` flag per root and config version for the life of the process. Entries are never evicted, so a service that reads many roots, or rewrites a project's config, adds an entry each time.
+- **No git, no host config.** The library runs no git and reads no host config. No reader writes a file under `.works/`; each reads only the files of the folder or text it is given.
+- **Synchronous, without a timeout.** Every reader blocks: they read files with the synchronous `fs` calls. Call them off a request path, in a worker or a job.
 - **TypeScript resolution.** The types resolve through the `exports` map, so a TypeScript consumer needs `moduleResolution` `node16`, `nodenext` or `bundler`.
 
 ## Stability
@@ -35,10 +33,15 @@ A field added to a returned object or an event added to a union is not breaking.
 | `LedgerRead` | type | stable | What `readLedgerState` returns: `{ ok: true, state }`, or `{ ok: false, repair }` when any line cannot be read |
 | `LedgerState` | type | stable | The ledger's events, in order |
 | `LedgerEvent` | type | stable | One ledger event |
+| `EventBase` | type | stable | The line number and timestamp every ledger event carries |
+| `DecisionTarget` | type | stable | What a `decided` note or a ruling closes, as the fold tags it |
+| `DecisionRegion` | type | stable | The region of the loop a `DecisionTarget` names |
 | `RepairLine` | type | stable | A ledger line the reader could not place, with its number |
 | `parseLedger` | function | stable | Parses ledger text into lines for measurement |
 | `ParsedLedger` | type | stable | What `parseLedger` returns |
 | `LedgerLine` | type | stable | One parsed ledger line |
+| `ShapeName` | type | stable | The name of a ledger line shape in the ledger grammar |
+| `WaveShapeName` | type | stable | The name of a `wave <w>: verify …` line shape |
 | `loopStats` | function | experimental | Measures a parsed ledger, as `kf loop-stats` prints |
 | `LoopStats` | type | experimental | What `loopStats` returns |
 | `Seat` | type | stable | A loop seat: test-writer, developer, code-reviewer, automation-writer |
@@ -49,38 +52,36 @@ A field added to a returned object or an event added to a union is not breaking.
 | `LoopInputs` | type | experimental | The plan, reports, verify runs and git facts the fold reads |
 | `LoopTask` | type | experimental | One task of the loop inputs |
 | `Cap` | type | experimental | What `liveCap` returns |
-| `CapCause` | type | experimental | Why the cap changed |
+| `CapCause` | type | stable | Why the cap changed, as a `capRuling` ledger event carries it |
 | `Action` | type | experimental | An action the scheduler owes |
 | `HeldRerun` | type | experimental | A contention re-run held back |
-| `findWorksRoot` | function | stable | The nearest folder at or above a path that holds `.works/` (a linked worktree resolves to its main checkout), or null |
 | `listFeatures` | function | stable | Every work item of a project |
-| `findFeature` | function | stable | One work item by name |
+| `findFeature` | function | stable | One work item by name; throws `AmbiguousFeatureError` when the name matches more than one folder |
+| `AmbiguousFeatureError` | class | stable | The error `findFeature` throws on an ambiguous name; its message names the matching folders |
 | `readFeatureMeta` | function | stable | An item folder's `.kfw.json` |
 | `executionContractHash` | function | stable | The contract fingerprint `approval.contractHash` is compared with |
 | `Feature` | type | stable | A work item: name, stage, folder, metadata |
 | `FeatureMeta` | type | stable | The `.kfw.json` snapshot |
+| `Approval` | type | stable | The approval block of the metadata |
+| `Bypass` | type | stable | One recorded `--force` or `--skip-hooks` bypass |
+| `Cancellation` | type | stable | The record of a cancelled item |
+| `WorktreeRegistration` | type | stable | The item's worktree: path, branch, domain and port |
+| `VerifyWaiver` | type | stable | The human's waiver of the stage verify |
+| `ShipState` | type | stable | The delivery stamps of the metadata: PR published, auto-merge scheduled, merged, release and changelog |
 | `Stage` | type | stable | A stage name |
 | `WorkItemKind` | type | stable | `feature` or `bug` |
 | `ApprovalStatus` | type | stable | The approval state in the metadata |
 | `LegacyStageName` | type | stable | A stage name an earlier release wrote |
 | `readStageRecords` | function | stable | The item's `loop/stage-verify.jsonl` records |
 | `StageRecord` | type | stable | One stage-verify record |
+| `StepOutcome` | type | stable | The outcome of one command in a stage-verify record |
 | `ITEM_LOG_FILE` | constant | stable | `lifecycle.jsonl`, the lifecycle log's file name |
 | `readItemLog` | function | stable | Reads and folds an item folder's lifecycle log |
 | `foldItemLog` | function | stable | Folds lifecycle-log text into the stage and shared metadata |
 | `sharedMeta` | function | stable | The metadata without machine-local and legacy keys, as the log records it |
 | `ItemRecord` | type | stable | One lifecycle record |
+| `ItemOrigin` | type | stable | The machine and channel that wrote a lifecycle record |
 | `ItemEvent` | type | stable | A lifecycle event name |
 | `ItemState` | type | stable | The stage and shared metadata a fold gives |
 | `FoldResult` | type | stable | What `foldItemLog` and `readItemLog` return |
 | `SharedMeta` | type | stable | What `sharedMeta` returns |
-| `statusToJson` | function | experimental | The object `kf status --change <feature> --json` prints |
-| `computeStatus` | function | experimental | One item's status, the input of `statusToJson` |
-| `FeatureStatus` | type | experimental | What `computeStatus` returns |
-| `Finding` | type | experimental | A validation finding in a status |
-| `StageEvidence` | type | experimental | The stage-verify evidence in a status |
-| `computeBuckets` | function | experimental | The `Needs you` and `Waiting to merge` buckets of `kf status --all` |
-| `Buckets` | type | experimental | What `computeBuckets` returns |
-| `WaitingToMergeEntry` | type | experimental | One `Waiting to merge` entry |
-| `dashboardData` | function | experimental | The board data `kf dashboard` renders |
-| `DashboardFilters` | type | experimental | The context and kind filters `dashboardData` takes |

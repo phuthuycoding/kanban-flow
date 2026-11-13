@@ -1,11 +1,8 @@
 import {
+  AmbiguousFeatureError,
   ITEM_LOG_FILE,
-  computeBuckets,
-  computeStatus,
-  dashboardData,
   executionContractHash,
   findFeature,
-  findWorksRoot,
   foldItemLog,
   foldWorld,
   listFeatures,
@@ -17,19 +14,27 @@ import {
   readLedgerState,
   readStageRecords,
   sharedMeta,
-  statusToJson,
 } from "@phuthuycoding/kanban-flow/lib";
 import type {
   Action,
+  Approval,
+  Bypass,
+  Cancellation,
+  DecisionRegion,
+  DecisionTarget,
+  EventBase,
+  ItemOrigin,
+  ShapeName,
+  ShipState,
+  StepOutcome,
+  VerifyWaiver,
+  WaveShapeName,
+  WorktreeRegistration,
   ApprovalStatus,
-  Buckets,
   Cap,
   CapCause,
-  DashboardFilters,
   Feature,
   FeatureMeta,
-  FeatureStatus,
-  Finding,
   FoldResult,
   HeldRerun,
   ItemEvent,
@@ -48,10 +53,8 @@ import type {
   Seat,
   SharedMeta,
   Stage,
-  StageEvidence,
   StageRecord,
   TaskState,
-  WaitingToMergeEntry,
   WorkItemKind,
   World,
 } from "@phuthuycoding/kanban-flow/lib";
@@ -85,22 +88,33 @@ const kind: WorkItemKind = "feature";
 const stage: Stage = "planning";
 const legacy: LegacyStageName = "shipping";
 const approval: ApprovalStatus = "pending";
-const root: string | null = findWorksRoot(".");
 const meta: FeatureMeta | null = readFeatureMeta(".");
 const features: Feature[] = listFeatures(".");
 const one: Feature | null = findFeature(".", "demo");
 const hash: string | null = executionContractHash(".", kind);
 const records: StageRecord[] = one ? readStageRecords(one) : [];
 
-// Read models.
-const status: FeatureStatus | null = one ? computeStatus(one, ".") : null;
-const json = status ? statusToJson(status) : null;
-const buckets: Buckets = computeBuckets(status ? [status] : [], []);
-const waiting: WaitingToMergeEntry[] = buckets.waitingToMerge;
-const filters: DashboardFilters = { context: "cli", kind: "bug" };
-const board = dashboardData(".", filters);
-const blockers: Finding[] = status ? status.blockers : [];
-const evidence: StageEvidence | null = status ? status.stageVerify : null;
+// The error findFeature throws when a name matches more than one folder, caught by its class.
+let ambiguous: string | null = null;
+try {
+  findFeature(".", "demo");
+} catch (err) {
+  if (!(err instanceof AmbiguousFeatureError)) throw err;
+  ambiguous = err.message;
+}
+
+// The types the stable exports' declarations reference, each importable by name.
+const lineNo: EventBase["line"] = 1;
+const region: DecisionRegion = "verify";
+const target: Pick<DecisionTarget, "region"> = { region };
+const shape: ShapeName = "dispatched";
+const waveShape: WaveShapeName = "waveVerifyDone";
+const waiver: Pick<VerifyWaiver, "reason" | "at" | "by"> = { reason: "r", at: "t", by: "b" };
+const tree: WorktreeRegistration = { path: "/x", branch: "b", domain: "d", port: 1, createdAt: "t" };
+const outcome: StepOutcome = { argv: ["npm", "test"], outcome: "not-run" };
+const origin: ItemOrigin = { machine: "m", via: "cli" };
+const approved: Pick<Approval, "status"> = { status: approval };
+export type Referenced = [Bypass, Cancellation, ShipState];
 
 // Lifecycle log.
 const logFile: string = ITEM_LOG_FILE;
@@ -118,7 +132,8 @@ const notAString: string = cap.n;
 const notAStage: Stage = "bogus";
 
 export const used = [
-  repairs, events, lines, tasksSeen, taskState, seat, cause, actions, held, liveN, legacy, approval, root, meta,
-  features, hash, records, json, waiting, board, blockers, evidence, logFile, itemState, fromDisk, shared, record,
+  repairs, events, lines, tasksSeen, taskState, seat, cause, actions, held, liveN, legacy, approval, meta,
+  features, hash, records, ambiguous, lineNo, target, shape, waveShape, waiver, tree, outcome, origin, approved,
+  logFile, itemState, fromDisk, shared, record,
   notAString, notAStage, stage, world,
 ];

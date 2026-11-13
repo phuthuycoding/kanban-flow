@@ -9,7 +9,7 @@ import * as source from "../lib.js";
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LIBRARY_DOC = "docs/workflow/library.md";
 const STABILITY_MARKS = ["stable", "experimental"];
-const KINDS = ["function", "constant", "type"];
+const KINDS = ["function", "class", "constant", "type"];
 const PACKAGE_NAME = "@phuthuycoding/kanban-flow";
 
 // Escapes regex metacharacters so the package name can sit inside a RegExp built from a string.
@@ -21,6 +21,7 @@ interface DocRow {
   name: string;
   kind: string;
   stability: string;
+  what: string;
 }
 
 // Rows of the `| Export | Kind | Stability | What it does |` table; the export name sits in backticks.
@@ -31,7 +32,7 @@ function parseExportRows(markdown: string): DocRow[] {
     const cells = line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
     const name = /^`([^`]+)`$/.exec(cells[0] ?? "")?.[1];
     if (name === undefined) continue;
-    rows.push({ name, kind: cells[1] ?? "", stability: cells[2] ?? "" });
+    rows.push({ name, kind: cells[1] ?? "", stability: cells[2] ?? "", what: cells[3] ?? "" });
   }
   return rows;
 }
@@ -57,6 +58,21 @@ function sectionOf(markdown: string, heading: string): string {
   const next = rest.search(/^## /m);
   return next === -1 ? rest : rest.slice(0, next);
 }
+
+// The text before the first `## ` heading: the purpose and readers paragraphs.
+function introOf(markdown: string): string {
+  const first = markdown.search(/^## /m);
+  return first === -1 ? markdown : markdown.slice(0, first);
+}
+
+// The sentence that the library spawns nothing and reads only the folders it is given.
+const NO_GIT_NO_HOST_CONFIG = /library\s+runs\s+no\s+git\s+and\s+reads\s+no\s+host\s+config/;
+
+// The named types a stable export's declaration references; each must be exported and stable itself.
+const REFERENCED_STABLE_TYPES = [
+  "EventBase", "DecisionTarget", "DecisionRegion", "ShapeName", "WaveShapeName", "Approval", "Bypass",
+  "Cancellation", "WorktreeRegistration", "VerifyWaiver", "ShipState", "StepOutcome", "ItemOrigin", "CapCause",
+];
 
 describe("library stability document", () => {
   let tmp: string;
@@ -147,6 +163,24 @@ describe("library stability document", () => {
     );
   });
 
+  it("marks AmbiguousFeatureError a stable class and says findFeature throws it", () => {
+    expect(rows.find((r) => r.name === "AmbiguousFeatureError")).toMatchObject({ kind: "class", stability: "stable" });
+    expect(rows.find((r) => r.name === "findFeature")?.what).toMatch(/`AmbiguousFeatureError`/);
+  });
+
+  it("marks every type a stable export references as a stable type", () => {
+    const byName = new Map(rows.map((r) => [r.name, r]));
+    const notStable = REFERENCED_STABLE_TYPES.filter((n) => {
+      const row = byName.get(n);
+      return row === undefined || row.kind !== "type" || row.stability !== "stable";
+    });
+    expect(notStable).toEqual([]);
+  });
+
+  it("says in the readers paragraphs that the library runs no git and reads no host config", () => {
+    expect(introOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"))).toMatch(NO_GIT_NO_HOST_CONFIG);
+  });
+
   describe("trust and cost section", () => {
     const trustSection = (): string => sectionOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"), "Trust and cost");
 
@@ -154,50 +188,19 @@ describe("library stability document", () => {
       expect(trustSection().trim()).not.toBe("");
     });
 
-    it("tells callers to pass only trees they trust because git runs where .kfw.json points", () => {
-      const section = trustSection();
-      expect(section).toMatch(/\*\*Only\s+trusted\s+trees\.\*\*/);
-      expect(section).toMatch(/`computeStatus`/);
-      expect(section).toMatch(/`worktree\.path`/);
-      expect(section).toMatch(/`\.kfw\.json`/);
-      expect(section).toMatch(/Pass\s+these\s+readers\s+only\s+trees\s+the\s+caller\s+trusts/);
-    });
-
-    it("says the readers depend on the host's global and workspace config and warn on stderr", () => {
-      const section = trustSection();
-      expect(section).toMatch(/`~\/\.kf\/config\.json`/);
-      expect(section).toMatch(/`\.kf\/workspace\.json`/);
-      expect(section).toMatch(/`kf:\s+<path>:\s+not\s+applied[^`]*`\s+warning\s+on\s+stderr/);
+    it("says the library runs no git and reads no host config", () => {
+      expect(trustSection()).toMatch(NO_GIT_NO_HOST_CONFIG);
     });
 
     it("says the readers are synchronous with no timeout and belong off a request path", () => {
       const section = trustSection();
       expect(section).toMatch(/Synchronous,\s+without\s+a\s+timeout/);
       expect(section).toMatch(/synchronous\s+`fs`\s+calls/);
-      expect(section).toMatch(/git\s+as\s+a\s+child\s+process\s+that\s+has\s+no\s+timeout/);
       expect(section).toMatch(/Call\s+them\s+off\s+a\s+request\s+path/);
     });
 
-    it("says dashboardData keeps a per-process cache whose entries are never evicted", () => {
-      const section = trustSection();
-      expect(section).toMatch(/A\s+per-process\s+cache/);
-      expect(section).toMatch(/`dashboardData`,\s+through\s+the\s+status\s+text\s+it\s+renders\s+for\s+each\s+item\s+that\s+has\s+a\s+worktree,\s+caches\s+the\s+project's\s+`worktree\.domains`\s+flag\s+per\s+root\s+and\s+config\s+version/);
-      expect(section).toMatch(/for\s+the\s+life\s+of\s+the\s+process/);
-      expect(section).toMatch(/Entries\s+are\s+never\s+evicted/);
-    });
-
-    it("says dashboardData runs git for each item in implementation, testing or review", () => {
-      expect(trustSection()).toMatch(/`dashboardData`\s+runs\s+git\s+for\s+each\s+item\s+in\s+implementation,\s+testing\s+or\s+review/);
-    });
-
-    it("says the excluded git is the kind that changes state, not the read-only git the readers run", () => {
-      expect(trustSection()).toMatch(/requirement\s+#184\s+excludes\s+git\s+that\s+changes\s+state,\s+not\s+this\s+read-only\s+git/);
-    });
-
-    it("says computeStatus reads the config only with a root and an item in implementation, testing or review, and no reader writes under .works", () => {
-      const section = trustSection();
-      expect(section).toMatch(/`computeStatus`\s+when\s+it\s+is\s+given\s+a\s+root\s+and\s+the\s+item\s+is\s+in\s+implementation,\s+testing\s+or\s+review/);
-      expect(section).toMatch(/No\s+reader\s+writes\s+a\s+file\s+under\s+`\.works\/`/);
+    it("says no reader writes a file under .works", () => {
+      expect(trustSection()).toMatch(/No\s+reader\s+writes\s+a\s+file\s+under\s+`\.works\/`/);
     });
 
     it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
