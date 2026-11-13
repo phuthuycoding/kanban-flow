@@ -67,12 +67,36 @@ export function itemLogPath(dir: string): string {
   return join(dir, ITEM_LOG_FILE);
 }
 
-/** The shared part of a metadata object: `worktree`, legacy run-state keys and unknown keys are dropped. */
+const HOOK_CODE = "hook:";
+
+/**
+ * A skipped hook is recorded in `.kfw.json` by its absolute path, which names the project or the
+ * home directory. The log keeps the hook's file name and drops the directory: which hook was
+ * skipped travels with the item, where it sat on one machine does not.
+ */
+function withoutHookDirs(bypasses: unknown): unknown {
+  if (!Array.isArray(bypasses)) return bypasses;
+  return bypasses.map((bypass: unknown) => {
+    if (!isPlainObject(bypass) || bypass.flag !== "skip-hooks" || !Array.isArray(bypass.codes)) return bypass;
+    return {
+      ...bypass,
+      codes: bypass.codes.map((code: unknown) =>
+        typeof code === "string" && code.startsWith(HOOK_CODE)
+          ? `${HOOK_CODE}${code.slice(HOOK_CODE.length).split(/[\\/]/).pop()}`
+          : code),
+    };
+  });
+}
+
+/**
+ * The shared part of a metadata object: `worktree`, legacy run-state keys and unknown keys are
+ * dropped, and a skipped hook keeps only its file name. The input is never changed.
+ */
 export function sharedMeta(meta: object): SharedMeta {
   const source = meta as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const key of SHARED_KEYS) {
-    if (source[key] !== undefined) out[key] = source[key];
+    if (source[key] !== undefined) out[key] = key === "bypasses" ? withoutHookDirs(source[key]) : source[key];
   }
   return out as unknown as SharedMeta;
 }
