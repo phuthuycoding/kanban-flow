@@ -71,11 +71,11 @@ describe("task graph validation", () => {
     expect(checkTaskGraph(f)).toEqual([]);
   });
 
-  it("skips brainstorm and bug items", async () => {
+  it("skips brainstorm items and checks a bug's plan as a feature's", async () => {
     const f = (await makeFeature(table(["| TASK-001 | a | TASK-009 | - |"])))!;
     expect(codes(checkTaskGraph(f))).toEqual(["task_dep_missing"]);
     expect(checkTaskGraph({ ...f, stage: "brainstorm" })).toEqual([]);
-    expect(checkTaskGraph({ ...f, meta: { ...f.meta!, kind: "bug" } })).toEqual([]);
+    expect(codes(checkTaskGraph({ ...f, meta: { ...f.meta!, kind: "bug" } }))).toEqual(["task_dep_missing"]);
   });
 
   it("parses a plan with a Role column to the same tasks and raises no unknown-role issue", async () => {

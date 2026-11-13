@@ -106,10 +106,17 @@ function findCycles(tasks: PlannedTask[]): string[][] {
   return [...cycles.values()];
 }
 
+/** A bug whose implementation plan's Task Breakdown has a task is planned like a feature; without one it keeps its checkbox tasks. */
+export function bugHasPlan(feature: Feature): boolean {
+  if (feature.meta?.kind !== "bug") return false;
+  const path = join(feature.dir, ARTIFACTS["implementation-plan"].file);
+  return existsSync(path) && parseTaskGraph(splitFrontmatter(readFileSync(path, "utf8")).body).tasks.length > 0;
+}
+
 /** Structural checks on the plan's task graph, planning on. Plans without a task table are not re-gated. */
 export function checkTaskGraph(feature: Feature): Finding[] {
   const issues: Finding[] = [];
-  if (STAGE_INDEX[feature.stage] < STAGE_INDEX.planning || feature.meta?.kind === "bug") return issues;
+  if (STAGE_INDEX[feature.stage] < STAGE_INDEX.planning || (feature.meta?.kind === "bug" && !bugHasPlan(feature))) return issues;
   const file = ARTIFACTS["implementation-plan"].file;
   const path = join(feature.dir, file);
   if (!existsSync(path)) return issues;
@@ -152,7 +159,7 @@ export interface TaskViewRow {
 
 /** The planned tasks of an item with their wave. */
 export function taskView(feature: Feature): TaskViewRow[] {
-  if (feature.meta?.kind === "bug") return [];
+  if (feature.meta?.kind === "bug" && !bugHasPlan(feature)) return [];
   const path = join(feature.dir, ARTIFACTS["implementation-plan"].file);
   if (!existsSync(path)) return [];
   const { tasks } = parseTaskGraph(splitFrontmatter(readFileSync(path, "utf8")).body);

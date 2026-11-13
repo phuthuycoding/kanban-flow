@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { ARTIFACTS } from "./schema.js";
 import type { Feature } from "./features.js";
-import { parseTaskGraph, taskView } from "./tasks.js";
+import { bugHasPlan, parseTaskGraph, taskView } from "./tasks.js";
 import type { PlannedTask } from "./tasks.js";
 import { pathAllowed } from "./allowlist.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
@@ -145,7 +145,7 @@ function runTaskTier(root: string, dir: string, sha: string, changed: () => stri
   return runCommands(commands, dir, "task", lines, true);
 }
 
-/** A bug has no plan: its tasks are the TASK-### checkbox lines of tasks.md, with Files unknown. */
+/** A bug without a plan: its tasks are the TASK-### checkbox lines of tasks.md, with Files unknown. */
 function bugTaskAndDir(root: string, feature: Feature, taskId: string): { task: PlannedTask; dir: string; line: string } | VerifyResult {
   const read = readLoopInputs(root, feature);
   if (!read.ok) return bad(read.reason);
@@ -160,7 +160,7 @@ function bugTaskAndDir(root: string, feature: Feature, taskId: string): { task: 
 
 /** The task from the plan and the item's directory, or the exit-3 result saying why not. */
 function taskAndDir(root: string, feature: Feature, taskId: string): { task: PlannedTask; dir: string; line: string } | VerifyResult {
-  if (feature.meta?.kind === "bug") return bugTaskAndDir(root, feature, taskId);
+  if (feature.meta?.kind === "bug" && !bugHasPlan(feature)) return bugTaskAndDir(root, feature, taskId);
   const planPath = join(feature.dir, ARTIFACTS["implementation-plan"].file);
   if (!existsSync(planPath)) return bad(`'${feature.name}' has no implementation plan (${ARTIFACTS["implementation-plan"].file}).`);
   const id = taskId.trim().toUpperCase();
@@ -278,7 +278,7 @@ export function verifyTaskCommits(root: string, feature: Feature, taskId: string
  * record tagged with the wave; the review gate reads it like any other.
  */
 export function verifyWave(root: string, feature: Feature, wave: number): VerifyResult & { record?: StageRecord } {
-  const waves = feature.meta?.kind === "bug" ? new Set([1]) : new Set(taskView(feature).map((r) => r.wave));
+  const waves = feature.meta?.kind === "bug" && !bugHasPlan(feature) ? new Set([1]) : new Set(taskView(feature).map((r) => r.wave));
   if (!waves.has(wave)) return bad(`Wave ${wave} has no task in the plan of '${feature.name}'.`);
   const { dir } = itemDir(root, feature);
   if (!existsSync(dir)) return bad(`The item worktree ${dir} does not exist.`);
