@@ -14,7 +14,7 @@ The readers need a filesystem: the item readers read `.works/<stage>/<item>/` fo
 
 The readers were written for the CLI, which runs one command over the user's own checkout. A long-running service that calls them should know these things:
 
-- **No git, no host config.** The library runs no git and reads no host config. No reader writes a file under `.works/`; each reads only the files of the folder or text it is given.
+- **No git, no host config.** The library runs no git and reads no host config. No reader writes a file under `.works/`; the readers open only paths inside the folder they are given, plus whatever a link there points to (see **Links are followed**).
 - **Synchronous, without a timeout.** Every reader blocks: they read files with the synchronous `fs` calls. Call them off a request path, in a worker or a job.
 - **A lookup is a full scan.** `listFeatures` is a full scan of `.works/`: it lists every stage folder and reads and checks every `.kfw.json`. `findFeature` runs one `listFeatures` per call, so a service that resolves many items calls `listFeatures` once and indexes the result by name or folder.
 - **Whole files in memory.** `readItemLog` and `readStageRecords` read the whole file into memory, and so do the other readers; no reader bounds file size.
@@ -61,7 +61,7 @@ A field added to a returned object or an event added to a union is not breaking.
 | `listFeatures` | function | stable | Every work item of a project |
 | `findFeature` | function | stable | One work item by name; throws `AmbiguousFeatureError` when the name matches more than one folder |
 | `AmbiguousFeatureError` | class | stable | The error `findFeature` throws on an ambiguous name; its message names the matching folders |
-| `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid |
+| `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid; returns `null` when the folder has no `.kfw.json`, and an fs error is rethrown as is |
 | `executionContractHash` | function | stable | The contract fingerprint `approval.contractHash` is compared with |
 | `Feature` | type | stable | A work item: name, stage, folder, metadata |
 | `FeatureMeta` | type | stable | The `.kfw.json` snapshot |

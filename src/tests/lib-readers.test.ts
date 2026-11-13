@@ -329,16 +329,19 @@ describe("no git and no host config through the library", () => {
       ceiling: { max: 4, source: "default" }, reportCommits: {}, verifyRuns: {}, gitLog: [],
     };
     writeFileSync(join(consumer.dir, "no-git.mjs"), NO_GIT_PROBE);
-    // Every path under the project root with its size and mtime, so a reader that wrote, touched or created anything is seen.
-    const snapshot = (): string[] =>
-      (readdirSync(root, { recursive: true }) as string[])
+    // Every path under a directory with its size and mtime, so a reader that wrote, touched or created anything is seen.
+    // The probe reads both the project root and the fixture folder, so both are snapshotted.
+    const snapshot = (dir: string): string[] =>
+      (readdirSync(dir, { recursive: true }) as string[])
         .map((rel) => {
-          const st = lstatSync(join(root, rel));
+          const st = lstatSync(join(dir, rel));
           return `${rel} ${String(st.size)} ${String(st.mtimeMs)}`;
         })
         .sort();
-    const before = snapshot();
+    const before = snapshot(root);
     expect(before.length).toBeGreaterThan(0);
+    const fixturesBefore = snapshot(FIXTURES);
+    expect(fixturesBefore.length).toBeGreaterThan(0);
     const res = spawnSync(
       process.execPath,
       [join(consumer.dir, "no-git.mjs"), LEDGER, join(FIXTURES, "lifecycle.jsonl"), FIXTURES, root, planningDir, reviewDir, JSON.stringify(inputs)],
@@ -348,7 +351,8 @@ describe("no git and no host config through the library", () => {
     expect(res.stderr).toBe("");
     expect(res.status).toBe(0);
     expect(existsSync(marker)).toBe(false);
-    expect(snapshot()).toEqual(before);
+    expect(snapshot(root)).toEqual(before);
+    expect(snapshot(FIXTURES)).toEqual(fixturesBefore);
     const out = JSON.parse(res.stdout) as { table: string[]; exported: string[]; results: Record<string, unknown> };
     expect(out.table).toEqual(out.exported);
     expect(out.results.listFeatures).toEqual(["beta@review", "demo@planning"]);

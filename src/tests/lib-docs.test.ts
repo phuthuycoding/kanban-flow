@@ -181,8 +181,11 @@ describe("library stability document", () => {
     expect(introOf(readFileSync(join(PACKAGE_ROOT, LIBRARY_DOC), "utf8"))).toMatch(NO_GIT_NO_HOST_CONFIG);
   });
 
-  it("says in the readFeatureMeta row that it throws on invalid metadata", () => {
-    expect(rows.find((r) => r.name === "readFeatureMeta")?.what).toMatch(/throws/);
+  it("says in the readFeatureMeta row that it throws on invalid metadata, returns null with no metadata file and rethrows fs errors", () => {
+    const what = rows.find((r) => r.name === "readFeatureMeta")?.what;
+    expect(what).toMatch(/throws/);
+    expect(what).toMatch(/returns\s+`null`/);
+    expect(what).toMatch(/rethrown/);
   });
 
   describe("trust and cost section", () => {
@@ -205,6 +208,13 @@ describe("library stability document", () => {
 
     it("says no reader writes a file under .works", () => {
       expect(trustSection()).toMatch(/No\s+reader\s+writes\s+a\s+file\s+under\s+`\.works\/`/);
+    });
+
+    // Links are followed, so a claim that the readers touch only the folder's own files would be false.
+    it("says the readers open only paths inside the given folder plus what a link there points to", () => {
+      const section = trustSection();
+      expect(section).not.toMatch(/reads\s+only\s+the\s+files\s+of\s+the\s+folder/);
+      expect(section).toMatch(/plus\s+whatever\s+a\s+link/);
     });
 
     it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
@@ -231,6 +241,8 @@ describe("library stability document", () => {
       const section = trustSection();
       expect(section).toMatch(/symbolic\s+links?/);
       expect(section).toMatch(/regular\s+files\s+only/);
+      expect(section).toMatch(/no\s+reader\s+bounds\s+file\s+size/);
+      expect(section).toMatch(/FIFO/);
     });
   });
 
