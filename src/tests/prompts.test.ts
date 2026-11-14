@@ -6,6 +6,8 @@ import {
   selectChoice,
   selectMany,
   selectReducer,
+  terminalRows,
+  withLoading,
   type Choice,
   type ManyState,
   type SelectState,
@@ -146,6 +148,66 @@ describe("selectReducer", () => {
     expect(after).not.toBe(before);
     expect(before).toEqual({ cursor: 0, done: false, abort: false });
   });
+
+  it("sets a hint with the reason on return over an unavailable choice", () => {
+    const after = selectReducer(start(1), key("return"), choices);
+    expect(after.done).toBe(false);
+    expect(after.cursor).toBe(1);
+    expect(after.hint).toBe("project is unavailable: no .works/ — run kf init");
+  });
+
+  it("clears the hint when the cursor moves with up, down or a digit", () => {
+    const hinted: SelectState = { ...start(1), hint: "project is unavailable: no .works/ — run kf init" };
+    expect(selectReducer(hinted, key("up"), choices).hint).toBeUndefined();
+    expect(selectReducer(hinted, key("down"), choices).hint).toBeUndefined();
+    expect(selectReducer(hinted, key("3"), choices).hint).toBeUndefined();
+  });
+
+  it("keeps the hint on an unrelated key", () => {
+    const hinted: SelectState = { ...start(1), hint: "project is unavailable: no .works/ — run kf init" };
+    expect(selectReducer(hinted, key("x"), choices)).toEqual(hinted);
+  });
+
+  it("does not mutate the input when it sets the hint", () => {
+    const before = start(1);
+    const after = selectReducer(before, key("return"), choices);
+    expect(after).not.toBe(before);
+    expect(before).toEqual({ cursor: 1, done: false, abort: false });
+  });
+});
+
+describe("terminalRows", () => {
+  it("counts a line wider than the terminal as two rows", () => {
+    expect(terminalRows(["x".repeat(85)], 80)).toBe(2);
+  });
+
+  it("counts a line exactly as wide as the terminal as one row", () => {
+    expect(terminalRows(["x".repeat(80)], 80)).toBe(1);
+  });
+
+  it("counts an empty line as one row", () => {
+    expect(terminalRows([""], 80)).toBe(1);
+  });
+
+  it("ignores ANSI escapes when measuring width", () => {
+    expect(terminalRows(["\x1b[2m" + "x".repeat(80) + "\x1b[0m"], 80)).toBe(1);
+  });
+
+  it("counts one row per line when the column count is unknown", () => {
+    expect(terminalRows(["x".repeat(85), "y"], undefined)).toBe(2);
+  });
+
+  it("counts one row per line when the column count is zero", () => {
+    expect(terminalRows(["x".repeat(85)], 0)).toBe(1);
+  });
+
+  it("measures width in code points, not UTF-16 units", () => {
+    expect(terminalRows(["❯ —".repeat(30)], 80)).toBe(2);
+  });
+
+  it("sums the rows of every line", () => {
+    expect(terminalRows(["x".repeat(85), "y", "z".repeat(160)], 80)).toBe(5);
+  });
 });
 
 // The prompts read the real process.stdin/stdout, so the terminal is faked on those objects:
@@ -179,8 +241,17 @@ describe("interactive prompts on the terminal", () => {
     });
   };
 
+  let savedColumns: PropertyDescriptor | undefined;
+  const stubColumns = (columns: number | undefined) => {
+    savedColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+    Object.defineProperty(process.stdout, "columns", { value: columns, configurable: true, writable: true });
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
+    if (savedColumns) Object.defineProperty(process.stdout, "columns", savedColumns);
+    else delete (process.stdout as { columns?: number }).columns;
+    savedColumns = undefined;
     for (const [k, desc] of saved) {
       if (desc) Object.defineProperty(stdin, k, desc);
       else delete stdin[k];
@@ -204,6 +275,26 @@ describe("interactive prompts on the terminal", () => {
     expect(written.at(-1)).toBe("\x1b[?25h");
     expect(written.join("")).toContain("Where?");
     expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+  });
+
+  it("prints a yellow hint with the reason on return over an unavailable row and stays open", async () => {
+    fakeTerminal();
+    const scopes: Choice[] = [
+      { label: "global" },
+      { label: "project", unavailable: "no .works/ — run kf init" },
+    ];
+    const hint = "\x1b[33mproject is unavailable: no .works/ — run kf init\x1b[0m";
+    const answer = selectChoice("Which scope?", scopes, 0);
+    press("down");
+    expect(written.join("")).not.toContain("is unavailable");
+    press("return");
+    expect(written.at(-1)).toContain(hint);
+    expect(rawModeCalls).toEqual([true]);
+    press("up");
+    expect(written.at(-1)).not.toContain("is unavailable");
+    press("return");
+    await expect(answer).resolves.toBe(0);
+    expect(rawModeCalls).toEqual([true, false]);
   });
 
   it("rejects with PromptAbort on ctrl+c and turns raw mode off", async () => {
@@ -249,5 +340,277 @@ describe("interactive prompts on the terminal", () => {
     expect(rawModeCalls).toEqual([true, false]);
     expect(written.at(-1)).toBe("\x1b[?25h");
     expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+  });
+
+  it("moves the cursor up by the wrapped row count when redrawing", async () => {
+    fakeTerminal();
+    stubColumns(80);
+    const wide: Choice[] = [
+      { label: "global" },
+      { label: "project" },
+      { label: "workspace — Claude Code, only when started in " + "/long/path".repeat(10) },
+    ];
+    const answer = selectChoice("Which scope?", wide, 0);
+    press("down");
+    // question + 2 short rows + 1 wrapped row = 5 terminal rows
+    expect(written.join("")).toContain("\x1b[5A\x1b[J");
+    expect(written.join("")).not.toContain("\x1b[4A");
+    press("return");
+    await expect(answer).resolves.toBe(1);
+  });
+
+  it("moves the cursor up by the line count when the column count is unknown", async () => {
+    fakeTerminal();
+    stubColumns(undefined);
+    const wide: Choice[] = [{ label: "global" }, { label: "project" }, { label: "w".repeat(120) }];
+    const answer = selectChoice("Which scope?", wide, 0);
+    press("down");
+    expect(written.join("")).toContain("\x1b[4A\x1b[J");
+    press("return");
+    await expect(answer).resolves.toBe(1);
+  });
+
+  describe("withLoading", () => {
+    const MESSAGE = "Checking the Claude Code plugin install…";
+    const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    const deferred = <T,>() => {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+
+    it("hides the cursor and writes the message with the first spinner frame", async () => {
+      fakeTerminal();
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      expect(rawModeCalls).toEqual([true]);
+      expect(written).toContain("\x1b[?25l");
+      expect(written).toContain(`\r\x1b[K⠋ ${MESSAGE}`);
+      work.resolve("done");
+      await result;
+    });
+
+    it("advances the spinner frame every 80 ms and wraps after the last frame", async () => {
+      fakeTerminal();
+      vi.useFakeTimers();
+      try {
+        const work = deferred<string>();
+        const result = withLoading(MESSAGE, () => work.promise);
+        for (let i = 1; i <= 10; i++) {
+          vi.advanceTimersByTime(80);
+          expect(written.at(-1)).toBe(`\r\x1b[K${FRAMES[i % 10]} ${MESSAGE}`);
+        }
+        work.resolve("done");
+        await result;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("discards a non-abort key without output or effect and keeps waiting", async () => {
+      fakeTerminal();
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      const writesBefore = written.length;
+      press("down");
+      press("return");
+      press("space");
+      expect(written.length).toBe(writesBefore);
+      expect(rawModeCalls).toEqual([true]);
+      work.resolve("done");
+      await expect(result).resolves.toBe("done");
+    });
+
+    it("resolves with the value of the work and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const work = deferred<number>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      work.resolve(42);
+      await expect(result).resolves.toBe(42);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+    });
+
+    it("rejects with the same error the work rejects with and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const failure = new Error("claude exploded");
+      const result = withLoading(MESSAGE, () => Promise.reject(failure));
+      await expect(result).rejects.toBe(failure);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+    });
+
+    it("rejects with the same error when the work throws synchronously and restores the terminal", async () => {
+      fakeTerminal();
+      vi.useFakeTimers();
+      try {
+        const before = { key: keypressListeners(), end: endListeners() };
+        const failure = new Error("work threw before returning a promise");
+        const result = withLoading(MESSAGE, () => {
+          throw failure;
+        });
+        await expect(result).rejects.toBe(failure);
+        expect(rawModeCalls.at(-1)).toBe(false);
+        expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+        expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops the spinner timer once the work settles", async () => {
+      fakeTerminal();
+      vi.useFakeTimers();
+      try {
+        const work = deferred<string>();
+        const result = withLoading(MESSAGE, () => work.promise);
+        work.resolve("done");
+        await result;
+        const writesAfter = written.length;
+        vi.advanceTimersByTime(1000);
+        expect(written.length).toBe(writesAfter);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("rejects with PromptAbort on ctrl+c and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      press("c", true);
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+      work.resolve("late");
+    });
+
+    it("rejects with PromptAbort on ctrl+d", async () => {
+      fakeTerminal();
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      press("d", true);
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(rawModeCalls).toEqual([true, false]);
+      work.resolve("late");
+    });
+
+    it("hands the work a signal that aborts on ctrl+c", async () => {
+      fakeTerminal();
+      let seen: AbortSignal | undefined;
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, (signal) => {
+        seen = signal;
+        return work.promise;
+      });
+      expect(seen?.aborted).toBe(false);
+      press("c", true);
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(seen?.aborted).toBe(true);
+      work.resolve("late");
+    });
+
+    it("still aborts the work's signal on ctrl+c when restoring the terminal throws", async () => {
+      fakeTerminal();
+      const restoreFailure = new Error("setRawMode(false) failed");
+      Object.defineProperty(stdin, "setRawMode", {
+        value: (mode: boolean) => {
+          rawModeCalls.push(mode);
+          if (!mode) throw restoreFailure;
+          return stdin;
+        },
+        configurable: true,
+        writable: true,
+      });
+      let seen: AbortSignal | undefined;
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, (signal) => {
+        seen = signal;
+        return work.promise;
+      });
+      press("c", true);
+      await expect(result).rejects.toBeDefined();
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(seen?.aborted).toBe(true);
+      work.resolve("late");
+    });
+
+    it("aborts the work's signal when the input stream ends", async () => {
+      fakeTerminal();
+      let seen: AbortSignal | undefined;
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, (signal) => {
+        seen = signal;
+        return work.promise;
+      });
+      stdin.emit("end");
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(seen?.aborted).toBe(true);
+      work.resolve("late");
+    });
+
+    it("leaves the work's signal unaborted when the work resolves", async () => {
+      fakeTerminal();
+      let seen: AbortSignal | undefined;
+      await withLoading(MESSAGE, async (signal) => {
+        seen = signal;
+        return "ok";
+      });
+      expect(seen?.aborted).toBe(false);
+    });
+
+    it("cuts the spinner line to one column less than the terminal width", async () => {
+      fakeTerminal();
+      stubColumns(20);
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      const frame = written.find((w) => w.startsWith("\r\x1b[K⠋"));
+      expect(frame).toBe(`\r\x1b[K${[...`⠋ ${MESSAGE}`].slice(0, 19).join("")}`);
+      work.resolve("done");
+      await result;
+    });
+
+    it("rejects with PromptAbort when the input stream ends and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      stdin.emit("end");
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.at(-1)).toBe("\x1b[?25h");
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+      work.resolve("late");
+    });
+
+    it("ignores a later rejection of the work after an abort", async () => {
+      fakeTerminal();
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        const work = deferred<string>();
+        const result = withLoading(MESSAGE, () => work.promise);
+        press("c", true);
+        await expect(result).rejects.toBeInstanceOf(PromptAbort);
+        work.reject(new Error("late failure"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(unhandled).toEqual([]);
+        expect(rawModeCalls).toEqual([true, false]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
+    });
   });
 });

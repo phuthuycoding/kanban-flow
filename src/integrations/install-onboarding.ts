@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { CmdResult } from "../cli/result.js";
 import { readProjectConfig } from "../project/config.js";
 import { resolveWorkspaceFolder } from "../project/config-layers.js";
-import { PromptAbort, selectChoice, selectMany, type Choice } from "../project/prompts.js";
+import { PromptAbort, selectChoice, selectMany, withLoading, type Choice } from "../project/prompts.js";
 import { findWorksRoot } from "../workflow/features.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "./agents.js";
 import { ClaudePluginError, claudeRunner, pluginState } from "./claude-plugin.js";
@@ -16,6 +16,7 @@ export type Prompter = {
   select(question: string, choices: readonly Choice[], initial: number): Promise<number>;
   many(question: string, options: readonly string[], initial: ReadonlySet<number>, emptyHint: string): Promise<number[]>;
   print(line: string): void;
+  loading<T>(message: string, work: (signal: AbortSignal) => Promise<T>): Promise<T>;
 };
 
 export type Ctx = {
@@ -23,8 +24,8 @@ export type Ctx = {
   projectRoot: string | null;
   configuredScope: "global" | "project";
   workspace: { folder: string; create: boolean } | { unavailable: string };
-  /** Asks claude, so it is called only once the workspace scope is chosen. */
-  hasUserPlugin: () => Promise<boolean>;
+  /** Asks claude, so it is called only once the workspace scope is chosen; an aborted signal stops the claude call. */
+  hasUserPlugin: (signal?: AbortSignal) => Promise<boolean>;
   /** The existing .works/ and .kf/ cmdUninstall would purge: under projectRoot, else under cwd. */
   purgeTargets: string[];
 };
@@ -96,9 +97,9 @@ function where(scope: InstallTarget, ctx: Ctx): string {
 }
 
 /** The user-scope probe; undefined when claude is missing or answered badly, any other failure propagates. */
-async function probeUserPlugin(ctx: Ctx): Promise<boolean | undefined> {
+async function probeUserPlugin(ctx: Ctx, signal: AbortSignal): Promise<boolean | undefined> {
   try {
-    return await ctx.hasUserPlugin();
+    return await ctx.hasUserPlugin(signal);
   } catch (err) {
     if (err instanceof ClaudePluginError) return undefined;
     if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -124,7 +125,7 @@ export async function planInstall(given: Given, ctx: Ctx, p: Prompter): Promise<
   const agents = given.agents ?? (await askAgents(p, steps.next()));
   const scope = given.scope ?? (await askScope(p, steps.next(), agents, ctx, true));
   const ws = ctx.workspace;
-  const userPlugin = scope === "workspace" && "folder" in ws && agents.every((a) => a === "claude") ? await probeUserPlugin(ctx) : false;
+  const userPlugin = scope === "workspace" && "folder" in ws && agents.every((a) => a === "claude") ? await p.loading("Checking the Claude Code plugin install…", (signal) => probeUserPlugin(ctx, signal)) : false;
   let removeUserPlugin = userPlugin === undefined ? undefined : false;
   // "folder" in ws again only narrows the type for the question text.
   if (userPlugin === true && "folder" in ws) {
@@ -172,7 +173,7 @@ function contextFor(cwd: string): Ctx {
     projectRoot,
     configuredScope: (projectRoot ? readProjectConfig(projectRoot).skills?.scope : undefined) ?? "global",
     workspace: resolveWorkspaceFolder(cwd, projectRoot),
-    hasUserPlugin: async () => (await pluginState(claudeRunner(cwd), "global")).status !== "missing",
+    hasUserPlugin: async (signal) => (await pluginState(claudeRunner(cwd, undefined, signal), "global")).status !== "missing",
     purgeTargets: PURGE_DIRS.map((d) => join(projectRoot ?? cwd, d)).filter((d) => existsSync(d)),
   };
 }
@@ -183,6 +184,7 @@ const terminalPrompter: Prompter = {
   print: (line) => {
     process.stdout.write(`${line}\n`);
   },
+  loading: withLoading,
 };
 
 const NOTHING_CHANGED: CmdResult = { code: 0, stdout: "Nothing changed." };
