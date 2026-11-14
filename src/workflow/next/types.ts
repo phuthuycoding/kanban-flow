@@ -74,7 +74,7 @@ export interface NextResult {
 // Ledger state (filled by TASK-002 `readLedgerState`)
 // ---------------------------------------------------------------------------
 
-interface EventBase {
+export interface EventBase {
   /** 1-based line number in the ledger file. */
   line: number;
   /** Epoch ms of the line's ` @ <ts>` suffix. */

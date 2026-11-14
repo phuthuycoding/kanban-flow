@@ -32,7 +32,11 @@
     "kf": "dist/index.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./lib": {
+      "types": "./dist/lib.d.ts",
+      "default": "./dist/lib.js"
+    }
   },
   "files": [
     "dist",

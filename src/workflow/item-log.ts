@@ -63,6 +63,8 @@ const SHARED_KEYS = Object.keys({
   executionId: true, status: true, cancellation: true, bypasses: true, verifyWaiver: true, ship: true, id: true,
 } satisfies Record<keyof SharedMeta, true>);
 const SHARED_KEY_SET: ReadonlySet<string> = new Set(SHARED_KEYS);
+/** The string keys every SharedMeta holds, in the order the fold checks them. */
+const REQUIRED_KEYS = ["schema", "feature", "context", "created"] as const satisfies ReadonlyArray<keyof SharedMeta>;
 
 export function itemLogPath(dir: string): string {
   return join(dir, ITEM_LOG_FILE);
@@ -144,11 +146,13 @@ function recordProblem(value: unknown): string | null {
 /**
  * Fold a log into the stage and shared metadata it describes. One unreadable line refuses the whole
  * log: a state rebuilt around a gap would be presented as the item's history.
+ * A log that never sets schema, feature, context and created as strings is refused too.
  */
 export function foldItemLog(text: string): FoldResult {
   let stage: Stage | null = null;
   const meta: Record<string, unknown> = {};
   let records = 0;
+  let lastLine = 0;
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i += 1) {
     if (lines[i].trim() === "") continue;
@@ -168,8 +172,13 @@ export function foldItemLog(text: string): FoldResult {
     for (const [key, value] of Object.entries(record.set ?? {})) if (SHARED_KEY_SET.has(key)) meta[key] = value;
     for (const key of record.unset ?? []) if (SHARED_KEY_SET.has(key)) delete meta[key];
     records += 1;
+    lastLine = i + 1;
   }
-  return { ok: true, state: stage === null ? null : { stage, meta: meta as unknown as SharedMeta }, records };
+  if (stage === null) return { ok: true, state: null, records };
+  // The keys SharedMeta requires: a log that never sets one folds to no item a reader can use (#184).
+  const missing = REQUIRED_KEYS.find((key) => typeof meta[key] !== "string");
+  if (missing) return { ok: false, line: lastLine, reason: `the log never sets ${missing}` };
+  return { ok: true, state: { stage, meta: meta as unknown as SharedMeta }, records };
 }
 
 /** The fold of the item's log; an item with no log file has no state. */
