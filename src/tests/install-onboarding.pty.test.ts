@@ -102,7 +102,7 @@ async function writeHangingStub(): Promise<void> {
   const script = [
     "#!/bin/sh",
     'echo "$*" >> "$KF_STUB_LOG"',
-    'if [ "$1 $2" = "plugin list" ]; then echo $$ > "$KF_STUB_LOG.pid"; exec sleep 60; fi',
+    'if [ "$1 $2" = "plugin list" ]; then echo $$ > "$KF_STUB_LOG.pid"; sleep 60; fi',
     "exit 0",
     "",
   ].join("\n");
