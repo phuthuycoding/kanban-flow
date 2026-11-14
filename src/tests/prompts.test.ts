@@ -7,6 +7,7 @@ import {
   selectMany,
   selectReducer,
   terminalRows,
+  withLoading,
   type Choice,
   type ManyState,
   type SelectState,
@@ -367,5 +368,155 @@ describe("interactive prompts on the terminal", () => {
     expect(written.join("")).toContain("\x1b[4A\x1b[J");
     press("return");
     await expect(answer).resolves.toBe(1);
+  });
+
+  describe("withLoading", () => {
+    const MESSAGE = "Checking the Claude Code plugin install…";
+    const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    const deferred = <T,>() => {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+
+    it("hides the cursor and writes the message with the first spinner frame", async () => {
+      fakeTerminal();
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      expect(rawModeCalls).toEqual([true]);
+      expect(written).toContain("\x1b[?25l");
+      expect(written).toContain(`\r\x1b[K⠋ ${MESSAGE}`);
+      work.resolve("done");
+      await result;
+    });
+
+    it("advances the spinner frame every 80 ms and wraps after the last frame", async () => {
+      fakeTerminal();
+      vi.useFakeTimers();
+      try {
+        const work = deferred<string>();
+        const result = withLoading(MESSAGE, () => work.promise);
+        for (let i = 1; i <= 10; i++) {
+          vi.advanceTimersByTime(80);
+          expect(written.at(-1)).toBe(`\r\x1b[K${FRAMES[i % 10]} ${MESSAGE}`);
+        }
+        work.resolve("done");
+        await result;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("discards a non-abort key without output or effect and keeps waiting", async () => {
+      fakeTerminal();
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      const writesBefore = written.length;
+      press("down");
+      press("return");
+      press("space");
+      expect(written.length).toBe(writesBefore);
+      expect(rawModeCalls).toEqual([true]);
+      work.resolve("done");
+      await expect(result).resolves.toBe("done");
+    });
+
+    it("resolves with the value of the work and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const work = deferred<number>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      work.resolve(42);
+      await expect(result).resolves.toBe(42);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+    });
+
+    it("rejects with the same error the work rejects with and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const failure = new Error("claude exploded");
+      const result = withLoading(MESSAGE, () => Promise.reject(failure));
+      await expect(result).rejects.toBe(failure);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+    });
+
+    it("stops the spinner timer once the work settles", async () => {
+      fakeTerminal();
+      vi.useFakeTimers();
+      try {
+        const work = deferred<string>();
+        const result = withLoading(MESSAGE, () => work.promise);
+        work.resolve("done");
+        await result;
+        const writesAfter = written.length;
+        vi.advanceTimersByTime(1000);
+        expect(written.length).toBe(writesAfter);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("rejects with PromptAbort on ctrl+c and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      press("c", true);
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+      work.resolve("late");
+    });
+
+    it("rejects with PromptAbort on ctrl+d", async () => {
+      fakeTerminal();
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      press("d", true);
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(rawModeCalls).toEqual([true, false]);
+      work.resolve("late");
+    });
+
+    it("rejects with PromptAbort when the input stream ends and restores the terminal", async () => {
+      fakeTerminal();
+      const before = { key: keypressListeners(), end: endListeners() };
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      stdin.emit("end");
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(written.at(-1)).toBe("\x1b[?25h");
+      expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+      work.resolve("late");
+    });
+
+    it("ignores a later rejection of the work after an abort", async () => {
+      fakeTerminal();
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        const work = deferred<string>();
+        const result = withLoading(MESSAGE, () => work.promise);
+        press("c", true);
+        await expect(result).rejects.toBeInstanceOf(PromptAbort);
+        work.reject(new Error("late failure"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(unhandled).toEqual([]);
+        expect(rawModeCalls).toEqual([true, false]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
+    });
   });
 });

@@ -55,6 +55,7 @@ function classify(question: string, choices: readonly Choice[]): StepKind {
 function scripted(answers: Answers) {
   const calls: Call[] = [];
   const printed: string[] = [];
+  const loadingMessages: string[] = [];
   const prompter: Prompter = {
     async select(question, choices, initial) {
       const kind = classify(question, choices);
@@ -77,8 +78,12 @@ function scripted(answers: Answers) {
     print(line) {
       printed.push(line);
     },
+    loading(message, work) {
+      loadingMessages.push(message);
+      return work();
+    },
   };
-  return { prompter, calls, printed };
+  return { prompter, calls, printed, loadingMessages };
 }
 
 const refusingPrompter = (): Prompter => ({
@@ -89,6 +94,7 @@ const refusingPrompter = (): Prompter => ({
     throw new Error(`no question expected, got many: ${question}`);
   },
   print() {},
+  loading: (_message, work) => work(),
 });
 
 const ctxOf = (over: Partial<Ctx> = {}): Ctx => ({
@@ -339,6 +345,95 @@ describe("planInstall user-scope plugin removal", () => {
         prompter,
       ),
     ).rejects.toBe(bug);
+  });
+});
+
+describe("planInstall loading prompt around the user-scope probe", () => {
+  const LOADING = "Checking the Claude Code plugin install…";
+  const wsCtx = (over: Partial<Ctx> = {}) =>
+    ctxOf({ workspace: { folder: "/tmp/kf-onboarding-ws", create: false }, hasUserPlugin: async () => true, ...over });
+
+  it("shows the loading message once while the probe runs for workspace scope with claude only", async () => {
+    const { prompter, loadingMessages } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", removeUser: "No", confirm: "Install" });
+    await planInstall({}, wsCtx(), prompter);
+
+    expect(loadingMessages).toEqual([LOADING]);
+  });
+
+  it("runs the probe inside the loading work, not before it", async () => {
+    const { prompter } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", removeUser: "No", confirm: "Install" });
+    const events: string[] = [];
+    const original = prompter.loading.bind(prompter);
+    prompter.loading = (message, work) => {
+      events.push("loading start");
+      return original(message, work);
+    };
+    await planInstall(
+      {},
+      wsCtx({
+        hasUserPlugin: async () => {
+          events.push("probe");
+          return true;
+        },
+      }),
+      prompter,
+    );
+
+    expect(events).toEqual(["loading start", "probe"]);
+  });
+
+  it.each(["global", "project"])("does not show the loading message for scope %s", async (scope) => {
+    const { prompter, loadingMessages } = scripted({ mode: "Customize", agents: ["claude"], scope, confirm: "Install" });
+    await planInstall({}, wsCtx({ projectRoot: "/tmp/kf-onboarding-project" }), prompter);
+
+    expect(loadingMessages).toEqual([]);
+  });
+
+  it("does not show the loading message when a non-claude agent is selected", async () => {
+    const { prompter, loadingMessages } = scripted({ mode: "Customize", agents: ["claude", "codex"], scope: "workspace", confirm: "Install" });
+    await planInstall({}, wsCtx(), prompter);
+
+    expect(loadingMessages).toEqual([]);
+  });
+
+  it("still asks the removal question when the probe finds the plugin", async () => {
+    const { prompter, calls } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", removeUser: "Yes", confirm: "Install" });
+    const plan = await planInstall({}, wsCtx(), prompter);
+
+    expect(kinds(calls)).toEqual(["mode", "agents", "scope", "removeUser", "confirm"]);
+    expect(plan).toEqual({ agents: ["claude"], scope: "workspace", removeUserPlugin: true });
+  });
+
+  it("skips the removal question when the probe finds no plugin", async () => {
+    const { prompter, calls } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", confirm: "Install" });
+    await planInstall({}, wsCtx({ hasUserPlugin: async () => false }), prompter);
+
+    expect(kinds(calls)).toEqual(["mode", "agents", "scope", "confirm"]);
+  });
+
+  it("leaves removeUserPlugin unset when the probe fails with a ClaudePluginError", async () => {
+    const { prompter, calls, loadingMessages } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", confirm: "Install" });
+    const plan = await planInstall({}, wsCtx({ hasUserPlugin: () => Promise.reject(new ClaudePluginError("boom")) }), prompter);
+
+    expect(loadingMessages).toEqual([LOADING]);
+    expect(kinds(calls)).toEqual(["mode", "agents", "scope", "confirm"]);
+    expect(plan).toEqual({ agents: ["claude"], scope: "workspace", removeUserPlugin: undefined });
+  });
+
+  it("rejects with an unrelated probe error through the loading prompt", async () => {
+    const bug = new Error("unrelated probe bug");
+    const { prompter } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", confirm: "Install" });
+
+    await expect(planInstall({}, wsCtx({ hasUserPlugin: () => Promise.reject(bug) }), prompter)).rejects.toBe(bug);
+  });
+
+  it("propagates a PromptAbort from the loading prompt and asks nothing after it", async () => {
+    const { prompter, calls } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", removeUser: "Yes", confirm: "Install" });
+    const abort = new PromptAbort("Ctrl+C");
+    prompter.loading = () => Promise.reject(abort);
+
+    await expect(planInstall({}, wsCtx(), prompter)).rejects.toBe(abort);
+    expect(kinds(calls)).toEqual(["mode", "agents", "scope"]);
   });
 });
 
@@ -734,6 +829,9 @@ describe("runInstallCommand dispatch", () => {
           throw new PromptAbort("aborted");
         },
         print() {},
+        async loading() {
+          throw new PromptAbort("aborted");
+        },
       };
       const res = await runInstallCommand("install", {}, projDir(), true, { prompter: aborting, cmdInstall: d.cmdInstall, cmdUninstall: d.cmdUninstall });
 

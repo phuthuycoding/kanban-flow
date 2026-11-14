@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { CmdResult } from "../cli/result.js";
 import { readProjectConfig } from "../project/config.js";
 import { resolveWorkspaceFolder } from "../project/config-layers.js";
-import { PromptAbort, selectChoice, selectMany, type Choice } from "../project/prompts.js";
+import { PromptAbort, selectChoice, selectMany, withLoading, type Choice } from "../project/prompts.js";
 import { findWorksRoot } from "../workflow/features.js";
 import { AGENTS, DEFAULT_AGENT, parseAgentIds, type AgentId } from "./agents.js";
 import { ClaudePluginError, claudeRunner, pluginState } from "./claude-plugin.js";
@@ -16,6 +16,7 @@ export type Prompter = {
   select(question: string, choices: readonly Choice[], initial: number): Promise<number>;
   many(question: string, options: readonly string[], initial: ReadonlySet<number>, emptyHint: string): Promise<number[]>;
   print(line: string): void;
+  loading<T>(message: string, work: () => Promise<T>): Promise<T>;
 };
 
 export type Ctx = {
@@ -124,7 +125,7 @@ export async function planInstall(given: Given, ctx: Ctx, p: Prompter): Promise<
   const agents = given.agents ?? (await askAgents(p, steps.next()));
   const scope = given.scope ?? (await askScope(p, steps.next(), agents, ctx, true));
   const ws = ctx.workspace;
-  const userPlugin = scope === "workspace" && "folder" in ws && agents.every((a) => a === "claude") ? await probeUserPlugin(ctx) : false;
+  const userPlugin = scope === "workspace" && "folder" in ws && agents.every((a) => a === "claude") ? await p.loading("Checking the Claude Code plugin install…", () => probeUserPlugin(ctx)) : false;
   let removeUserPlugin = userPlugin === undefined ? undefined : false;
   // "folder" in ws again only narrows the type for the question text.
   if (userPlugin === true && "folder" in ws) {
@@ -183,6 +184,7 @@ const terminalPrompter: Prompter = {
   print: (line) => {
     process.stdout.write(`${line}\n`);
   },
+  loading: withLoading,
 };
 
 const NOTHING_CHANGED: CmdResult = { code: 0, stdout: "Nothing changed." };

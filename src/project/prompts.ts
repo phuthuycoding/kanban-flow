@@ -133,6 +133,69 @@ function runPrompt<S extends { done: boolean; abort: boolean }>(
   });
 }
 
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/** Shows a spinner while `work` runs; keys typed meanwhile are discarded, Ctrl+C / Ctrl+D / closed input abort. */
+export async function withLoading<T>(message: string, work: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolveP, reject) => {
+    let frame = 0;
+    let timer: NodeJS.Timeout | undefined;
+    let settled = false;
+    const cleanup = () => {
+      if (timer) clearInterval(timer);
+      try {
+        output.write("\r\x1b[K");
+        input.setRawMode(false);
+      } finally {
+        input.off("keypress", onKey);
+        input.off("end", onEnd);
+        input.pause();
+        output.write("\x1b[?25h");
+      }
+    };
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      try {
+        cleanup();
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      fn();
+    };
+    const onEnd = () => finish(() => reject(new PromptAbort("Input closed")));
+    const onKey = (_s: string, key: Key | undefined) => {
+      if (key && isAbortKey(key)) finish(() => reject(new PromptAbort("Ctrl+C")));
+    };
+    try {
+      emitKeypressEvents(input);
+      input.setRawMode(true);
+      input.resume();
+      input.on("keypress", onKey);
+      input.on("end", onEnd);
+      output.write("\x1b[?25l");
+      output.write(`\r\x1b[K${SPINNER_FRAMES[0]} ${message}`);
+      timer = setInterval(() => {
+        frame = (frame + 1) % SPINNER_FRAMES.length;
+        output.write(`\r\x1b[K${SPINNER_FRAMES[frame]} ${message}`);
+      }, 80);
+    } catch (err) {
+      settled = true;
+      try {
+        cleanup();
+      } finally {
+        reject(err);
+      }
+      return;
+    }
+    work().then(
+      (value) => finish(() => resolveP(value)),
+      (err) => finish(() => reject(err)),
+    );
+  });
+}
+
 /** Single select; unavailable rows are drawn dimmed with their reason and cannot be accepted. */
 export async function selectChoice(
   question: string,
