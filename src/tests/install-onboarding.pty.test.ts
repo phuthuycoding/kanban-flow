@@ -16,7 +16,8 @@ const CTRL_D = "\x04";
 
 /**
  * Drives the real CLI on a pty. Each step waits until the (ANSI-stripped) output since the previous
- * keys contains the given text and stays quiet for a moment, then sends the keys. After the last
+ * keys contains the given text and stays quiet for a moment, then sends the keys. A step whose text
+ * is `file:<path>` waits for that path to exist instead, for state the CLI never prints. After the last
  * step it waits for the exit. The parent keeps the slave side open so the terminal flags can be read
  * once the child is gone: a CLI that leaves raw mode on leaves echo off.
  */
@@ -25,33 +26,34 @@ const DRIVER = [
   "steps=json.loads(sys.argv[1]);argv=sys.argv[2:]",
   "m,s=pty.openpty()",
   "p=subprocess.Popen(argv,stdin=s,stdout=s,stderr=s)",
-  "buf=b'';mark=0;failed=''",
+  "buf=b'';mark=0;failed='';sent=time.time()",
   "def pump(t):",
   "  global buf",
   "  if select.select([m],[],[],t)[0]:",
   "    try: buf+=os.read(m,4096)",
   "    except OSError: pass",
   "def tail(): return re.sub(r'\\x1b\\[[0-9;?]*[A-Za-z]','',buf[mark:].decode('utf8','replace'))",
+  "def met(w): return os.path.exists(w[5:]) if w.startswith('file:') else w in tail()",
   "for want,keys in steps:",
   "  end=time.time()+10;seen=0",
-  "  while time.time()<end and want not in tail(): pump(0.1)",
-  "  if want not in tail(): failed='never saw: '+want;break",
+  "  while time.time()<end and not met(want): pump(0.1)",
+  "  if not met(want): failed='never saw: '+want;break",
   "  q=time.time()+0.4",
   "  while time.time()<q: pump(0.1)",
   "  mark=len(buf)",
-  "  os.write(m,keys.encode())",
+  "  os.write(m,keys.encode());sent=time.time()",
   "if failed: p.kill()",
   "end=time.time()+20",
   "while time.time()<end and p.poll() is None: pump(0.1)",
   "if p.poll() is None: p.kill();failed=failed or 'did not exit'",
-  "code=p.wait()",
+  "code=p.wait();after=time.time()-sent",
   "q=time.time()+0.3",
   "while time.time()<q: pump(0.1)",
   "echo=bool(termios.tcgetattr(s)[3]&termios.ECHO)",
-  "sys.stdout.write(json.dumps({'code':code,'echo':echo,'failed':failed,'out':re.sub(r'\\x1b\\[[0-9;?]*[A-Za-z]','',buf.decode('utf8','replace'))}))",
+  "sys.stdout.write(json.dumps({'code':code,'echo':echo,'failed':failed,'after':after,'out':re.sub(r'\\x1b\\[[0-9;?]*[A-Za-z]','',buf.decode('utf8','replace'))}))",
 ].join("\n");
 
-type Run = { code: number; echo: boolean; failed: string; out: string };
+type Run = { code: number; echo: boolean; failed: string; after: number; out: string };
 
 let dir: string;
 let bin: string;
@@ -82,6 +84,70 @@ async function writeStub(): Promise<void> {
   ].join("\n");
   await writeFile(join(bin, "claude"), script);
   await chmod(join(bin, "claude"), 0o755);
+}
+
+/** A `claude` whose plugin list reports a user-scope kf install after a one second probe. */
+async function writeUserScopeStub(): Promise<void> {
+  const script = [
+    "#!/bin/sh",
+    'echo "$*" >> "$KF_STUB_LOG"',
+    'if [ "$1 $2" = "plugin list" ]; then sleep 1; echo \'[{"id":"kf@kanban-flow","scope":"user","enabled":true}]\'; fi',
+    "exit 0",
+    "",
+  ].join("\n");
+  await writeFile(join(bin, "claude"), script);
+  await chmod(join(bin, "claude"), 0o755);
+}
+
+/**
+ * A `claude` whose plugin list never answers in time: like the real claude it starts a long child and
+ * waits on it. It records the child's pid, then its own; each file is renamed into place so it is
+ * complete as soon as it exists.
+ */
+async function writeHangingStub(): Promise<void> {
+  const script = [
+    "#!/bin/sh",
+    'echo "$*" >> "$KF_STUB_LOG"',
+    'if [ "$1 $2" = "plugin list" ]; then',
+    '  sleep 60 &',
+    '  echo $! > "$KF_STUB_LOG.child.tmp"; mv "$KF_STUB_LOG.child.tmp" "$KF_STUB_LOG.child"',
+    '  echo $$ > "$KF_STUB_LOG.pid.tmp"; mv "$KF_STUB_LOG.pid.tmp" "$KF_STUB_LOG.pid"',
+    "  wait",
+    "fi",
+    "exit 0",
+    "",
+  ].join("\n");
+  await writeFile(join(bin, "claude"), script);
+  await chmod(join(bin, "claude"), 0o755);
+}
+
+/** Only ESRCH means the process is gone; EPERM means it exists under another user, anything else is a real error. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw err;
+  }
+}
+
+/** A killed process lingers until it is reaped, so the check polls for a short while before calling it alive. */
+async function goneWithin(pid: number, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (alive(pid)) {
+    if (Date.now() >= end) return false;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return true;
+}
+
+async function readPid(path: string): Promise<number> {
+  const pid = Number((await readFile(path, "utf8")).trim());
+  expect(Number.isInteger(pid) && pid > 0, `${path} holds a pid`).toBe(true);
+  return pid;
 }
 
 const calls = async () => (existsSync(log) ? (await readFile(log, "utf8")).split("\n").filter(Boolean) : []);
@@ -117,6 +183,17 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Whatever the assertions said, no stub process may outlive the test.
+  for (const file of [`${log}.pid`, `${log}.child`]) {
+    if (!existsSync(file)) continue;
+    const pid = Number((await readFile(file, "utf8")).trim());
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+    }
+  }
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -174,4 +251,77 @@ describe.skipIf(process.platform === "win32")("kf install and kf uninstall onboa
     expect(existsSync(join(proj, ".kf"))).toBe(true);
     expect(await calls()).toEqual([]);
   }, 130_000);
+
+  describe("workspace scope with a user-scope install present", () => {
+    let ws: string;
+    beforeEach(async () => {
+      await writeUserScopeStub();
+      ws = join(dir, "ws");
+      await mkdir(ws);
+    });
+
+    it("ignores keys typed while the user-scope install is being checked, so the removal step stays on No", async () => {
+      const res = kfOnPty(ws, [
+        ["Setup mode", DOWN + ENTER],
+        ["Step 1/3", ENTER],
+        ["Step 2/3", DOWN + DOWN + ENTER],
+        ["Checking the Claude Code plugin install", DOWN],
+        ["Step 3/4", ENTER],
+        ["Step 4/4", DOWN + ENTER],
+      ], "install");
+      expect(res.failed, res.out).toBe("");
+      expect(res.code, res.out).toBe(0);
+      expect(res.out).toContain("Nothing changed.");
+      const summary = res.out.split("\n").find((l) => l.includes("Install claude at scope workspace"));
+      expect(summary, res.out).toBeDefined();
+      expect(summary).not.toContain("then remove the user-scope install");
+      const log = await calls();
+      expect(log.filter((c) => c.startsWith("plugin install") || c.startsWith("plugin uninstall"))).toEqual([]);
+      expect(existsSync(join(ws, ".kf", "workspace.json"))).toBe(false);
+      expect(res.echo, "terminal echo is back on").toBe(true);
+    }, 130_000);
+
+    it("offers the user-scope removal step after Enter on the unavailable project row shows its reason", async () => {
+      const res = kfOnPty(ws, [
+        ["Setup mode", DOWN + ENTER],
+        ["Step 1/3", ENTER],
+        ["Step 2/3", DOWN + ENTER],
+        ["project — this project only is unavailable: no .works/ — run kf init", DOWN + ENTER],
+        ["Step 3/4", DOWN + ENTER],
+        ["Step 4/4", DOWN + ENTER],
+      ], "install");
+      expect(res.failed, res.out).toBe("");
+      expect(res.out).toContain("kf is also installed for every project (user scope)");
+      const summary = res.out.split("\n").find((l) => l.includes("Install claude at scope workspace"));
+      expect(summary, res.out).toBeDefined();
+      expect(summary).toContain("then remove the user-scope install");
+      expect(res.code, res.out).toBe(0);
+      expect(res.out).toContain("Nothing changed.");
+      const log = await calls();
+      expect(log.filter((c) => c.startsWith("plugin install") || c.startsWith("plugin uninstall"))).toEqual([]);
+      expect(res.echo, "terminal echo is back on").toBe(true);
+    }, 130_000);
+
+    it("exits at once on Ctrl+C during a probe that hangs, and ends both claude and the process claude started", async () => {
+      await writeHangingStub();
+      const res = kfOnPty(ws, [
+        ["Setup mode", DOWN + ENTER],
+        ["Step 1/3", ENTER],
+        ["Step 2/3", DOWN + DOWN + ENTER],
+        ["Checking the Claude Code plugin install", ""],
+        // The key goes only once the stub has started its child, so the kill is always checked.
+        [`file:${log}.pid`, CTRL_C],
+      ], "install");
+      expect(res.failed, res.out).toBe("");
+      expect(res.code, res.out).toBe(1);
+      expect(res.out).toContain("Aborted — nothing changed.");
+      expect(res.after, "seconds from Ctrl+C to exit").toBeLessThan(2);
+      const claudePid = await readPid(`${log}.pid`);
+      const childPid = await readPid(`${log}.child`);
+      expect(await goneWithin(claudePid, 2_000), "the probe's claude process is gone").toBe(true);
+      expect(await goneWithin(childPid, 2_000), "the process claude started is gone").toBe(true);
+      expect(existsSync(join(ws, ".kf", "workspace.json"))).toBe(false);
+      expect(res.echo, "terminal echo is back on").toBe(true);
+    }, 130_000);
+  });
 });

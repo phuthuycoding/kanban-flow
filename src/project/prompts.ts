@@ -12,7 +12,7 @@ export class PromptAbort extends Error {
 }
 
 export type Choice = { label: string; unavailable?: string };
-export type SelectState = { cursor: number; done: boolean; abort: boolean };
+export type SelectState = { cursor: number; done: boolean; abort: boolean; hint?: string };
 export type ManyState = {
   cursor: number;
   selected: ReadonlySet<number>;
@@ -29,10 +29,16 @@ const isDigitRow = (key: Key, count: number): boolean =>
 export function selectReducer(state: SelectState, key: Key, choices: readonly Choice[]): SelectState {
   const n = choices.length;
   if (isAbortKey(key)) return { ...state, abort: true };
-  if (key.name === "up") return { ...state, cursor: (state.cursor - 1 + n) % n };
-  if (key.name === "down") return { ...state, cursor: (state.cursor + 1) % n };
-  if (isDigitRow(key, n)) return { ...state, cursor: Number(key.name) - 1 };
-  if (key.name === "return" && !choices[state.cursor]?.unavailable) return { ...state, done: true };
+  if (key.name === "up") return { ...state, cursor: (state.cursor - 1 + n) % n, hint: undefined };
+  if (key.name === "down") return { ...state, cursor: (state.cursor + 1) % n, hint: undefined };
+  if (isDigitRow(key, n)) return { ...state, cursor: Number(key.name) - 1, hint: undefined };
+  if (key.name === "return") {
+    const choice = choices[state.cursor];
+    if (choice?.unavailable) {
+      return { ...state, done: false, hint: `${choice.label} is unavailable: ${choice.unavailable}` };
+    }
+    return { ...state, done: true };
+  }
   return { ...state };
 }
 
@@ -54,6 +60,16 @@ export function manyReducer(state: ManyState, key: Key, count: number): ManyStat
   return { ...state, selected: new Set(state.selected) };
 }
 
+/** Terminal rows the lines occupy: ANSI escapes are stripped and long lines wrap at `columns`. */
+export function terminalRows(lines: readonly string[], columns: number | undefined): number {
+  const wraps = typeof columns === "number" && columns > 0;
+  return lines.reduce((sum, line) => {
+    if (!wraps) return sum + 1;
+    const width = [...line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")].length;
+    return sum + Math.max(1, Math.ceil(width / columns));
+  }, 0);
+}
+
 /**
  * Drives a raw-mode keypress loop: `step` folds each key into the state, `render` returns the
  * lines to draw. Raw mode, the listeners and the cursor are restored on every exit path.
@@ -70,7 +86,7 @@ function runPrompt<S extends { done: boolean; abort: boolean }>(
       if (drawn > 0) output.write(`\x1b[${drawn}A\x1b[J`);
       const lines = render(state);
       output.write(`${lines.join("\n")}\n`);
-      drawn = lines.length;
+      drawn = terminalRows(lines, output.columns);
     };
     const cleanup = () => {
       try {
@@ -117,6 +133,92 @@ function runPrompt<S extends { done: boolean; abort: boolean }>(
   });
 }
 
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/**
+ * Shows a spinner while `work` runs; keys typed meanwhile are discarded, Ctrl+C / Ctrl+D / closed input abort.
+ * An abort also aborts the signal handed to `work`, so it can stop what keeps the process alive (a child process).
+ */
+export async function withLoading<T>(message: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  return new Promise<T>((resolveP, reject) => {
+    let frame = 0;
+    let timer: NodeJS.Timeout | undefined;
+    let settled = false;
+    const cleanup = () => {
+      if (timer) clearInterval(timer);
+      try {
+        output.write("\r\x1b[K");
+        input.setRawMode(false);
+      } finally {
+        input.off("keypress", onKey);
+        input.off("end", onEnd);
+        input.pause();
+        output.write("\x1b[?25h");
+      }
+    };
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      try {
+        cleanup();
+      } catch (err) {
+        reject(err);
+        return;
+      }
+      fn();
+    };
+    // The signal is aborted before cleanup, so a terminal restore that throws cannot leave the work running.
+    const abort = (reason: string) => {
+      if (settled) return;
+      controller.abort();
+      finish(() => reject(new PromptAbort(reason)));
+    };
+    const onEnd = () => abort("Input closed");
+    const onKey = (_s: string, key: Key | undefined) => {
+      if (key && isAbortKey(key)) abort("Ctrl+C");
+    };
+    // A wrapped spinner line could not be cleared with \r, so it is cut to the terminal width.
+    const line = (i: number) => {
+      const text = `${SPINNER_FRAMES[i]} ${message}`;
+      const columns = output.columns;
+      return columns > 1 ? [...text].slice(0, columns - 1).join("") : text;
+    };
+    try {
+      emitKeypressEvents(input);
+      input.setRawMode(true);
+      input.resume();
+      input.on("keypress", onKey);
+      input.on("end", onEnd);
+      output.write("\x1b[?25l");
+      output.write(`\r\x1b[K${line(0)}`);
+      timer = setInterval(() => {
+        frame = (frame + 1) % SPINNER_FRAMES.length;
+        output.write(`\r\x1b[K${line(frame)}`);
+      }, 80);
+    } catch (err) {
+      settled = true;
+      try {
+        cleanup();
+      } finally {
+        reject(err);
+      }
+      return;
+    }
+    let running: Promise<T>;
+    try {
+      running = work(controller.signal);
+    } catch (err) {
+      finish(() => reject(err));
+      return;
+    }
+    running.then(
+      (value) => finish(() => resolveP(value)),
+      (err) => finish(() => reject(err)),
+    );
+  });
+}
+
 /** Single select; unavailable rows are drawn dimmed with their reason and cannot be accepted. */
 export async function selectChoice(
   question: string,
@@ -132,6 +234,7 @@ export async function selectChoice(
         const text = c.unavailable ? `\x1b[2m${c.label} (${c.unavailable})\x1b[0m` : c.label;
         return ` ${i === s.cursor ? "❯" : " "} ${text}`;
       }),
+      ...(s.hint ? [`\x1b[33m${s.hint}\x1b[0m`] : []),
     ],
   );
   return final.cursor;
