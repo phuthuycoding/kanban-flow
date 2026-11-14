@@ -15,7 +15,8 @@ import type { Feature } from "./features.js";
 import { executionContractHash, findWorksRoot } from "./features.js";
 import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { validateFeature } from "./validate.js";
-import { ESTIMATE_CODES } from "./validate-estimate.js";
+import { ESTIMATE_CODES, estimateHistoryNotice } from "./validate-estimate.js";
+import { estimateFile } from "./estimate-contract.js";
 import type { Finding } from "./findings.js";
 import { evaluateStageEvidence, type StageEvidence } from "./stage-evidence.js";
 
@@ -50,8 +51,8 @@ export interface FeatureStatus {
    * Same list the text and `--json` renderings use, so the two cannot drift apart.
    */
   blockers: Finding[];
-  /** Advice that never blocks: the estimate findings of the validator (missing, should split, history unreadable). */
-  notices: Finding[];
+  /** Advice that never blocks: the estimate findings of the validator, and a history read with factor 1. */
+  notices: Array<{ code: string; file: string; message: string }>;
   taskProgress: { done: number; total: number };
   /** Why a review PASS item did not close on this run; set by the command that attempted it. */
   close?: CloseState;
@@ -158,7 +159,11 @@ export function computeStatus(feature: Feature, root?: string): FeatureStatus {
   // every correctly-prepared item sitting in planning, which is exactly where the signal matters.
   const issues = validateFeature(feature, false, true).issues;
   const blockers = issues.filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
-  const notices = issues.filter((i) => ESTIMATE_CODES.has(i.code));
+  const history = estimateHistoryNotice(feature);
+  const notices = [
+    ...issues.filter((i) => ESTIMATE_CODES.has(i.code)).map(({ code, file, message }) => ({ code, file, message })),
+    ...(history === null ? [] : [{ code: "estimate_history", file: estimateFile(feature), message: history }]),
+  ];
 
   let stageVerify: StageEvidence | null = null;
   let stageVerifyError: string | undefined;
@@ -357,7 +362,7 @@ export function statusToJson(s: FeatureStatus) {
     totalCount: s.totalCount,
     next: s.next,
     blockers: s.blockers,
-    notices: s.notices.map((n) => ({ code: n.code, file: n.file, message: n.message })),
+    notices: s.notices,
     tasks: s.taskProgress,
     stageVerify: s.stageVerify
       ? {

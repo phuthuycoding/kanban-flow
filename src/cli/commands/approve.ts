@@ -42,9 +42,12 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const to = args.options.backlog ? "backlog" : "implementation";
   const previous = { approval: f.meta.approval, executionId: f.meta.executionId, estimate: f.meta.estimate };
   const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash, livingDocs: true as const };
-  const estimate = contractEstimate(root.root, f, approval.at);
-  // The estimate findings of the check above: they never refuse the approval, but the approver is told.
-  const notices = check.issues.filter((i) => ESTIMATE_CODES.has(i.code)).map((i) => `⚠ ${i.file}: ${i.message} (${i.code})`);
+  const { estimate, historyProblem } = contractEstimate(root.root, f, approval.at);
+  // The estimate findings of the check above and a history read with factor 1: they never refuse the approval, but the approver is told.
+  const notices = [
+    ...check.issues.filter((i) => ESTIMATE_CODES.has(i.code)).map((i) => `⚠ ${i.file}: ${i.message} (${i.code})`),
+    ...(historyProblem === null ? [] : [`⚠ ${historyProblem}`]),
+  ];
   await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined, estimate }), {}, "approved");
   const outcome = await transitionItem(root.root, f.name, to, { cwd });
   if (outcome.kind !== "moved") {
@@ -111,10 +114,10 @@ function failureDetail(outcome: Exclude<TransitionOutcome, { kind: "moved" } | {
   return `Hook '${to}' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\n\n${hook.output}`;
 }
 
-/** The estimate to record with the approval: the contract's, sized with the learned factor, or none and why. */
-function contractEstimate(root: string, f: Feature, at: string): ItemEstimate {
+/** The estimate to record with the approval: the contract's, sized with the learned factor, or none and why; and why factor 1 was used. */
+function contractEstimate(root: string, f: Feature, at: string): { estimate: ItemEstimate; historyProblem: string | null } {
   const contract = readContractEstimate(f);
-  if ("problem" in contract) return { none: true, reason: contract.problem, at };
-  const { minutes, files, filesMark, size, factor } = sizeContractEstimate(root, f, contract);
-  return { minutes, files, filesMark, size, factor, at };
+  if ("problem" in contract) return { estimate: { none: true, reason: contract.problem, at }, historyProblem: null };
+  const { minutes, files, filesMark, size, factor, historyProblem } = sizeContractEstimate(root, f, contract);
+  return { estimate: { minutes, files, filesMark, size, factor, at }, historyProblem };
 }

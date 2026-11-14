@@ -3,7 +3,7 @@ import { finding, type Finding } from "./findings.js";
 import { estimateFile, readContractEstimate, sizeContractEstimate, type SizedContractEstimate } from "./estimate-contract.js";
 
 /** The codes of the estimate findings: notices, never blockers. */
-export const ESTIMATE_CODES: ReadonlySet<string> = new Set(["estimate_missing", "estimate_should_split", "estimate_history"]);
+export const ESTIMATE_CODES: ReadonlySet<string> = new Set(["estimate_missing", "estimate_should_split"]);
 
 function filesText(e: SizedContractEstimate): string {
   if (e.files === null) return "unknown files";
@@ -15,8 +15,9 @@ function minutesText(e: SizedContractEstimate): string {
 }
 
 /**
- * WARNINGs about the contract estimate while the item is in planning: missing or unusable, sizing XL (should split),
- * or a history that could not be read (factor 1 used). After planning the estimate is recorded and nothing is raised.
+ * WARNINGs about the contract estimate while the item is in planning: missing or unusable, or sizing XL (should split).
+ * After planning the estimate is recorded and nothing is raised. A history that cannot be read is project state, not
+ * the item's contract, so it is no finding here: see estimateHistoryNotice.
  */
 export function checkEstimate(feature: Feature): Finding[] {
   if (feature.stage !== "planning" || !feature.meta) return [];
@@ -24,11 +25,14 @@ export function checkEstimate(feature: Feature): Finding[] {
   const contract = readContractEstimate(feature);
   if ("problem" in contract) return [finding(feature, "WARNING", file, "estimate_missing", `no estimate: ${contract.problem}`)];
   const sized = sizeContractEstimate(findWorksRoot(feature.dir), feature, contract);
-  const issues: Finding[] = [];
-  if (sized.historyProblem !== null) issues.push(finding(feature, "WARNING", file, "estimate_history", sized.historyProblem));
-  if (sized.size === "XL") {
-    issues.push(finding(feature, "WARNING", file, "estimate_should_split",
-      `estimate ${minutesText(sized)}, ${filesText(sized)} sizes XL — should split`));
-  }
-  return issues;
+  if (sized.size !== "XL") return [];
+  return [finding(feature, "WARNING", file, "estimate_should_split", `estimate ${minutesText(sized)}, ${filesText(sized)} sizes XL — should split`)];
+}
+
+/** Why a planning item's estimate is sized with factor 1 because the history cannot be read; null when it can, or nothing is sized. */
+export function estimateHistoryNotice(feature: Feature): string | null {
+  if (feature.stage !== "planning" || !feature.meta) return null;
+  const contract = readContractEstimate(feature);
+  if ("problem" in contract) return null;
+  return sizeContractEstimate(findWorksRoot(feature.dir), feature, contract).historyProblem;
 }

@@ -226,11 +226,13 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.cancellation !== undefined && !isCancellation(meta.cancellation))
     || (meta.worktree !== undefined && !isWorktreeRegistration(meta.worktree))
     || (meta.verifyWaiver !== undefined && !isVerifyWaiver(meta.verifyWaiver))
-    || (meta.ship !== undefined && !isShipState(meta.ship))
-    || (meta.estimate !== undefined && !isItemEstimate(meta.estimate))
-    || (meta.filesChanged !== undefined && !isFilesChanged(meta.filesChanged))) {
+    || (meta.ship !== undefined && !isShipState(meta.ship))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
+  // A measurement this release cannot read (malformed, or written by a later one) is treated as absent: it must never
+  // make the item unreadable, because an unreadable item cannot close.
+  if (meta.estimate !== undefined && !isItemEstimate(meta.estimate)) delete meta.estimate;
+  if (meta.filesChanged !== undefined && !isFilesChanged(meta.filesChanged)) delete meta.filesChanged;
   assertPathName(meta.feature, "feature");
   assertPathName(meta.context, "context");
   return meta;
