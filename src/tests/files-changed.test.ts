@@ -347,4 +347,33 @@ describe("entering review after the worktree was removed", () => {
     expect(fc.count, fc.reason).toBe(3);
     expect(fc.reason).toBeUndefined();
   });
+
+  it("names the configured branch, not the legacy one, when neither branch exists", async () => {
+    addOrigin();
+    await configure(true);
+    // A prefix other than the legacy "kf/" makes the configured branch and the legacy branch two different refs.
+    const configFile = join(root, ".kf", "config.json");
+    const config = JSON.parse(readFileSync(configFile, "utf8")) as { worktree: Record<string, unknown> };
+    config.worktree.branchPrefix = "team/";
+    writeFileSync(configFile, JSON.stringify(config));
+    await implementationItem();
+    const wt = feature().meta!.worktree!; // configure(true) registers a worktree on approve
+    expect(wt.branch).toBe("team/demo");
+    const removed = await cmdWorktree(args("worktree", ["remove", "demo"]), root);
+    expect(removed.code, removed.stdout).toBe(0);
+    expect(feature().meta!.worktree).toBeUndefined();
+    // Neither the configured branch nor a legacy one exists, so the reason must point at the branch the user configured.
+    git(root, "branch", "-D", "team/demo");
+    expect(() => git(root, "rev-parse", "--verify", "kf/demo")).toThrow();
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count).toBeNull();
+    expect(fc.reason).toContain("team/demo");
+    expect(fc.reason).not.toContain("kf/demo");
+    expect(fc.reason).not.toContain(scratch);
+    expect(fc.reason).not.toMatch(/\/(home|tmp|var|root)\//);
+    expect(feature().stage).toBe("review");
+  });
 });
