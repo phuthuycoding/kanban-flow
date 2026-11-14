@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { ensureWorksStructure, findFeature, readFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
 import { changedFileCount } from "../shared/git.js";
+import type { FilesChanged } from "../workflow/features.js";
 import { itemLogPath, readItemLog } from "../workflow/item-log.js";
 import { REVIEW_DOCS_NONE, withDocsImpact } from "./helpers/contract.js";
 import { grantStageWaiver } from "./support/stage-waiver.js";
@@ -21,6 +22,7 @@ let root: string;
 const args = (command: string, positionals: string[] = [], options: Record<string, unknown> = {}): ParsedArgs => ({ command, positionals, options });
 const git = (dir: string, ...a: string[]) =>
   execFileSync("git", ["-C", dir, ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+// The item was just created by cmdNew, so a missing one is a test setup failure the next line would surface.
 const feature = (name = "demo") => findFeature(root, name)!;
 const snapshot = (): Record<string, unknown> => JSON.parse(readFileSync(join(feature().dir, ".kfw.json"), "utf8")) as Record<string, unknown>;
 const confirmed = "---\nstatus: confirmed\n---\n# Requirement\n## FR-001\nUser can create a task.\n## Affected surfaces\nN/A";
@@ -77,7 +79,7 @@ function commitFiles(wtPath: string, names: string[]): void {
   git(wtPath, "commit", "-qm", `add ${names.join(",")}`);
 }
 
-const filesChangedOf = (meta: Record<string, unknown>) => meta.filesChanged as { count: number | null; reason?: string; at: string };
+const filesChangedOf = (meta: Record<string, unknown>) => meta.filesChanged as FilesChanged; // the record is JSON read back from disk
 const stageRecords = (): Array<{ event: string; stage?: string; set?: Record<string, unknown> }> =>
   readFileSync(itemLogPath(feature().dir), "utf8").split("\n").filter(Boolean)
     .map((l) => JSON.parse(l) as { event: string; stage?: string; set?: Record<string, unknown> });
@@ -113,17 +115,17 @@ describe("changedFileCount", () => {
 
   it("returns null with a reason instead of throwing for a branch that does not exist", () => {
     const res = changedFileCount(root, "no-such-branch");
-    expect(res.count).toBeNull();
-    expect((res as { reason?: string }).reason).toEqual(expect.any(String));
-    expect((res as { reason?: string }).reason).not.toBe("");
+    if (res.count !== null) throw new Error(`expected no count, got ${res.count}`);
+    expect(res.reason).toEqual(expect.any(String));
+    expect(res.reason).not.toBe("");
   });
 
   it("returns null with a reason instead of throwing outside a git repository", async () => {
     const plain = join(scratch, "plain");
     await mkdir(plain, { recursive: true });
     const res = changedFileCount(plain, "work");
-    expect(res.count).toBeNull();
-    expect((res as { reason?: string }).reason).toBeTruthy();
+    if (res.count !== null) throw new Error(`expected no count, got ${res.count}`);
+    expect(res.reason).toBeTruthy();
   });
 });
 
@@ -131,7 +133,7 @@ describe("entering review", () => {
   it("records the count of files the worktree branch changed in the metadata and the stage record", async () => {
     await configure(true);
     await implementationItem();
-    const wt = feature().meta!.worktree!;
+    const wt = feature().meta!.worktree!; // configure(true) registers a worktree on approve
     commitFiles(wt.path, ["a.txt", "b.txt", "c.txt"]);
 
     await enterReview();
@@ -148,7 +150,7 @@ describe("entering review", () => {
   it("appends a new count on a second entry and the folded log gives the latest", async () => {
     await configure(true);
     await implementationItem();
-    const wt = feature().meta!.worktree!;
+    const wt = feature().meta!.worktree!; // configure(true) registers a worktree on approve
     commitFiles(wt.path, ["a.txt", "b.txt", "c.txt"]);
     await enterReview();
 
@@ -184,5 +186,91 @@ describe("entering review", () => {
     expect(feature().stage).toBe("review");
     const review = stageRecords().filter((r) => r.event === "stage" && r.stage === "review");
     expect(filesChangedOf(review[0].set ?? {}).count).toBeNull();
+  });
+});
+
+/** A bare origin with origin/HEAD set to its default branch, as a clone has it. */
+function addOrigin(): void {
+  const bare = join(scratch, "origin.git");
+  execFileSync("git", ["init", "-q", "--bare", bare], { stdio: "pipe" });
+  git(root, "branch", "-M", "main");
+  git(root, "remote", "add", "origin", bare);
+  git(root, "push", "-q", "origin", "main");
+  git(root, "fetch", "-q", "origin");
+  git(root, "remote", "set-head", "origin", "main");
+}
+
+describe("entering review without a worktree", () => {
+  it("counts the checkout branch against origin's default branch", async () => {
+    addOrigin();
+    await configure(false);
+    await implementationItem();
+    git(root, "checkout", "-q", "-b", "work");
+    commitFiles(root, ["a.txt", "b.txt", "c.txt", "d.txt"]);
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count).toBe(4);
+    expect(fc.reason).toBeUndefined();
+  });
+
+  it("records null with a reason and still moves on a detached HEAD", async () => {
+    addOrigin();
+    await configure(false);
+    await implementationItem();
+    git(root, "checkout", "-q", "--detach");
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count).toBeNull();
+    expect(fc.reason).toEqual(expect.any(String));
+    expect(fc.reason).not.toBe("");
+    expect(feature().stage).toBe("review");
+  });
+});
+
+describe("a git failure while counting", () => {
+  it("records a fixed reason with no path and still moves to review", async () => {
+    addOrigin();
+    await configure(true);
+    await implementationItem();
+    const wt = feature().meta!.worktree!; // configure(true) registers a worktree on approve
+    commitFiles(wt.path, ["a.txt"]);
+    // A symbolic ref aimed outside refs/ makes git fail on the origin/HEAD lookup rather than report it unset.
+    writeFileSync(join(root, ".git", "refs", "remotes", "origin", "HEAD"), "ref: /etc/passwd\n");
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count).toBeNull();
+    expect(fc.reason).toBe("git could not count the changed files");
+    expect(fc.reason).not.toContain(scratch);
+    expect(fc.reason).not.toContain(tmpdir());
+    expect(fc.reason).not.toMatch(/\/(home|tmp|var|root)\//);
+  });
+});
+
+describe("renames", () => {
+  function renameOnly(): void {
+    writeFileSync(join(root, "old.txt"), "some content that stays the same across the rename\n".repeat(5));
+    git(root, "add", "-A");
+    git(root, "commit", "-qm", "add old");
+    git(root, "checkout", "-q", "-b", "work");
+    git(root, "mv", "old.txt", "new.txt");
+    git(root, "commit", "-qm", "rename");
+    git(root, "checkout", "-q", "-");
+  }
+
+  it("counts a rename as its old and new path", () => {
+    renameOnly();
+    expect(changedFileCount(root, "work")).toEqual({ count: 2 });
+  });
+
+  it("counts the same when the machine's git config follows renames", () => {
+    renameOnly();
+    git(root, "config", "diff.renames", "true");
+    expect(changedFileCount(root, "work")).toEqual({ count: 2 });
   });
 });

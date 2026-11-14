@@ -504,18 +504,15 @@ export function branchPushed(dir: string, remote: string, branch: string): boole
 /** A count of changed files, or null with the reason it could not be made. The reason names no path or host. */
 export type ChangedFileCount = { count: number } | { count: null; reason: string };
 
-/** A git failure's message up to " in <dir>": the reason is recorded in the item, which names no machine-local path. */
-function withoutDir(message: string): string {
-  const at = message.indexOf(" in ");
-  return at === -1 ? message : message.slice(0, at);
-}
+const GIT_FAILED = "git could not count the changed files";
 
 function changedFiles(root: string, base: string, branch: string): ChangedFileCount {
   if (!branch || branch.startsWith("-")) return { count: null, reason: `branch name ${JSON.stringify(branch)} cannot be passed to git` };
   if (runGit(root, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]).code !== 0) {
     return { count: null, reason: `branch ${branch} does not exist` };
   }
-  const res = runGit(root, ["diff", "--name-only", `${base}...${branch}`, "--"]);
+  // --no-renames: every path the change touches counts (a rename counts 2), whatever diff.renames the machine sets.
+  const res = runGit(root, ["diff", "--name-only", "--no-renames", `${base}...${branch}`, "--"]);
   if (res.code !== 0) return { count: null, reason: `git diff --name-only ${base}...${branch} failed (exit ${res.code})` };
   return { count: res.stdout.split("\n").filter((l) => l.trim() !== "").length };
 }
@@ -529,7 +526,8 @@ export function changedFileCount(root: string, branch: string): ChangedFileCount
     if (runGit(root, ["rev-parse", "--git-dir"]).code !== 0) return { count: null, reason: "not a git repository" };
     return changedFiles(root, originDefaultRef(root) ?? "HEAD", branch);
   } catch (err) {
-    if (isGitFailure(err)) return { count: null, reason: withoutDir(err.message) };
+    // The message names the directory; the reason is recorded in the item, which names no machine-local path.
+    if (isGitFailure(err)) return { count: null, reason: GIT_FAILED };
     throw err;
   }
 }
@@ -547,7 +545,8 @@ export function checkoutChangedFileCount(root: string): ChangedFileCount {
     if (head.code !== 0) return { count: null, reason: "no worktree branch, and the checkout is not on a branch" };
     return changedFiles(root, base, head.stdout.trim());
   } catch (err) {
-    if (isGitFailure(err)) return { count: null, reason: withoutDir(err.message) };
+    // The message names the directory; the reason is recorded in the item, which names no machine-local path.
+    if (isGitFailure(err)) return { count: null, reason: GIT_FAILED };
     throw err;
   }
 }
