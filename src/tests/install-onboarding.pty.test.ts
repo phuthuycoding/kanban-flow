@@ -16,7 +16,8 @@ const CTRL_D = "\x04";
 
 /**
  * Drives the real CLI on a pty. Each step waits until the (ANSI-stripped) output since the previous
- * keys contains the given text and stays quiet for a moment, then sends the keys. After the last
+ * keys contains the given text and stays quiet for a moment, then sends the keys. A step whose text
+ * is `file:<path>` waits for that path to exist instead, for state the CLI never prints. After the last
  * step it waits for the exit. The parent keeps the slave side open so the terminal flags can be read
  * once the child is gone: a CLI that leaves raw mode on leaves echo off.
  */
@@ -32,10 +33,11 @@ const DRIVER = [
   "    try: buf+=os.read(m,4096)",
   "    except OSError: pass",
   "def tail(): return re.sub(r'\\x1b\\[[0-9;?]*[A-Za-z]','',buf[mark:].decode('utf8','replace'))",
+  "def met(w): return os.path.exists(w[5:]) if w.startswith('file:') else w in tail()",
   "for want,keys in steps:",
   "  end=time.time()+10;seen=0",
-  "  while time.time()<end and want not in tail(): pump(0.1)",
-  "  if want not in tail(): failed='never saw: '+want;break",
+  "  while time.time()<end and not met(want): pump(0.1)",
+  "  if not met(want): failed='never saw: '+want;break",
   "  q=time.time()+0.4",
   "  while time.time()<q: pump(0.1)",
   "  mark=len(buf)",
@@ -97,12 +99,21 @@ async function writeUserScopeStub(): Promise<void> {
   await chmod(join(bin, "claude"), 0o755);
 }
 
-/** A `claude` whose plugin list never answers in time: the probe hangs until it is killed. */
+/**
+ * A `claude` whose plugin list never answers in time: like the real claude it starts a long child and
+ * waits on it. It records the child's pid, then its own; each file is renamed into place so it is
+ * complete as soon as it exists.
+ */
 async function writeHangingStub(): Promise<void> {
   const script = [
     "#!/bin/sh",
     'echo "$*" >> "$KF_STUB_LOG"',
-    'if [ "$1 $2" = "plugin list" ]; then echo $$ > "$KF_STUB_LOG.pid"; sleep 60; fi',
+    'if [ "$1 $2" = "plugin list" ]; then',
+    '  sleep 60 &',
+    '  echo $! > "$KF_STUB_LOG.child.tmp"; mv "$KF_STUB_LOG.child.tmp" "$KF_STUB_LOG.child"',
+    '  echo $$ > "$KF_STUB_LOG.pid.tmp"; mv "$KF_STUB_LOG.pid.tmp" "$KF_STUB_LOG.pid"',
+    "  wait",
+    "fi",
     "exit 0",
     "",
   ].join("\n");
@@ -110,13 +121,33 @@ async function writeHangingStub(): Promise<void> {
   await chmod(join(bin, "claude"), 0o755);
 }
 
+/** Only ESRCH means the process is gone; EPERM means it exists under another user, anything else is a real error. */
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw err;
   }
+}
+
+/** A killed process lingers until it is reaped, so the check polls for a short while before calling it alive. */
+async function goneWithin(pid: number, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (alive(pid)) {
+    if (Date.now() >= end) return false;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return true;
+}
+
+async function readPid(path: string): Promise<number> {
+  const pid = Number((await readFile(path, "utf8")).trim());
+  expect(Number.isInteger(pid) && pid > 0, `${path} holds a pid`).toBe(true);
+  return pid;
 }
 
 const calls = async () => (existsSync(log) ? (await readFile(log, "utf8")).split("\n").filter(Boolean) : []);
@@ -152,6 +183,17 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Whatever the assertions said, no stub process may outlive the test.
+  for (const file of [`${log}.pid`, `${log}.child`]) {
+    if (!existsSync(file)) continue;
+    const pid = Number((await readFile(file, "utf8")).trim());
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ESRCH") throw err;
+    }
+  }
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -260,23 +302,24 @@ describe.skipIf(process.platform === "win32")("kf install and kf uninstall onboa
       expect(res.echo, "terminal echo is back on").toBe(true);
     }, 130_000);
 
-    it("exits at once on Ctrl+C during a probe that hangs, and kills the claude child", async () => {
+    it("exits at once on Ctrl+C during a probe that hangs, and ends both claude and the process claude started", async () => {
       await writeHangingStub();
       const res = kfOnPty(ws, [
         ["Setup mode", DOWN + ENTER],
         ["Step 1/3", ENTER],
         ["Step 2/3", DOWN + DOWN + ENTER],
-        ["Checking the Claude Code plugin install", CTRL_C],
+        ["Checking the Claude Code plugin install", ""],
+        // The key goes only once the stub has started its child, so the kill is always checked.
+        [`file:${log}.pid`, CTRL_C],
       ], "install");
       expect(res.failed, res.out).toBe("");
       expect(res.code, res.out).toBe(1);
       expect(res.out).toContain("Aborted — nothing changed.");
       expect(res.after, "seconds from Ctrl+C to exit").toBeLessThan(2);
-      // Under load the key can land before the stub has written its pid; killed that early, there is no process left to check.
-      if (existsSync(`${log}.pid`)) {
-        const pid = Number((await readFile(`${log}.pid`, "utf8")).trim());
-        expect(alive(pid), "the probe's claude process is gone").toBe(false);
-      }
+      const claudePid = await readPid(`${log}.pid`);
+      const childPid = await readPid(`${log}.child`);
+      expect(await goneWithin(claudePid, 2_000), "the probe's claude process is gone").toBe(true);
+      expect(await goneWithin(childPid, 2_000), "the process claude started is gone").toBe(true);
       expect(existsSync(join(ws, ".kf", "workspace.json"))).toBe(false);
       expect(res.echo, "terminal echo is back on").toBe(true);
     }, 130_000);
