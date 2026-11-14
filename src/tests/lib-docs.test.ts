@@ -215,6 +215,12 @@ describe("library stability document", () => {
     expect(what).not.toMatch(/machine-local\s+and\s+legacy\s+keys/);
   });
 
+  // Only the fold refuses a log missing a required key; sharedMeta copies what it is given, so a caller
+  // must not read the fold's refusal into it.
+  it("says in the sharedMeta row that it checks nothing", () => {
+    expect(rows.find((r) => r.name === "sharedMeta")?.what).toMatch(/checks\s+nothing/);
+  });
+
   // An invalid metadata file does not abort the scan; it surfaces on the item instead.
   it("names dir, context and metaError in the Feature row and says listFeatures lists an invalid metadata file with metaError, never thrown", () => {
     const feature = rows.find((r) => r.name === "Feature")?.what;
@@ -259,6 +265,15 @@ describe("library stability document", () => {
       const section = trustSection();
       expect(section).toMatch(/only\s+the\s+keys/);
       expect(section).toMatch(/not\s+the\s+values/);
+    });
+
+    // A stable ItemState.meta holds the four keys its type requires, so the fold bullet must say a log
+    // without them is refused rather than folded.
+    it("says in the fold bullet that the fold refuses a log that does not set created and the other required keys", () => {
+      const bullet = trustSection().split("\n").find((line) => line.startsWith("- ") && line.includes("`foldItemLog`"));
+      expect(bullet).toBeDefined();
+      expect(bullet).toMatch(/refuses\s+a\s+log/);
+      expect(bullet).toMatch(/\bcreated\b/);
     });
 
     it("names the TypeScript moduleResolution settings that resolve the exports map", () => {
