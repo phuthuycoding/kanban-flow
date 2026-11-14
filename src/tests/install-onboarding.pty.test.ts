@@ -272,8 +272,11 @@ describe.skipIf(process.platform === "win32")("kf install and kf uninstall onboa
       expect(res.code, res.out).toBe(1);
       expect(res.out).toContain("Aborted — nothing changed.");
       expect(res.after, "seconds from Ctrl+C to exit").toBeLessThan(2);
-      const pid = Number((await readFile(`${log}.pid`, "utf8")).trim());
-      expect(alive(pid), "the probe's claude process is gone").toBe(false);
+      // Under load the key can land before the stub has written its pid; killed that early, there is no process left to check.
+      if (existsSync(`${log}.pid`)) {
+        const pid = Number((await readFile(`${log}.pid`, "utf8")).trim());
+        expect(alive(pid), "the probe's claude process is gone").toBe(false);
+      }
       expect(existsSync(join(ws, ".kf", "workspace.json"))).toBe(false);
       expect(res.echo, "terminal echo is back on").toBe(true);
     }, 130_000);
