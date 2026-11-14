@@ -267,6 +267,7 @@ function metricsRow(file: string): { closedAt: string; row: HistoryRow } | null 
   if (!isObject(data)) return bad("expected a JSON object");
   const { closedAt, id, feature, kind, estimate, actual, filesChanged } = data;
   if (typeof closedAt !== "string" || !realDate(closedAt.slice(0, 10))) return bad(`closedAt must start with a real YYYY-MM-DD day: ${String(closedAt)}`);
+  if (Number.isNaN(new Date(closedAt).getTime())) return bad(`closedAt must be an ISO timestamp: ${closedAt}`);
   if (typeof id !== "string" || typeof feature !== "string" || typeof kind !== "string") return bad("id, feature and kind must be strings");
   if (!isObject(actual)) return bad("actual must be { size, workMinutes } or { missing }");
   if (actual.missing !== undefined) return null;
