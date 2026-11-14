@@ -4,8 +4,9 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { renderForCopy, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
+import { renderAgentForAgy, renderAgySkillMd, renderForAgy, renderForCopy, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
 import { cmdInstall, cmdUninstall, MANAGED_SKILLS, MANAGED_AGENTS } from "../integrations/install.js";
+import { runDoctor, runDoctorFixes } from "../project/doctor.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
 
@@ -256,5 +257,161 @@ describe("shared kf-* copies for the other runtimes", () => {
     const res = await cmdUninstall(["codex", "gemini"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(await kfDirs(shared())).toEqual([]);
+  });
+});
+
+describe("renderForAgy and renderAgentForAgy", () => {
+  const plugin = join("/tmp", "agy", "plugins", "kf");
+  const briefs = [
+    ["assets", "skills", "implement", "references", "developer-brief.md"],
+    ["assets", "skills", "implement", "references", "test-writer-brief.md"],
+    ["assets", "skills", "implement", "references", "automation-writer-brief.md"],
+    ["assets", "skills", "implement", "references", "task-reviewer-brief.md"],
+    ["assets", "skills", "implement", "references", "re-review-brief.md"],
+    ["assets", "shared", "researcher-brief.md"],
+    ["assets", "skills", "review", "references", "reviewer-brief.md"],
+  ];
+
+  it("rewrites Agent dispatch fences to invoke_subagent with mapped Model tiers and keeps the foreground rule", () => {
+    for (const parts of briefs) {
+      const out = renderForAgy(readFileSync(join(PKG_ROOT, ...parts), "utf8"), plugin);
+      expect(out, parts.join("/")).not.toContain("subagent_type:");
+      expect(out, parts.join("/")).not.toContain("\n  model:");
+      expect(out, parts.join("/")).toContain("invoke_subagent:");
+      expect(out, parts.join("/")).toContain("TypeName:");
+      expect(out, parts.join("/")).toContain("Model:");
+      expect(out, parts.join("/")).not.toContain("CLAUDE_PLUGIN_ROOT");
+    }
+    const developer = renderForAgy(readFileSync(join(PKG_ROOT, ...briefs[0]!), "utf8"), plugin);
+    expect(developer).toContain("send_message");
+    expect(developer).toContain("Recipient");
+    expect(developer).toContain("no `&`, `nohup`, `run_in_background`");
+
+    const researcher = renderForAgy(readFileSync(join(PKG_ROOT, ...briefs[5]!), "utf8"), plugin);
+    expect(researcher).toContain('TypeName: "researcher"');
+    expect(researcher).toContain('Model: "inherit"');
+  });
+
+  it("rewrites implement, loop, ask_question, and background run_command wording", () => {
+    const impl = renderForAgy(readFileSync(join(PKG_ROOT, "assets", "skills", "implement", "SKILL.md"), "utf8"), plugin);
+    expect(impl).toContain("every `dispatch` is an `invoke_subagent` call you make");
+    expect(impl).not.toContain("an `Agent()` call");
+    expect(impl).toContain("`run_command` (`WaitMsBeforeAsync: 500`)");
+    expect(impl).not.toContain("Skill(kf:");
+
+    const loop = renderForAgy(readFileSync(join(PKG_ROOT, "assets", "skills", "implement", "references", "task-loop.md"), "utf8"), plugin);
+    expect(loop).toContain("send_message");
+    expect(loop).toContain("conversationId");
+
+    const flow = renderAgySkillMd(readFileSync(join(PKG_ROOT, "assets", "skills", "flow", "SKILL.md"), "utf8"), plugin, "flow");
+    expect(flow).toMatch(/\nname:\s*kf-flow\s*\n/);
+    expect(flow).toContain(`follow skill kf-brainstorm (read ${join(plugin, "skills", "kf-brainstorm", "SKILL.md")})`);
+    expect(flow).not.toContain("AskUserQuestion");
+  });
+
+  it("renders all 7 packaged agents into AGY subagent schemas with mapped native tools", () => {
+    for (const agent of MANAGED_AGENTS) {
+      const rendered = renderAgentForAgy(readFileSync(join(PKG_ROOT, "assets", "agents", `${agent}.md`), "utf8"), plugin);
+      expect(rendered, agent).toMatch(new RegExp(`^---\\nname: ${agent}\\n`));
+      expect(rendered, agent).toContain("subagent: true\nmainAgent: false\ntools:");
+      expect(rendered, agent).not.toContain("CLAUDE_PLUGIN_ROOT");
+      expect(rendered, agent).not.toMatch(/Skill\(kf:|Agent\(kf:|\/kf:[a-z]/);
+    }
+    const reviewer = renderAgentForAgy(readFileSync(join(PKG_ROOT, "assets", "agents", "code-reviewer.md"), "utf8"), plugin);
+    expect(reviewer).toContain("  - read_file\n");
+    expect(reviewer).not.toContain("  - write_file\n");
+    const researcher = renderAgentForAgy(readFileSync(join(PKG_ROOT, "assets", "agents", "researcher.md"), "utf8"), plugin);
+    expect(researcher).toContain("  - search_web\n");
+    const automation = renderAgentForAgy(readFileSync(join(PKG_ROOT, "assets", "agents", "automation-writer.md"), "utf8"), plugin);
+    expect(automation).toContain("  - call_mcp_tool\n");
+  });
+});
+
+describe("kf install / uninstall --agent agy", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-agy-"));
+    ensureWorksStructure(dir);
+    await mkdir(join(dir, ".kf"), { recursive: true });
+    await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["agy"] }));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("installs the AGY plugin bundle, preserves foreign entries, repairs via doctor, and uninstalls cleanly", async () => {
+    await writeFile(
+      join(dir, ".kf", "config.json"),
+      JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["agy"], skills: { scope: "project" } }),
+    );
+    const res = await cmdInstall(["agy"], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    const root = join(dir, ".agents", "plugins", "kf");
+    const manifest = JSON.parse(await readFile(join(root, "plugin.json"), "utf8")) as { name: string; description: string };
+    expect(manifest.name).toBe("kf");
+    expect(manifest.description).toContain("Antigravity plugin");
+
+    const installedSkills = (await readdir(join(root, "skills"))).filter((n) => n.startsWith("kf-")).sort();
+    expect(installedSkills).toEqual(MANAGED_SKILLS.map((n) => `kf-${n}`).sort());
+    const installedAgents = (await readdir(join(root, "agents"))).filter((n) => n.endsWith(".md")).sort();
+    expect(installedAgents).toEqual(MANAGED_AGENTS.map((a) => `${a}.md`).sort());
+    expect(existsSync(join(root, "shared", "harness-tools.md"))).toBe(true);
+    expect(existsSync(join(root, "shared", "researcher-brief.md"))).toBe(true);
+
+    const flow = await readFile(join(root, "skills", "kf-flow", "SKILL.md"), "utf8");
+    expect(flow).toMatch(/\nname:\s*kf-flow\s*\n/);
+    expect(flow).not.toContain("CLAUDE_PLUGIN_ROOT");
+    for (const s of MANAGED_SKILLS) {
+      const content = await readFile(join(root, "skills", `kf-${s}`, "SKILL.md"), "utf8");
+      const fm = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content)?.[0] ?? "";
+      expect(Buffer.byteLength(content.slice(fm.length), "utf8"), s).toBeLessThanOrEqual(24_000);
+    }
+    const devStepPath = join(root, "skills", "kf-implement", "references", "agy-3-2-dispatch-the-developer-and-handle-its-report.md");
+    expect(existsSync(devStepPath)).toBe(true);
+    const devStep = await readFile(devStepPath, "utf8");
+    expect(devStep).toContain('invoke_subagent(TypeName: "developer")');
+    expect(devStep).not.toContain("Agent(kf:");
+    expect(runDoctor(dir).findings.filter((f) => f.area.includes("kf"))).toEqual([]);
+
+    // Doctor detects a missing agent definition and doctor --fix restores it.
+    await rm(join(root, "agents", "scout.md"));
+    const beforeFix = runDoctor(dir).findings.filter((f) => f.area === root);
+    expect(beforeFix).toHaveLength(1);
+    expect(beforeFix[0]!.level).toBe("ERROR");
+    expect((await runDoctorFixes(dir)).failures).toEqual([]);
+    expect(existsSync(join(root, "agents", "scout.md"))).toBe(true);
+
+    // Foreign entries are never clobbered on reinstall or removed on uninstall.
+    await rm(join(root, "skills", "kf-plan"), { recursive: true, force: true });
+    await mkdir(join(root, "skills", "kf-plan"), { recursive: true });
+    await writeFile(join(root, "skills", "kf-plan", "SKILL.md"), "---\nname: kf-plan\ndescription: mine\n---\nmine\n");
+    const reinstall = await cmdInstall(["agy"], { cwd: dir, scope: "project" });
+    expect(reinstall.stdout).toContain("left untouched");
+    expect(reinstall.stdout).toContain("kf-plan");
+
+    const gone = await cmdUninstall(["agy"], { cwd: dir, scope: "project" });
+    expect(gone.code).toBe(0);
+    expect(existsSync(join(root, "skills", "kf-flow"))).toBe(false);
+    expect(existsSync(join(root, "agents", "developer.md"))).toBe(false);
+    expect(existsSync(join(root, "skills", "kf-plan", "SKILL.md"))).toBe(true);
+  });
+
+  it("installs globally and cleans project-scope AGY copies when project scope is not declared", async () => {
+    await cmdInstall(["agy"], { cwd: dir, scope: "project" });
+    const projectRoot = join(dir, ".agents", "plugins", "kf");
+    expect(existsSync(join(projectRoot, "plugin.json"))).toBe(true);
+
+    const globalRes = await cmdInstall(["agy"], { cwd: dir, scope: "global" });
+    expect(globalRes.code).toBe(0);
+    const homePlugin = join(process.env.HOME!, ".gemini", "config", "plugins", "kf");
+    expect(existsSync(join(homePlugin, "plugin.json"))).toBe(true);
+    expect(existsSync(join(homePlugin, "skills", "kf-flow", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(homePlugin, "agents", "code-reviewer.md"))).toBe(true);
+    expect(existsSync(join(projectRoot, "plugin.json"))).toBe(false);
+
+    const uninstallGlobal = await cmdUninstall(["agy"], { cwd: dir, scope: "global" });
+    expect(uninstallGlobal.code).toBe(0);
+    expect(existsSync(homePlugin)).toBe(false);
   });
 });

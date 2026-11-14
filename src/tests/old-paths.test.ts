@@ -43,8 +43,8 @@ const ALLOWED: Allowed[] = [
   },
 ];
 
-// Runtime install destinations are where kf writes copies; they are not package paths.
-const RUNTIME_DESTINATION = /(\.agents\/skills\/|\.claude\/skills\/|~\/\.claude\/agents\/|\.<agent>\/skills)/;
+// Runtime install destinations are where kf writes copies or plugin bundles; they are not package paths.
+const RUNTIME_DESTINATION = /(\.agents\/(skills|plugins)\/|\.claude\/skills\/|~\/\.claude\/agents\/|\.<agent>\/skills)/g;
 
 function grepOldPaths(): string[] {
   try {

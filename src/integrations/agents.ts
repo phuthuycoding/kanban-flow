@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode" | "devin";
+export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode" | "devin" | "agy";
 
 /** Where managed skills are installed: the user's home (default) or the project. */
 export type SkillScope = "global" | "project";
@@ -20,6 +20,8 @@ export interface AgentAdapter {
   agentsRel?: string;
   /** Home-relative dir for user-level subagent definitions. */
   userAgentsRel?: string;
+  /** `agy` installs an Antigravity plugin bundle (`plugin.json`, `skills/kf-*`, `agents/*`, `shared/*`). */
+  kind?: "agy";
 }
 
 export const AGENTS: AgentAdapter[] = [
@@ -73,6 +75,14 @@ export const AGENTS: AgentAdapter[] = [
     projectRel: ".agents/skills",
     userRel: ".agents/skills",
     alsoReads: ["codex", "gemini", "cursor", "opencode"],
+  },
+  {
+    id: "agy",
+    label: "Antigravity",
+    projectRel: ".agents/plugins/kf",
+    userRel: ".gemini/config/plugins/kf",
+    alsoReads: [],
+    kind: "agy",
   },
 ];
 

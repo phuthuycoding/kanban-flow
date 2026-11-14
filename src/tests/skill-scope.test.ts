@@ -80,6 +80,7 @@ describe("userRel / userSkillsDir (FR-001)", () => {
     expect(userSkillsDir(agentById("opencode")!, "/h")).toBe("/h/.agents/skills");
     expect(userSkillsDir(agentById("kiro")!, "/h")).toBe("/h/.kiro/skills");
     expect(userSkillsDir(agentById("devin")!, "/h")).toBe("/h/.agents/skills");
+    expect(userSkillsDir(agentById("agy")!, "/h")).toBe("/h/.gemini/config/plugins/kf");
   });
 });
 
