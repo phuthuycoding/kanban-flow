@@ -146,6 +146,32 @@ describe("selectReducer", () => {
     expect(after).not.toBe(before);
     expect(before).toEqual({ cursor: 0, done: false, abort: false });
   });
+
+  it("sets a hint with the reason on return over an unavailable choice", () => {
+    const after = selectReducer(start(1), key("return"), choices);
+    expect(after.done).toBe(false);
+    expect(after.cursor).toBe(1);
+    expect(after.hint).toBe("project is unavailable: no .works/ — run kf init");
+  });
+
+  it("clears the hint when the cursor moves with up, down or a digit", () => {
+    const hinted: SelectState = { ...start(1), hint: "project is unavailable: no .works/ — run kf init" };
+    expect(selectReducer(hinted, key("up"), choices).hint).toBeUndefined();
+    expect(selectReducer(hinted, key("down"), choices).hint).toBeUndefined();
+    expect(selectReducer(hinted, key("3"), choices).hint).toBeUndefined();
+  });
+
+  it("keeps the hint on an unrelated key", () => {
+    const hinted: SelectState = { ...start(1), hint: "project is unavailable: no .works/ — run kf init" };
+    expect(selectReducer(hinted, key("x"), choices)).toEqual(hinted);
+  });
+
+  it("does not mutate the input when it sets the hint", () => {
+    const before = start(1);
+    const after = selectReducer(before, key("return"), choices);
+    expect(after).not.toBe(before);
+    expect(before).toEqual({ cursor: 1, done: false, abort: false });
+  });
 });
 
 // The prompts read the real process.stdin/stdout, so the terminal is faked on those objects:
@@ -204,6 +230,26 @@ describe("interactive prompts on the terminal", () => {
     expect(written.at(-1)).toBe("\x1b[?25h");
     expect(written.join("")).toContain("Where?");
     expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+  });
+
+  it("prints a yellow hint with the reason on return over an unavailable row and stays open", async () => {
+    fakeTerminal();
+    const scopes: Choice[] = [
+      { label: "global" },
+      { label: "project", unavailable: "no .works/ — run kf init" },
+    ];
+    const hint = "\x1b[33mproject is unavailable: no .works/ — run kf init\x1b[0m";
+    const answer = selectChoice("Which scope?", scopes, 0);
+    press("down");
+    expect(written.join("")).not.toContain("is unavailable");
+    press("return");
+    expect(written.at(-1)).toContain(hint);
+    expect(rawModeCalls).toEqual([true]);
+    press("up");
+    expect(written.at(-1)).not.toContain("is unavailable");
+    press("return");
+    await expect(answer).resolves.toBe(0);
+    expect(rawModeCalls).toEqual([true, false]);
   });
 
   it("rejects with PromptAbort on ctrl+c and turns raw mode off", async () => {

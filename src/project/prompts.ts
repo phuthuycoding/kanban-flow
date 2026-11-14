@@ -12,7 +12,7 @@ export class PromptAbort extends Error {
 }
 
 export type Choice = { label: string; unavailable?: string };
-export type SelectState = { cursor: number; done: boolean; abort: boolean };
+export type SelectState = { cursor: number; done: boolean; abort: boolean; hint?: string };
 export type ManyState = {
   cursor: number;
   selected: ReadonlySet<number>;
@@ -29,10 +29,16 @@ const isDigitRow = (key: Key, count: number): boolean =>
 export function selectReducer(state: SelectState, key: Key, choices: readonly Choice[]): SelectState {
   const n = choices.length;
   if (isAbortKey(key)) return { ...state, abort: true };
-  if (key.name === "up") return { ...state, cursor: (state.cursor - 1 + n) % n };
-  if (key.name === "down") return { ...state, cursor: (state.cursor + 1) % n };
-  if (isDigitRow(key, n)) return { ...state, cursor: Number(key.name) - 1 };
-  if (key.name === "return" && !choices[state.cursor]?.unavailable) return { ...state, done: true };
+  if (key.name === "up") return { ...state, cursor: (state.cursor - 1 + n) % n, hint: undefined };
+  if (key.name === "down") return { ...state, cursor: (state.cursor + 1) % n, hint: undefined };
+  if (isDigitRow(key, n)) return { ...state, cursor: Number(key.name) - 1, hint: undefined };
+  if (key.name === "return") {
+    const choice = choices[state.cursor];
+    if (choice?.unavailable) {
+      return { ...state, done: false, hint: `${choice.label} is unavailable: ${choice.unavailable}` };
+    }
+    return { ...state, done: true };
+  }
   return { ...state };
 }
 
@@ -132,6 +138,7 @@ export async function selectChoice(
         const text = c.unavailable ? `\x1b[2m${c.label} (${c.unavailable})\x1b[0m` : c.label;
         return ` ${i === s.cursor ? "❯" : " "} ${text}`;
       }),
+      ...(s.hint ? [`\x1b[33m${s.hint}\x1b[0m`] : []),
     ],
   );
   return final.cursor;
