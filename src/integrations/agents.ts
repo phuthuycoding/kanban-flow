@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode" | "devin";
+export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode" | "devin" | "grok";
 
 /** Where managed skills are installed: the user's home (default) or the project. */
 export type SkillScope = "global" | "project";
@@ -20,6 +20,8 @@ export interface AgentAdapter {
   agentsRel?: string;
   /** Home-relative dir for user-level subagent definitions. */
   userAgentsRel?: string;
+  /** `grok` installs a plugin whose skill names stay bare. Every other runtime uses kf-<name> copies. */
+  kind?: "grok";
 }
 
 export const AGENTS: AgentAdapter[] = [
@@ -73,6 +75,14 @@ export const AGENTS: AgentAdapter[] = [
     projectRel: ".agents/skills",
     userRel: ".agents/skills",
     alsoReads: ["codex", "gemini", "cursor", "opencode"],
+  },
+  {
+    id: "grok",
+    label: "Grok",
+    projectRel: ".grok/plugins/kf",
+    userRel: ".grok/plugins/kf",
+    alsoReads: [],
+    kind: "grok",
   },
 ];
 

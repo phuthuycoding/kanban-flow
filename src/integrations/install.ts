@@ -21,7 +21,7 @@ import {
 } from "./agents.js";
 import { copyName, LEGACY_AGENTS_DIR, LEGACY_SKILL_DIRS, LEGACY_SKILLS, MANAGED_AGENTS, MANAGED_SKILLS } from "./managed.js";
 import { ClaudePluginError, claudeRunner, ensurePlugin, pluginState, removePlugin } from "./claude-plugin.js";
-import { ephemeralPackageWarning, renderForCopy, renderSkillMd } from "./skill-render.js";
+import { ephemeralPackageWarning, GROK_CONFIG_HINT, renderForCopy, renderForGrok, renderSkillMd } from "./skill-render.js";
 
 export { MANAGED_AGENTS, MANAGED_SKILLS };
 
@@ -240,6 +240,144 @@ export function globalLinkRefusal(): string | null {
 export async function linkOrCopySkillsTo(skillsDir: string): Promise<SkillInstallResult> {
   const res = await copySkillsTo(skillsDir);
   return { ...res, mode: "copy" };
+}
+
+const GROK_PLUGIN_MARK = "Grok render";
+
+function grokPluginManifest(): string {
+  const version = (JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as { version?: string }).version ?? "0.0.0";
+  return `${JSON.stringify({
+    name: "kf",
+    version,
+    description: `Artifact-gated kanban workflow. ${GROK_PLUGIN_MARK}: skill names stay flow, plan, implement and the rest, and dispatch uses spawn_subagent.`,
+    skills: "./skills/",
+  }, null, 2)}\n`;
+}
+
+function grokPluginJsonIsOurs(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text) as { name?: unknown; skills?: unknown; description?: unknown };
+    return parsed.name === "kf" && parsed.skills === "./skills/" && typeof parsed.description === "string" && parsed.description.includes(GROK_PLUGIN_MARK);
+  } catch (err) {
+    if (err instanceof SyntaxError) return false;
+    throw err;
+  }
+}
+
+/** Every file of managed skill <name> rendered for the Grok plugin root, keyed by path under skills/<name>. */
+function renderedGrokSkill(pluginRoot: string, name: string): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (const [rel, bytes] of dirSnapshot(join(PKG_SKILLS_DIR, name))) {
+    const text = bytes.toString("utf8");
+    out.set(rel, rel.endsWith(".md") ? Buffer.from(renderForGrok(text, pluginRoot)) : bytes);
+  }
+  if (name === "flow") {
+    for (const a of MANAGED_AGENTS) out.set(join("agents", `${a}.md`), Buffer.from(renderForGrok(readFileSync(join(PKG_AGENTS_DIR, `${a}.md`), "utf8"), pluginRoot)));
+    for (const [rel, bytes] of dirSnapshot(PKG_SHARED_DIR)) out.set(join("shared", rel), Buffer.from(renderForGrok(bytes.toString("utf8"), pluginRoot)));
+  }
+  return out;
+}
+
+function ownsGrokSkillEntry(pluginRoot: string, name: string, manifest: Record<string, string>): boolean {
+  const target = join(pluginRoot, "skills", name);
+  let st;
+  try {
+    st = lstatSync(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw err;
+  }
+  if (!st.isDirectory()) return false;
+  if (sameFiles(dirSnapshot(target), renderedGrokSkill(pluginRoot, name))) return true;
+  return manifest[name] !== undefined && manifest[name] === dirDigest(target);
+}
+
+async function writeRenderedGrokSkill(pluginRoot: string, name: string): Promise<string> {
+  const to = join(pluginRoot, "skills", name);
+  await rm(to, { recursive: true, force: true });
+  await cp(join(PKG_SKILLS_DIR, name), to, { recursive: true });
+  const files = renderedGrokSkill(pluginRoot, name);
+  for (const [rel, bytes] of files) {
+    if (!rel.endsWith(".md")) continue;
+    await mkdir(dirname(join(to, rel)), { recursive: true });
+    await writeFile(join(to, rel), bytes);
+  }
+  return snapshotDigest(files);
+}
+
+/** Install the Grok plugin: bare skill names under <pluginRoot>/skills, no kf-<name> copies, no agent registry. */
+export async function installGrokPlugin(pluginRoot: string): Promise<InstallReport> {
+  const missing = assertPackageSkills() ?? assertPackageAgents();
+  if (missing) return missing;
+  await mkdir(pluginRoot, { recursive: true });
+  const lines: string[] = [];
+  const manifestPath = join(pluginRoot, ".grok-plugin", "plugin.json");
+  const existing = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : null;
+  if (existing !== null && !grokPluginJsonIsOurs(existing)) {
+    lines.push(`⚠ left ${manifestPath} untouched — it is not kanban-flow's Grok plugin manifest`);
+  } else {
+    await mkdir(dirname(manifestPath), { recursive: true });
+    await writeFile(manifestPath, grokPluginManifest());
+  }
+  const copied: string[] = [];
+  const skipped: string[] = [];
+  const manifest = readSkillsManifest(pluginRoot);
+  for (const name of MANAGED_SKILLS) {
+    if (!ownsGrokSkillEntry(pluginRoot, name, manifest)) {
+      skipped.push(name);
+      continue;
+    }
+    manifest[name] = await writeRenderedGrokSkill(pluginRoot, name);
+    copied.push(name);
+  }
+  await writeSkillsManifest(pluginRoot, manifest);
+  lines.push(`${copied.join(", ")} → ${join(pluginRoot, "skills")}/${untouchedNote(pluginRoot, skipped)}`);
+  lines.push(GROK_CONFIG_HINT);
+  return { code: 0, stdout: lines.join("\n") };
+}
+
+/** Remove Grok plugin skills kanban-flow owns. A directory the user owns is kept and named. */
+export async function removeGrokPlugin(pluginRoot: string): Promise<{ removed: string[]; kept: string[] }> {
+  const manifest = readSkillsManifest(pluginRoot);
+  const removed: string[] = [];
+  const kept: string[] = [];
+  for (const name of MANAGED_SKILLS) {
+    const target = join(pluginRoot, "skills", name);
+    if (!existsSync(target)) continue;
+    if (!ownsGrokSkillEntry(pluginRoot, name, manifest)) {
+      kept.push(name);
+      continue;
+    }
+    await rm(target, { recursive: true, force: true });
+    delete manifest[name];
+    removed.push(name);
+  }
+  await writeSkillsManifest(pluginRoot, manifest);
+  const manifestPath = join(pluginRoot, ".grok-plugin", "plugin.json");
+  if (existsSync(manifestPath) && grokPluginJsonIsOurs(readFileSync(manifestPath, "utf8")) && removed.length > 0 && kept.length === 0) {
+    await rm(manifestPath, { force: true });
+  }
+  return { removed, kept };
+}
+
+export function grokForeignSkills(pluginRoot: string): string[] {
+  const manifest = readSkillsManifest(pluginRoot);
+  return MANAGED_SKILLS.filter((s) => !ownsGrokSkillEntry(pluginRoot, s, manifest) && existsSync(join(pluginRoot, "skills", s)));
+}
+
+export function grokUnhealthySkills(pluginRoot: string, foreign: string[]): string[] {
+  return MANAGED_SKILLS.filter((s) => !foreign.includes(s) && !sameFilesSafe(pluginRoot, s));
+}
+
+function sameFilesSafe(pluginRoot: string, name: string): boolean {
+  const target = join(pluginRoot, "skills", name);
+  if (!existsSync(join(target, "SKILL.md"))) return false;
+  return sameFiles(dirSnapshot(target), renderedGrokSkill(pluginRoot, name));
+}
+
+export function hasOwnedGrokEntries(pluginRoot: string): boolean {
+  const foreign = grokForeignSkills(pluginRoot);
+  return MANAGED_SKILLS.some((s) => !foreign.includes(s) && lstatSync(join(pluginRoot, "skills", s), { throwIfNoEntry: false }) !== undefined);
 }
 
 function assertPackageAgents(): InstallReport | null {
@@ -825,6 +963,19 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root!);
+    if (a.kind === "grok") {
+      const res = await installGrokPlugin(dir);
+      failed ||= res.code !== 0;
+      if (res.code === 0) writtenOk.push(dir);
+      lines.push(res.code === 0 ? `✓ ${a.label}: ${res.stdout}` : `⚠ ${a.label}: ${res.stdout}`);
+      if (res.code === 0 && scope === "global" && root && opts.declaredScope !== "project") {
+        const projectDir = projectSkillsDir(a, root);
+        const { removed, kept } = await removeGrokPlugin(projectDir);
+        if (removed.length > 0) cleaned.push(`  ${a.label}: removed ${removed.length} project skills from ${projectDir}/`);
+        if (kept.length > 0) cleaned.push(`  ${a.label}: kept ${kept.join(", ")} in ${projectDir}/ — not kanban-flow's`);
+      }
+      continue;
+    }
     const first = writtenBy.get(dir);
     if (first) {
       lines.push(`✓ ${a.label}: reads the copies written for ${first} in ${dir}/`);
@@ -985,6 +1136,17 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     }
     const dirOf = (x: (typeof AGENTS)[number]): string => scope === "global" ? userSkillsDir(x) : projectSkillsDir(x, root);
     const dir = dirOf(a);
+    if (a.kind === "grok") {
+      if (handled.has(dir)) {
+        lines.push(`· ${a.label}: shares ${dir}/ — handled above`);
+        continue;
+      }
+      handled.add(dir);
+      const { removed, kept } = await removeGrokPlugin(dir);
+      lines.push(removed.length > 0 ? `✗ ${a.label}: removed ${removed.length} skills from ${dir}/` : `· ${a.label}: already clean in ${dir}/`);
+      if (kept.length > 0) lines.push(`· ${a.label}: kept ${kept.join(", ")} in ${dir}/ — not kanban-flow's`);
+      continue;
+    }
     if (handled.has(dir)) {
       lines.push(`· ${a.label}: shares ${dir}/ — handled above`);
       continue;

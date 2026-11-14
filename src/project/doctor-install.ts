@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { readProjectConfig, effectiveSkillsScope, ProjectConfigError } from "./config.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, parseAgentIds, SKILL_SCOPES, type AgentId, type SkillScope } from "../integrations/agents.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, agentEntryState, foreignSkills, hasOwnedEntries, legacyEntries, removeLegacy, RETIRED_SKILLS, unhealthySkills } from "../integrations/install.js";
+import { agentSkillsState, agentsAreHealthy, agentsState, globalLinkRefusal, installAgentsTo, installSkills, MANAGED_AGENTS, MANAGED_SKILLS, agentEntryState, foreignSkills, grokForeignSkills, grokUnhealthySkills, hasOwnedEntries, hasOwnedGrokEntries, legacyEntries, removeLegacy, RETIRED_SKILLS, unhealthySkills } from "../integrations/install.js";
 import { ClaudePluginError, claudeRunner, claudeScope, ensurePlugin, pluginState, PLUGIN_ID } from "../integrations/claude-plugin.js";
 import { PKG_ROOT } from "../shared/paths.js";
 import type { DoctorFinding } from "./doctor-types.js";
@@ -23,7 +23,8 @@ export function checkSkills(root: string, configured: AgentId[], scope: SkillSco
     const adapter = AGENTS.find((a) => a.id === id);
     if (!adapter) continue;
     const dir = scope === "global" ? userSkillsDir(adapter) : projectSkillsDir(adapter, root);
-    const foreign = foreignSkills(dir);
+    const grok = adapter.kind === "grok";
+    const foreign = grok ? grokForeignSkills(dir) : foreignSkills(dir);
     if (foreign.length > 0) {
       findings.push({
         level: "WARNING",
@@ -32,10 +33,10 @@ export function checkSkills(root: string, configured: AgentId[], scope: SkillSco
         action: "keep it and accept the substitution, or move it aside and run kf install",
       });
     }
-    const bad = unhealthySkills(dir, foreign);
+    const bad = grok ? grokUnhealthySkills(dir, foreign) : unhealthySkills(dir, foreign);
     if (bad.length === 0) continue;
     // The aggregate state counts a user's own entry as stale; name it only when there is none.
-    const state = foreign.length > 0 ? "incomplete" : agentSkillsState(dir);
+    const state = foreign.length > 0 ? "incomplete" : grok ? (bad.length === MANAGED_SKILLS.length ? "missing" : "stale") : agentSkillsState(dir);
     findings.push({
       level: "ERROR",
       area: dir,
@@ -78,7 +79,7 @@ export function checkSkills(root: string, configured: AgentId[], scope: SkillSco
     const dupes = agents
       .map((id) => AGENTS.find((a) => a.id === id))
       .filter((a): a is NonNullable<typeof a> => Boolean(a))
-      .filter((a) => hasOwnedEntries(projectSkillsDir(a, root)));
+      .filter((a) => (a.kind === "grok" ? hasOwnedGrokEntries(projectSkillsDir(a, root)) : hasOwnedEntries(projectSkillsDir(a, root))));
     if (dupes.length > 0) {
       findings.push({
         level: "WARNING",
