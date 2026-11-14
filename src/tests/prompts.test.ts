@@ -6,6 +6,7 @@ import {
   selectChoice,
   selectMany,
   selectReducer,
+  terminalRows,
   type Choice,
   type ManyState,
   type SelectState,
@@ -174,6 +175,40 @@ describe("selectReducer", () => {
   });
 });
 
+describe("terminalRows", () => {
+  it("counts a line wider than the terminal as two rows", () => {
+    expect(terminalRows(["x".repeat(85)], 80)).toBe(2);
+  });
+
+  it("counts a line exactly as wide as the terminal as one row", () => {
+    expect(terminalRows(["x".repeat(80)], 80)).toBe(1);
+  });
+
+  it("counts an empty line as one row", () => {
+    expect(terminalRows([""], 80)).toBe(1);
+  });
+
+  it("ignores ANSI escapes when measuring width", () => {
+    expect(terminalRows(["\x1b[2m" + "x".repeat(80) + "\x1b[0m"], 80)).toBe(1);
+  });
+
+  it("counts one row per line when the column count is unknown", () => {
+    expect(terminalRows(["x".repeat(85), "y"], undefined)).toBe(2);
+  });
+
+  it("counts one row per line when the column count is zero", () => {
+    expect(terminalRows(["x".repeat(85)], 0)).toBe(1);
+  });
+
+  it("measures width in code points, not UTF-16 units", () => {
+    expect(terminalRows(["❯ —".repeat(30)], 80)).toBe(2);
+  });
+
+  it("sums the rows of every line", () => {
+    expect(terminalRows(["x".repeat(85), "y", "z".repeat(160)], 80)).toBe(5);
+  });
+});
+
 // The prompts read the real process.stdin/stdout, so the terminal is faked on those objects:
 // a test run has no TTY, and resume() is stubbed so the real stdin never starts reading.
 describe("interactive prompts on the terminal", () => {
@@ -205,8 +240,17 @@ describe("interactive prompts on the terminal", () => {
     });
   };
 
+  let savedColumns: PropertyDescriptor | undefined;
+  const stubColumns = (columns: number | undefined) => {
+    savedColumns = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+    Object.defineProperty(process.stdout, "columns", { value: columns, configurable: true, writable: true });
+  };
+
   afterEach(() => {
     vi.restoreAllMocks();
+    if (savedColumns) Object.defineProperty(process.stdout, "columns", savedColumns);
+    else delete (process.stdout as { columns?: number }).columns;
+    savedColumns = undefined;
     for (const [k, desc] of saved) {
       if (desc) Object.defineProperty(stdin, k, desc);
       else delete stdin[k];
@@ -295,5 +339,33 @@ describe("interactive prompts on the terminal", () => {
     expect(rawModeCalls).toEqual([true, false]);
     expect(written.at(-1)).toBe("\x1b[?25h");
     expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+  });
+
+  it("moves the cursor up by the wrapped row count when redrawing", async () => {
+    fakeTerminal();
+    stubColumns(80);
+    const wide: Choice[] = [
+      { label: "global" },
+      { label: "project" },
+      { label: "workspace — Claude Code, only when started in " + "/long/path".repeat(10) },
+    ];
+    const answer = selectChoice("Which scope?", wide, 0);
+    press("down");
+    // question + 2 short rows + 1 wrapped row = 5 terminal rows
+    expect(written.join("")).toContain("\x1b[5A\x1b[J");
+    expect(written.join("")).not.toContain("\x1b[4A");
+    press("return");
+    await expect(answer).resolves.toBe(1);
+  });
+
+  it("moves the cursor up by the line count when the column count is unknown", async () => {
+    fakeTerminal();
+    stubColumns(undefined);
+    const wide: Choice[] = [{ label: "global" }, { label: "project" }, { label: "w".repeat(120) }];
+    const answer = selectChoice("Which scope?", wide, 0);
+    press("down");
+    expect(written.join("")).toContain("\x1b[4A\x1b[J");
+    press("return");
+    await expect(answer).resolves.toBe(1);
   });
 });

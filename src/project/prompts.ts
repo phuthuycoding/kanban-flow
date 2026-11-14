@@ -60,6 +60,16 @@ export function manyReducer(state: ManyState, key: Key, count: number): ManyStat
   return { ...state, selected: new Set(state.selected) };
 }
 
+/** Terminal rows the lines occupy: ANSI escapes are stripped and long lines wrap at `columns`. */
+export function terminalRows(lines: readonly string[], columns: number | undefined): number {
+  const wraps = typeof columns === "number" && columns > 0;
+  return lines.reduce((sum, line) => {
+    if (!wraps) return sum + 1;
+    const width = [...line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")].length;
+    return sum + Math.max(1, Math.ceil(width / columns));
+  }, 0);
+}
+
 /**
  * Drives a raw-mode keypress loop: `step` folds each key into the state, `render` returns the
  * lines to draw. Raw mode, the listeners and the cursor are restored on every exit path.
@@ -76,7 +86,7 @@ function runPrompt<S extends { done: boolean; abort: boolean }>(
       if (drawn > 0) output.write(`\x1b[${drawn}A\x1b[J`);
       const lines = render(state);
       output.write(`${lines.join("\n")}\n`);
-      drawn = lines.length;
+      drawn = terminalRows(lines, output.columns);
     };
     const cleanup = () => {
       try {
