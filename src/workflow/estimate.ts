@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { filesOverlap } from "./allowlist.js";
@@ -280,12 +280,18 @@ function metricsRow(file: string): { closedAt: string; row: HistoryRow } | null 
     estMinutes = estimate.minutes;
   }
   const files = isObject(filesChanged) && isNonNegative(filesChanged.count) ? filesChanged.count : null;
-  return { closedAt, row: { date: closedAt.slice(0, 10), id, feature, kind, est, actual: actual.size, workMinutes: actual.workMinutes, files, estMinutes } };
+  return { closedAt, row: { date: localDay(closedAt), id, feature, kind, est, actual: actual.size, workMinutes: actual.workMinutes, files, estMinutes } };
+}
+
+function localDay(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function doneRows(root: string): HistoryRow[] {
   const done = join(root, ".works", "done");
-  if (!existsSync(done)) return [];
+  if (!existsSync(done) || !statSync(done).isDirectory()) return [];
   const found: Array<{ closedAt: string; row: HistoryRow }> = [];
   for (const entry of readdirSync(done, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;

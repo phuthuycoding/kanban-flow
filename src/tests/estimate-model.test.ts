@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -102,6 +103,51 @@ describe("readEstimateHistory", () => {
     const rows = readEstimateHistory(root);
     expect(rows.map((r) => r.id)).toEqual(["L1", "M1", "M2", "L3", "M4"]);
     expect(rows.map((r) => r.date)).toEqual(["2026-10-01", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+  });
+
+  it("does not crash when .works/done is a file: it yields the legacy rows only", async () => {
+    await legacy([row("2026-10-01", "L1", "M", "M", 10, 4, "feature", 10)]);
+    await rm(join(root, ".works", "done"), { recursive: true, force: true });
+    await writeFile(join(root, ".works", "done"), "stray file, not a directory\n");
+    const { readEstimateHistory } = await estimateModule();
+    expect(readEstimateHistory(root).map((r) => r.id)).toEqual(["L1"]);
+  });
+
+  it("dates a done item by the local calendar day of its close, not the UTC day", async () => {
+    // Under UTC+7 this instant is already the next calendar day; Node re-reads TZ at Date call time on Linux.
+    vi.stubEnv("TZ", "Asia/Ho_Chi_Minh");
+    const closedAt = "2026-10-01T20:00:00.000Z";
+    const d = new Date(closedAt);
+    const p = (n: number): string => String(n).padStart(2, "0");
+    const local = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    expect(local).toBe("2026-10-02");
+    expect(local).not.toBe(closedAt.slice(0, 10));
+    const dir = join(root, ".works", "done", "late-item");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "metrics.json"), JSON.stringify({
+      closedAt, id: "LATE", feature: "late", kind: "feature",
+      estimate: { minutes: 10, size: "M" }, actual: { size: "M", workMinutes: 10 }, filesChanged: { count: 4 },
+    }));
+    const { readEstimateHistory } = await estimateModule();
+    expect(readEstimateHistory(root).map((r) => r.date)).toEqual([local]);
+  });
+
+  it("keeps the learned factor stable as items approved with raw minutes close", async () => {
+    // metrics.json carries the raw estimate minutes (what approval recorded), never the factor-corrected ones.
+    const { readEstimateHistory, factorFor } = await estimateModule();
+    const close = async (from: number, to: number): Promise<void> => {
+      for (let i = from; i < to; i++) {
+        await doneItem({ folder: `it-${i}`, id: `D${i}`, day: "2026-10-05", estimate: { minutes: 10, size: "M" }, actual: { size: "M", workMinutes: 15 } });
+      }
+    };
+    await close(0, 20);
+    let rows = readEstimateHistory(root);
+    expect(rows.every((r) => r.estMinutes === 10)).toBe(true);
+    expect(factorFor(rows, "feature")).toMatchObject({ usable: 20, factor: 1.5, raw: 1.5 });
+    await close(20, 40);
+    rows = readEstimateHistory(root);
+    expect(rows.every((r) => r.estMinutes === 10)).toBe(true);
+    expect(factorFor(rows, "feature")).toMatchObject({ usable: 40, factor: 1.5, raw: 1.5, window: 30 });
   });
 
   it("returns no rows when neither source exists", async () => {

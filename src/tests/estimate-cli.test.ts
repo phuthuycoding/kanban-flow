@@ -141,6 +141,33 @@ describe("kf estimate size", () => {
     expect(kf("size", "15", "4", "--kind", "feature").out[2]).toBe("learned: 15 min × 1 = 15 min (feature, last 30 rows)");
   });
 
+  it("does not count a cancelled row toward the 20-row learning floor", async () => {
+    // 19 measured rows plus one cancelled row with an estmin: counting the cancelled one would reach 20 and start learning.
+    const cancelled = row("2026-10-02", "c1", "M", "-", 500, 99, "feature", 1);
+    await legacy(ledger([...ratioRows(19, 10, 20), cancelled]));
+    expect(kf("size", "15", "4", "--kind", "feature").out).toEqual(["M", "points: 2", "defaults (19 feature rows with estmin)"]);
+    expect(kf("stats").out).toContain("hit rate: 19/19");
+  });
+
+  it("keeps the factor of done items closed with raw minutes unchanged as more of them close", async () => {
+    // metrics.json as the close writes it: the estimate minutes are the raw ones approval recorded.
+    const close = async (from: number, to: number): Promise<void> => {
+      for (let i = from; i < to; i++) {
+        const dir = join(root, ".works", "done", `item-${i}`);
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "metrics.json"), JSON.stringify({
+          v: 1, closedAt: "2026-10-05T12:00:00.000Z", id: `D${i}`, feature: `item-${i}`, kind: "feature",
+          estimate: { minutes: 10, size: "M" }, actual: { size: "M", workMinutes: 15 }, gap: 0, filesChanged: { count: 4 },
+        }));
+      }
+    };
+    await close(0, 20);
+    expect(factorOf()).toBe("1.5");
+    await close(20, 35);
+    expect(factorOf()).toBe("1.5");
+    expect(kf("size", "10", "4", "--kind", "feature").out[2]).toBe("learned: 10 min × 1.5 = 15 min (feature, last 30 rows)");
+  });
+
   it("skips rows without estmin for learning, old header and old rows included, without failing", async () => {
     const old = Array.from({ length: 25 }, (_, i) => row("2026-09-01", `old${i}`, "M", "M", 59, 6));
     await legacy(`# Travel estimates\n\n${OLD_HEADER}\n${old.join("\n")}\n${ratioRows(19, 10, 20).join("\n")}\n`);
