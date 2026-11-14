@@ -146,6 +146,7 @@ function recordProblem(value: unknown): string | null {
 /**
  * Fold a log into the stage and shared metadata it describes. One unreadable line refuses the whole
  * log: a state rebuilt around a gap would be presented as the item's history.
+ * A log that never sets schema, feature, context and created as strings is refused too.
  */
 export function foldItemLog(text: string): FoldResult {
   let stage: Stage | null = null;

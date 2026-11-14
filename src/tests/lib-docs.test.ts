@@ -190,8 +190,17 @@ describe("library stability document", () => {
 
   // The fold checks only that each event's keys are present, so a caller must not trust the values it returns.
   it("says in the foldItemLog and readItemLog rows that the values are not validated", () => {
-    expect(rows.find((r) => r.name === "foldItemLog")?.what).toMatch(/not\s+validated/);
-    expect(rows.find((r) => r.name === "readItemLog")?.what).toMatch(/not\s+validated/);
+    expect(rows.find((r) => r.name === "foldItemLog")?.what).toMatch(/validates\s+no\s+other\s+value|not\s+validated/);
+    expect(rows.find((r) => r.name === "readItemLog")?.what).toMatch(/validates\s+no\s+other\s+value|not\s+validated/);
+  });
+
+  // The fold refuses a log missing the required metadata keys, so a caller must handle ok: false from either function.
+  it("says in the foldItemLog and readItemLog rows that a log without created is refused", () => {
+    for (const name of ["readItemLog", "foldItemLog"]) {
+      const what = rows.find((r) => r.name === name)?.what;
+      expect(what).toMatch(/refuses/);
+      expect(what).toMatch(/`created`/);
+    }
   });
 
   // Adding a member to an exported union breaks a consumer's exhaustive switch, so it is not a silent change.

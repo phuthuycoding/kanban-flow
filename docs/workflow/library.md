@@ -81,8 +81,8 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `StageRecord` | type | stable | One stage-verify record |
 | `StepOutcome` | type | stable | The outcome of one command in a stage-verify record |
 | `ITEM_LOG_FILE` | constant | stable | `lifecycle.jsonl`, the lifecycle log's file name |
-| `readItemLog` | function | stable | Reads and folds an item folder's lifecycle log; the folded values are not validated (see Trust and cost) |
-| `foldItemLog` | function | stable | Folds lifecycle-log text into the stage and shared metadata; the folded values are not validated (see Trust and cost) |
+| `readItemLog` | function | stable | Reads and folds an item folder's lifecycle log; refuses (`ok: false`) a log that does not set `schema`, `feature`, `context` and `created` as strings, and validates no other value (see Trust and cost) |
+| `foldItemLog` | function | stable | Folds lifecycle-log text into the stage and shared metadata; refuses (`ok: false`) a log that does not set `schema`, `feature`, `context` and `created` as strings, and validates no other value (see Trust and cost) |
 | `sharedMeta` | function | stable | The metadata without `worktree`, the run-state keys of the removed `kf drive` and unknown keys, as the log records it; values are copied unchecked, and it checks nothing, not even that a required key is present |
 | `ItemRecord` | type | stable | One lifecycle record |
 | `ItemOrigin` | type | stable | The machine and channel that wrote a lifecycle record |
