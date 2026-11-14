@@ -4,7 +4,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { renderForCopy, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
+import { renderForCopy, renderForGrok, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
 import { cmdInstall, cmdUninstall, MANAGED_SKILLS, MANAGED_AGENTS } from "../integrations/install.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { PKG_ROOT } from "../shared/paths.js";
@@ -256,5 +256,86 @@ describe("shared kf-* copies for the other runtimes", () => {
     const res = await cmdUninstall(["codex", "gemini"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(await kfDirs(shared())).toEqual([]);
+  });
+});
+
+describe("renderForGrok", () => {
+  const plugin = "/tmp/grok/plugins/kf";
+  const briefs = [
+    "assets/skills/implement/references/developer-brief.md",
+    "assets/skills/implement/references/test-writer-brief.md",
+    "assets/skills/implement/references/automation-writer-brief.md",
+    "assets/skills/implement/references/task-reviewer-brief.md",
+    "assets/skills/implement/references/re-review-brief.md",
+    "assets/shared/researcher-brief.md",
+    "assets/skills/review/references/reviewer-brief.md",
+  ];
+
+  it("turns each dispatch fence into spawn_subagent and keeps the seat's foreground ban", () => {
+    for (const rel of briefs) {
+      const out = renderForGrok(readFileSync(join(PKG_ROOT, rel), "utf8"), plugin);
+      expect(out, rel).not.toContain("subagent_type:");
+      expect(out, rel).not.toContain("\n  model:");
+      expect(out, rel).toContain("spawn_subagent:");
+      expect(out, rel).toContain(`${plugin}/skills/flow/agents/`);
+      expect(out, rel).not.toContain("CLAUDE_PLUGIN_ROOT");
+    }
+    const developer = renderForGrok(readFileSync(join(PKG_ROOT, briefs[0]!), "utf8"), plugin);
+    expect(developer).toContain("no `&`, `nohup`, `run_in_background`");
+    expect(developer).toContain("resume_from");
+    expect(developer).toContain(`${plugin}/skills/flow/agents/developer.md`);
+  });
+
+  it("rewrites the implement dispatch sentence and the controller background lines", () => {
+    const out = renderForGrok(readFileSync(join(PKG_ROOT, "assets/skills/implement/SKILL.md"), "utf8"), plugin);
+    expect(out).toContain("every `dispatch` is a `spawn_subagent` call you make");
+    expect(out).not.toContain("an `Agent()` call");
+    expect(out).toContain("run_terminal_command` and `block_until_ms: 0`");
+    expect(out).not.toContain("Skill(kf:");
+    expect(out).not.toContain("kf-flow");
+  });
+
+  it("keeps the packaged skill name", () => {
+    const out = renderForGrok(readFileSync(join(PKG_ROOT, "assets/skills/flow/SKILL.md"), "utf8"), plugin);
+    expect(out).toMatch(/\nname:\s*flow\s*\n/);
+    expect(out).not.toContain("name: kf-flow");
+    expect(out).toContain(`follow skill brainstorm (read ${plugin}/skills/brainstorm/SKILL.md)`);
+  });
+});
+
+describe("kf install --agent grok", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "kf-grok-"));
+    ensureWorksStructure(dir);
+    await mkdir(join(dir, ".kf"), { recursive: true });
+    await writeFile(join(dir, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "x", agents: ["grok"] }));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("writes a plugin of bare skill names and removes it on uninstall", async () => {
+    const res = await cmdInstall(["grok"], { cwd: dir, scope: "project" });
+    expect(res.code).toBe(0);
+    const root = join(dir, ".grok", "plugins", "kf");
+    expect(res.stdout).toContain("ignore =");
+    expect(res.stdout).toContain("~/.claude/plugins/cache/kanban-flow");
+    const manifest = JSON.parse(await readFile(join(root, ".grok-plugin", "plugin.json"), "utf8")) as { name: string; skills: string };
+    expect(manifest).toMatchObject({ name: "kf", skills: "./skills/" });
+    expect(existsSync(join(root, "kf-flow"))).toBe(false);
+    const names = (await readdir(join(root, "skills"))).sort();
+    expect(names).toEqual([...MANAGED_SKILLS].sort());
+    const flow = await readFile(join(root, "skills", "flow", "SKILL.md"), "utf8");
+    expect(flow).toMatch(/\nname:\s*flow\s*\n/);
+    expect(flow).not.toContain("CLAUDE_PLUGIN_ROOT");
+    const brief = await readFile(join(root, "skills", "implement", "references", "developer-brief.md"), "utf8");
+    expect(brief).toContain("spawn_subagent:");
+    expect(brief).not.toContain("subagent_type:");
+    expect(existsSync(join(root, "skills", "flow", "agents", "developer.md"))).toBe(true);
+    const gone = await cmdUninstall(["grok"], { cwd: dir, scope: "project" });
+    expect(gone.code).toBe(0);
+    expect(existsSync(join(root, "skills", "flow"))).toBe(false);
   });
 });
