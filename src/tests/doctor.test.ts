@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, chmod, symlink } from
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 
 import { runDoctor } from "../project/doctor.js";
@@ -713,5 +714,63 @@ describe("kf doctor on unknown config keys", () => {
     expect(after).toHaveProperty("worktrees");
     const parsed = JSON.parse(res.stdout) as { findings: { message: string }[] };
     expect(parsed.findings.some((f) => f.message.startsWith(UNKNOWN) && f.message.includes('"worktrees"'))).toBe(true);
+  });
+});
+
+describe("kf doctor on devin agent profiles", () => {
+  const devinAgents = () => join(process.env.HOME!, ".config", "devin", "agents");
+  const manifestPath = () => join(devinAgents(), ".kanban-flow-agents.json");
+  const sha256 = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+  it("reports missing devin profiles and --fix installs them, after which the run is quiet", async () => {
+    await project("devin");
+    const agents = devinAgents();
+    expect(existsSync(agents), "init installs the devin profiles").toBe(true);
+    // Skills stay healthy while only the agents dir is gone — the repair is agents-only.
+    await rm(agents, { recursive: true, force: true });
+
+    const f = runDoctor(root).findings.find((x) => x.area === agents && x.level === "ERROR");
+    expect(f, "an ERROR finding names the devin agents dir").toBeDefined();
+    expect(f!.action).toContain("--agent devin");
+
+    const res = await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(res.stdout).toContain("installed kanban agents for devin");
+    expect(existsSync(join(agents, "kf-scout.md"))).toBe(true);
+    expect(runDoctor(root).findings.filter((x) => x.area === agents)).toEqual([]);
+  });
+
+  it("reports a stale devin profile recorded by the manifest, and --fix rewrites it and stays quiet", async () => {
+    await project("devin");
+    const agents = devinAgents();
+    expect(existsSync(agents), "init installs the devin profiles").toBe(true);
+    // What an earlier render wrote and the sidecar recorded is an outdated copy of ours: stale.
+    const older = "---\nname: kf-scout\ndescription: an older render\n---\nold\n";
+    await writeFile(join(agents, "kf-scout.md"), older);
+    const manifest = JSON.parse(await readFile(manifestPath(), "utf8")) as Record<string, string>;
+    manifest["kf-scout"] = sha256(older);
+    await writeFile(manifestPath(), JSON.stringify(manifest));
+
+    const f = runDoctor(root).findings.find((x) => x.area === agents && x.level === "ERROR");
+    expect(f, "an ERROR finding names the stale profile").toBeDefined();
+    expect(f!.message).toContain("scout");
+
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(await readFile(join(agents, "kf-scout.md"), "utf8")).not.toBe(older);
+    expect(runDoctor(root).findings.filter((x) => x.area === agents)).toEqual([]);
+  });
+
+  it("warns on a hand-made kf-<seat>.md as a foreign file, and --fix leaves its bytes alone", async () => {
+    await project("devin");
+    const agents = devinAgents();
+    await mkdir(agents, { recursive: true });
+    const mine = "---\nname: kf-scout\ndescription: hand-made shim\n---\nmine\n";
+    await writeFile(join(agents, "kf-scout.md"), mine);
+
+    const warned = runDoctor(root).findings.find((x) => x.area === agents && x.level === "WARNING");
+    expect(warned, "a WARNING names the user's file").toBeDefined();
+    expect(warned!.message).toContain("kf-scout.md");
+
+    await cmdDoctor(args("doctor", [], { fix: true }), root);
+    expect(await readFile(join(agents, "kf-scout.md"), "utf8")).toBe(mine);
   });
 });

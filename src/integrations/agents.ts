@@ -1,5 +1,9 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
+
+import { copyName } from "./managed.js";
+import { renderAgentProfile } from "./skill-render.js";
+import type { AgentTarget } from "./install.js";
 
 export type AgentId = "claude" | "codex" | "gemini" | "kiro" | "cursor" | "opencode" | "devin";
 
@@ -20,6 +24,10 @@ export interface AgentAdapter {
   agentsRel?: string;
   /** Home-relative dir for user-level subagent definitions. */
   userAgentsRel?: string;
+  /** Dir relative to %APPDATA% where user-level subagent definitions live on win32; POSIX uses userAgentsRel. */
+  userAgentsAppDataRel?: string;
+  /** How the runtime's registry takes the managed seats; absent is the default target — `<seat>.md` packaged bytes, links allowed. */
+  agentTarget?: AgentTarget;
 }
 
 export const AGENTS: AgentAdapter[] = [
@@ -73,6 +81,14 @@ export const AGENTS: AgentAdapter[] = [
     projectRel: ".agents/skills",
     userRel: ".agents/skills",
     alsoReads: ["codex", "gemini", "cursor", "opencode"],
+    agentsRel: ".devin/agents",
+    userAgentsRel: ".config/devin/agents",
+    userAgentsAppDataRel: "devin/agents",
+    agentTarget: {
+      managedName: copyName,
+      expectedBytes: renderAgentProfile,
+      linkAllowed: false,
+    },
   },
 ];
 
@@ -97,8 +113,15 @@ export function projectAgentsDir(agent: AgentAdapter, root: string): string | nu
   return agent.agentsRel ? join(root, agent.agentsRel) : null;
 }
 
-/** The agent's user-level subagent dir under `home`, or null when the runtime has none. */
-export function userAgentsDir(agent: AgentAdapter, home: string = homedir()): string | null {
+/**
+ * The agent's user-level subagent dir under `home`, or null when the runtime has none. `platform`
+ * is injectable so the win32 branch — a dir under %APPDATA% — is testable on POSIX.
+ */
+export function userAgentsDir(agent: AgentAdapter, home: string = homedir(), platform: NodeJS.Platform = process.platform): string | null {
+  if (platform === "win32" && agent.userAgentsAppDataRel) {
+    const appData = process.env.APPDATA ?? win32.join(home, "AppData", "Roaming");
+    return win32.join(appData, agent.userAgentsAppDataRel);
+  }
   return agent.userAgentsRel ? join(home, agent.userAgentsRel) : null;
 }
 

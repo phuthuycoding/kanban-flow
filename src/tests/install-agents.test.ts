@@ -134,6 +134,16 @@ describe("installAgentsTo / removeAgentsFrom", () => {
     expect(res.stdout).toContain("spec-reviewer.md");
   });
 
+  it("writes byte-identical copies of the packaged files under the packaged names", async () => {
+    const target = join(dir, "agents");
+    const res = await installAgentsTo(target, "copy");
+    expect(res.code).toBe(0);
+    for (const name of MANAGED_AGENTS) {
+      expect(await readFile(join(target, `${name}.md`), "utf8"), name).toBe(await readFile(join(PKG_AGENTS_DIR, `${name}.md`), "utf8"));
+      expect(existsSync(join(target, `kf-${name}.md`)), `kf-${name}.md`).toBe(false);
+    }
+  });
+
   it("reports empty removal when nothing is installed", async () => {
     const { removed, kept } = await removeAgentsFrom(join(dir, "nowhere"));
     expect(removed).toHaveLength(0);

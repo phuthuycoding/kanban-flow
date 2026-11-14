@@ -4,6 +4,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- **Devin runtime adapter.** `kf install --agent devin` installs the 11 `kf-<name>` skill copies under `.agents/skills` like the other open-standard runtimes, and renders the seven kanban seats as Devin subagent profiles — `kf-<seat>.md` under `~/.config/devin/agents` (`%APPDATA%\devin\agents` on Windows) or `.devin/agents` at project scope — always copies, never symlinks. A profile carries `name: kf-<seat>` and `allowed-tools` drawn only from Devin's vocabulary (`read`, `edit`, `grep`, `glob`, `exec`, `mcp__<server>__*`); a seat whose tools have no Devin name ships with no `allowed-tools` key rather than a partial list. `assets/shared/harness-tools.md` gains a Devin column and a tier mapping (standard `sonnet`, strong `opus`, top `opus` — top tier unavailable). Claude's install output is byte-identical.
+
 ### Fixed
 - **Install onboarding prompts.** Enter on an unavailable row (for example `project` outside a project) now prints the reason under the rows instead of doing nothing. While `kf install` checks for a user-scope install it shows `Checking the Claude Code plugin install…` with a spinner, ignores keys typed meanwhile (they used to move the cursor of the next step, so the user-scope removal could be picked unseen) and lets Ctrl+C abort with nothing changed, killing the `claude` check (and, outside Windows, the processes it started) instead of waiting up to its 60 s timeout. Prompts also redraw correctly when a row is wider than the terminal, and the terminal is restored when the loading work throws. (#205)
 

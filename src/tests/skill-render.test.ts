@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 
+import { agentById, projectAgentsDir, userAgentsDir } from "../integrations/agents.js";
 import { renderForCopy, renderSkillMd, ephemeralPackageWarning } from "../integrations/skill-render.js";
 import { cmdInstall, cmdUninstall, MANAGED_SKILLS, MANAGED_AGENTS } from "../integrations/install.js";
 import { ensureWorksStructure } from "../workflow/features.js";
@@ -256,5 +257,32 @@ describe("shared kf-* copies for the other runtimes", () => {
     const res = await cmdUninstall(["codex", "gemini"], { cwd: dir, scope: "project" });
     expect(res.code).toBe(0);
     expect(await kfDirs(shared())).toEqual([]);
+  });
+});
+
+describe("devin agent target dirs", () => {
+  const devin = agentById("devin")!;
+  const HOME = join(tmpdir(), "kf-devin-home");
+
+  it("resolves the project agents dir under .devin/agents", () => {
+    expect(projectAgentsDir(devin, "/repo")).toBe(join("/repo", ".devin", "agents"));
+  });
+
+  it("resolves the user agents dir under ~/.config/devin/agents on darwin and linux", () => {
+    for (const platform of ["darwin", "linux"] as const) {
+      expect(userAgentsDir(devin, HOME, platform), platform).toBe(join(HOME, ".config", "devin", "agents"));
+    }
+  });
+
+  it("resolves the user agents dir under %APPDATA%\\devin\\agents on win32", () => {
+    const appdata = "C:\\Users\\dev\\AppData\\Roaming";
+    const saved = process.env.APPDATA;
+    process.env.APPDATA = appdata;
+    try {
+      expect(userAgentsDir(devin, HOME, "win32")).toBe(win32.join(appdata, "devin", "agents"));
+    } finally {
+      if (saved === undefined) delete process.env.APPDATA;
+      else process.env.APPDATA = saved;
+    }
   });
 });

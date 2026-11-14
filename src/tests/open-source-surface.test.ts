@@ -10,6 +10,7 @@ import { renderDashboardHtml, dashboardData } from "../dashboard/dashboard.js";
 import { PHASE_NAMES, STAGES } from "../workflow/schema.js";
 import { MANAGED_AGENTS, MANAGED_SKILLS } from "../integrations/managed.js";
 import { cmdStage } from "../cli/commands/stage.js";
+import { commandHelp } from "../cli/args.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -604,6 +605,69 @@ describe("the living-docs text surfaces", () => {
     const section = changelog.slice(start, changelog.indexOf("\n## [", start + 1));
     for (const needle of ["Breaking", "--skip-specs", "--purge-docs", "kf:docs", "validate --all"]) {
       expect(section, needle).toContain(needle);
+    }
+  });
+});
+
+describe("the harness tools doc binds the kanban actions for Devin", () => {
+  const doc = readFileSync(join(ROOT, "assets", "shared", "harness-tools.md"), "utf8");
+
+  /** The markdown table whose header row names every needle, parsed to trimmed cells with the --- separator row dropped. */
+  function tableWithHeader(needles: string[]): string[][] {
+    const lines = doc.split("\n");
+    const start = lines.findIndex((line) => line.trim().startsWith("|") && needles.every((needle) => line.includes(needle)));
+    expect(start, `a table headed ${needles.join(" | ")}`).toBeGreaterThanOrEqual(0);
+    const rows: string[][] = [];
+    for (let i = start; i < lines.length && lines[i].trim().startsWith("|"); i++) {
+      const cells = lines[i].split("|").slice(1, -1).map((cell) => cell.trim());
+      if (!cells.every((cell) => /^:?-{2,}:?$/.test(cell))) rows.push(cells);
+    }
+    return rows;
+  }
+
+  const devinColumn = (header: string[]) => header.findIndex((cell) => /devin/i.test(cell));
+
+  it("adds a Devin column to the action table, filled on every row", () => {
+    const table = tableWithHeader(["Action", "Claude Code", "Codex"]);
+    const devin = devinColumn(table[0]);
+    expect(devin, "the Devin column header").toBeGreaterThanOrEqual(0);
+    const rows = table.slice(1);
+    expect(rows.length).toBeGreaterThan(5);
+    for (const row of rows) {
+      expect(row.length, row[0]).toBe(table[0].length);
+      expect(row[devin] ?? "", row[0]).not.toBe("");
+    }
+  });
+
+  it("binds the dispatch, choose, background, skill and CLI actions to Devin's tools", () => {
+    const table = tableWithHeader(["Action", "Claude Code", "Codex"]);
+    const column = table.slice(1).map((row) => row[devinColumn(table[0])] ?? "").join("\n");
+    for (const tool of ["run_subagent", "ask_user_question", "exec", "timeout: 0", "get_output", "kill_shell", "kf-<phase>"]) {
+      expect(column, tool).toContain(tool);
+    }
+  });
+
+  it("maps the standard, strong and top tiers to sonnet, opus and opus for Devin", () => {
+    const table = tableWithHeader(["Tier", "Claude Code", "Seats"]);
+    const devin = devinColumn(table[0]);
+    expect(devin, "the Devin column in the model-tier table").toBeGreaterThanOrEqual(0);
+    const cell = (tier: string) => (table.find((row) => row[0] === tier)?.[devin] ?? "").replace(/`/g, "");
+    expect(cell("standard")).toMatch(/\bsonnet\b/);
+    expect(cell("strong")).toMatch(/\bopus\b/);
+    expect(cell("top")).toMatch(/\bopus\b/);
+  });
+
+  it("notes that the top tier is unavailable for Devin", () => {
+    const table = tableWithHeader(["Tier", "Claude Code", "Seats"]);
+    const top = table.find((row) => row[0] === "top") ?? [];
+    const notedInRow = top.some((cell) => /unavailable/i.test(cell));
+    const notedBesideDevin = /devin[^\n]*unavailable|unavailable[^\n]*devin/i.test(doc);
+    expect(notedInRow || notedBesideDevin, "a `top tier unavailable` note tied to Devin").toBe(true);
+  });
+
+  it("names the devin agents dir in the install and uninstall help", () => {
+    for (const command of ["install", "uninstall"]) {
+      expect(commandHelp(command), command).toContain("~/.config/devin/agents");
     }
   });
 });

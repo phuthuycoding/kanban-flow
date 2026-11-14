@@ -43,3 +43,62 @@ export function renderSkillMd(text: string, copyRoot: string, name: string): str
 export function ephemeralPackageWarning(copyRoots: string): string {
   return `⚠ the copies in ${copyRoots} point at ${PKG_ROOT}, a temporary package cache — install kf globally (npm i -g @phuthuycoding/kanban-flow) and re-run kf install so they keep resolving`;
 }
+
+/** The Devin `allowed-tools` name of each Claude tool; Edit and Write share `edit`. An `mcp__<server>__<tool>` name passes through verbatim — any other name has no Devin equivalent. */
+const DEVIN_TOOLS: Readonly<Record<string, string>> = {
+  Read: "read",
+  Edit: "edit",
+  Write: "edit",
+  Grep: "grep",
+  Glob: "glob",
+  Bash: "exec",
+};
+
+/**
+ * Render a packaged Claude agent profile for Devin's agent registry: the frontmatter `name:`
+ * becomes `kf-<seat>` and the `tools:` list becomes Devin's `allowed-tools:` names. A seat
+ * carrying a tool with no Devin name emits no allowed-tools key at all — a partial list would
+ * silently cut its tools. The rest of the frontmatter and the body carry over unchanged.
+ */
+export function renderAgentProfile(text: string, seat: string): string {
+  const m = text.match(/^---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/);
+  if (!m) return text;
+  const block = m[0];
+  const eol = block.includes("\r\n") ? "\r\n" : "\n";
+  const lines = block.split(/\r?\n/);
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^name\s*:/.test(line)) {
+      out.push(`name: ${copyName(seat)}`);
+      continue;
+    }
+    const tools = line.match(/^tools\s*:\s*(.*)$/);
+    if (!tools) {
+      out.push(line);
+      continue;
+    }
+    // The tools entry is an inline list, a [flow] list or a `- item` block; collect the names.
+    const raw: string[] = [];
+    const inline = tools[1].trim().replace(/^\[/, "").replace(/\]$/, "");
+    if (inline) raw.push(...inline.split(","));
+    else {
+      while (i + 1 < lines.length && /^\s*-\s+/.test(lines[i + 1])) {
+        i += 1;
+        raw.push(lines[i].replace(/^\s*-\s*/, ""));
+      }
+    }
+    const allowed: string[] = [];
+    let translatable = true;
+    for (const name of raw.map((t) => t.trim().replace(/^["']|["']$/g, "")).filter(Boolean)) {
+      const devin = DEVIN_TOOLS[name] ?? (name.startsWith("mcp__") ? name : null);
+      if (devin === null) {
+        translatable = false;
+        break;
+      }
+      if (!allowed.includes(devin)) allowed.push(devin);
+    }
+    if (translatable && allowed.length > 0) out.push(`allowed-tools: ${allowed.join(", ")}`);
+  }
+  return out.join(eol) + text.slice(block.length);
+}
