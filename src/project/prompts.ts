@@ -189,7 +189,14 @@ export async function withLoading<T>(message: string, work: () => Promise<T>): P
       }
       return;
     }
-    work().then(
+    let running: Promise<T>;
+    try {
+      running = work();
+    } catch (err) {
+      finish(() => reject(err));
+      return;
+    }
+    running.then(
       (value) => finish(() => resolveP(value)),
       (err) => finish(() => reject(err)),
     );

@@ -448,6 +448,25 @@ describe("interactive prompts on the terminal", () => {
       expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
     });
 
+    it("rejects with the same error when the work throws synchronously and restores the terminal", async () => {
+      fakeTerminal();
+      vi.useFakeTimers();
+      try {
+        const before = { key: keypressListeners(), end: endListeners() };
+        const failure = new Error("work threw before returning a promise");
+        const result = withLoading(MESSAGE, () => {
+          throw failure;
+        });
+        await expect(result).rejects.toBe(failure);
+        expect(rawModeCalls.at(-1)).toBe(false);
+        expect(written.slice(-2)).toEqual(["\r\x1b[K", "\x1b[?25h"]);
+        expect({ key: keypressListeners(), end: endListeners() }).toEqual(before);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("stops the spinner timer once the work settles", async () => {
       fakeTerminal();
       vi.useFakeTimers();
