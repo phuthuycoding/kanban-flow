@@ -69,6 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # deletes tag and branch refs, and their releases
+      pull-requests: read # lists open-PR heads so their branches are never deleted
     steps:
       - name: Prune to the 10 newest release tags and branches
         env:
@@ -78,20 +79,24 @@ jobs:
           set -euo pipefail
           keep=10
 
-          tags="$(gh api --paginate "repos/$REPO/git/matching-refs/tags" --jq '.[].ref' \
-            | sed 's|refs/tags/||' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)"
+          # This job runs no checkout: every gh call names the repo explicitly, and
+          # each filter ends in `|| true` so an empty match is a no-op, not a failure.
+          raw="$(gh api --paginate "repos/$REPO/git/matching-refs/tags" --jq '.[].ref')"
+          tags="$(printf '%s\n' "$raw" | sed 's|refs/tags/||' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true)"
           total="$(printf '%s\n' "$tags" | grep -c . || true)"
           if [ "$total" -gt "$keep" ]; then
             printf '%s\n' "$tags" | head -n "$((total - keep))" | while read -r tag; do
               # --cleanup-tag removes the tag with its release; plain refs fall back to a ref delete.
-              gh release delete "$tag" --yes --cleanup-tag 2>/dev/null \
+              gh release delete "$tag" --yes --cleanup-tag -R "$REPO" 2>/dev/null \
                 || gh api -X DELETE "repos/$REPO/git/refs/tags/$tag"
             done
           fi
 
           open_heads="$(gh pr list --repo "$REPO" --state open --json headRefName --jq '.[].headRefName')"
-          branches="$(gh api --paginate "repos/$REPO/git/matching-refs/heads" --jq '.[].ref' \
-            | sed 's|refs/heads/||' | grep -E '(^|/)release[-/]' | sort -V)"
+          raw="$(gh api --paginate "repos/$REPO/git/matching-refs/heads" --jq '.[].ref')"
+          branches="$(printf '%s\n' "$raw" | sed 's|refs/heads/||' \
+            | grep -E '(^|/)release[-/]' | sort -V || true)"
           total="$(printf '%s\n' "$branches" | grep -c . || true)"
           if [ "$total" -gt "$keep" ]; then
             printf '%s\n' "$branches" | head -n "$((total - keep))" | while read -r branch; do
