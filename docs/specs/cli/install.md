@@ -41,3 +41,4 @@ Put the kf skills and agents where the AI runtime reads them — for every proje
 
 ## History
 - 2026-11-13 — install-onboarding: kf install/uninstall TTY onboarding (setup mode, step by step: agents, scope, purge, confirm), workspace scope (Claude Code plugin at local scope in the folder holding .kf/workspace.json), optional removal of the user-scope plugin, marketplace kept while any kf install remains; consolidates cli/skill-scope
+- 2026-11-14 — install-scope-prompt: Enter on an unavailable row prints its reason, prompts redraw correctly when a row is wider than the terminal, the user-scope probe shows a loading line that ignores typed keys and aborts on Ctrl+C (bug #205; regression: src/tests/prompts.test.ts, src/tests/install-onboarding.pty.test.ts)
