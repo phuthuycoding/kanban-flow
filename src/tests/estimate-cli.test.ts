@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 
 import { ensureWorksStructure } from "../workflow/features.js";
 import { filesOverlap } from "../workflow/allowlist.js";
+import { cmdEstimate } from "../cli/commands/estimate.js";
+import { parseArgsCli } from "../cli/args.js";
 
 /*
  * `kf estimate size|stats|overlap` must print the lines and exit code the travel `estimates` script printed
@@ -324,5 +326,145 @@ describe("kf estimate overlap", () => {
     expect(r.code).toBe(0);
     const strip = (list: string[]) => list.map((p) => p.replace(/`/g, ""));
     expect(r.out).toEqual([filesOverlap(strip(a), strip(b)) ? "sequential" : "parallel"]);
+  });
+});
+
+/*
+ * The same commands driven in-process, so the command module itself is measured: a spawned child process is
+ * invisible to coverage. Expected strings repeat the ones pinned above.
+ */
+describe("kf estimate in-process", () => {
+  const run = (...argv: string[]) => cmdEstimate(parseArgsCli(["estimate", ...argv]), root);
+  const lines = (text: string) => text.split("\n");
+
+  it("sizes known files by the defaults", async () => {
+    const r = await run("size", "12", "4");
+    expect(r.code).toBe(0);
+    expect(lines(r.stdout)).toEqual(["M", "points: 2", "defaults (0 rows measured)"]);
+  });
+
+  it("sizes unknown files from the minutes alone", async () => {
+    const r = await run("size", "70", "unknown");
+    expect(r.code).toBe(0);
+    expect(lines(r.stdout)).toEqual(["XL", "points: 8 (should split)", "defaults (0 rows measured)"]);
+  });
+
+  it("learns a factor with --kind when the history has 20 rows", async () => {
+    await legacy(ledger(ratioRows(20, 10, 20)));
+    const r = await run("size", "15", "4", "--kind", "feature");
+    expect(r.code).toBe(0);
+    expect(lines(r.stdout)).toEqual(["L", "points: 4", "learned: 15 min × 2 = 30 min (feature, last 20 rows)"]);
+  });
+
+  it("keeps the defaults with --kind and no history", async () => {
+    const r = await run("size", "12", "4", "--kind", "feature");
+    expect(r.code).toBe(0);
+    expect(lines(r.stdout)).toEqual(["M", "points: 2", "defaults (0 feature rows with estmin)"]);
+  });
+
+  it("rejects an unknown kind", async () => {
+    const r = await run("size", "4", "3", "--kind", "featur");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("kind must be feature|bug|pr");
+  });
+
+  it("rejects a wrong number of size arguments", async () => {
+    const r = await run("size", "4");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("usage: estimates size");
+  });
+
+  it("rejects a bad minutes number", async () => {
+    const r = await run("size", "x", "4");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("minutes must be a non-negative number");
+  });
+
+  it("rejects a fractional files number", async () => {
+    const r = await run("size", "4", "2.5");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("files must be a whole number");
+  });
+
+  it("reports stats for the history", async () => {
+    await legacy(ledger(ratioRows(20, 10, 15)));
+    const r = await run("stats");
+    expect(r.code).toBe(0);
+    expect(lines(r.stdout)).toContain("kind feature: hit rate 20/20, bias 0.0 sizes, factor 1.5 (median of last 20 rows)");
+  });
+
+  it("reports stats for an empty history", async () => {
+    const r = await run("stats");
+    expect(r.code).toBe(0);
+    expect(lines(r.stdout)).toContain("hit rate: 0/0");
+  });
+
+  it("rejects extra stats arguments and --kind", async () => {
+    const extra = await run("stats", "extra");
+    expect(extra.code).toBe(1);
+    expect(extra.stderr).toContain("usage: estimates stats");
+    const kind = await run("stats", "--kind", "bug");
+    expect(kind.code).toBe(1);
+    expect(kind.stderr).toContain("usage: estimates stats");
+  });
+
+  it("calls overlapping file lists sequential", async () => {
+    const r = await run("overlap", "src/workflow/schema.ts, src/cli/args.ts", "src/cli/args.ts");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("sequential");
+  });
+
+  it("calls disjoint file lists parallel", async () => {
+    const r = await run("overlap", "src/a.ts", "docs/b.md");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("parallel");
+  });
+
+  it("needs exactly two overlap cells", async () => {
+    const r = await run("overlap", "src/a.ts");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("usage: estimates overlap");
+  });
+
+  it("rejects an unknown subcommand with the usage error", async () => {
+    const r = await run("nope");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("usage: estimates size|stats|overlap|show … (got nope)");
+  });
+
+  it("rejects a missing subcommand with the usage error", async () => {
+    const r = await run();
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("(got nothing)");
+  });
+
+  it("refuses a malformed history with exit 1 naming file and line", async () => {
+    await legacy(`${HEADER}\n2026-10-01 · t1 · demo\n`);
+    const r = await run("stats");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("estimates.md:2: expected 14 fields");
+  });
+
+  it("refuses to run outside a .works project", async () => {
+    const outside = realpathSync(await mkdtemp(join(tmpdir(), "kf-estimate-outside-")));
+    try {
+      const r = await cmdEstimate(parseArgsCli(["estimate", "stats"]), outside);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain("No .works found");
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses show for an unknown feature", async () => {
+    const r = await run("show", "nowhere");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("Unknown feature 'nowhere'");
+  });
+
+  it("refuses show without exactly one feature", async () => {
+    const r = await run("show");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("usage: estimates show <feature> [--json]");
   });
 });
