@@ -63,7 +63,7 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `listFeatures` | function | stable | Every work item of a project; an item whose `.kfw.json` is invalid is listed with `metaError`, never thrown |
 | `findFeature` | function | stable | One work item by name or full folder name; throws `AmbiguousFeatureError` when the name matches more than one folder |
 | `AmbiguousFeatureError` | class | stable | The error `findFeature` throws on an ambiguous name; its message names the matching folders |
-| `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid; returns `null` when the folder has no `.kfw.json`, and an fs error is rethrown as is |
+| `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid; returns `null` when the folder has no `.kfw.json`, and an fs error is rethrown as is; an `estimate` or `filesChanged` value it cannot read is dropped from the result instead of thrown on |
 | `executionContractHash` | function | stable | The contract fingerprint `approval.contractHash` is compared with |
 | `Feature` | type | stable | A work item: name, `context`, stage, folder, `dir` and metadata; an item whose `.kfw.json` is invalid has `meta` null and `metaError` set |
 | `FeatureMeta` | type | stable | The `.kfw.json` snapshot |
