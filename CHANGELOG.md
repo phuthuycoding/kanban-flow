@@ -4,6 +4,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Fixed
+- **Install onboarding prompts.** Enter on an unavailable row (for example `project` outside a project) now prints the reason under the rows instead of doing nothing. While `kf install` checks for a user-scope install it shows `Checking the Claude Code plugin install…` with a spinner, ignores keys typed meanwhile (they used to move the cursor of the next step, so the user-scope removal could be picked unseen) and lets Ctrl+C abort with nothing changed. Prompts also redraw correctly when a row is wider than the terminal, and the terminal is restored when the loading work throws.
+
 ## [0.21.0] - 2026-11-14
 
 ### Added

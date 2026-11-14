@@ -84,6 +84,19 @@ async function writeStub(): Promise<void> {
   await chmod(join(bin, "claude"), 0o755);
 }
 
+/** A `claude` whose plugin list reports a user-scope kf install after a one second probe. */
+async function writeUserScopeStub(): Promise<void> {
+  const script = [
+    "#!/bin/sh",
+    'echo "$*" >> "$KF_STUB_LOG"',
+    'if [ "$1 $2" = "plugin list" ]; then sleep 1; echo \'[{"id":"kf@kanban-flow","scope":"user","enabled":true}]\'; fi',
+    "exit 0",
+    "",
+  ].join("\n");
+  await writeFile(join(bin, "claude"), script);
+  await chmod(join(bin, "claude"), 0o755);
+}
+
 const calls = async () => (existsSync(log) ? (await readFile(log, "utf8")).split("\n").filter(Boolean) : []);
 
 function kfOnPty(cwd: string, steps: [string, string][], ...argv: string[]): Run {
@@ -174,4 +187,54 @@ describe.skipIf(process.platform === "win32")("kf install and kf uninstall onboa
     expect(existsSync(join(proj, ".kf"))).toBe(true);
     expect(await calls()).toEqual([]);
   }, 130_000);
+
+  describe("workspace scope with a user-scope install present", () => {
+    let ws: string;
+    beforeEach(async () => {
+      await writeUserScopeStub();
+      ws = join(dir, "ws");
+      await mkdir(ws);
+    });
+
+    it("ignores keys typed while the user-scope install is being checked, so the removal step stays on No", async () => {
+      const res = kfOnPty(ws, [
+        ["Setup mode", DOWN + ENTER],
+        ["Step 1/3", ENTER],
+        ["Step 2/3", DOWN + DOWN + ENTER],
+        ["Checking the Claude Code plugin install", DOWN],
+        ["Step 3/4", ENTER],
+        ["Step 4/4", DOWN + ENTER],
+      ], "install");
+      expect(res.failed, res.out).toBe("");
+      expect(res.code, res.out).toBe(0);
+      expect(res.out).toContain("Nothing changed.");
+      const summary = res.out.split("\n").find((l) => l.includes("Install claude at scope workspace"));
+      expect(summary, res.out).toBeDefined();
+      expect(summary).not.toContain("then remove the user-scope install");
+      const log = await calls();
+      expect(log.filter((c) => c.startsWith("plugin install") || c.startsWith("plugin uninstall"))).toEqual([]);
+      expect(existsSync(join(ws, ".kf", "workspace.json"))).toBe(false);
+      expect(res.echo, "terminal echo is back on").toBe(true);
+    }, 130_000);
+
+    it("offers the user-scope removal step and carries the choice into the summary", async () => {
+      const res = kfOnPty(ws, [
+        ["Setup mode", DOWN + ENTER],
+        ["Step 1/3", ENTER],
+        ["Step 2/3", DOWN + DOWN + ENTER],
+        ["Step 3/4", DOWN + ENTER],
+        ["Step 4/4", DOWN + ENTER],
+      ], "install");
+      expect(res.failed, res.out).toBe("");
+      expect(res.out).toContain("kf is also installed for every project (user scope)");
+      const summary = res.out.split("\n").find((l) => l.includes("Install claude at scope workspace"));
+      expect(summary, res.out).toBeDefined();
+      expect(summary).toContain("then remove the user-scope install");
+      expect(res.code, res.out).toBe(0);
+      expect(res.out).toContain("Nothing changed.");
+      const log = await calls();
+      expect(log.filter((c) => c.startsWith("plugin install") || c.startsWith("plugin uninstall"))).toEqual([]);
+      expect(res.echo, "terminal echo is back on").toBe(true);
+    }, 130_000);
+  });
 });
