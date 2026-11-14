@@ -32,6 +32,8 @@ Read and fill `phase-1-spec-requirement.md` using the bug template (`kf instruct
 - Regression test strategy and acceptance criteria that can be checked.
 - The related feature when you can identify it, and the docs impact: which existing living doc under `docs/specs/<context>/` needs changing and why, or that no docs change is needed. A bug fix updates a living doc and never creates one.
 
+- **`## Estimate`**: fill `- Agent minutes: <n>` with your own estimate of the fix in raw minutes, before calibration: do not apply a factor yourself. `kf approve` records it; a bug's file count is unknown, so its size comes from the minutes alone.
+
 - **Sibling entry points**: list what else reaches the broken code, under the report's `## Scope` — `### In Scope` for those the fix covers, `### Out of Scope` for the rest. Review will ask which of them the fix covers, so naming them here is cheaper than discovering them later.
 
 Do not guess a root cause to make the report look finished. If you cannot reproduce it, report the blocker plainly and never assume the bug is PASS.

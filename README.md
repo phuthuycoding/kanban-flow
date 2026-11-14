@@ -40,6 +40,12 @@ in its own session, and sorts what comes back into decisions (approve a spec) an
 actions (merge this PR). Each ticket still walks the **item** ladder above, one
 worktree per started item. Travel never approves, merges or archives.
 
+Estimation is harness data. The plan (or bug report) states `- Agent minutes: <n>`
+under `## Estimate`, `kf approve` records it with its size, and the close writes the
+item's measurement to `<item>/metrics.json` (`kf metrics <feature>`). `kf estimate
+size|stats|overlap|show` computes sizes, the daily budget and calibration from that
+history; travel only reads it.
+
 Every lifecycle command has a git-flow-style spelling too — `kf feature <verb>` / `kf bug <verb>` (`start | list | show | move | approve | ship | finish | drop`); the flat commands remain permanent aliases.
 
 Upgrading: the first `kf status` or `kf sync` moves any `.works/dones/*` item to
@@ -267,7 +273,9 @@ kf record user-login dispatched TASK-001 developer --model sonnet  # appends one
 kf verify user-login --task TASK-001 --base <sha>     # the task's commits stay inside its Files; runs harness.verify.task
 kf verify user-login --task TASK-002 --commits <sha>[,<sha>…] [--at-head]  # exactly those commits, in a detached worktree at the newest, or at HEAD (pipelined loop)
 kf verify user-login --wave 1                         # a complete wave's full suite (harness.verify.stage) in a detached worktree at HEAD; recorded like --stage
-kf loop-stats user-login --record                     # where the loop's time went; writes (replacing any earlier) the item's row in .works/loop-metrics.md
+kf loop-stats user-login                              # where the loop's time went; the close writes the item's row in .works/loop-metrics.md
+kf estimate show user-login                           # the estimate kf approve recorded: minutes, files, size, factor
+kf metrics user-login                                 # after the close: estimate vs actual, stage times, seat time, files changed
 kf verify user-login --stage                          # runs harness.verify.stage, records the run in loop/stage-verify.jsonl
 kf verify user-login --stage --waive "no suite yet"   # no harness.verify.stage pinned: the human's reason to enter review
 kf doctor --fix                                       # strips the removed harness keys and leftover run state

@@ -7,7 +7,7 @@ Plan YYYY-MM-DD — slots: 3 | budget: 8 points (median of 3 days)
 Batch 1 (7/8 points)
   t1 · workflow-slim · feature · L · carry-over — blocked yesterday: cap reached on TASK-003, fixed by the human
   t2 · cli-refactor · feature · M · review
-  t3 · login-timeout · bug · S · implementation — sequential with t2 (src/cli/*)
+  t3 · login-timeout · bug · S · implementation — no item estimate, sized for today — sequential with t2 (src/cli/*)
 Batch 2 (if Batch 1 drains)
   t4 · board-colours · feature · M · implementation
   t5 · docs-split · feature · XL · should split — not dispatched until split or overridden
@@ -27,10 +27,11 @@ Approve, or edit (drop / reorder / resize / override XL / slots=N)?
 Rules:
 
 - One line per item: `<id> · <feature> · <kind> · <size> · <stage or carry-over reason>`. `kind` is `feature`, `bug` or `pr` (a red-CI PR with no item).
+- The size is the item's recorded estimate (`kf estimate show <f> --json` → `size`), carried lines included. An item with none, and a `pr` line, is sized for the day only with `kf estimate size` and its line says `no item estimate`.
 - Ids `t1`, `t2`, … are per day; a carried line gets a new id and keeps its note.
 - Batch 1 fills in priority order — carry-over, review, testing, implementation — until the next line would exceed the budget (points, or the `10 tasks` default counted in lines). The rest is Batch 2.
 - Mark every `sequential` pair on the later line (`sequential with t2 (<overlapping path>)`).
 - An XL line says `should split`; it is listed but not dispatched until the human splits it or overrides it here.
 - Needs you and Waiting to merge come from `kf status --all --json` (`needsYou[]`, including `canonical docs for <f> never landed` decisions — re-land them with `kf archive <f>` or leave them, the human's call — and `run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed (<reason>); if they still are not, re-land them on a fresh docs branch for a PR with kf archive <f>, or leave them` decisions when no lookup could run; `waitingToMerge[]`, including `docsBranch` entries with their own `command`; docs branches exist only for items an earlier release closed, since the close now writes nothing under `docs/`) plus travel's own decisions (XL, red CI with no item).
-- Calibration is the `calibration:` and `kind <k>:` lines of `estimates stats` (`calibration: none yet` below 3 measured days).
+- Calibration is the `calibration:` and `kind <k>:` lines of `kf estimate stats` (`calibration: none yet` below 3 measured days).
 - Empty sections print `  (none)`.

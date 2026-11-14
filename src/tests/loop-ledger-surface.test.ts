@@ -267,32 +267,20 @@ describe("a stand-in seat in the ledger", () => {
 });
 
 describe("the loop's measurement report", () => {
-  it("records the item's figures and prints the report and the largest bucket beside the rulings", () => {
-    const report = paragraphWith(finalSection(), "kf loop-stats <f> --record");
+  it("prints the report and the largest bucket beside the rulings, and leaves the row to the close", () => {
+    const report = paragraphWith(finalSection(), "kf loop-stats <f>");
     expect(report).toContain("kf loop-stats --all");
+    expect(report).toContain("The close writes the item's measurement");
+    expect(report).not.toMatch(/kf loop-stats\s+\S+\s+--record/);
     expect(report).toContain("largest:");
     expect(report).toContain("Rulings I made");
   });
 });
 
-describe("travel's measured work and review minutes", () => {
-  it("takes the implementation phase's work and review from kf loop-stats when the ledger is timestamped", () => {
-    const measure = paragraphWith(travel(), "seat minutes, verify excluded");
-    for (const s of ["--work", "--review", "code-reviewer minutes", "kf loop-stats <f> --json", "timestamped seat lines", "from seat notifications otherwise"]) {
-      expect(measure, s).toContain(s);
-    }
-    expect(travel()).toMatch(/testing and review phases[^.\n]*notification/i);
-  });
-
-  it("says in estimation.md which source the work and review rows used, and still counts fix round lines for rounds", () => {
-    const rows = estimation().split("\n");
-    for (const field of ["work", "review"]) {
-      const row = rows.find((r) => r.startsWith(`| ${field} |`));
-      expect(row, field).toBeDefined();
-      expect(row, field).toContain("kf loop-stats <f> --json");
-      expect(row, field).toMatch(/notification/);
-    }
-    const rounds = rows.find((r) => r.startsWith("| rounds |"));
-    expect(rounds).toContain("the number of `fix round` lines");
+describe("travel's measured work", () => {
+  it("leaves the measurement to the close and passes no minutes", () => {
+    expect(travel()).toContain("kf's close measured the item");
+    expect(travel()).toContain("Travel appends no row and passes no minutes");
+    expect(estimation()).toContain("metrics.json");
   });
 });

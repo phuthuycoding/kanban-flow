@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { PKG_ROOT } from "../shared/paths.js";
@@ -22,7 +22,7 @@ describe("the travel skill", () => {
 
   it("plans the morning, waits for the human, and resumes the same day", () => {
     for (const s of ["date +%F", "kf status --all --json", "carry-over", "wait for the human to approve", "Batch 1", "Calibration",
-      "same-day re-entry", "do not rebuild the plan", "`## YYYY-MM-DD`", "progress.md", "estimates.md", "slots=N", "default 3"]) {
+      "same-day re-entry", "do not rebuild the plan", "`## YYYY-MM-DD`", "progress.md", "slots=N", "default 3"]) {
       expect(skill, s).toContain(s);
     }
   });
@@ -52,17 +52,9 @@ describe("the travel skill", () => {
   it("keeps sequential pairs apart and independent items in their own worktrees", () => {
     expect(skill).toContain("`sequential` pair is never dispatched in the same tick");
     expect(skill).toContain("two independent items run in two worktrees");
-    expect(skill).toContain("estimates overlap");
+    expect(skill).toContain("kf estimate overlap");
     expect(skill).toMatch(/`sequential` partners \(if any\) are all `done`/);
     expect(skill).toMatch(/a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks/);
-  });
-
-  it("adds a seat's duration to work and, for a review seat, to review as well, unless the item's ledger is timestamped", () => {
-    expect(skill).toMatch(/add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`/);
-    // Implementation-phase minutes come from kf loop-stats when the ledger is timestamped, so the step must say the sum excludes them.
-    const step = skill.split("\n").find((l) => l.includes("add the seat's reported duration")) ?? "";
-    expect(step).toMatch(/timestamped/);
-    expect(skill).not.toMatch(/\(`review=<n>` for a review seat\)/);
   });
 
   it("dispatches seats in the background so another item advances while they run", () => {
@@ -90,8 +82,8 @@ describe("the travel skill", () => {
     expect(ledger).toMatch(/`waiting-to-merge`[^\n]*review[^\n]*PASS[^\n]*PR[^\n]*open/i);
   });
 
-  it("never calls kf drive anywhere in the skill, its references or its script", () => {
-    const texts = [skill, read("references", "daily-plan.md"), read("references", "ledger-format.md"), read("references", "estimation.md"), read("scripts", "estimates")];
+  it("never calls kf drive anywhere in the skill or its references", () => {
+    const texts = [skill, read("references", "daily-plan.md"), read("references", "ledger-format.md"), read("references", "estimation.md")];
     for (const text of texts) {
       expect(text).not.toMatch(/kf drive/);
       expect(text).not.toMatch(/--status --json/);
@@ -161,32 +153,28 @@ describe("the travel skill", () => {
     }
   });
 
-  it("sizes by kind and measures a carried line against its first estimate", () => {
-    expect(skill).toContain("estimates size <minutes> <files> .kf/travel/estimates.md <kind>");
-    const measure = bashBlocks(skill).find((b) => b.includes("estimates measure")) ?? "";
-    expect(measure).toContain("--est <est0>");
-    expect(measure).toContain("--estmin <n>");
-    expect(skill).toContain("A carried line keeps its first `est0` and `estmin`");
+  it("uses the item's recorded estimate and sizes only a line without one, for the day, by kind", () => {
+    expect(skill).toContain("kf estimate show <f> --json");
+    expect(skill).toContain("An item with a recorded estimate is not sized again");
+    expect(skill).toContain("kf estimate size <minutes> <files|unknown> --kind <kind>");
+    expect(skill).toContain("kf estimate stats");
     expect(skill).not.toContain("learn=no");
-    for (const ref of ["ledger-format.md", "estimation.md"]) {
-      const text = read("references", ref);
-      for (const s of ["est0=<size>"]) expect(text, `${ref} ${s}`).toContain(s);
+    for (const ref of ["ledger-format.md", "estimation.md", "daily-plan.md"]) {
+      expect(read("references", ref), ref).toContain("no item estimate");
     }
   });
 
-  it("ships its references and an executable estimates script", () => {
+  it("ships its references and no estimates script", () => {
     for (const ref of ["daily-plan.md", "ledger-format.md", "estimation.md"]) {
       expect(existsSync(join(DIR, "references", ref)), ref).toBe(true);
       expect(skill).toContain(`references/${ref}`);
     }
-    const script = join(DIR, "scripts", "estimates");
-    expect(readFileSync(script, "utf8").startsWith("#!/usr/bin/env node\n")).toBe(true);
-    expect(statSync(script).mode & 0o111).not.toBe(0);
+    expect(existsSync(join(DIR, "scripts"))).toBe(false);
   });
 
-  it("documents the estimates row fields in order and the sizes", () => {
+  it("documents the sizes and the learned factor kf computes", () => {
     const estimation = read("references", "estimation.md");
-    expect(estimation).toContain("date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin");
+    expect(estimation).toContain("metrics.json");
     for (const s of ["| S | 1 |", "| M | 2 |", "| L | 4 |", "| XL | 8 |", "should split", "≥ 20 measured rows", "last 30", "median of `work ÷ estmin`",
       "clamped to 0.5–3", "file count is not corrected", "10 tasks"]) {
       expect(estimation, s).toContain(s);

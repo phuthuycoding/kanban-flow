@@ -11,14 +11,13 @@ Travel runs the **day**, and after approval it is the controller: this session r
 
 **Travel never approves, archives, merges or pushes to main.** It never runs `kf approve`, `kf archive`, `kf cancel` or a merge (`gh pr merge`, `git merge`), and never pushes to main; its `kf status --all` refresh does close an item whose PR the human already merged — that close is kf's, on the human's merge. It may run the forward `kf stage` moves (implementation to testing to review), `kf stage <f> implementation` from testing or review on a FAIL verdict (the repair loop), and the item branch push and `gh pr create` that kf:test and kf:review prescribe, inside the item worktree. Every other backward, planning or backlog `kf stage` move, and every REQUIREMENT_BUG, is the human's. The human's commands are printed as Needs you or Waiting to merge lines with the exact command. Phase skills run inside the item worktree and branch, never on main.
 
-State lives in two files under `.kf/travel/`, which is gitignored: `kf init` adds the `.gitignore` entry, and `kf doctor --fix` adds it to an upgraded project:
+State lives in one file under `.kf/travel/`, which is gitignored: `kf init` adds the `.gitignore` entry, and `kf doctor --fix` adds it to an upgraded project:
 
 | File | Holds | Format |
 |---|---|---|
 | `.kf/travel/progress.md` | the ledger: one `## YYYY-MM-DD` section per day | [references/ledger-format.md](references/ledger-format.md) |
-| `.kf/travel/estimates.md` | one measured row per `done` line | [references/estimation.md](references/estimation.md) |
 
-The helper is `node ${CLAUDE_PLUGIN_ROOT}/assets/skills/travel/scripts/estimates` (`size`, `measure`, `stats`, `overlap`); it reads only its arguments and `estimates.md`. Below, `estimates` means that command.
+**Estimation is harness data; travel only reads it.** `kf approve` records each item's estimate from its contract's `## Estimate` section, and the close writes the item's measurement to `<item>/metrics.json` (`kf metrics <f>`). Travel reads them through `kf estimate show`, `kf estimate size`, `kf estimate stats` and `kf estimate overlap` ([references/estimation.md](references/estimation.md)), and writes no estimate or measurement itself.
 
 ---
 
@@ -40,12 +39,12 @@ Read the last `## ` section of `.kf/travel/progress.md`.
 2. **Actionable kf items.** From `kf status --all --json` → `features[]`: `stage` ∈ implementation / testing / review and `approval: "approved"`, not already a candidate. Skip any item with a `blocked` or `owner=human` line in the last section (§5).
 3. **Red CI.** `gh pr list --state open --json number,url,headRefName,statusCheckRollup`: a PR with a failing check whose `headRefName` is an item's `worktree.branch` joins that item's line (note `CI red`); one that maps to no item goes to Needs you.
 4. **Buckets.** `needsYou[]` and `waitingToMerge[]` of the same JSON become the plan's Needs you and Waiting to merge sections verbatim — including a `docsBranch` entry in `waitingToMerge[]` (legacy only: a canonical-docs branch an earlier release's close left — today's close writes nothing under `docs/` — awaiting push, or not proven merged with a `reason`, with the entry's own `command`) and a `canonical docs for <f> never landed` decision in `needsYou[]` (a docs branch with nothing left to push and no landing proven: re-land or leave them), or a `run <remedy> first, then re-run kf status --all: canonical docs for <f> are not proven landed` one when the lookup could not run until the human fixes the origin.
-5. **Size every line** — [references/estimation.md](references/estimation.md): estimate agent minutes and files for the remaining work, then `estimates size <minutes> <files> .kf/travel/estimates.md <kind>`; it corrects the minutes by the kind's learned factor and sizes with the default thresholds. That size feeds only today's budget and batching. A line planned for the first time records `est0=<size>` (the size the human approves) and your raw minutes as `estmin=<n>`. A carried line keeps its first `est0` and `estmin`, because `work` is measured across days. XL is marked `should split` and is not dispatched until the human splits it or overrides it in the plan.
-6. **Sequential pairs.** For every pair of candidates, `estimates overlap "<files A>" "<files B>"`; `sequential` → mark the pair. An item's files (`kf tasks <f> --json` → `tasks[]`):
+5. **Size every line** — [references/estimation.md](references/estimation.md): read the item's estimate with `kf estimate show <f> --json`. An item with a recorded estimate is not sized again: its `size` is the line's size, carried lines included. An item with none (`none: true`, its `reason` says why) and a `pr` line are sized for the day only: estimate agent minutes and files for the remaining work, then `kf estimate size <minutes> <files|unknown> --kind <kind>`, which corrects the minutes by the kind's learned factor and sizes with the default thresholds; the line's note says `no item estimate`. A day-only size feeds only today's budget and batching and is never recorded. XL is marked `should split` (kf reports it as `estimate_should_split` at the planning gate) and is not dispatched until the human splits it or overrides it in the plan.
+6. **Sequential pairs.** For every pair of candidates, `kf estimate overlap "<files A>" "<files B>"`; `sequential` → mark the pair. An item's files (`kf tasks <f> --json` → `tasks[]`):
    - pending tasks (not `done`) → the union of their `files`; any pending task with `files` null → `sequential` with everything;
    - no pending task (testing, review) → the `files` of every task in the plan;
    - a `pr` line → the PR's changed paths (`gh pr view <n> --json files`).
-7. **Budget.** `estimates stats .kf/travel/estimates.md` → the `budget:` line (median daily actual points when ≥ 3 days are measured, else `10 tasks`) and the `calibration:` line. Fill Batch 1 in priority order (carry-over, then review, testing, implementation) until the next line would exceed the budget; the rest is Batch 2.
+7. **Budget.** `kf estimate stats` → the `budget:` line (median daily actual points when ≥ 3 days are measured, else `10 tasks`) and the `calibration:` line. Fill Batch 1 in priority order (carry-over, then review, testing, implementation) until the next line would exceed the budget; the rest is Batch 2.
 8. **Print the plan** in the shape of [references/daily-plan.md](references/daily-plan.md): Batch 1, Batch 2, Needs you, Waiting to merge, Calibration.
 
 **Then wait for the human to approve or edit the plan.** No item is started before that word. Apply edits (drop, reorder, resize, override an XL, change `slots=N`) and reprint once.
@@ -58,7 +57,7 @@ After approval, append to `.kf/travel/progress.md`:
 ## YYYY-MM-DD
 slots: N · budget: <budget line>
 session: <ISO time from the clock>
-t1 · <feature> · <kind> · <size> · queued · est0=<size> · estmin=<n> · <note>
+t1 · <feature> · <kind> · <size> · queued · <note>
 …
 ```
 
@@ -68,8 +67,8 @@ Rewrite the previous section's unfinished lines as `carry-over` (if the morning 
 
 Each **tick**:
 
-1. **Collect** the seats that reported since the last tick (background notifications). For each, read the item's `loop/progress.md` and act as the item's phase skill says: the next task, the `kf verify` gate, the review, the fix loop. Advance every item whose seat reported; add the seat's reported duration to the item's `work=<n>`, and for a review seat also to its `review=<n>`, on its `.kf/travel/progress.md` line, except an implementation-phase seat when the item's ledger has timestamped seat lines, whose minutes `measure` takes from `kf loop-stats` (§6); dispatch the next seat of each in the background, then move on to another item while it runs. Never wait on one item's seat while another item has work to do.
-2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done`, then measure (§6).
+1. **Collect** the seats that reported since the last tick (background notifications). For each, read the item's `loop/progress.md` and act as the item's phase skill says: the next task, the `kf verify` gate, the review, the fix loop. Advance every item whose seat reported; dispatch the next seat of each in the background, then move on to another item while it runs. Never wait on one item's seat while another item has work to do.
+2. **Refresh** `kf status --all --json`: replace Needs you and Waiting to merge with its `needsYou[]` and `waitingToMerge[]` plus travel's own decisions; a `waiting-to-merge` line whose item now has `stage` `done` → `done` (the close measured it; §6).
 3. **Refill**: while started items < `slots=N`, take the next `queued` line (Batch 1 first, then Batch 2) that is not XL, whose item is in implementation / testing / review with a current approval, and whose `sequential` partners (if any) are all `done`: a partner that is `driving`, `waiting-to-merge` or `blocked` still blocks, because its changes are not on main yet. A `sequential` pair is never dispatched in the same tick; two independent items run in two worktrees at once. Start an item by creating or entering its worktree (`kf status --change <f> --json` → `worktree.path`) and running the phase skill for its current stage, exactly as a `kf:flow` session would; the line becomes `driving` with `owner=travel`.
 4. **Print the progress block** (below) — every tick, even when every slot is full — and re-stamp the day's `session:` line from the clock.
 5. **Wait** for the next seat to report (the runtime's wait/monitor tool; a background `sleep` of 2–5 minutes when nothing is due), then tick again.
@@ -82,8 +81,8 @@ Each **tick**:
 
 - `driving` — this travel session is running that item's phases (implementation, testing or review), with a seat possibly working in the background; the note carries `owner=travel`.
 - `blocked` — a phase skill stopped for the human (REQUIREMENT_BUG, a plan change, a fix-loop breaker, a reopened task's `cap reached` stop): the line carries the reason, the next command and its owner (§5), and goes to Needs you. It returns to `queued` only when the human says the fix is done.
-- `waiting-to-merge` — review PASS with the PR open: the line carries the PR URL, `! gh pr merge <n>`, `files=<n>` and `work=<n> review=<n>` (§6 needs them after the worktree is gone). The human merges.
-- `done` — `kf status --all --json` reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`): measure at once (§6).
+- `waiting-to-merge` — review PASS with the PR open: the line carries the PR URL and `! gh pr merge <n>`. The human merges.
+- `done` — `kf status --all --json` reports stage `done` (merged and closed), or review passed with nothing to land (`landing: none`); kf's close has measured the item (§6).
 
 ### Progress block
 
@@ -119,36 +118,28 @@ A phase skill stops for the human in a few ways. Travel does not retry or work a
 | fix-loop breaker, or a reopened task's `cap reached` stop, after any minimal fix past the cap the phase skill makes | `blocked` · `owner=travel` | reason + next command → Needs you |
 | a usage limit on a seat | stays `driving`, note `usage limit — reset <text>` | dispatch nothing new; wait for the reset, then re-dispatch the seat that was running |
 | any other stop the phase skill reports | `blocked` · `owner=travel` | its reason + next command → Needs you |
-| review PASS, PR open | `waiting-to-merge` | note the PR URL, `! gh pr merge <n>`, `files=<n>`, `work=<n> review=<n>` |
-| review PASS, nothing to land | `done` | measure at once (§6) |
+| review PASS, PR open | `waiting-to-merge` | note the PR URL and `! gh pr merge <n>` |
+| review PASS, nothing to land | `done` | the close measured it (§6) |
 
-Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `done` (the human merged; `kf status --all` closed it): line → `done`, then measure (§6).
+Each tick's refresh (§3 step 2) catches a `waiting-to-merge` item at stage `done` (the human merged; `kf status --all` closed it): line → `done`.
 
 ## 5. Ownership
 
 Only one travel session runs per day, and the `session:` line under the day's heading (`references/ledger-format.md`) keeps a second one out: §0 stops and asks the human when it is under 60 minutes old. A ledger line `driving` or `blocked` means travel owns that item's phases while its note says `owner=travel`; it says `owner=human` once the human takes a `blocked` item into their own session (that session rewrites the token). A same-day re-entry of travel (§0, after a restart or compaction) is that same travel session: it resumes every `driving` `owner=travel` line and leaves `blocked` lines blocked. A session that is not travel never runs a task loop for an `owner=travel` line. An `owner=human` line belongs to the human's session until the human says the fix is done; travel then sets `owner=travel` and re-queues the line, and starts nothing for it before that.
 
-## 6. Measure and end of day
+## 6. End of day
 
-**On `done`:** append the row ([references/estimation.md](references/estimation.md) says where each value comes from):
-
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/assets/skills/travel/scripts/estimates measure --file .kf/travel/estimates.md --id <id> --feature <f> --kind <kind> --est <est0> --estmin <n> --work <minutes> --review <minutes> --files <n> --rounds <n> --path <stage→stage> --tier <tier>
-```
-
-`--est` is the line's `est0`, not today's re-size, so est and actual both cover the whole item.
-For the implementation phase, `--work` and `--review` take that phase's minutes from `kf loop-stats <f> --json` when the item's ledger has timestamped seat lines — `--work` its `seatMinutes` (seat minutes, verify excluded), `--review` its `seats["code-reviewer"].sum` (code-reviewer minutes) — added to the line's `work=<n>` and `review=<n>`, and from seat notifications otherwise; the testing and review phases keep the notification source, summed on the line as §3 step 1 says.
-A line cancelled or restarted from scratch gets the same call with `--cancelled` (`actual -`, excluded from stats).
+**On `done`:** nothing to write. kf's close measured the item into `<item>/metrics.json` (estimate, actual size and gap, work minutes, files changed); `kf metrics <f> --json` reads it, and `kf estimate stats` and the factor learn from it from then on. Travel appends no row and passes no minutes.
 
 **End of day:** print
 
 ```text
 Day YYYY-MM-DD — done: X | blocked: Z | waiting-to-merge: W | carry-over: C | points: P
-✓ Done          <id> <feature> <est>→<actual>
+✓ Done          <id> <feature> <est>→<actual>   (from kf metrics <f> --json)
 ✗ Blocked       <id> <feature> — <reason> — next: <command>
 ✓ Waiting       <id> <PR URL> — ! gh pr merge <n>
 → Carry-over    <id> <feature> <size>
-<estimates stats lines: hit rate, bias, throughput, calibration, kind (hit rate, bias, factor), warning>
+<kf estimate stats lines: hit rate, bias, throughput, calibration, kind (hit rate, bias, factor), warning>
 ```
 
 Then rewrite every line that is not `done`, `blocked` or `owner=human` as `carry-over` with its note kept; `waiting-to-merge` keeps its reason in the note so tomorrow's plan shows it.
@@ -159,5 +150,4 @@ Then rewrite every line that is not `done`, `blocked` or `owner=human` as `carry
 
 - [references/daily-plan.md](references/daily-plan.md) — the morning plan printout.
 - [references/ledger-format.md](references/ledger-format.md) — `progress.md` sections, lines and states.
-- [references/estimation.md](references/estimation.md) — sizes, inputs, `estimates.md` rows, budget and calibration.
-- `scripts/estimates` — `size`, `measure`, `stats`, `overlap`; bad input exits 1 with a message.
+- [references/estimation.md](references/estimation.md) — sizes, the item estimate, day-only sizing, budget and calibration, all read from `kf estimate`.
