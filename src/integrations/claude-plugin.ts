@@ -45,7 +45,14 @@ export const CLAUDE_TIMEOUT_MS = 60_000;
  */
 export function claudeRunner(cwd?: string, timeoutMs = CLAUDE_TIMEOUT_MS, signal?: AbortSignal): ClaudeRun {
   return (args) => new Promise((done, fail) => {
-    const child = spawn("claude", args, { cwd, stdio: ["ignore", "pipe", "pipe"], signal, killSignal: "SIGKILL" });
+    if (signal?.aborted) {
+      fail(new DOMException(`\`claude ${args.join(" ")}\` was aborted before it started`, "AbortError"));
+      return;
+    }
+    // Only an abortable run gets its own process group: a detached child no longer receives the terminal's SIGINT.
+    const ownGroup = signal !== undefined && process.platform !== "win32";
+    // The signal is not handed to spawn: Node's own abort handling kills claude alone and reports before the group is killed.
+    const child = spawn("claude", args, { cwd, stdio: ["ignore", "pipe", "pipe"], killSignal: "SIGKILL", ...(ownGroup ? { detached: true } : {}) });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -55,22 +62,33 @@ export function claudeRunner(cwd?: string, timeoutMs = CLAUDE_TIMEOUT_MS, signal
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
-    // Killing claude does not end what claude itself started; such a process keeps the pipes, and the pipes keep kf alive.
-    signal?.addEventListener(
-      "abort",
-      () => {
-        child.stdout.destroy();
-        child.stderr.destroy();
-        child.unref();
-      },
-      { once: true },
-    );
+    // Killing claude alone does not end what claude itself started; such a process keeps the pipes, and the pipes keep kf alive.
+    const onAbort = () => {
+      clearTimeout(timer);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
+      try {
+        if (ownGroup && child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch (err) {
+        // ESRCH: the whole group has already exited, which is what the kill asked for.
+        if ((err as NodeJS.ErrnoException).code !== "ESRCH") {
+          fail(err);
+          return;
+        }
+      }
+      fail(new DOMException(`\`claude ${args.join(" ")}\` was aborted`, "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     child.on("error", (err) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       fail(err);
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       if (timedOut) fail(new ClaudePluginError(`\`claude ${args.join(" ")}\` did not finish within ${timeoutMs / 1000}s and was killed:\n${quote({ code: 1, stdout, stderr })}`));
       else done({ code: code ?? 1, stdout, stderr });
     });

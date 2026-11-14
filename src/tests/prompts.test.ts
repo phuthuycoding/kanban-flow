@@ -521,6 +521,31 @@ describe("interactive prompts on the terminal", () => {
       work.resolve("late");
     });
 
+    it("still aborts the work's signal on ctrl+c when restoring the terminal throws", async () => {
+      fakeTerminal();
+      const restoreFailure = new Error("setRawMode(false) failed");
+      Object.defineProperty(stdin, "setRawMode", {
+        value: (mode: boolean) => {
+          rawModeCalls.push(mode);
+          if (!mode) throw restoreFailure;
+          return stdin;
+        },
+        configurable: true,
+        writable: true,
+      });
+      let seen: AbortSignal | undefined;
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, (signal) => {
+        seen = signal;
+        return work.promise;
+      });
+      press("c", true);
+      await expect(result).rejects.toBeDefined();
+      expect(rawModeCalls).toEqual([true, false]);
+      expect(seen?.aborted).toBe(true);
+      work.resolve("late");
+    });
+
     it("aborts the work's signal when the input stream ends", async () => {
       fakeTerminal();
       let seen: AbortSignal | undefined;

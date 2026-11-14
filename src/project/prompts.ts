@@ -168,11 +168,12 @@ export async function withLoading<T>(message: string, work: (signal: AbortSignal
       }
       fn();
     };
-    const abort = (reason: string) =>
-      finish(() => {
-        controller.abort();
-        reject(new PromptAbort(reason));
-      });
+    // The signal is aborted before cleanup, so a terminal restore that throws cannot leave the work running.
+    const abort = (reason: string) => {
+      if (settled) return;
+      controller.abort();
+      finish(() => reject(new PromptAbort(reason)));
+    };
     const onEnd = () => abort("Input closed");
     const onKey = (_s: string, key: Key | undefined) => {
       if (key && isAbortKey(key)) abort("Ctrl+C");

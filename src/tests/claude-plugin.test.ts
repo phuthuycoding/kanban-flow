@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, writeFile, chmod, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +11,19 @@ import { cmdDoctor } from "../cli/commands/doctor.js";
 import { LEGACY_SKILLS } from "../integrations/managed.js";
 import { isLinkedWorktree, PKG_ROOT } from "../shared/paths.js";
 import type { ParsedArgs } from "../cli/args.js";
+
+// A pass-through spy: every spawn still runs the real binary, the spy only records whether claudeRunner spawned at all.
+const spawned = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: ((...args: Parameters<typeof actual.spawn>) => {
+      spawned.calls++;
+      return actual.spawn(...args);
+    }) as typeof actual.spawn,
+  };
+});
 
 type Result = { code: number; stdout: string; stderr: string };
 type Run = (args: string[]) => Promise<Result>;
@@ -382,13 +395,109 @@ describe("claudeRunner timeout", () => {
     await expect(pending).rejects.toThrow();
     expect(Date.now() - started).toBeLessThan(5_000);
   });
+});
+
+describe("claudeRunner abort", () => {
+  const TIMEOUT_MS = 20_000;
+  let bin: string;
+  let prevPath: string | undefined;
+  const pidFile = () => join(bin, "claude.pid");
+  const childPidFile = () => join(bin, "child.pid");
+
+  /** Writes a `claude` on PATH that records its pid, then starts a long child like the real claude does and waits on it. */
+  const stubClaude = async (body: string) => {
+    await writeFile(join(bin, "claude"), `#!/bin/sh\necho $$ > '${pidFile()}'\n${body}`);
+    await chmod(join(bin, "claude"), 0o755);
+  };
+
+  /** Only ESRCH means the process is gone; any other error (EPERM) is a real answer that must not be read as dead. */
+  const alive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") return false;
+      throw err;
+    }
+  };
+
+  const readPid = async (file: string): Promise<number | undefined> => {
+    if (!existsSync(file)) return undefined;
+    const text = (await readFile(file, "utf8")).trim();
+    return text ? Number(text) : undefined;
+  };
+
+  const waitFor = async (check: () => boolean | Promise<boolean>, ms: number): Promise<boolean> => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (await check()) return true;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return check();
+  };
+
+  beforeEach(async () => {
+    bin = await mkdtemp(join(tmpdir(), "kf-claude-abort-"));
+    prevPath = process.env.PATH;
+    process.env.PATH = `${bin}:${prevPath}`;
+    spawned.calls = 0;
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    process.env.PATH = prevPath;
+    // A failing run must not leave a stub or its sleep behind for the rest of the suite.
+    for (const file of [childPidFile(), pidFile()]) {
+      const pid = await readPid(file);
+      if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+    }
+    await rm(bin, { recursive: true, force: true });
+  });
+
+  it("kills claude and the process claude started when the signal aborts, and clears the timeout", async () => {
+    await stubClaude(`sleep 60 &\necho $! > '${childPidFile()}'\nwait\n`);
+    const setSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    const controller = new AbortController();
+    const pending = claudeRunner(undefined, TIMEOUT_MS, controller.signal)(["plugin", "list", "--json"]);
+    const outcome = pending.then(
+      () => "resolved",
+      () => "rejected",
+    );
+
+    const started = await waitFor(async () => (await readPid(pidFile())) !== undefined && (await readPid(childPidFile())) !== undefined, 5_000);
+    expect(started).toBe(true);
+    const claudePid = (await readPid(pidFile()))!;
+    const childPid = (await readPid(childPidFile()))!;
+    expect(alive(claudePid)).toBe(true);
+    expect(alive(childPid)).toBe(true);
+
+    controller.abort();
+    expect(await outcome).toBe("rejected");
+
+    const timeoutIndex = setSpy.mock.calls.findIndex((call) => call[1] === TIMEOUT_MS);
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    const timeoutHandle = setSpy.mock.results[timeoutIndex].value;
+    expect(clearSpy).toHaveBeenCalledWith(timeoutHandle);
+
+    expect(await waitFor(() => !alive(claudePid), 2_000)).toBe(true);
+    expect(await waitFor(() => !alive(childPid), 2_000)).toBe(true);
+  });
 
   it("does not start claude when the signal is already aborted", async () => {
+    await stubClaude("exit 0\n");
     const controller = new AbortController();
     controller.abort();
-    const started = Date.now();
-    await expect(claudeRunner(undefined, 20_000, controller.signal)(["plugin", "list", "--json"])).rejects.toThrow();
-    expect(Date.now() - started).toBeLessThan(5_000);
+    await expect(claudeRunner(undefined, TIMEOUT_MS, controller.signal)(["plugin", "list", "--json"])).rejects.toMatchObject({ name: "AbortError" });
+    // Give a spawned stub the time it would need to write its pid file before checking that none ran.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(spawned.calls).toBe(0);
+    expect(existsSync(pidFile())).toBe(false);
+  });
+
+  it("still resolves with claude's exit code and output when no signal is given", async () => {
+    await stubClaude("echo listed\necho warned >&2\nexit 0\n");
+    await expect(claudeRunner(undefined, TIMEOUT_MS)(["plugin", "list", "--json"])).resolves.toEqual({ code: 0, stdout: "listed\n", stderr: "warned\n" });
   });
 });
 
