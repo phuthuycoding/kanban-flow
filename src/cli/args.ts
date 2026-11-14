@@ -10,7 +10,7 @@ export interface ParsedArgs {
   options: Record<string, unknown>;
   /** Set when invoked through a canonical noun path (kf feature|bug <verb>); the dispatcher gates on it. */
   noun?: WorkItemKind;
-  /** Set by `kf verify`, `kf loop-stats`, `kf next` and `kf record` when their flags do not parse; each reports it as bad input (exit 3). */
+  /** Set by `kf verify`, `kf loop-stats`, `kf next`, `kf record` and `kf metrics` when their flags do not parse; each reports it as bad input (exit 3). */
   parseError?: string;
 }
 
@@ -222,6 +222,13 @@ const COMMANDS: Record<string, CmdSpec> = {
       all: { type: "boolean" },
     },
   },
+  metrics: {
+    help: "Usage: kf metrics <feature> [--json]  — print the measurement the close wrote to the item's metrics.json: estimate, actual size and gap, stage times, path, gate spans, fix rounds, seat time, models, files changed, tier and the loop-metrics row; a figure that could not be taken shows missing: <reason>. Exit 0 printed, 1 no measurement yet, 3 bad input",
+    allowPositionals: true,
+    options: {
+      json: { type: "boolean" },
+    },
+  },
   estimate: {
     help: "Usage: kf estimate size <minutes> <files|unknown> [--kind feature|bug|pr] | kf estimate stats | kf estimate overlap <filesA> <filesB> | kf estimate show <feature> [--json]  — the harness estimation model: size prints the T-shirt size, its points and the defaults line, or with --kind the factor learned from the history (done items' metrics.json plus the legacy .kf/travel/estimates.md); stats prints budget, hit rate, bias, throughput, calibration and per-kind lines; overlap prints sequential or parallel for two plan Files cells; show prints the estimate recorded at approval, or the contract estimate marked not yet approved while the item is in planning, or no estimate and why (--json: the same figures as JSON). Exit 0 printed, 1 any error",
     allowPositionals: true,
@@ -319,7 +326,7 @@ export function commandTree(): Record<string, CommandNode> {
   return COMMAND_TREE;
 }
 
-const OWN_EXIT_ONE = new Set(["verify", "loop-stats", "next", "record"]);
+const OWN_EXIT_ONE = new Set(["verify", "loop-stats", "next", "record", "metrics"]);
 
 export function parseArgsCli(argv: string[]): ParsedArgs {
   const res = resolveCommandPath(COMMAND_TREE, argv);
@@ -347,7 +354,7 @@ export function parseArgsCli(argv: string[]): ParsedArgs {
       strict: true,
     });
   } catch (err) {
-    // Exit 1 of `kf verify`, `kf loop-stats`, `kf next` and `kf record` has its own meaning, so their flag errors must not reach the global catch.
+    // Exit 1 of `kf verify`, `kf loop-stats`, `kf next`, `kf record` and `kf metrics` has its own meaning, so their flag errors must not reach the global catch.
     if (OWN_EXIT_ONE.has(node.dispatch) && err instanceof Error) {
       return { command: node.dispatch, positionals: [], options: {}, parseError: err.message };
     }
