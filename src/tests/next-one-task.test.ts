@@ -161,6 +161,43 @@ describe("schedule: an item with exactly one task", () => {
     expect(result.actions, show(result)).toContainEqual(expect.objectContaining({ kind: "stop", task: "TASK-001" }));
   });
 
+  it("points the controller at the only task, with no seat, when a second reopen lands while it is already back to pending", () => {
+    // A ci and a review failure on the same push reopen the task twice before the controller fixes it once.
+    const twice = [...START, IMPLEMENTED, "Note TASK-001: reopened — ci 1a2b3c4d", "Note TASK-001: reopened — review 2b3c4d5e"];
+    const result = run(twice, inputsOf([task("TASK-001")]));
+
+    expect(dispatches(result), show(result)).toEqual([]);
+    expect(result.inFlight, show(result)).toEqual([]);
+    expect(oneTaskDecides(result), show(result)).toEqual([ONE_TASK_DECIDE]);
+
+    const closed = run([...twice, IMPLEMENTED], inputsOf([task("TASK-001")]));
+    expect(dispatches(closed), show(closed)).toEqual([]);
+    expect(actionsFor(closed, "TASK-001"), show(closed)).toEqual([]);
+  });
+
+  it("stops at the five-round cap when the only task is reopened six times in a row without being closed", () => {
+    const bodies = [...START, IMPLEMENTED];
+    for (let i = 1; i <= 6; i++) bodies.push(`Note TASK-001: reopened — review ${String(i).repeat(8)}`);
+    const result = run(bodies, inputsOf([task("TASK-001")]));
+
+    expect(dispatches(result), show(result)).toEqual([]);
+    expect(oneTaskDecides(result), show(result)).toEqual([]);
+    expect(result.actions, show(result)).toContainEqual(expect.objectContaining({ kind: "stop", task: "TASK-001" }));
+  });
+
+  it("keeps the seat round of a second reopen when the only task was closed by a seat loop", () => {
+    const seated = [
+      ...START,
+      "TASK-001: test-writer dispatched model=sonnet",
+      "TASK-001: complete (commits a1b2c3d, review clean)",
+      "Note TASK-001: reopened — ci 1a2b3c4d",
+      "Note TASK-001: reopened — review 2b3c4d5e",
+    ];
+    const result = run(seated, inputsOf([task("TASK-001")]));
+
+    expect(oneTaskDecides(result), show(result)).toEqual([]);
+  });
+
   it("still dispatches the seats of an item with two tasks", () => {
     const result = run(START, inputsOf([task("TASK-001"), task("TASK-002")]));
 
