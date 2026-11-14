@@ -1,5 +1,7 @@
-import { updateFeatureMeta, executionContractHash, findFeature, type FeatureMeta } from "../../workflow/features.js";
+import { updateFeatureMeta, executionContractHash, findFeature, type Feature, type FeatureMeta, type ItemEstimate } from "../../workflow/features.js";
 import { validateFeature, renderValidateText } from "../../workflow/validate.js";
+import { ESTIMATE_CODES } from "../../workflow/validate-estimate.js";
+import { readContractEstimate, sizeContractEstimate } from "../../workflow/estimate-contract.js";
 import { FORCE_RETRY_HINT, stageRetryHint, transitionItem, type TransitionOutcome } from "../../workflow/transition.js";
 import { readProjectConfig } from "../../project/config.js";
 import { nowTimestamp } from "../../shared/time.js";
@@ -38,9 +40,15 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const by = typeof args.options.by === "string" ? args.options.by : (cfg.reviewer ?? "human");
   if (!by.trim()) return { code: 1, stdout: "Approver name must not be empty.", stderr: "missing approver" };
   const to = args.options.backlog ? "backlog" : "implementation";
-  const previous = { approval: f.meta.approval, executionId: f.meta.executionId };
+  const previous = { approval: f.meta.approval, executionId: f.meta.executionId, estimate: f.meta.estimate };
   const approval = { status: "approved" as const, by, at: nowTimestamp(), contractHash, livingDocs: true as const };
-  await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined }), {}, "approved");
+  const { estimate, historyProblem } = contractEstimate(root.root, f, approval.at);
+  // The estimate findings of the check above and a history read with factor 1: they never refuse the approval, but the approver is told.
+  const notices = [
+    ...check.issues.filter((i) => ESTIMATE_CODES.has(i.code)).map((i) => `⚠ ${i.file}: ${i.message} (${i.code})`),
+    ...(historyProblem === null ? [] : [`⚠ ${historyProblem}`]),
+  ];
+  await updateFeatureMeta(root.root, f.name, (meta) => ({ ...meta, approval, executionId: undefined, estimate }), {}, "approved");
   const outcome = await transitionItem(root.root, f.name, to, { cwd });
   if (outcome.kind !== "moved") {
     // A failed move leaves the item in planning; an `approved` item there would read as started to every skill.
@@ -64,7 +72,7 @@ export async function cmdApprove(args: ParsedArgs, cwd: string): Promise<CmdResu
   const next = to === "backlog" ? `kf stage ${name} implementation` : `load the kf:implement skill for '${name}'`;
   return {
     code: 0,
-    stdout: `✓ Approved '${name}' (by ${by} at ${approval.at}) → ${to}\n  Execution contract is now the binding scope for autonomous phases.\n${outcome.stdout}\nNext: ${next}`,
+    stdout: `✓ Approved '${name}' (by ${by} at ${approval.at}) → ${to}\n  Execution contract is now the binding scope for autonomous phases.\n${notices.map((n) => `${n}\n`).join("")}${outcome.stdout}\nNext: ${next}`,
   };
 }
 
@@ -77,7 +85,7 @@ async function restoreApproval(
   root: string,
   name: string,
   ours: NonNullable<FeatureMeta["approval"]>,
-  previous: Pick<FeatureMeta, "approval" | "executionId">,
+  previous: Pick<FeatureMeta, "approval" | "executionId" | "estimate">,
 ): Promise<string> {
   const current = findFeature(root, name);
   if (!current) return `the previous approval was not restored: '${name}' is gone; nothing was changed`;
@@ -89,7 +97,7 @@ async function restoreApproval(
       changed = true;
       return meta;
     }
-    return { ...meta, approval: previous.approval, executionId: previous.executionId };
+    return { ...meta, approval: previous.approval, executionId: previous.executionId, estimate: previous.estimate };
   }, {}, "approval-restored");
   return changed ? `the previous approval was not restored: '${name}' was approved again meanwhile; its metadata is left as it is` : "";
 }
@@ -104,4 +112,12 @@ function failureDetail(outcome: Exclude<TransitionOutcome, { kind: "moved" } | {
   }
   const { hook } = outcome;
   return `Hook '${to}' failed (exit ${hook.code})${hook.hook ? ` [${hook.hook.path}]` : ""}.\n\n${hook.output}`;
+}
+
+/** The estimate to record with the approval: the contract's, sized with the learned factor, or none and why; and why factor 1 was used. */
+function contractEstimate(root: string, f: Feature, at: string): { estimate: ItemEstimate; historyProblem: string | null } {
+  const contract = readContractEstimate(f);
+  if ("problem" in contract) return { estimate: { none: true, reason: contract.problem, at }, historyProblem: null };
+  const { minutes, files, filesMark, size, factor, historyProblem } = sizeContractEstimate(root, f, contract);
+  return { estimate: { minutes, files, filesMark, size, factor, at }, historyProblem };
 }

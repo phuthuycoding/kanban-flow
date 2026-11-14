@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** The FR-014 ledger grammar, each shape matched against a line's body (the text before its ` @ <ts>` suffix). */
@@ -641,4 +641,96 @@ export function summarise(rows: HistoryRow[]): HistorySummary {
   let largest: Bucket = PER_TASK_BUCKETS[0];
   for (const b of PER_TASK_BUCKETS) if (perTask[b] > perTask[largest]) largest = b;
   return { medians, perTask, largest: { bucket: largest, minutesPerTask: perTask[largest] } };
+}
+
+/** The text of a task's and of a wave's kf verify log, "" when there is none; the verify lines of a ledger are checked against them. */
+export interface LedgerLogs {
+  verifyLog: (task: string) => string;
+  waveVerifyLog: (wave: number) => string;
+}
+
+/** An item's ledger with its figures and what keeps it from being recorded. */
+export interface ItemLedger {
+  /** The ledger file; the callers that print it add it to their messages, the measurement never holds it. */
+  path: string;
+  parsed: ParsedLedger;
+  stats: LoopStats;
+  /** At least one dispatched or done line: without one the ledger has no seat time to record. */
+  timed: boolean;
+  /** The problems that make the figures wrong, as one phrase naming no path, or null. */
+  problems: string | null;
+  /** Planned tasks (or, without a plan, dispatched ones) with no complete line. */
+  incomplete: string[];
+}
+
+const lineList = (lines: number[]): string => (lines.length > 0 ? lines.join(", ") : "none");
+
+function brokenLines(unparsed: number[], orphans: number[]): string | null {
+  const parts = [
+    ...(unparsed.length > 0 ? [`unparsed lines ${lineList(unparsed)}`] : []),
+    ...(orphans.length > 0 ? [`orphan lines ${lineList(orphans)}`] : []),
+  ];
+  return parts.length > 0 ? `ledger ${parts.join(" and ")}` : null;
+}
+
+/** The problems that make a ledger's figures wrong, as one phrase, or null when it has none. */
+export function ledgerProblems(stats: LoopStats, parsed: ParsedLedger, writtenAt: number, logs: LedgerLogs): string | null {
+  const broken = brokenLines(stats.unparsed, unansweredOrphans(parsed, stats.orphans));
+  const late = lateStamps(parsed, writtenAt);
+  const { unlogged, offClock } = checkVerifyLines(parsed, (task) => parseVerifyLog(logs.verifyLog(task)));
+  const waveCheck = checkWaveVerifyLines(parsed, (wave) => parseVerifyLog(logs.waveVerifyLog(wave)));
+  unlogged.push(...waveCheck.unlogged);
+  offClock.push(...waveCheck.offClock);
+  const parts = [
+    ...(broken ? [`${broken} are left out of every figure`] : []),
+    ...(unlogged.length > 0 ? [`ledger lines ${lineList(unlogged)} report a verify exit no kf verify run logged`] : []),
+    ...(offClock.length > 0 ? [`ledger lines ${lineList(offClock)} are stamped over 15 minutes from the kf verify run they report`] : []),
+    ...(late.length > 0 ? [`ledger lines ${lineList(late)} are stamped after the file was last written, so those times did not come from the clock`] : []),
+  ];
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
+/** The item's ledger (loop/progress.md) read and measured against its planned tasks, or null when it has none. */
+export function readItemLedger(itemDir: string, tasks: Array<{ id: string; dependencies: string[] }>, logs: LedgerLogs): ItemLedger | null {
+  const path = join(itemDir, "loop", "progress.md");
+  if (!existsSync(path)) return null;
+  const parsed = parseLedger(readFileSync(path, "utf8"));
+  const stats = loopStats(parsed, Object.fromEntries(tasks.map((t) => [t.id, t.dependencies])));
+  const completed = completedTasks(parsed);
+  // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
+  const planned = tasks.map((t) => t.id);
+  const dispatched = parsed.lines.flatMap((l) => (l.shape === "dispatched" && l.task !== undefined ? [l.task] : []));
+  const ids = planned.length > 0 ? planned : [...new Set(dispatched)];
+  return {
+    path,
+    parsed,
+    stats,
+    timed: parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done"),
+    problems: ledgerProblems(stats, parsed, statSync(path).mtimeMs, logs),
+    incomplete: ids.filter((id) => !completed.has(id)),
+  };
+}
+
+/** The first 10 characters of the latest timestamp, as written with its own offset; null when no line is stamped. */
+function ledgerDate(parsed: ParsedLedger): string | null {
+  let latest: { ts: number; stamp: string } | null = null;
+  for (const { ts, stamp } of parsed.lines) {
+    if (ts !== undefined && stamp !== undefined && (latest === null || ts > latest.ts)) latest = { ts, stamp };
+  }
+  return latest === null ? null : latest.stamp.slice(0, 10);
+}
+
+export type Recordable =
+  | { ok: true; stats: LoopStats; date: string }
+  | { ok: false; kind: "no-ledger" | "untimed" | "incomplete" | "broken"; reason: string };
+
+/** Whether the ledger's row may go into .works/loop-metrics.md, as `kf loop-stats --record` and the close decide it. */
+export function recordableRow(ledger: ItemLedger | null): Recordable {
+  if (ledger === null) return { ok: false, kind: "no-ledger", reason: "no ledger (loop/progress.md)" };
+  if (!ledger.timed) return { ok: false, kind: "untimed", reason: "the ledger is untimed" };
+  if (ledger.incomplete.length > 0) return { ok: false, kind: "incomplete", reason: `no complete line for ${ledger.incomplete.join(", ")}` };
+  if (ledger.problems) return { ok: false, kind: "broken", reason: ledger.problems };
+  const date = ledgerDate(ledger.parsed);
+  if (date === null) return { ok: false, kind: "untimed", reason: "the ledger is untimed" };
+  return { ok: true, stats: ledger.stats, date };
 }

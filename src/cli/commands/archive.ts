@@ -34,13 +34,14 @@ function branchNote(branch: BranchDeletion): string {
     (branch.remote.kind === "kept" && branch.local.kind !== "kept" ? `\n  ⚠ origin kept ${branch.branch}: ${branch.remote.detail}` : "");
 }
 
-/** Worktree, branch and legacy-docs lines of a close, shared by kf archive, kf status and kf sync. */
+/** Worktree, branch, legacy-docs and measurement lines of a close, shared by kf archive, kf status and kf sync. */
 export function closeDetails(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {
   const removed = outcome.teardown ? worktreeNote(outcome.teardown, outcome.worktreePath) : "";
   const counted = outcome.countNote ? `\n  ⚠ ${outcome.countNote}` : "";
   const reviewed = outcome.reviewNote ? `\n  ⚠ ${outcome.reviewNote}` : "";
   const legacy = outcome.legacyDocsNote ? `\n  ⚠ ${outcome.legacyDocsNote}` : "";
-  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${reviewed}${legacy}`;
+  const measured = outcome.measurementNote ? `\n  ⚠ ${outcome.measurementNote}` : "";
+  return `${removed}${outcome.branch ? branchNote(outcome.branch) : ""}${counted}${reviewed}${legacy}${measured}`;
 }
 
 function renderArchived(outcome: Extract<ArchiveOutcome, { kind: "archived" }>): string {

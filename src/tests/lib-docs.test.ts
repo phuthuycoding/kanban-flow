@@ -72,6 +72,7 @@ const NO_GIT_NO_HOST_CONFIG = /library\s+runs\s+no\s+git\s+and\s+reads\s+no\s+ho
 const REFERENCED_STABLE_TYPES = [
   "EventBase", "DecisionTarget", "DecisionRegion", "ShapeName", "WaveShapeName", "Approval", "Bypass",
   "Cancellation", "WorktreeRegistration", "VerifyWaiver", "ShipState", "StepOutcome", "ItemOrigin", "CapCause",
+  "ItemEstimate", "FilesChanged",
 ];
 
 describe("library stability document", () => {

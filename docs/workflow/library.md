@@ -63,7 +63,7 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `listFeatures` | function | stable | Every work item of a project; an item whose `.kfw.json` is invalid is listed with `metaError`, never thrown |
 | `findFeature` | function | stable | One work item by name or full folder name; throws `AmbiguousFeatureError` when the name matches more than one folder |
 | `AmbiguousFeatureError` | class | stable | The error `findFeature` throws on an ambiguous name; its message names the matching folders |
-| `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid; returns `null` when the folder has no `.kfw.json`, and an fs error is rethrown as is |
+| `readFeatureMeta` | function | stable | An item folder's `.kfw.json`; throws an `Error` when the file is not valid JSON or its shape, feature or context name is invalid; returns `null` when the folder has no `.kfw.json`, and an fs error is rethrown as is; an `estimate` or `filesChanged` value it cannot read is dropped from the result instead of thrown on |
 | `executionContractHash` | function | stable | The contract fingerprint `approval.contractHash` is compared with |
 | `Feature` | type | stable | A work item: name, `context`, stage, folder, `dir` and metadata; an item whose `.kfw.json` is invalid has `meta` null and `metaError` set |
 | `FeatureMeta` | type | stable | The `.kfw.json` snapshot |
@@ -73,6 +73,8 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `WorktreeRegistration` | type | stable | The item's worktree: path, branch, domain and port |
 | `VerifyWaiver` | type | stable | The human's waiver of the stage verify |
 | `ShipState` | type | stable | The delivery stamps of the metadata: PR published, auto-merge scheduled, merged, release and changelog; written only by the removed `kf ship`, so only items of earlier releases carry it |
+| `ItemEstimate` | type | stable | The contract estimate `kf approve` records: agent minutes, files and how exact their count is, size, learned factor and when; or none with the reason |
+| `FilesChanged` | type | stable | The files the item's branch changed, counted on entering review; `count` null with a `reason` when it could not be counted |
 | `Stage` | type | stable | A stage name |
 | `WorkItemKind` | type | stable | `feature` or `bug` |
 | `ApprovalStatus` | type | stable | The approval state in the metadata |

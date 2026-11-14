@@ -26,6 +26,7 @@ import { branchExists, WorktreeDirtyError } from "../worktree/manager.js";
 import { branchPushed, countCommits, deleteBranch, hasRemote, originDefaultRef, revParse } from "../shared/git.js";
 import { splitFrontmatter } from "../shared/frontmatter.js";
 import { recordChange, sharedMeta, withItemId } from "./item-log.js";
+import { writeItemMetrics } from "./item-metrics.js";
 
 /** Which command asked for the close; only the re-run hints differ. */
 export type ArchiveTrigger = "status" | "sync" | "archive" | "stage" | "issues";
@@ -75,6 +76,8 @@ export type ArchiveOutcome =
       reviewNote: string | null;
       /** The warning for an item approved before living docs whose PASS report records no `docs:`; null otherwise. */
       legacyDocsNote: string | null;
+      /** The warning when the item's measurement (metrics.json) could not be written; null when it was. The close stands either way. */
+      measurementNote: string | null;
     }
   | {
       /** The item was already in done: delivery re-stamped, a recorded docs branch waited on or re-landed. */
@@ -558,6 +561,8 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     return null;
   });
   if (stale) return stale;
+  // After the lock and the `delivered` record: the close is final, and a measurement that fails only warns.
+  const measurementNote = measureClosedItem(root, name);
 
   return {
     kind: "archived",
@@ -573,5 +578,17 @@ async function runArchive(root: string, name: string, opts: ArchiveOptions): Pro
     pr: f.meta?.pr ?? null,
     reviewNote,
     legacyDocsNote,
+    measurementNote,
   };
+}
+
+/** Write the closed item's metrics.json (and its loop-metrics row); the warning line when that failed, else null. */
+function measureClosedItem(root: string, name: string): string | null {
+  try {
+    writeItemMetrics(root, name);
+    return null;
+  } catch (err) {
+    // The close already happened and must not be undone or reported as failed for its measurement.
+    return `the measurement of '${name}' was not written: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }

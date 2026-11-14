@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, readdir, writeFile, readFile, symlink } from "node:fs/promises";
-import { existsSync, lstatSync, statSync, cpSync, symlinkSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, lstatSync, cpSync, symlinkSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { spawnSync, execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -45,12 +45,10 @@ describe("managed skills", () => {
     expect(RETIRED_SKILLS).toEqual(["kanban-ship"]);
   });
 
-  it.skipIf(process.platform === "win32")("keeps the executable bit of travel's estimates script when copying", async () => {
+  it("copies travel with its references and no estimates script", async () => {
     await copySkillsTo(dir);
-    const script = join(dir, copyName("travel"), "scripts", "estimates");
-    expect(existsSync(script)).toBe(true);
-    expect(statSync(script).mode & 0o111).not.toBe(0);
-    expect(existsSync(join(dir, copyName("travel"), "references"))).toBe(true);
+    expect(existsSync(join(dir, copyName("travel"), "references", "estimation.md"))).toBe(true);
+    expect(existsSync(join(dir, copyName("travel"), "scripts", "estimates"))).toBe(false);
   });
 });
 

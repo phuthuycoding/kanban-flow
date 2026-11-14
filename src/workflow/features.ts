@@ -58,6 +58,17 @@ export interface VerifyWaiver {
   by: string;
 }
 
+/**
+ * The contract estimate `kf approve` records: the agent minutes, the files the plan names (null when unknown, with how
+ * exact the count is), the size of minutes × the learned factor against those files, and when; or none, and why.
+ */
+export type ItemEstimate =
+  | { minutes: number; files: number | null; filesMark: "exact" | "partial" | "unknown"; size: "S" | "M" | "L" | "XL"; factor: number; at: string }
+  | { none: true; reason: string; at: string };
+
+/** The files the item's branch changed, counted when it enters review; null with the reason when it could not be counted. */
+export type FilesChanged = { count: number | null; reason?: string; at: string };
+
 export interface FeatureMeta {
   /** The item's uuid, written by `kf new`; an item of an earlier release gets one at its first lifecycle write. */
   id?: string;
@@ -91,6 +102,10 @@ export interface FeatureMeta {
   verifyWaiver?: VerifyWaiver;
   /** Progress of the removed `kf ship` pipeline. Nothing writes it now; items shipped by earlier releases still carry it, so it must keep loading. */
   ship?: ShipState;
+  /** The contract estimate recorded by `kf approve`. */
+  estimate?: ItemEstimate;
+  /** The files changed, recorded on entering review. */
+  filesChanged?: FilesChanged;
 }
 
 /** Per-step progress recorded by the removed `kf ship` pipeline — read-only legacy metadata. */
@@ -214,6 +229,11 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.ship !== undefined && !isShipState(meta.ship))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
+  // A measurement key this release cannot read (malformed, or a shape written by a later release) is dropped from the
+  // returned meta, so the next write of .kfw.json discards it. It must never make the item unreadable, because an
+  // unreadable item cannot close.
+  if (meta.estimate !== undefined && !isItemEstimate(meta.estimate)) delete meta.estimate;
+  if (meta.filesChanged !== undefined && !isFilesChanged(meta.filesChanged)) delete meta.filesChanged;
   assertPathName(meta.feature, "feature");
   assertPathName(meta.context, "context");
   return meta;
@@ -228,6 +248,30 @@ function isBypass(value: unknown): value is Bypass {
     && typeof b.to === "string" && isStageOrLegacy(b.to)
     && (b.flag === "force" || b.flag === "skip-hooks")
     && Array.isArray(b.codes) && b.codes.every((c) => typeof c === "string");
+}
+
+function isItemEstimate(value: unknown): value is ItemEstimate {
+  if (!value || typeof value !== "object") return false;
+  // The cast only opens the fields to reading; each one is checked below before the guard says yes.
+  const e = value as Record<string, unknown>;
+  if (typeof e.at !== "string") return false;
+  if (e.none === true) return typeof e.reason === "string";
+  // Minutes and factor must be finite and above 0, as the estimate history requires of a done item (metricsRow).
+  return isPositiveNumber(e.minutes) && (e.files === null || typeof e.files === "number")
+    && (e.filesMark === "exact" || e.filesMark === "partial" || e.filesMark === "unknown")
+    && (e.size === "S" || e.size === "M" || e.size === "L" || e.size === "XL") && isPositiveNumber(e.factor);
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isFilesChanged(value: unknown): value is FilesChanged {
+  if (!value || typeof value !== "object") return false;
+  // The cast only opens the fields to reading; each one is checked below before the guard says yes.
+  const c = value as Record<string, unknown>;
+  return (c.count === null || typeof c.count === "number") && (c.reason === undefined || typeof c.reason === "string")
+    && typeof c.at === "string";
 }
 
 function isVerifyWaiver(value: unknown): value is VerifyWaiver {

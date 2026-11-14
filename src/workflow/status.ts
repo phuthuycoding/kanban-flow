@@ -15,6 +15,8 @@ import type { Feature } from "./features.js";
 import { executionContractHash, findWorksRoot } from "./features.js";
 import { ProjectConfigError, readProjectConfig } from "../project/config.js";
 import { validateFeature } from "./validate.js";
+import { ESTIMATE_CODES, estimateHistoryNotice } from "./validate-estimate.js";
+import { estimateFile } from "./estimate-contract.js";
 import type { Finding } from "./findings.js";
 import { evaluateStageEvidence, type StageEvidence } from "./stage-evidence.js";
 
@@ -49,6 +51,8 @@ export interface FeatureStatus {
    * Same list the text and `--json` renderings use, so the two cannot drift apart.
    */
   blockers: Finding[];
+  /** Advice that never blocks: the estimate findings of the validator, and a history read with factor 1. */
+  notices: Array<{ code: string; file: string; message: string }>;
   taskProgress: { done: number; total: number };
   /** Why a review PASS item did not close on this run; set by the command that attempted it. */
   close?: CloseState;
@@ -153,8 +157,13 @@ export function computeStatus(feature: Feature, root?: string): FeatureStatus {
   // ERROR left out: it is not a defect in the artifacts but the human gate, and the `Approval:`
   // field and the `Next:` line below already say so. Listing it here would put a red ERROR on
   // every correctly-prepared item sitting in planning, which is exactly where the signal matters.
-  const blockers = validateFeature(feature, false, true).issues
-    .filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
+  const issues = validateFeature(feature, false, true).issues;
+  const blockers = issues.filter((i) => i.severity === "ERROR" && i.code !== "approval_required");
+  const history = estimateHistoryNotice(feature);
+  const notices = [
+    ...issues.filter((i) => ESTIMATE_CODES.has(i.code)).map(({ code, file, message }) => ({ code, file, message })),
+    ...(history === null ? [] : [{ code: "estimate_history", file: estimateFile(feature), message: history }]),
+  ];
 
   let stageVerify: StageEvidence | null = null;
   let stageVerifyError: string | undefined;
@@ -176,6 +185,7 @@ export function computeStatus(feature: Feature, root?: string): FeatureStatus {
     totalCount: artifacts.length,
     next,
     blockers,
+    notices,
     taskProgress,
     stageVerify,
     ...(stageVerifyError === undefined ? {} : { stageVerifyError }),
@@ -289,6 +299,12 @@ export function renderStatusText(s: FeatureStatus): string {
     for (const b of s.blockers) lines.push(`  [ERROR] ${b.file}: ${b.message} (${b.code})`);
   }
 
+  if (s.notices.length > 0) {
+    lines.push("");
+    lines.push(`Notices (${s.notices.length}):`);
+    for (const n of s.notices) lines.push(`  ${n.file}: ${n.message} (${n.code})`);
+  }
+
   if (s.close?.kind === "awaiting-merge" && !s.next && s.blockers.length === 0) {
     lines.push("");
     lines.push(`Next: merge ${s.close.pr} on GitHub, then kf status --change ${s.feature.name}`);
@@ -346,6 +362,7 @@ export function statusToJson(s: FeatureStatus) {
     totalCount: s.totalCount,
     next: s.next,
     blockers: s.blockers,
+    notices: s.notices,
     tasks: s.taskProgress,
     stageVerify: s.stageVerify
       ? {

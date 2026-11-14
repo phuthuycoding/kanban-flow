@@ -22,6 +22,8 @@ src/
 │       ├── tasks.ts      # kf tasks (the plan's task graph)
 │       ├── verify.ts     # kf verify (task allowlist check and harness.verify)
 │       ├── loop-stats.ts # kf loop-stats (src/cli/commands/loop-stats.ts: ledger report, --record, --all)
+│       ├── estimate.ts   # kf estimate size|stats|overlap|show (the harness estimation model)
+│       ├── metrics.ts    # kf metrics (prints the item's metrics.json)
 │       ├── next.ts       # kf next (the task loop's actions due now; read-only)
 │       ├── record.ts     # kf record (one stamped ledger line under the item lock)
 │       ├── ship.ts       # kf ship — deprecated alias, prints a pointer and exits 1
@@ -40,6 +42,10 @@ src/
 │   ├── allowlist.ts      # task Files allowlist matching
 │   ├── verify.ts         # verifyTask / verifyStage / verifyWave behind kf verify
 │   ├── loop-stats.ts     # src/workflow/loop-stats.ts: ledger parsing and loop measurements behind kf loop-stats
+│   ├── estimate.ts       # sizes, points, the learned factor, stats and overlap; the history of done items' metrics.json and the legacy travel estimates
+│   ├── estimate-contract.ts # the contract's ## Estimate section and its size, recorded by kf approve
+│   ├── validate-estimate.ts # planning-gate findings: estimate_missing, estimate_should_split
+│   ├── item-metrics.ts   # the close's measurement: <item>/metrics.json and the loop-metrics row
 │   ├── next/             # the task loop state machine behind kf next and kf record
 │   │   ├── types.ts      # the contract: LedgerState, LoopInputs, World, Intent, Action and NextResult
 │   │   ├── ledger-state.ts # the ledger as events; open seats and verifies, completed tasks, commits

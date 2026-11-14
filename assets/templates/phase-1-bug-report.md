@@ -37,6 +37,11 @@ severity: {severity}
 ### Out of Scope
 - {out_of_scope_item}
 
+## Estimate
+- Agent minutes: {estimate_minutes}
+
+The agent's own estimate of the fix, in minutes. `kf approve` records it; the file count of a bug is unknown, so the size comes from the minutes alone.
+
 ## Related Feature
 
 | Field | Value |

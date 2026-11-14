@@ -141,7 +141,9 @@ kf validate --change {feature}  # gate + traceability issues
 kf stage {feature} {phase}     # move (gates + hooks run; planning → backlog/implementation)
 kf tasks {feature} [--json] [--graph]    # tasks parsed from the approved plan, with state; --graph adds critical path and max width
 kf verify {feature} --task TASK-### --base <sha> | --commits <sha>[,<sha>…] [--at-head] | --stage [--waive "<reason>"] | --wave <w>   # harness.verify commands + the task's Files allowlist check; --stage records the run the review gate reads
-kf loop-stats {feature} [--json] [--record] | --all [--json]   # measure a task loop from its ledger; --record writes (replacing any earlier) the item's row in .works/loop-metrics.md
+kf loop-stats {feature} [--json] | --all [--json]   # measure a task loop from its ledger; the close writes the item's row in .works/loop-metrics.md
+kf estimate size|stats|overlap|show   # the harness estimation model: size a T-shirt line, budget and calibration, Files overlap, the item's recorded estimate
+kf metrics {feature} [--json]  # the measurement the close wrote to the item's metrics.json: estimate vs actual, stage times, seat time, files changed
 kf archive {feature}           # explicit, idempotent close: merged-PR (or landing: none) check → review → done + issue close + board + delivered stamp; kf status / kf sync run it after the merge
 kf sync                        # close sweep: closes every review item whose recorded PR merged, or with landing: none and nothing to land
 kf issues link {feature} <url> --pr [--replace]   # record the item's PR; --replace only when the recorded PR was closed unmerged

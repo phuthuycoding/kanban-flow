@@ -500,3 +500,53 @@ export function branchPushed(dir: string, remote: string, branch: string): boole
   if (runGit(dir, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]).code !== 0) return null;
   return runGit(dir, ["show-ref", "--verify", "--quiet", `refs/remotes/${remote}/${branch}`]).code === 0;
 }
+
+/** A count of changed files, or null with the reason it could not be made. The reason names no path or host. */
+export type ChangedFileCount = { count: number } | { count: null; reason: string };
+
+const GIT_FAILED = "git could not count the changed files";
+
+function changedFiles(root: string, base: string, branch: string): ChangedFileCount {
+  if (!branch || branch.startsWith("-")) return { count: null, reason: `branch name ${JSON.stringify(branch)} cannot be passed to git` };
+  if (runGit(root, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]).code !== 0) {
+    return { count: null, reason: `branch ${branch} does not exist` };
+  }
+  // --no-renames: every path the change touches counts (a rename counts 2), whatever diff.renames the machine sets.
+  const res = runGit(root, ["diff", "--name-only", "--no-renames", `${base}...${branch}`, "--"]);
+  if (res.code !== 0) return { count: null, reason: `git diff --name-only ${base}...${branch} failed (exit ${res.code})` };
+  return { count: res.stdout.split("\n").filter((l) => l.trim() !== "").length };
+}
+
+/**
+ * The files `branch` changed since it left its base: origin/<default>, or the checkout's HEAD when origin/HEAD is not
+ * set, as commitsAhead resolves it. Never throws for a git failure: the count is null and the reason says why.
+ */
+export function changedFileCount(root: string, branch: string): ChangedFileCount {
+  try {
+    if (runGit(root, ["rev-parse", "--git-dir"]).code !== 0) return { count: null, reason: "not a git repository" };
+    return changedFiles(root, originDefaultRef(root) ?? "HEAD", branch);
+  } catch (err) {
+    // The message names the directory; the reason is recorded in the item, which names no machine-local path.
+    if (isGitFailure(err)) return { count: null, reason: GIT_FAILED };
+    throw err;
+  }
+}
+
+/**
+ * The files the checkout's current branch changed against origin/<default>, for an item without a worktree. Without
+ * origin/HEAD there is no base apart from the checkout itself, so the count is null and the reason says so.
+ */
+export function checkoutChangedFileCount(root: string): ChangedFileCount {
+  try {
+    if (runGit(root, ["rev-parse", "--git-dir"]).code !== 0) return { count: null, reason: "not a git repository" };
+    const base = originDefaultRef(root);
+    if (base === null) return { count: null, reason: "no worktree branch, and origin/HEAD is not set to count the checkout against" };
+    const head = runGit(root, ["symbolic-ref", "-q", "--short", "HEAD"]);
+    if (head.code !== 0) return { count: null, reason: "no worktree branch, and the checkout is not on a branch" };
+    return changedFiles(root, base, head.stdout.trim());
+  } catch (err) {
+    // The message names the directory; the reason is recorded in the item, which names no machine-local path.
+    if (isGitFailure(err)) return { count: null, reason: GIT_FAILED };
+    throw err;
+  }
+}

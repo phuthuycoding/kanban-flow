@@ -11,7 +11,9 @@ any stage ──kf cancel──→ cancelled ──back to the stage it stopped 
 
 The pipeline exists to turn an idea into an approved execution contract, then execute it with traceability, and test and review the right version of it before the change lands and the item closes.
 
-Above the items, the `travel` skill plans and runs a whole day: it sizes the work, keeps several items moving in its own session (one slot each, no detached process) and reports what needs the human or is waiting to merge. See [skill routing](skills.md).
+Every item carries its own estimate and measurement as harness data: `kf approve` records the contract's `## Estimate`, and the close writes `<item>/metrics.json` (`kf estimate`, `kf metrics`; see [artifacts](artifacts.md#the-item-measurement-itemmetricsjson)).
+
+Above the items, the `travel` skill plans and runs a whole day: it reads each item's estimate to budget the work, keeps several items moving in its own session (one slot each, no detached process) and reports what needs the human or is waiting to merge. See [skill routing](skills.md).
 
 Features and bugs share one state machine. Create a bug with `kf new <name> --type bug`; it goes through `/kf:bug` for triage and reproduction before it reaches planning.
 
@@ -53,7 +55,7 @@ project/
 │   ├── templates/
 │   ├── hooks/
 │   ├── review/rules/
-│   └── travel/             (the day ledger and estimates, gitignored)
+│   └── travel/             (the day ledger, gitignored)
 ├── .works/
 │   ├── brainstorm/
 │   ├── planning/

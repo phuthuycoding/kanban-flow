@@ -118,20 +118,28 @@ Rules that hold for every record:
 
 The log protects against lost history, not against a file rewritten on purpose: it lives in the item folder, which the agent can write.
 
+## The item measurement `<item>/metrics.json`
+
+Estimation and measurement are harness data. `kf approve` records the item's estimate in `.kfw.json` as `meta.estimate`, from the contract's `## Estimate` section (`- Agent minutes: <n>`, the raw minutes before calibration): the minutes, the distinct Task Breakdown Files entries (`null` for a bug), how exact that count is, the size they give with the factor learned for the item's kind, and when; or `none` and why. Entering review records `meta.filesChanged`, the number of files the item branch changed, or `null` with the reason.
+
+The close into `done` writes `<item>/metrics.json` once: the estimate, the actual size (from the work minutes and the files changed, sized with the default thresholds) and the gap in sizes, the time in each stage (backlog time is a stage of its own, not work), the path, the requirement, plan and merge gate spans, the fix rounds, seat time and models from the ledger, the files changed, the review tier, and whether the loop-metrics row was written. A figure that could not be taken is `{ "missing": "<reason>" }`, never 0, and a span whose clock ran backwards is `{ "unreliable": "clock went backwards" }`, never a negative number, and nothing machine-local (a path, a host name, a worktree) is written. A measurement that cannot be written never refuses or delays the close: the close warns. `kf metrics <feature>` prints it.
+
+`kf estimate size`, `kf estimate stats` and `kf approve` learn from the history: every done item's `metrics.json` plus the legacy `.kf/travel/estimates.md`, read and never written. See [cli-reference](cli-reference.md) for the size rules and the factor.
+
 ## The loop metrics file `.works/loop-metrics.md`
 
-`kf loop-stats <feature> --record` writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `assets/skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, or `verify done` lines the `kf verify` log does not back, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.
+The close writes one row per item to `.works/loop-metrics.md`, replacing the item's earlier row, when the ledger is one `kf loop-stats <feature> --record` accepts, and says in `metrics.json` why not otherwise; `kf loop-stats --all` reads it back. The file is derived from the ledger `<item>/loop/progress.md`, whose lines end in ` @ <ISO>` (grammar: `assets/skills/implement/references/task-loop.md` § The ledger), and is rebuilt by recording again. `--record` refuses a ledger with unparsed lines, orphans a resume did not dispatch again, stamps later than the file's last write, or `verify done` lines the `kf verify` log does not back, and names them; a plain report warns on stderr. Lines with no time are counted in the row, not dropped.
 
-## The day files under `.kf/travel/`
+## The day file under `.kf/travel/`
 
-The `travel` skill keeps its state outside any work item, in two plain files under `.kf/travel/`. `kf init` adds the folder to `.gitignore`, so neither is committed.
+The `travel` skill keeps its state outside any work item, in one plain file under `.kf/travel/`. `kf init` adds the folder to `.gitignore`, so it is not committed.
 
 | File | Contents |
 |---|---|
-| `progress.md` | The ledger: one `## YYYY-MM-DD` section per day, one line per item with its state (`driving`, `blocked`, `waiting-to-merge`, `carry-over`, `done`), its size, and the PR URL or the reason and next command where there is one. A `driving` or `blocked` line carries an owner token: `owner=travel` while travel drives it, `owner=human` once the human takes a blocked item |
-| `estimates.md` | One line appended when a ledger line becomes `done`, fields in this order: `date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap`. `work` is the sum of the implementation seat durations travel observed for the item, `files` the item worktree's diff against its base, and `actual` the size the higher of the two implies (`-` for a cancelled or restarted item, which stays out of the stats) |
+| `progress.md` | The ledger: one `## YYYY-MM-DD` section per day, one line per item with its state (`driving`, `blocked`, `waiting-to-merge`, `carry-over`, `done`), its size, and the PR URL or the reason and next command where there is one. A `driving` or `blocked` line carries an owner token: `owner=travel` while travel drives it, `owner=human` once the human takes a blocked item. A day section keeps only the day's plan; a line sized for the day only says `no item estimate` |
+| `estimates.md` | Legacy, written by earlier releases' travel; nothing writes it now. kf still reads its rows (`date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin`, or the 13-field shape without `estmin`) into the estimation history. A row without `estmin` counts for the budget, hit rate and bias and teaches the factor nothing |
 
-Sizes are S=1, M=2, L=4, XL=8 points. The morning budget is the median daily total of `actual` points once three days of estimates exist, otherwise 10 tasks; after 20 measured lines the thresholds are learned from the recent rows instead of the defaults.
+Travel reads each item's recorded estimate (`kf estimate show <feature> --json`) and never sizes an item that has one; it sizes only a line without one, for that day, with `kf estimate size`. Its budget and calibration come from `kf estimate stats`: the median daily total of actual points once three days are measured, otherwise 10 tasks.
 
 ## Checklist before closing
 

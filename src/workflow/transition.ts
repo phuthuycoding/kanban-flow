@@ -4,17 +4,18 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { TRANSITIONS, currentStageName, type Stage, type LegacyStageName } from "./schema.js";
-import { findFeature, stageDir, writeFeatureMeta, type Bypass, type WorktreeRegistration } from "./features.js";
+import { findFeature, stageDir, writeFeatureMeta, type Bypass, type FilesChanged, type FeatureMeta, type WorktreeRegistration } from "./features.js";
 import { validateFeature, checkDirectionGate, renderValidateText } from "./validate.js";
 import { withLock } from "../shared/lock.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
 import { recordBypasses, bypassNote } from "./bypass.js";
 import { readProjectConfig } from "../project/config.js";
-import { worktreeConfig } from "../worktree/config.js";
+import { LEGACY_BRANCH_PREFIX, worktreeBranch, worktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
 import { evaluateStageEvidence, stageEvidenceFindings } from "./stage-evidence.js";
 import { recordChange, sharedMeta, withItemId } from "./item-log.js";
+import { changedFileCount, checkoutChangedFileCount } from "../shared/git.js";
 
 export interface TransitionOptions {
   force?: boolean;
@@ -207,6 +208,8 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
     }
   }
 
+  // Counted outside the lock, like the gates; a count that cannot be made is recorded as null and never refuses the move.
+  const filesChanged = to === "review" ? countFilesChanged(root, f.name, f.meta, wtCfg) : null;
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
   /** Roll back a worktree this transition created; returns the cleanup failure so the caller reports it. */
   const removeNewWorktree = async (): Promise<unknown> => {
@@ -234,6 +237,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
       try {
         let meta = recorded.length > 0 ? { ...cur.meta, bypasses: [...(cur.meta.bypasses ?? []), ...recorded] } : cur.meta;
         if (worktree) meta = { ...meta, worktree };
+        if (filesChanged) meta = { ...meta, filesChanged };
         // Putting an item back in `done` means putting back the state it had there. `status` does
         // not depend on validation, so restore it here rather than leaving it to the doc re-sync,
         // which can legitimately refuse on an item that was never fully valid.
@@ -289,4 +293,28 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
     reopened: isReopen,
     stdout: `✓ Moved '${name}' ${f.stage} → ${to}\n  ${target}${baseNote}${worktreeNote}${hookNote}${bypassNote(recorded)}`,
   };
+}
+
+/**
+ * The files the item changed, counted on entering review: its worktree branch; with worktrees on and the worktree
+ * removed, its own branch from the config (never the checkout's); with worktrees off, the checkout's branch.
+ */
+function countFilesChanged(root: string, feature: string, meta: FeatureMeta, wtCfg: WorktreeConfig): FilesChanged {
+  const counted = meta.worktree
+    ? changedFileCount(root, meta.worktree.branch)
+    : wtCfg.enabled
+      ? itemBranchCount(root, feature, wtCfg)
+      : checkoutChangedFileCount(root);
+  const at = new Date().toISOString();
+  return counted.count === null ? { count: null, reason: counted.reason, at } : { count: counted.count, at };
+}
+
+/** The removed worktree's branch under the configured prefix; when it is gone, a branch kf made under the legacy prefix. */
+function itemBranchCount(root: string, feature: string, wtCfg: WorktreeConfig): ReturnType<typeof changedFileCount> {
+  const branch = worktreeBranch(wtCfg, feature);
+  const counted = changedFileCount(root, branch);
+  // Only a missing branch falls back: a branch that exists but cannot be counted keeps its own reason.
+  if (counted.count !== null || counted.reason !== `branch ${branch} does not exist` || wtCfg.branchPrefix === LEGACY_BRANCH_PREFIX) return counted;
+  const legacy = changedFileCount(root, `${LEGACY_BRANCH_PREFIX}${feature}`);
+  return legacy.count !== null ? legacy : counted;
 }

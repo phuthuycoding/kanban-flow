@@ -1,4 +1,3 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { findFeature } from "../../workflow/features.js";
@@ -8,25 +7,18 @@ import {
   NUMERIC_COLUMNS,
   PER_TASK_BUCKETS,
   SEATS,
-  checkVerifyLines,
-  checkWaveVerifyLines,
-  completedTasks,
-  lateStamps,
-  loopStats,
-  parseLedger,
-  parseVerifyLog,
-  unansweredOrphans,
   readHistory,
+  readItemLedger,
   recordRow,
+  recordableRow,
   summarise,
   type HistoryRow,
   type LagFigures,
   type LoopStats,
-  type ParsedLedger,
   type SeatFigures,
 } from "../../workflow/loop-stats.js";
+import { itemLedgerLogs } from "../../workflow/item-metrics.js";
 import { taskView } from "../../workflow/tasks.js";
-import { verifyLogPath, waveVerifyLogPath } from "../../workflow/verify.js";
 import { findRoot } from "./helpers.js";
 import type { ParsedArgs } from "../args.js";
 import type { CmdResult } from "../result.js";
@@ -45,38 +37,6 @@ function seatLine(name: string, f: SeatFigures): string {
 
 const lagText = (n: number | null): string => (n === null ? "-" : String(n));
 const lagPart = (name: string, f: LagFigures): string => `${name} median ${lagText(f.median)} max ${lagText(f.max)} (n=${f.n})`;
-
-/** The unparsed and orphan line numbers as one phrase, or `null` when the ledger has none. */
-function brokenLines(unparsed: number[], orphans: number[]): string | null {
-  const parts = [
-    ...(unparsed.length > 0 ? [`unparsed lines ${list(unparsed)}`] : []),
-    ...(orphans.length > 0 ? [`orphan lines ${list(orphans)}`] : []),
-  ];
-  return parts.length > 0 ? `ledger ${parts.join(" and ")}` : null;
-}
-
-/** The problems that make a ledger's figures wrong, as one phrase, or `null` when it has none. */
-function ledgerProblems(stats: LoopStats, parsed: ParsedLedger, itemDir: string, ledgerPath: string): string | null {
-  const broken = brokenLines(stats.unparsed, unansweredOrphans(parsed, stats.orphans));
-  const late = lateStamps(parsed, statSync(ledgerPath).mtimeMs);
-  const { unlogged, offClock } = checkVerifyLines(parsed, (task) => {
-    const log = verifyLogPath(itemDir, task);
-    return parseVerifyLog(existsSync(log) ? readFileSync(log, "utf8") : "");
-  });
-  const waveCheck = checkWaveVerifyLines(parsed, (wave) => {
-    const log = waveVerifyLogPath(itemDir, wave);
-    return parseVerifyLog(existsSync(log) ? readFileSync(log, "utf8") : "");
-  });
-  unlogged.push(...waveCheck.unlogged);
-  offClock.push(...waveCheck.offClock);
-  const parts = [
-    ...(broken ? [`${broken} are left out of every figure`] : []),
-    ...(unlogged.length > 0 ? [`ledger lines ${list(unlogged)} report a verify exit no kf verify run logged`] : []),
-    ...(offClock.length > 0 ? [`ledger lines ${list(offClock)} are stamped over 15 minutes from the kf verify run they report`] : []),
-    ...(late.length > 0 ? [`ledger lines ${list(late)} are stamped after the file was last written, so those times did not come from the clock`] : []),
-  ];
-  return parts.length > 0 ? `${parts.join("; ")}; fix those lines in ${ledgerPath}` : null;
-}
 
 function renderReport(feature: string, stats: LoopStats): string {
   const byModel = Object.entries(stats.byModel).map(([k, v]) => `${k} ${min(v)}`);
@@ -106,15 +66,6 @@ function renderReport(feature: string, stats: LoopStats): string {
     `developer overlap: ${min(stats.developerOverlapMinutes)}`,
     `dispatch lag: ${lagPart("developer", stats.dispatchLag.developer)}, ${lagPart("code-reviewer", stats.dispatchLag.codeReviewer)}`,
   ].join("\n");
-}
-
-/** The first 10 characters of the latest timestamp, as written with its own offset. */
-function ledgerDate(parsed: ParsedLedger): string {
-  let latest = parsed.lines[0];
-  for (const l of parsed.lines) {
-    if (l.ts !== undefined && (latest.ts === undefined || l.ts > latest.ts)) latest = l;
-  }
-  return latest.stamp!.slice(0, 10);
 }
 
 function renderHistory(rows: HistoryRow[]): string {
@@ -162,35 +113,26 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   if (!item) return badInput(`Unknown feature '${args.positionals[0]}'. Run: kf list`);
 
   const ledgerPath = join(item.dir, "loop", "progress.md");
-  if (!existsSync(ledgerPath)) return refused(`no ledger: ${ledgerPath}`, "no ledger");
-  const parsed = parseLedger(readFileSync(ledgerPath, "utf8"));
-  if (!parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done")) {
-    return refused(`ledger is untimed: ${ledgerPath}`, "untimed ledger");
-  }
-  const tasks = taskView(item);
-  const dependencies = Object.fromEntries(tasks.map((t) => [t.id, t.dependencies]));
-  const stats = loopStats(parsed, dependencies);
+  const ledger = readItemLedger(item.dir, taskView(item), itemLedgerLogs(item.dir));
+  if (ledger === null) return refused(`no ledger: ${ledgerPath}`, "no ledger");
+  if (!ledger.timed) return refused(`ledger is untimed: ${ledgerPath}`, "untimed ledger");
+  const { stats } = ledger;
   const report = json ? JSON.stringify({ feature: item.name, ...stats }, null, 2) : renderReport(item.name, stats);
-  const problems = ledgerProblems(stats, parsed, item.dir, ledgerPath);
+  const problems = ledger.problems ? `${ledger.problems}; fix those lines in ${ledgerPath}` : null;
   if (!record) {
     // Plain reporting still exits 0; what makes the figures wrong is named on stderr so it is not missed.
     return problems ? { code: 0, stdout: report, stderr: `warning: ${problems}` } : { code: 0, stdout: report };
   }
 
-  const completed = completedTasks(parsed);
-  // A bug item or an item without a plan has no planned tasks; the ledger's dispatched tasks stand in for them.
-  const planned = tasks.map((t) => t.id);
-  const ids = planned.length > 0 ? planned : [...new Set(parsed.lines.filter((l) => l.shape === "dispatched").map((l) => l.task!))];
-  const missing = ids.filter((id) => !completed.has(id));
-  if (missing.length > 0) {
-    return refused(`cannot record ${item.name}: no complete line for ${missing.join(", ")}`, "loop not complete");
-  }
-  if (problems) {
-    return refused(`cannot record ${item.name}: ${problems} and record again`, "ledger has broken lines");
+  const recordable = recordableRow(ledger);
+  if (!recordable.ok) {
+    if (recordable.kind === "incomplete") return refused(`cannot record ${item.name}: ${recordable.reason}`, "loop not complete");
+    if (recordable.kind === "broken") return refused(`cannot record ${item.name}: ${problems} and record again`, "ledger has broken lines");
+    return refused(`ledger is untimed: ${ledgerPath}`, "untimed ledger");
   }
   let path: string;
   try {
-    path = recordRow(root.root, item.name, stats, ledgerDate(parsed));
+    path = recordRow(root.root, item.name, stats, recordable.date);
   } catch (err) {
     if (err instanceof HistoryFileError) return refused(err.message, "history file refused");
     throw err;
