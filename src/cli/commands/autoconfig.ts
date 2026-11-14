@@ -92,10 +92,10 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     });
     const agentsDir = scope === "global" ? userAgentsDir(a) : projectAgentsDir(a, root);
     if (agentsDir) {
-      const agentsHealth = agentsState(agentsDir);
+      const agentsHealth = agentsState(agentsDir, a);
       items.push({
         done: agentsAreHealthy(agentsHealth),
-        label: `Agents for ${a.label} (${MANAGED_AGENTS.join(", ")}; scope: ${scope}, ${agentsDir}/) — ${agentsHealth}`,
+        label: `Agents for ${a.label} (${MANAGED_AGENTS.map((s) => a.agentTarget?.managedName?.(s) ?? s).join(", ")}; scope: ${scope}, ${agentsDir}/) — ${agentsHealth}`,
         action: agentsHealth === "foreign" ? "your own file sits at a managed agent name — rename it or keep the substitution" : `kf install --agent ${id} --scope ${scope}`,
       });
     }

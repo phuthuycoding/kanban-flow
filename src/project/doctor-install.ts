@@ -50,16 +50,17 @@ export function checkSkills(root: string, configured: AgentId[], scope: SkillSco
     if (!adapter) continue;
     const agentsDir = scope === "global" ? userAgentsDir(adapter) : projectAgentsDir(adapter, root);
     if (!agentsDir) continue;
-    const state = agentsState(agentsDir);
+    const state = agentsState(agentsDir, adapter);
     if (agentsAreHealthy(state)) continue;
-    const entries = MANAGED_AGENTS.map((a) => [a, agentEntryState(agentsDir, a)] as const);
+    const managedName = (seat: string): string => adapter.agentTarget?.managedName?.(seat) ?? seat;
+    const entries = MANAGED_AGENTS.map((a) => [a, agentEntryState(agentsDir, a, adapter)] as const);
     const theirs = entries.filter(([, s]) => s === "foreign" || s === "not-file").map(([a]) => a);
     const missing = entries.filter(([, s]) => s === "absent" || s === "stale").map(([a]) => a);
     if (theirs.length > 0) {
       findings.push({
         level: "WARNING",
         area: agentsDir,
-        message: `your own file sits at a managed agent name: ${theirs.map((a) => `${a}.md`).join(", ")} — the skills will dispatch it instead of kanban-flow's`,
+        message: `your own file sits at a managed agent name: ${theirs.map((a) => `${managedName(a)}.md`).join(", ")} — the skills will dispatch it instead of kanban-flow's`,
         action: "rename or remove your file, then kf install; or keep it and accept the substitution",
       });
     }
@@ -68,7 +69,7 @@ export function checkSkills(root: string, configured: AgentId[], scope: SkillSco
       findings.push({
         level: "ERROR",
         area: agentsDir,
-        message: `agents ${theirs.length > 0 ? "partial" : state} (scope: ${scope}): ${missing.join(", ")}`,
+        message: `agents ${theirs.length > 0 ? "partial" : state} (scope: ${scope}): ${missing.map(managedName).join(", ")}`,
         action: repairAction(`kf install --agent ${id} --scope ${scope}, or kf doctor --fix`),
       });
     }
@@ -252,14 +253,14 @@ async function repairCopies(root: string, configured: AgentId[], scope: SkillSco
     if (!agentsDir) continue;
     // installAgentsTo skips a user's file on its own, so a foreign entry never blocks the repair
     // of the absent or stale ones beside it.
-    const needsRepair = MANAGED_AGENTS.some((a) => ["absent", "stale"].includes(agentEntryState(agentsDir, a)));
+    const needsRepair = MANAGED_AGENTS.some((a) => ["absent", "stale"].includes(agentEntryState(agentsDir, a, adapter)));
     if (!needsRepair) continue;
     const agentsRefusal = scope === "global" ? globalLinkRefusal() : null;
     if (agentsRefusal) {
       failures.push(refusalFinding(agentsRefusal));
       return false;
     }
-    const res = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy");
+    const res = await installAgentsTo(agentsDir, scope === "global" ? "link" : "copy", adapter);
     ok &&= res.code === 0;
     if (res.code === 0) fixed.push(`installed kanban agents for ${id} (scope: ${scope})`);
     else fixed.push(`agent install reported a problem: ${res.stdout}`);
