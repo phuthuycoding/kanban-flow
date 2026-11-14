@@ -668,7 +668,7 @@ interface IntentBase {
 /** What a phase owes, before the arbiter applies the cap, holds, overlaps, the reviewer lane and rank. */
 export type Intent = IntentBase &
   (
-    | { kind: "act"; action: Extract<Action, { kind: "dispatch" | "verify" | "write" | "complete" }> }
+    | { kind: "act"; action: Extract<Action, { kind: "dispatch" | "verify" | "write" | "complete" | "decide" }> }
     | { kind: "judge"; judgement: JudgementKind; action: Extract<Action, { kind: "decide" | "stop" }> }
     | { kind: "inFlight"; entry: InFlight }
     | { kind: "wait"; action: Extract<Action, { kind: "wait" }>; blockedBy: WaitBlocker }

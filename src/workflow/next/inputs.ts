@@ -8,7 +8,7 @@ import { isAncestor, runGit } from "../../shared/git.js";
 import type { Feature } from "../features.js";
 import { ARTIFACTS } from "../schema.js";
 import { readStageRecords } from "../stage-record.js";
-import { checkTaskGraph, taskView } from "../tasks.js";
+import { bugHasPlan, checkTaskGraph, taskView } from "../tasks.js";
 import { verifyLogPath } from "../verify.js";
 import { matchGitLog, readLedgerState, taskCommits } from "./ledger-state.js";
 import type { InputsRead, LoopInputs, LoopTask, TestType, VerifyRun, WaveRecord } from "./types.js";
@@ -238,7 +238,7 @@ export function readLoopInputs(root: string, feature: Feature): InputsRead {
   if ("failed" in ceiling) return { ok: false, reason: ceiling.failed };
 
   let tasks: LoopTask[];
-  if (kind === "bug") {
+  if (kind === "bug" && !bugHasPlan(feature)) {
     const read = bugTasks(feature.dir);
     if (read === null) {
       return { ok: false, reason: `'${feature.name}' has no TASK-### checkbox lines in tasks.md; write '- [ ] 1. TASK-001: <what to do>' lines into tasks.md so kf next can schedule them.` };
@@ -255,7 +255,10 @@ export function readLoopInputs(root: string, feature: Feature): InputsRead {
     const cases = readTestCases(feature.dir);
     tasks = view.map((t) => {
       const refs = refIds(t.refs ?? "");
-      const types = new Set(cases.filter((c) => [...c.refs].some((r) => refs.has(r))).flatMap((c) => c.types));
+      // A bug has no test case artifact: as for its checkbox tasks, a task naming a regression gets a Unit test.
+      const types = kind === "bug"
+        ? new Set<TestType>(/\bregression\b/i.test(t.description) ? ["Unit"] : [])
+        : new Set(cases.filter((c) => [...c.refs].some((r) => refs.has(r))).flatMap((c) => c.types));
       return {
         id: t.id,
         dependencies: t.dependencies,

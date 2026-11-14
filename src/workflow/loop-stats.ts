@@ -30,6 +30,7 @@ const SHAPE_KEYWORD = /^TASK-\d+: (test-writer|developer|automation-writer|code-
 export const LOOSE_KEYWORD = /^\s*(?:[-*+]\s+)?TASK-\d+: (test-writer|developer|automation-writer|code-reviewer|verify |fix queued|fix round|cascade re-review owed|complete)/;
 
 const REOPENED = /^Note (TASK-\d+): reopened — /;
+const IMPLEMENTED = /^(TASK-\d+): implemented, test-writer seat: none, review seat: none$/;
 
 /** An attempted timestamp that TS_SUFFIX rejects (a space for `T`, a missing seconds field, ...): such a line is not untimed. */
 const STAMP_ATTEMPT = /@\s*\d{4}-\d{2}-\d{2}/;
@@ -65,6 +66,8 @@ export interface LedgerLine {
   sha?: string;
   /** Set on a `Note TASK-NNN: reopened — …` line: it cancels the task's earlier `complete` line. */
   reopened?: boolean;
+  /** Set on a `TASK-NNN: implemented, test-writer seat: none, review seat: none` line: it counts as the task's `complete`. */
+  implemented?: boolean;
 }
 
 export interface ParsedLedger {
@@ -116,6 +119,8 @@ export function classify(text: string, line: number): LedgerLine {
   }
   const reopened = REOPENED.exec(body);
   if (reopened) return { line, kind: "other-timed", task: reopened[1], reopened: true, ts, stamp };
+  const implemented = IMPLEMENTED.exec(body);
+  if (implemented) return { line, kind: "other-timed", task: implemented[1], implemented: true, ts, stamp };
   return { line, kind: LOOSE_KEYWORD.test(body) ? "unparsed" : "other-timed", ts, stamp };
 }
 
@@ -130,11 +135,11 @@ export function unansweredOrphans(parsed: ParsedLedger, orphans: number[]): numb
   });
 }
 
-/** Tasks whose latest `complete` line no later `reopened` note cancels. */
+/** Tasks whose latest `complete` or `implemented` line no later `reopened` note cancels. */
 export function completedTasks(parsed: ParsedLedger): Set<string> {
   const done = new Set<string>();
   for (const l of parsed.lines) {
-    if (l.shape === "complete") done.add(l.task!);
+    if (l.shape === "complete" || l.implemented) done.add(l.task!);
     else if (l.reopened) done.delete(l.task!);
   }
   return done;

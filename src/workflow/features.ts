@@ -292,6 +292,12 @@ export function executionContractHash(dir: string, kind: WorkItemKind = "feature
     if (!existsSync(path)) return null;
     hash.update(JSON.stringify([file, readFileSync(path, "utf8")]));
   }
+  // A bug's plan joins its fingerprint only when it exists, so bugs approved without one keep their hash.
+  if (kind === "bug") {
+    const file = ARTIFACTS["implementation-plan"].file;
+    const path = join(dir, file);
+    if (existsSync(path)) hash.update(JSON.stringify([file, readFileSync(path, "utf8")]));
+  }
   if (kind === "feature") {
     const useCaseDir = join(dir, "use-cases");
     if (existsSync(useCaseDir)) {

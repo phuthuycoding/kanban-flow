@@ -343,6 +343,10 @@ function closeCall(template: string, task: string | undefined, ev: Evaluated, st
   if ((m = /^wave (\d+): verify started$/.exec(template))) return { event: { event: "wave-verify-started", args: [m[1]] } };
   if ((m = /^(TASK-\d+): complete \((.+)\)$/.exec(template))) return { event: { event: "complete", args: [m[1], ...words(fill(m[2], m[1]))] } };
   if ((m = /^(TASK-\d+): developer done status=(\S+)$/.exec(template))) return { event: { event: "done", args: [m[1], "developer"], status: m[2] } };
+  if ((m = /^(TASK-\d+): implemented, test-writer seat: none, review seat: none$/.exec(template))) {
+    // The controller filled every seat itself, so its commit lands with the line.
+    return { event: line(template), mutation: { kind: "commit", task: m[1], sha: newSha(steps, m[1]) } };
+  }
   if (/^Scan: …$/.test(template)) return { event: line("Scan: clean") };
   if (template.startsWith("Ruling: … ")) return { event: line(`Ruling: explorer — ${template.slice("Ruling: … ".length)}`) };
   if (/^(?:Ruling: |Note |TASK-\d+: parked — )/.test(template)) return { event: line(fill(template, task)) };
@@ -904,8 +908,8 @@ export function happyRun(base: LoopInputs, steps: Step[], budget: number, known:
  * A scripted session: happy, except that the own reviews of `task` return `verdicts` in order (then clean), until
  * `until` holds. It builds the seeds that start the search deep in a task's life, at the cap or after a reopen.
  */
-export function scriptedRun(base: LoopInputs, task: string, verdicts: string[], until: (ev: Evaluated) => boolean, budget = 120): Step[] {
-  let acc: Step[] = [];
+export function scriptedRun(base: LoopInputs, task: string, verdicts: string[], until: (ev: Evaluated) => boolean, budget = 120, start: Step[] = []): Step[] {
+  let acc: Step[] = start;
   while (acc.length <= budget) {
     const ev = evaluate(base, acc);
     if (until(ev)) return acc;
@@ -922,15 +926,32 @@ export function scriptedRun(base: LoopInputs, task: string, verdicts: string[], 
 /** The seed states: the empty ledger, a task at its Breaker after five rounds, and a task reopened after round 5. */
 export function seedsOf(base: LoopInputs): { name: string; steps: Step[] }[] {
   const task = base.tasks[0].id;
-  const breaker = scriptedRun(base, task, Array(6).fill("findings"), (ev) => ev.plain.actions.some((a) => a.kind === "decide" && a.task === task && a.rule === "Breaker"));
-  const completed = scriptedRun(base, task, Array(5).fill("findings"), (ev) => isComplete(ev.state.events, task));
+  const seated = seatedStart(base, task);
+  const breaker = scriptedRun(base, task, Array(6).fill("findings"), (ev) => ev.plain.actions.some((a) => a.kind === "decide" && a.task === task && a.rule === "Breaker"), 120, seated ?? []);
+  const completed = scriptedRun(base, task, Array(5).fill("findings"), (ev) => isComplete(ev.state.events, task), 120, seated ?? []);
   const reopened = applyMove(completed, { calls: [{ event: line(`Note ${task}: reopened — review 1a2b3c4d`) }], label: `reopen ${task}`, fault: true });
   if (!reopened.ok) throw new Error(`explorer: kf record refused the reopen seed: ${reopened.reason}`);
   return [
     { name: "empty ledger", steps: [] },
+    ...(seated !== null ? [{ name: `${task} with its first seat dispatched before the one-task rule`, steps: seated }] : []),
     { name: `${task} at its Breaker after round 5`, steps: breaker },
     { name: `${task} reopened after a round-5 complete`, steps: reopened.steps },
   ];
+}
+
+/**
+ * A one-task plan's empty ledger leads to the controller filling the task itself, which never reaches a seat. A loop
+ * that opened a seat before that rule keeps its seats, so the seat machinery of a lone task is explored from there: the
+ * happy start up to the One-task decide, with the task's first seat dispatched in its place. Null for a larger plan.
+ */
+function seatedStart(base: LoopInputs, task: string): Step[] | null {
+  if (base.tasks.length !== 1) return null;
+  const before = scriptedRun(base, task, [], (ev) => ev.plain.actions.some((a) => a.kind === "decide" && a.task === task && a.rule === "One-task item"));
+  const types = base.tasks[0].testTypes;
+  if (!types.includes("Unit") && !types.includes("Integration")) throw new Error(`explorer: the seated start needs a test-writer seat for ${task}`);
+  const r = applyMove(before, { calls: [{ event: dispatchEvent(task, "test-writer", "sonnet") }], label: `dispatch test-writer ${task}`, fault: false });
+  if (!r.ok) throw new Error(`explorer: kf record refused the seated start: ${r.reason}`);
+  return r.steps;
 }
 
 // ---------------------------------------------------------------------------

@@ -164,7 +164,8 @@ export async function cmdLoopStats(args: ParsedArgs, cwd: string): Promise<CmdRe
   const ledgerPath = join(item.dir, "loop", "progress.md");
   if (!existsSync(ledgerPath)) return refused(`no ledger: ${ledgerPath}`, "no ledger");
   const parsed = parseLedger(readFileSync(ledgerPath, "utf8"));
-  if (!parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done")) {
+  // A task the controller filled itself has only its implemented line: that line times the ledger too.
+  if (!parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done" || l.implemented)) {
     return refused(`ledger is untimed: ${ledgerPath}`, "untimed ledger");
   }
   const tasks = taskView(item);

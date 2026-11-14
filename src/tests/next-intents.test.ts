@@ -183,15 +183,17 @@ describe("intents of every phase", () => {
 });
 
 describe("intents before the developer", () => {
+  // Both worlds hold a second task: an item with one task is filled by the controller, with no seat at all.
   it("dispatches a new test-writer for a pending task that has Unit tests", () => {
-    const intents = intentsOf(taskOf(T1, { kind: "pending" }));
+    const t = taskOf(T1, { kind: "pending" });
+    const intents = intentsOf(t, worldOf([t, taskOf(T2, { kind: "pending" })]));
     expect(dispatchesOf(intents)).toEqual([expect.objectContaining({ kind: "dispatch", task: T1, seat: "test-writer", mode: "new" })]);
     expect(intents[0].closes).toContain("dispatched");
   });
 
   it("writes a no test-writer line for a pending task with no Unit or Integration tests", () => {
     const t = taskOf(T1, { kind: "pending" });
-    const world = worldOf([t], { inputs: inputsOf([plan(T1, { testTypes: ["UI"] })]) });
+    const world = worldOf([t, taskOf(T2, { kind: "pending" })], { inputs: inputsOf([plan(T1, { testTypes: ["UI"] }), plan(T2)]) });
     const intents = intentsOf(t, world);
     expect(dispatchesOf(intents)).toEqual([]);
     const lines = writesOf(intents);
