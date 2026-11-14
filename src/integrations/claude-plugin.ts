@@ -55,6 +55,16 @@ export function claudeRunner(cwd?: string, timeoutMs = CLAUDE_TIMEOUT_MS, signal
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    // Killing claude does not end what claude itself started; such a process keeps the pipes, and the pipes keep kf alive.
+    signal?.addEventListener(
+      "abort",
+      () => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+      },
+      { once: true },
+    );
     child.on("error", (err) => {
       clearTimeout(timer);
       fail(err);
