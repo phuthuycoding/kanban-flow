@@ -25,7 +25,7 @@ t3 · board-colours · feature · M · queued · est0=M · estmin=15 · sequenti
 
 ## Language
 
-`language: <language>`, one line per day's section, in English (for example `Vietnamese`): the language travel replies to the human in, one per travel session, not per item. Travel writes it when the human first writes in a language other than English, and a new session resuming the ledger applies it until the human writes.
+`language: <language>`, one line per day's section, in English (for example `Vietnamese`): the language travel replies to the human in, one per travel session, not per item. Travel writes it when the human first writes in a language other than English, and a new session resuming the ledger applies it until the human writes; a section without it falls back to the latest `Note reply language:` line of the `driving` items' `loop/progress.md`.
 
 ## Line
 

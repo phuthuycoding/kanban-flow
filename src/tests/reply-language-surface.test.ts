@@ -69,7 +69,18 @@ describe("reply language survives compaction", () => {
 
   it("travel's resume after compaction reads the language from the travel ledger", () => {
     const p = paragraphStarting(travel(), "**Resume after compaction.**");
-    expect(p).toContain("keep replying to the human in the `language:` line of its last section until the human writes in another");
+    expect(p).toContain("keep replying to the human in the `language:` line of its last section");
+    expect(p).toContain("until the human writes in another");
+  });
+
+  it("travel's resume falls back to the driving items' reply language note when the day has no language line", () => {
+    const p = paragraphStarting(travel(), "**Resume after compaction.**");
+    expect(p).toContain("when that section has none, in the latest `Note reply language:` line across the `driving` items' `loop/progress.md`");
+  });
+
+  it("travel writes the day's language line in the turn the human first leaves English", () => {
+    const p = paragraphWith(travel(), "Copy the `language:` line from the previous section");
+    expect(p).toContain("write it in the same turn the human first writes in another language");
   });
 
   it("travel's open-the-day section template carries the language line so a new day keeps it", () => {

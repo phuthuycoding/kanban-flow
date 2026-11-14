@@ -63,7 +63,7 @@ t1 · <feature> · <kind> · <size> · queued · est0=<size> · estmin=<n> · <n
 …
 ```
 
-Copy the `language:` line from the previous section (omit it while the human has only written in English), and rewrite it whenever the human switches language. Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already), leaving `blocked` and `owner=human` lines as they are; a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
+Copy the `language:` line from the previous section (omit it while the human has only written in English); write it in the same turn the human first writes in another language, and rewrite it whenever the human switches language, so a compaction never finds the day without it. Rewrite the previous section's unfinished lines as `carry-over` (if the morning did not already), leaving `blocked` and `owner=human` lines as they are; a carried item keeps its worktree and its `loop/progress.md`. Then start the loop.
 
 ## 3. The loop
 
@@ -77,7 +77,7 @@ Each **tick**:
 
 **End of day** when the human says stop, or nothing is `driving` and nothing `queued` is dispatchable: §6.
 
-**Resume after compaction.** Read `.kf/travel/progress.md` first, and keep replying to the human in the `language:` line of its last section until the human writes in another (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read through `kf next --resume`, as kf:implement's Resume section says. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
+**Resume after compaction.** Read `.kf/travel/progress.md` first, and keep replying to the human in the `language:` line of its last section — or, when that section has none, in the latest `Note reply language:` line across the `driving` items' `loop/progress.md` (then write that `language:` line at once) — until the human writes in another (today's section is the source of truth for which items are `driving`, `blocked`, `waiting-to-merge`), then each `driving` item's `loop/progress.md`: in implementation, the head and next task's ledger lines — each task's own seats, verify and rounds, read through `kf next --resume`, as kf:implement's Resume section says. Travel restarts no item: it never recreates a worktree that exists, never reruns a task already marked done there (a `complete` line), and re-dispatches only the seats the item's ledger shows unfinished.
 
 ### Line states
 
