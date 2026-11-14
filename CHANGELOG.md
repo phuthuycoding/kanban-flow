@@ -14,9 +14,13 @@ Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ### Changed
 - **`/kf:travel` reads the harness estimate.** It takes each item's size from `kf estimate show <feature> --json` and never sizes an item that has a recorded estimate; an item with none is sized for the day only with `kf estimate size` and its plan line says `no item estimate`. Budget and calibration come from `kf estimate stats`, sequential pairs from `kf estimate overlap`. It no longer measures a done line or appends to `.kf/travel/estimates.md`, and its day sections keep only the day's plan (no `est0`, `estmin`, `work` or `review` note fields).
 - **`/kf:implement` no longer runs `kf loop-stats <f> --record`;** the close writes the row. `/kf:plan` and `/kf:bug` fill `## Estimate`, and `/kf:flow` lists `kf estimate` and `kf metrics`.
+- **`kf estimate size` takes `--kind`.** The script's `size <minutes> <files> [<estimates.md> <kind>]` becomes `kf estimate size <minutes> <files|unknown> [--kind feature|bug|pr]`: the history is found by kf, so the file and kind positionals are gone.
+- **`kf status --json` gains `notices`,** the findings that never block (`estimate_missing`, `estimate_should_split`, `estimate_history`); `blockers` is unchanged.
+- **The library exports `ItemEstimate` and `FilesChanged` as stable types,** the shapes of `meta.estimate` and `meta.filesChanged`. `readFeatureMeta` drops an `estimate` or `filesChanged` it cannot read from the returned metadata instead of refusing the item, so such an item still reads and closes.
 
 ### Removed
 - **The travel `estimates` script** (`assets/skills/travel/scripts/estimates`), with its own tests; `kf estimate` replaces it and keeps its output and exit codes.
+- **The script's `measure` subcommand,** with no `kf estimate` counterpart: the close now measures the item into `<item>/metrics.json`.
 
 ## [0.21.0] - 2026-11-14
 
