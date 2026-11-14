@@ -144,7 +144,9 @@ the install output reports the failed check or names `kf uninstall --global`.
 Other runtimes (`--agent codex|gemini|kiro|cursor|opencode|devin`) have no plugin
 system, so `kf install` copies the skills as `kf-<name>` directories (`kf-flow`,
 `kf-plan`, ...) into the runtime's skills dir (`.agents/skills` for codex, which
-follows the open standard), and the agents into its agents dir when it has one.
+follows the open standard), and the agents into its agents dir when it has one
+(for devin: rendered `kf-<seat>` profiles under `~/.config/devin/agents`, or
+`.devin/agents` at project scope — always copies, never links).
 `kf autoconfig` and `kf doctor` report the effective scope and flag a missing,
 stale or broken install; `kf doctor --fix` repairs it.
 
