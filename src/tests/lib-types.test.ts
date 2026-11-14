@@ -124,6 +124,10 @@ describe("types referenced by the stable library exports", () => {
     expect([...(referencedByExport.get("LedgerLine") ?? [])]).toContain("ShapeName");
   });
 
+  it("collects the estimate and files-changed types of the item metadata", () => {
+    expect([...(referencedByExport.get("FeatureMeta") ?? [])]).toEqual(expect.arrayContaining(["ItemEstimate", "FilesChanged"]));
+  });
+
   it("does not follow a typeof query into the value it names", () => {
     expect([...(referencedByExport.get("LedgerLine") ?? [])]).not.toContain("LEDGER_SHAPES");
   });

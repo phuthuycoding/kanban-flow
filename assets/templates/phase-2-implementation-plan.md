@@ -38,6 +38,11 @@ Add one row per task. After the table, record one line per wave — `Execution: 
 - Level: {complexity_level}
 - Reason: {complexity_reason}
 
+## Estimate
+- Agent minutes: {estimate_minutes}
+
+The agent's own estimate of the whole item's work, in minutes. `kf approve` records it with the number of distinct Task Breakdown Files entries and the size they give together.
+
 ## Impact Analysis
 
 | Area | Impact |

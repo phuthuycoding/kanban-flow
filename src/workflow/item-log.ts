@@ -61,6 +61,7 @@ const SHARED_KEYS = Object.keys({
   schema: true, feature: true, context: true, created: true, kind: true, goal: true, issue: true, pr: true,
   delivered: true, deliveredAt: true, docsBranch: true, docsCommit: true, docsLanded: true, approval: true,
   executionId: true, status: true, cancellation: true, bypasses: true, verifyWaiver: true, ship: true, id: true,
+  estimate: true, filesChanged: true,
 } satisfies Record<keyof SharedMeta, true>);
 const SHARED_KEY_SET: ReadonlySet<string> = new Set(SHARED_KEYS);
 /** The string keys every SharedMeta holds, in the order the fold checks them. */

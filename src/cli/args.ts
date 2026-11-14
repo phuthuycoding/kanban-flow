@@ -223,7 +223,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   estimate: {
-    help: "Usage: kf estimate size <minutes> <files|unknown> [--kind feature|bug|pr] | kf estimate stats | kf estimate overlap <filesA> <filesB>  — the harness estimation model: size prints the T-shirt size, its points and the defaults line, or with --kind the factor learned from the history (done items' metrics.json plus the legacy .kf/travel/estimates.md); stats prints budget, hit rate, bias, throughput, calibration and per-kind lines; overlap prints sequential or parallel for two plan Files cells. Exit 0 printed, 1 any error",
+    help: "Usage: kf estimate size <minutes> <files|unknown> [--kind feature|bug|pr] | kf estimate stats | kf estimate overlap <filesA> <filesB> | kf estimate show <feature> [--json]  — the harness estimation model: size prints the T-shirt size, its points and the defaults line, or with --kind the factor learned from the history (done items' metrics.json plus the legacy .kf/travel/estimates.md); stats prints budget, hit rate, bias, throughput, calibration and per-kind lines; overlap prints sequential or parallel for two plan Files cells; show prints the estimate recorded at approval, or the contract estimate marked not yet approved while the item is in planning, or no estimate and why (--json: the same figures as JSON). Exit 0 printed, 1 any error",
     allowPositionals: true,
     options: {
       kind: { type: "string" },

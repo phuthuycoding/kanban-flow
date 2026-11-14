@@ -25,7 +25,7 @@ export {
   AmbiguousFeatureError, executionContractHash, findFeature, listFeatures, readFeatureMeta,
 } from "./workflow/features.js";
 export type {
-  Approval, Bypass, Cancellation, Feature, FeatureMeta, ShipState, VerifyWaiver,
+  Approval, Bypass, Cancellation, Feature, FeatureMeta, FilesChanged, ItemEstimate, ShipState, VerifyWaiver,
   WorktreeRegistration,
 } from "./workflow/features.js";
 export { readStageRecords } from "./workflow/stage-record.js";

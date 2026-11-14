@@ -73,6 +73,8 @@ A new optional field on a returned object is not breaking. A new member of an ex
 | `WorktreeRegistration` | type | stable | The item's worktree: path, branch, domain and port |
 | `VerifyWaiver` | type | stable | The human's waiver of the stage verify |
 | `ShipState` | type | stable | The delivery stamps of the metadata: PR published, auto-merge scheduled, merged, release and changelog; written only by the removed `kf ship`, so only items of earlier releases carry it |
+| `ItemEstimate` | type | stable | The contract estimate `kf approve` records: agent minutes, files and how exact their count is, size, learned factor and when; or none with the reason |
+| `FilesChanged` | type | stable | The files the item's branch changed, counted on entering review; `count` null with a `reason` when it could not be counted |
 | `Stage` | type | stable | A stage name |
 | `WorkItemKind` | type | stable | `feature` or `bug` |
 | `ApprovalStatus` | type | stable | The approval state in the metadata |

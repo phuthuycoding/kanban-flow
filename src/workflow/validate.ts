@@ -8,6 +8,7 @@ import { checkTraceability, checkAffectedSurfaces } from "./validate-traceabilit
 import { checkCancellation } from "./validate-cancel.js";
 import { checkTaskGraph } from "./tasks.js";
 import { checkDocumentationImpact } from "./validate-docs.js";
+import { checkEstimate } from "./validate-estimate.js";
 
 export type { Severity, Finding, ValidationResult } from "./findings.js";
 export { findSecretLike } from "./secrets.js";
@@ -51,6 +52,7 @@ export function validateFeature(feature: Feature, strict = false, requireApprova
       ...checkTaskGraph(feature),
       ...checkDonesArtifacts(feature),
       ...checkDocumentationImpact(feature),
+      ...checkEstimate(feature),
     ]));
 
   const hasErrors = issues.some((i) => i.severity === "ERROR");
