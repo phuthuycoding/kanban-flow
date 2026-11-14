@@ -9,6 +9,7 @@ import { cmdAutoconfig } from "./cli/commands/autoconfig.js";
 import { cmdDoctor } from "./cli/commands/doctor.js";
 import { cmdTasks } from "./cli/commands/tasks.js";
 import { cmdLoopStats } from "./cli/commands/loop-stats.js";
+import { cmdEstimate } from "./cli/commands/estimate.js";
 import { cmdVerify } from "./cli/commands/verify.js";
 import { cmdNext } from "./cli/commands/next.js";
 import { cmdRecord } from "./cli/commands/record.js";
@@ -113,6 +114,8 @@ async function main(argv: string[]): Promise<CmdResult> {
       return cmdTasks(parsed, cwd);
     case "loop-stats":
       return cmdLoopStats(parsed, cwd);
+    case "estimate":
+      return cmdEstimate(parsed, cwd);
     case "verify":
       return cmdVerify(parsed, cwd);
     case "next":

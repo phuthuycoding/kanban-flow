@@ -222,6 +222,14 @@ const COMMANDS: Record<string, CmdSpec> = {
       all: { type: "boolean" },
     },
   },
+  estimate: {
+    help: "Usage: kf estimate size <minutes> <files|unknown> [--kind feature|bug|pr] | kf estimate stats | kf estimate overlap <filesA> <filesB>  — the harness estimation model: size prints the T-shirt size, its points and the defaults line, or with --kind the factor learned from the history (done items' metrics.json plus the legacy .kf/travel/estimates.md); stats prints budget, hit rate, bias, throughput, calibration and per-kind lines; overlap prints sequential or parallel for two plan Files cells. Exit 0 printed, 1 any error",
+    allowPositionals: true,
+    options: {
+      kind: { type: "string" },
+      json: { type: "boolean" },
+    },
+  },
   next: {
     help: "Usage: kf next <feature> [--resume] [--json]  — print the task loop's actions due now (read-only: changes no file); --resume lists open seats, verifies and wave verifies for re-dispatch after lost context; --json prints { feature, n, inFlight, waveRuns?, actions }, where waveRuns lists the waves whose verify is running and a verify-wave action ({ kind, wave, command }) owes kf verify <feature> --wave <w> when harness.verify.stage is pinned. Exit 0 actions printed, 1 refused (a ledger line to repair, or a plan kf tasks refuses), 3 bad input",
     allowPositionals: true,
