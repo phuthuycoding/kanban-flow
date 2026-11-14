@@ -25,6 +25,9 @@ function row(date: string, id: string, est: string, actual: string, work: number
 let root: string;
 
 beforeEach(async () => {
+  // Done items are dated by the local day of their close; pin the zone so the expected days hold on any host.
+  // A test that needs another zone stubs TZ again, and afterEach restores the original value.
+  vi.stubEnv("TZ", "UTC");
   root = realpathSync(await mkdtemp(join(tmpdir(), "kf-estimate-model-")));
   ensureWorksStructure(root);
 });
@@ -130,6 +133,27 @@ describe("readEstimateHistory", () => {
     }));
     const { readEstimateHistory } = await estimateModule();
     expect(readEstimateHistory(root).map((r) => r.date)).toEqual([local]);
+  });
+
+  it("throws EstimateHistoryError naming the metrics file for a closedAt that is not a parsable timestamp", async () => {
+    // The day prefix is real, so only the timestamp parse can reject it; otherwise the row would get a NaN date.
+    const dir = join(root, ".works", "done", "bad-close");
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, "metrics.json");
+    await writeFile(file, JSON.stringify({
+      closedAt: "2026-10-01xyz", id: "BAD", feature: "bad", kind: "feature",
+      estimate: { minutes: 10, size: "M" }, actual: { size: "M", workMinutes: 10 }, filesChanged: { count: 4 },
+    }));
+    const { readEstimateHistory, EstimateHistoryError } = await estimateModule();
+    let thrown: unknown;
+    try {
+      readEstimateHistory(root);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(EstimateHistoryError);
+    expect((thrown as Error).message).toContain(file);
+    expect((thrown as Error).message).toContain("closedAt must be an ISO timestamp");
   });
 
   it("keeps the learned factor stable as items approved with raw minutes close", async () => {
