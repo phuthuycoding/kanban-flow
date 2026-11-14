@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import { ARTIFACTS } from "./schema.js";
@@ -25,7 +26,7 @@ export type StageTime = { stage: string; minutes: number } | { stage: string; mi
 
 /** The loop figures, or why there are none; the absent side's keys are typed `undefined` so either side reads safely. */
 export type LedgerFigures =
-  | { rounds: number; seatMinutes: number | Missing; models: string[]; unparsedLines?: number[]; missing?: undefined }
+  | { rounds: number; seatMinutes: number | Missing; models: string[] | Missing; unparsedLines?: number[]; missing?: undefined }
   | { missing: string; rounds?: undefined; seatMinutes?: undefined; models?: undefined; unparsedLines?: undefined };
 
 export interface ItemMeasurement {
@@ -38,7 +39,7 @@ export interface ItemMeasurement {
   actual: { size: Size; workMinutes: number } | Missing;
   gap: number | Missing;
   stages: StageTime[];
-  path: string[];
+  path: string[] | Missing;
   gates: { requirement: Span; plan: Span; merge: ({ minutes: number; approximate: true }) | Missing | Unreliable };
   ledger: LedgerFigures;
   filesChanged: { count: number } | Missing;
@@ -160,10 +161,11 @@ function ledgerFigures(ledger: ItemLedger | null): LedgerFigures {
   if (ledger === null) return { missing: "no ledger (loop/progress.md)" };
   const { stats } = ledger;
   const seats = ledger.parsed.lines.some((l) => l.shape === "dispatched" || l.shape === "done");
+  const noSeats: Missing = { missing: "no seat time recorded" };
   return {
     rounds: stats.rounds,
-    seatMinutes: seats ? round1(stats.seatMinutes) : { missing: "no seat time recorded" },
-    models: Object.keys(stats.byModel).sort(),
+    seatMinutes: seats ? round1(stats.seatMinutes) : noSeats,
+    models: seats ? Object.keys(stats.byModel).sort() : noSeats,
     ...(stats.unparsed.length > 0 ? { unparsedLines: stats.unparsed } : {}),
   };
 }
@@ -182,7 +184,7 @@ function measure(f: Feature): Measured {
     : fc.count === null ? { missing: fc.reason ?? "the files changed could not be counted" } : { count: fc.count };
 
   let stages: StageTime[];
-  let path: string[];
+  let path: string[] | Missing;
   let requirement: Span;
   let plan: Span;
   let merge: ItemMeasurement["gates"]["merge"];
@@ -190,7 +192,7 @@ function measure(f: Feature): Measured {
   let closedAt = new Date().toISOString();
   if ("missing" in timeline) {
     stages = [{ stage: f.stage, missing: timeline.missing }];
-    path = [];
+    path = { missing: timeline.missing };
     requirement = { missing: timeline.missing };
     plan = { missing: timeline.missing };
     merge = { missing: timeline.missing };
@@ -271,6 +273,17 @@ export function writeItemMetrics(root: string, feature: string): string {
     }
   }
   const path = join(f.dir, METRICS_FILE);
-  writeFileSync(path, `${JSON.stringify(measurement, null, 2)}\n`);
+  writeFileAtomicSync(path, `${JSON.stringify(measurement, null, 2)}\n`);
   return path;
+}
+
+/** The synchronous twin of shared/paths.ts writeFileAtomic: a temp file in the same folder, renamed over the target. */
+function writeFileAtomicSync(file: string, content: string): void {
+  const temp = `${file}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, content, { encoding: "utf8", flag: "wx" });
+    renameSync(temp, file);
+  } finally {
+    rmSync(temp, { force: true });
+  }
 }

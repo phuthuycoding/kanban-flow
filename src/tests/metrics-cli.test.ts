@@ -31,10 +31,17 @@ const MEASURED = {
 const NO_SEATS = {
   ...MEASURED,
   feature: "noseats",
-  ledger: { rounds: 0, seatMinutes: { missing: "no seat time recorded" }, models: [] },
+  ledger: { rounds: 0, seatMinutes: { missing: "no seat time recorded" }, models: { missing: "no seat time recorded" } },
   filesChanged: { missing: "no default branch to count against" },
   gap: { missing: "no estimate" },
   estimate: { none: true, reason: "no estimate in the plan" },
+};
+
+const NO_LOG = {
+  ...MEASURED,
+  feature: "nolog",
+  stages: [{ stage: "done", missing: "no lifecycle log" }],
+  path: { missing: "no lifecycle log" },
 };
 
 async function seed(feature: string, stage: "done" | "review", metrics: object | null): Promise<void> {
@@ -54,6 +61,7 @@ beforeEach(async () => {
   await writeFile(join(root, ".kf", "config.json"), JSON.stringify({ schema: "kanban-flow", created: "20261101_0900", defaultContext: "app" }));
   await seed("measured", "done", MEASURED);
   await seed("noseats", "done", NO_SEATS);
+  await seed("nolog", "done", NO_LOG);
   await seed("unmeasured", "done", null);
 });
 
@@ -65,9 +73,16 @@ describe("kf metrics <feature>", () => {
   it("prints every figure of the measurement as text, with the reason of each missing one", async () => {
     const res = await cmdMetrics(cliArgs(["measured"]), root);
     expect(res.code).toBe(0);
-    for (const figure of ["measured", "S", "M", "20", "13", "opus", "sonnet", "standard", "brainstorm", "planning", "review", "4"]) {
-      expect(res.stdout, figure).toContain(figure);
-    }
+    const lines = res.stdout.split("\n");
+    expect(lines[0]).toBe("Metrics — measured");
+    expect(lines).toContain("estimate: minutes 10, files none, filesMark unknown, size S, factor 1, at 2026-11-01T09:25:00.000Z");
+    expect(lines).toContain("actual: size M, workMinutes 20");
+    expect(lines).toContain("files changed: count 4");
+    expect(lines).toContain("gap: 1");
+    expect(lines).toContain("path: brainstorm → planning → implementation → review → done");
+    expect(lines).toContain("ledger: rounds 2, seatMinutes 13, models opus, sonnet");
+    expect(lines).toContain("tier: standard — one module touched");
+    expect(lines).toContain("stages: brainstorm 10 min, planning 20 min, review missing: no lifecycle record");
     expect(res.stdout).toContain("missing: no lifecycle record");
     expect(res.stdout).toContain("clock went backwards");
   });
@@ -81,13 +96,26 @@ describe("kf metrics <feature>", () => {
   it("says no seat time was recorded when the ledger had no seat lines, in text and in JSON", async () => {
     const text = await cmdMetrics(cliArgs(["noseats"]), root);
     expect(text.code).toBe(0);
-    expect(text.stdout).toContain("no seat time recorded");
+    const lines = text.stdout.split("\n");
+    expect(lines).toContain("ledger: rounds 0, seatMinutes missing: no seat time recorded, models missing: no seat time recorded");
+    // The stage lines are still shown when the ledger has no seat time.
+    expect(lines).toContain("stages: brainstorm 10 min, planning 20 min, review missing: no lifecycle record");
+    expect(lines).toContain("path: brainstorm → planning → implementation → review → done");
     expect(text.stdout).toContain("missing: no default branch to count against");
     expect(text.stdout).toContain("missing: no estimate");
 
     const json = await cmdMetrics(cliArgs(["noseats"], { json: true }), root);
     expect(json.code).toBe(0);
     expect(JSON.parse(json.stdout).ledger.seatMinutes).toEqual({ missing: "no seat time recorded" });
+    expect(JSON.parse(json.stdout).ledger.models).toEqual({ missing: "no seat time recorded" });
+  });
+
+  it("prints a path that could not be taken as missing with its reason", async () => {
+    const res = await cmdMetrics(cliArgs(["nolog"]), root);
+    expect(res.code).toBe(0);
+    const lines = res.stdout.split("\n");
+    expect(lines).toContain("path: missing: no lifecycle log");
+    expect(lines).toContain("stages: done missing: no lifecycle log");
   });
 
   it("exits 1 with a message when the item has no measurement yet", async () => {

@@ -223,7 +223,7 @@ const COMMANDS: Record<string, CmdSpec> = {
     },
   },
   metrics: {
-    help: "Usage: kf metrics <feature> [--json]  — print the measurement the close wrote to the item's metrics.json: estimate, actual size and gap, stage times, path, gate spans, fix rounds, seat time, models, files changed, tier and the loop-metrics row; a figure that could not be taken shows missing: <reason>. Exit 0 printed, 1 no measurement yet, 3 bad input",
+    help: "Usage: kf metrics <feature> [--json]  — print the measurement the close wrote to the item's metrics.json: estimate, actual size and gap, stage times, path, gate spans, fix rounds, seat time, models, files changed, tier and the loop-metrics row; a figure that could not be taken shows missing: <reason>. Exit 0 printed, 1 no measurement yet, no .works, or a metrics.json that is not a valid JSON object, 3 bad input",
     allowPositionals: true,
     options: {
       json: { type: "boolean" },

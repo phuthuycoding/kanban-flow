@@ -24,12 +24,12 @@ function figure(value: unknown): string {
   if (value === null) return "none";
   if (Array.isArray(value)) return value.length === 0 ? "none" : value.map(figure).join(", ");
   if (!isRecord(value)) return String(value);
-  if (typeof value.missing === "string") return `missing: ${value.missing}`;
-  if (typeof value.unreliable === "string") return `unreliable: ${value.unreliable}`;
   if (typeof value.stage === "string") {
     const { stage, ...rest } = value;
     return `${stage} ${figure(rest)}`;
   }
+  if (typeof value.missing === "string") return `missing: ${value.missing}`;
+  if (typeof value.unreliable === "string") return `unreliable: ${value.unreliable}`;
   if (typeof value.minutes === "number" && Object.keys(value).every((k) => k === "minutes" || k === "approximate")) {
     return `${value.minutes} min${value.approximate === true ? " (approximate)" : ""}`;
   }

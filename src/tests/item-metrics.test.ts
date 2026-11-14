@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { linkSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { measureItem } from "../workflow/item-metrics.js";
+import { measureItem, writeItemMetrics } from "../workflow/item-metrics.js";
 import { ensureWorksStructure } from "../workflow/features.js";
 import { ARTIFACTS, METADATA_FILE } from "../workflow/schema.js";
 
@@ -186,13 +187,25 @@ describe("measureItem — figures it cannot take", () => {
     const m = await measureItem(root, FEATURE);
     expect(m.ledger).not.toHaveProperty("missing");
     expect(m.ledger).toMatchObject({ rounds: 1, seatMinutes: 13 });
-    expect(JSON.stringify(m.ledger)).toMatch(/\b9\b/);
+    expect(m.ledger.unparsedLines).toEqual([9]);
   });
 
   it("reports no seat time instead of 0 when the ledger has no seat lines", async () => {
     await seed({ ledger: ledgerText(["# Task loop ledger — f", `TASK-001: fix round 1/5 (review finding) @ ${at("09:44")}`, `TASK-001: complete (done) @ ${at("09:45")}`]) });
     const m = await measureItem(root, FEATURE);
     expect(m.ledger).toMatchObject({ rounds: 1, seatMinutes: { missing: "no seat time recorded" } });
+  });
+
+  it("reports the models as missing, not as an empty list, when the ledger recorded no seat time", async () => {
+    await seed({ ledger: ledgerText(["# Task loop ledger — f", `TASK-001: fix round 1/5 (review finding) @ ${at("09:44")}`, `TASK-001: complete (done) @ ${at("09:45")}`]) });
+    const m = await measureItem(root, FEATURE);
+    expect(m.ledger.models).toEqual({ missing: "no seat time recorded" });
+  });
+
+  it("reports the path as missing with the reason, not as an empty list, when there is no lifecycle log", async () => {
+    await seed({ timeline: null, ledger: ledgerText(LEDGER_LINES) });
+    const m = await measureItem(root, FEATURE);
+    expect(m.path).toEqual({ missing: "no lifecycle log" });
   });
 
   it("marks stage times, gates, actual size and gap missing when there is no lifecycle log, and the estimate none", async () => {
@@ -237,5 +250,36 @@ describe("measureItem — figures it cannot take", () => {
     expect(m.actual).not.toHaveProperty("size");
     expect(m.gap).not.toEqual(expect.any(Number));
     expect(numbers(m).filter((n) => n < 0)).toEqual([]);
+  });
+});
+
+describe("writeItemMetrics — the file is replaced atomically", () => {
+  it("replaces an existing metrics.json by a rename, so a reader of the old file never sees a partial one", async () => {
+    await seed({ ledger: null });
+    const dir = join(root, ".works", "done", FOLDER);
+    const target = join(dir, "metrics.json");
+    const oldText = `${JSON.stringify({ v: 1, feature: FEATURE, old: true }, null, 2)}\n`;
+    await writeFile(target, oldText);
+    // A second name for the old file: a write in place would change it, a rename leaves it as it was.
+    const keep = join(root, "metrics-before.json");
+    linkSync(target, keep);
+    const inodeBefore = statSync(target).ino;
+
+    const written = writeItemMetrics(root, FEATURE);
+
+    expect(written).toBe(target);
+    expect(statSync(target).ino).not.toBe(inodeBefore);
+    expect(await readFile(keep, "utf8")).toBe(oldText);
+    const parsed = JSON.parse(await readFile(target, "utf8"));
+    expect(parsed).toMatchObject({ v: 1, feature: FEATURE });
+    expect(parsed.old).toBeUndefined();
+  });
+
+  it("leaves no temporary file next to metrics.json", async () => {
+    await seed({ ledger: null });
+    writeItemMetrics(root, FEATURE);
+    const names = await readdir(join(root, ".works", "done", FOLDER));
+    expect(names).toContain("metrics.json");
+    expect(names.filter((n) => n.startsWith("metrics.json."))).toEqual([]);
   });
 });

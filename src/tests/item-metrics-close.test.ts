@@ -272,6 +272,8 @@ describe("a measurement that fails never changes the close", () => {
 
     const warnings = out.split("\n").filter((l) => /measurement/i.test(l));
     expect(warnings, out).toHaveLength(1);
-    expect(warnings[0]).toMatch(/warn/i);
+    expect(warnings[0]).toContain("⚠ the measurement of 'alpha' was not written: ");
+    expect(warnings[0]).not.toContain("beta");
+    expect(warnings[0]).not.toMatch(/warning:/i);
   });
 });

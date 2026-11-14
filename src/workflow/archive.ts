@@ -589,6 +589,6 @@ function measureClosedItem(root: string, name: string): string | null {
     return null;
   } catch (err) {
     // The close already happened and must not be undone or reported as failed for its measurement.
-    return `warning: the measurement of '${name}' was not written: ${err instanceof Error ? err.message : String(err)}`;
+    return `the measurement of '${name}' was not written: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
