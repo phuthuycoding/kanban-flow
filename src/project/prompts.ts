@@ -135,8 +135,12 @@ function runPrompt<S extends { done: boolean; abort: boolean }>(
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/** Shows a spinner while `work` runs; keys typed meanwhile are discarded, Ctrl+C / Ctrl+D / closed input abort. */
-export async function withLoading<T>(message: string, work: () => Promise<T>): Promise<T> {
+/**
+ * Shows a spinner while `work` runs; keys typed meanwhile are discarded, Ctrl+C / Ctrl+D / closed input abort.
+ * An abort also aborts the signal handed to `work`, so it can stop what keeps the process alive (a child process).
+ */
+export async function withLoading<T>(message: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
   return new Promise<T>((resolveP, reject) => {
     let frame = 0;
     let timer: NodeJS.Timeout | undefined;
@@ -164,9 +168,20 @@ export async function withLoading<T>(message: string, work: () => Promise<T>): P
       }
       fn();
     };
-    const onEnd = () => finish(() => reject(new PromptAbort("Input closed")));
+    const abort = (reason: string) =>
+      finish(() => {
+        controller.abort();
+        reject(new PromptAbort(reason));
+      });
+    const onEnd = () => abort("Input closed");
     const onKey = (_s: string, key: Key | undefined) => {
-      if (key && isAbortKey(key)) finish(() => reject(new PromptAbort("Ctrl+C")));
+      if (key && isAbortKey(key)) abort("Ctrl+C");
+    };
+    // A wrapped spinner line could not be cleared with \r, so it is cut to the terminal width.
+    const line = (i: number) => {
+      const text = `${SPINNER_FRAMES[i]} ${message}`;
+      const columns = output.columns;
+      return columns > 1 ? [...text].slice(0, columns - 1).join("") : text;
     };
     try {
       emitKeypressEvents(input);
@@ -175,10 +190,10 @@ export async function withLoading<T>(message: string, work: () => Promise<T>): P
       input.on("keypress", onKey);
       input.on("end", onEnd);
       output.write("\x1b[?25l");
-      output.write(`\r\x1b[K${SPINNER_FRAMES[0]} ${message}`);
+      output.write(`\r\x1b[K${line(0)}`);
       timer = setInterval(() => {
         frame = (frame + 1) % SPINNER_FRAMES.length;
-        output.write(`\r\x1b[K${SPINNER_FRAMES[frame]} ${message}`);
+        output.write(`\r\x1b[K${line(frame)}`);
       }, 80);
     } catch (err) {
       settled = true;
@@ -191,7 +206,7 @@ export async function withLoading<T>(message: string, work: () => Promise<T>): P
     }
     let running: Promise<T>;
     try {
-      running = work();
+      running = work(controller.signal);
     } catch (err) {
       finish(() => reject(err));
       return;

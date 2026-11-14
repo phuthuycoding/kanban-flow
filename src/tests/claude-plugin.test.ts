@@ -372,6 +372,24 @@ describe("claudeRunner timeout", () => {
     const run = claudeRunner(undefined, 300);
     await expect(run(["plugin", "list", "--json"])).rejects.toThrow(/plugin list --json/);
   });
+
+  it("kills the claude child as soon as the signal aborts, well before the timeout", async () => {
+    const controller = new AbortController();
+    const run = claudeRunner(undefined, 20_000, controller.signal);
+    const started = Date.now();
+    const pending = run(["plugin", "list", "--json"]);
+    setTimeout(() => controller.abort(), 100);
+    await expect(pending).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("does not start claude when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const started = Date.now();
+    await expect(claudeRunner(undefined, 20_000, controller.signal)(["plugin", "list", "--json"])).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
 });
 
 describe("kf init with an unusable claude", () => {

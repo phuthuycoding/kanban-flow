@@ -506,6 +506,56 @@ describe("interactive prompts on the terminal", () => {
       work.resolve("late");
     });
 
+    it("hands the work a signal that aborts on ctrl+c", async () => {
+      fakeTerminal();
+      let seen: AbortSignal | undefined;
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, (signal) => {
+        seen = signal;
+        return work.promise;
+      });
+      expect(seen?.aborted).toBe(false);
+      press("c", true);
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(seen?.aborted).toBe(true);
+      work.resolve("late");
+    });
+
+    it("aborts the work's signal when the input stream ends", async () => {
+      fakeTerminal();
+      let seen: AbortSignal | undefined;
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, (signal) => {
+        seen = signal;
+        return work.promise;
+      });
+      stdin.emit("end");
+      await expect(result).rejects.toBeInstanceOf(PromptAbort);
+      expect(seen?.aborted).toBe(true);
+      work.resolve("late");
+    });
+
+    it("leaves the work's signal unaborted when the work resolves", async () => {
+      fakeTerminal();
+      let seen: AbortSignal | undefined;
+      await withLoading(MESSAGE, async (signal) => {
+        seen = signal;
+        return "ok";
+      });
+      expect(seen?.aborted).toBe(false);
+    });
+
+    it("cuts the spinner line to one column less than the terminal width", async () => {
+      fakeTerminal();
+      stubColumns(20);
+      const work = deferred<string>();
+      const result = withLoading(MESSAGE, () => work.promise);
+      const frame = written.find((w) => w.startsWith("\r\x1b[K⠋"));
+      expect(frame).toBe(`\r\x1b[K${[...`⠋ ${MESSAGE}`].slice(0, 19).join("")}`);
+      work.resolve("done");
+      await result;
+    });
+
     it("rejects with PromptAbort when the input stream ends and restores the terminal", async () => {
       fakeTerminal();
       const before = { key: keypressListeners(), end: endListeners() };

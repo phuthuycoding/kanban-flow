@@ -80,7 +80,7 @@ function scripted(answers: Answers) {
     },
     loading(message, work) {
       loadingMessages.push(message);
-      return work();
+      return work(new AbortController().signal);
     },
   };
   return { prompter, calls, printed, loadingMessages };
@@ -94,7 +94,7 @@ const refusingPrompter = (): Prompter => ({
     throw new Error(`no question expected, got many: ${question}`);
   },
   print() {},
-  loading: (_message, work) => work(),
+  loading: (_message, work) => work(new AbortController().signal),
 });
 
 const ctxOf = (over: Partial<Ctx> = {}): Ctx => ({
@@ -358,6 +358,25 @@ describe("planInstall loading prompt around the user-scope probe", () => {
     await planInstall({}, wsCtx(), prompter);
 
     expect(loadingMessages).toEqual([LOADING]);
+  });
+
+  it("passes the loading prompt's signal to the user-scope probe", async () => {
+    const { prompter } = scripted({ mode: "Customize", agents: ["claude"], scope: "workspace", removeUser: "No", confirm: "Install" });
+    const controller = new AbortController();
+    prompter.loading = (_message, work) => work(controller.signal);
+    let received: AbortSignal | undefined;
+    await planInstall(
+      {},
+      wsCtx({
+        hasUserPlugin: async (signal) => {
+          received = signal;
+          return true;
+        },
+      }),
+      prompter,
+    );
+
+    expect(received).toBe(controller.signal);
   });
 
   it("runs the probe inside the loading work, not before it", async () => {

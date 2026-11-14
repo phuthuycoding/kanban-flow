@@ -39,10 +39,13 @@ export class ClaudePluginError extends Error {}
 /** A claude that hangs (a prompt, a stuck network fetch) must not hang kf install or kf init with it. */
 export const CLAUDE_TIMEOUT_MS = 60_000;
 
-/** Spawns `claude` in `cwd`: a project-scope install writes `.claude/settings.json` into the directory claude runs in. */
-export function claudeRunner(cwd?: string, timeoutMs = CLAUDE_TIMEOUT_MS): ClaudeRun {
+/**
+ * Spawns `claude` in `cwd`: a project-scope install writes `.claude/settings.json` into the directory claude runs in.
+ * An aborted `signal` kills the child, so a Ctrl+C in the onboarding does not wait for a slow claude.
+ */
+export function claudeRunner(cwd?: string, timeoutMs = CLAUDE_TIMEOUT_MS, signal?: AbortSignal): ClaudeRun {
   return (args) => new Promise((done, fail) => {
-    const child = spawn("claude", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("claude", args, { cwd, stdio: ["ignore", "pipe", "pipe"], signal, killSignal: "SIGKILL" });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
