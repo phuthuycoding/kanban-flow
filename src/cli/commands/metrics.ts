@@ -44,7 +44,7 @@ function renderText(feature: string, m: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
-/** `kf metrics <feature> [--json]`: the measurement the close wrote. Exit 0 printed, 1 none yet, 3 bad input. */
+/** `kf metrics <feature> [--json]`: the measurement the close wrote. Exit 0 printed, 1 no measurement yet, no .works, or a metrics.json that is not a valid JSON object, 3 bad input. */
 export async function cmdMetrics(args: ParsedArgs, cwd: string): Promise<CmdResult> {
   if (args.parseError !== undefined) return badInput(args.parseError);
   if (args.positionals.length === 0) return badInput("missing feature");

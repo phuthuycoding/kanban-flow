@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -275,5 +275,19 @@ describe("a measurement that fails never changes the close", () => {
     expect(warnings[0]).toContain("⚠ the measurement of 'alpha' was not written: ");
     expect(warnings[0]).not.toContain("beta");
     expect(warnings[0]).not.toMatch(/warning:/i);
+  });
+
+  it("leaves no temporary file in the item folder when writing metrics.json fails", async () => {
+    await reviewStage("alpha");
+    // A directory where metrics.json goes makes the rename of the temporary file over it fail.
+    await mkdir(join(feature("alpha").dir, "metrics.json"));
+
+    const res = await cmdSync(args("sync"), root);
+    expect(res.code, `${res.stdout}\n${res.stderr ?? ""}`).toBe(0);
+    expect(feature("alpha").stage).toBe("done");
+
+    const names = readdirSync(feature("alpha").dir);
+    expect(names).toContain("metrics.json");
+    expect(names.filter((n) => n.startsWith("metrics.json.") && n !== "metrics.json")).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { linkSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -281,5 +281,29 @@ describe("writeItemMetrics — the file is replaced atomically", () => {
     const names = await readdir(join(root, ".works", "done", FOLDER));
     expect(names).toContain("metrics.json");
     expect(names.filter((n) => n.startsWith("metrics.json."))).toEqual([]);
+  });
+});
+
+// POSIX permission bits do not exist on Windows.
+describe.skipIf(process.platform === "win32")("writeItemMetrics — the file mode", () => {
+  it("keeps the mode of an existing metrics.json when it rewrites it", async () => {
+    await seed({ ledger: null });
+    const target = join(root, ".works", "done", FOLDER, "metrics.json");
+    await writeFile(target, `${JSON.stringify({ v: 1, feature: FEATURE, old: true }, null, 2)}\n`);
+    await chmod(target, 0o640);
+
+    writeItemMetrics(root, FEATURE);
+
+    expect(JSON.parse(await readFile(target, "utf8")).old).toBeUndefined();
+    expect(statSync(target).mode & 0o777).toBe(0o640);
+  });
+
+  it("creates a new metrics.json readable and writable by its owner only", async () => {
+    await seed({ ledger: null });
+    const target = join(root, ".works", "done", FOLDER, "metrics.json");
+
+    writeItemMetrics(root, FEATURE);
+
+    expect(statSync(target).mode & 0o777).toBe(0o600);
   });
 });

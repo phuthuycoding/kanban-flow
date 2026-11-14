@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -281,7 +281,7 @@ export function writeItemMetrics(root: string, feature: string): string {
 function writeFileAtomicSync(file: string, content: string): void {
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temp, content, { encoding: "utf8", flag: "wx" });
+    writeFileSync(temp, content, { encoding: "utf8", flag: "wx", mode: existsSync(file) ? statSync(file).mode & 0o777 : 0o600 });
     renameSync(temp, file);
   } finally {
     rmSync(temp, { force: true });
