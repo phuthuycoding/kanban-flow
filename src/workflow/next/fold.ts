@@ -409,8 +409,10 @@ const onReopened: RegionHandler<"reopened"> = (t, e, world) => {
   }
   // A one-task item the controller filled (closed by `implemented`) has no seats to reopen: the round is counted for
   // the cap and the task goes back to pending, where the one-task decide fills it again. A loop closed by `complete`
-  // ran seats, and keeps its seat round.
-  const controllerFilled = t.phase.kind === "complete" && t.phase.how === "implemented";
+  // ran seats, and keeps its seat round. A second reopen before the controller fills it again finds the task still
+  // pending from the first: only the one-task shortcut leaves a reopened task pending, so it stays a controller fill.
+  const controllerFilled =
+    (t.phase.kind === "complete" && t.phase.how === "implemented") || (t.phase.kind === "pending" && t.reopened);
   if (world.inputs.tasks.length === 1 && controllerFilled) return { ...base, roundsUsed: round };
   return openCycle(base, "round", round, e.line, { kind: "owed", mode: roundMode(round), round });
 };
