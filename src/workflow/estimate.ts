@@ -13,7 +13,7 @@ export type Size = "S" | "M" | "L" | "XL";
 
 export const SIZES: readonly Size[] = ["S", "M", "L", "XL"];
 export const POINTS: Record<Size, number> = { S: 1, M: 2, L: 4, XL: 8 };
-export const KINDS = ["feature", "bug", "pr"] as const;
+export const KINDS: readonly string[] = ["feature", "bug", "pr"];
 
 const HEADER = "date · id · feature · kind · est · actual · work · review · files · rounds · path · tier · gap · estmin";
 const FIELDS = HEADER.split(" · ");
@@ -66,7 +66,7 @@ function realDate(s: string): boolean {
 }
 
 function isSize(s: unknown): s is Size {
-  return typeof s === "string" && (SIZES as readonly string[]).includes(s);
+  return SIZES.some((size) => size === s);
 }
 
 // Inclusive upper bounds per size; S minutes is strict (< 5).
@@ -76,8 +76,10 @@ const RULE: Record<"S" | "M" | "L", { minutes: (m: number) => boolean; files: (f
   L: { minutes: (m) => m <= 60, files: (f) => f <= 30 },
 };
 
+const BANDS: readonly ("S" | "M" | "L")[] = ["S", "M", "L"];
+
 function sizeBy(test: "minutes" | "files", value: number): Size {
-  for (const s of ["S", "M", "L"] as const) if (RULE[s][test](value)) return s;
+  for (const s of BANDS) if (RULE[s][test](value)) return s;
   return "XL";
 }
 
@@ -112,15 +114,15 @@ function dayNumber(date: string): number {
  * Its inputs are the raw estimate and the measured work, never the factor, so the factor cannot feed on itself.
  */
 export function factorFor(rows: HistoryRow[], kind: string): Factor {
-  const usable = rows.filter((r) => r.kind === kind && r.estMinutes !== null);
+  const usable = rows.filter((r): r is HistoryRow & { estMinutes: number } => r.kind === kind && r.estMinutes !== null);
   if (usable.length < LEARN_FLOOR) return { usable: usable.length, factor: 1, raw: null, window: 0 };
   const window = usable.slice(-LEARN_WINDOW);
-  const raw = median(window.map((r) => r.workMinutes / (r.estMinutes as number)));
+  const raw = median(window.map((r) => r.workMinutes / r.estMinutes));
   return { usable: usable.length, factor: Math.min(FACTOR_MAX, Math.max(FACTOR_MIN, raw)), raw, window: window.length };
 }
 
-function factorText(f: Factor): string {
-  return f.factor === f.raw ? fmt2(f.factor) : `${fmt2(f.factor)} (clamped from ${fmt2(f.raw as number)})`;
+function factorText(factor: number, raw: number): string {
+  return factor === raw ? fmt2(factor) : `${fmt2(factor)} (clamped from ${fmt2(raw)})`;
 }
 
 function pointsLine(size: Size): string {
@@ -141,7 +143,7 @@ export function sizeLines(minutes: number, files: number | null, rows: HistoryRo
   if (f.raw === null) text = `defaults (${f.usable} ${kind} rows with estmin)`;
   else {
     corrected = minutes * f.factor;
-    text = `learned: ${fmt(minutes)} min × ${factorText(f)} = ${fmt(corrected)} min (${kind}, last ${f.window} rows)`;
+    text = `learned: ${fmt(minutes)} min × ${factorText(f.factor, f.raw)} = ${fmt(corrected)} min (${kind}, last ${f.window} rows)`;
   }
   // The files size is never corrected: the factor only learns minutes.
   const size = sizeOf(corrected, files);
@@ -155,23 +157,24 @@ function hits(rows: HistoryRow[]): number {
 /** Budget, hit rate, bias, throughput, calibration, per-kind lines and the week-over-week warning. */
 export function statsLines(rows: HistoryRow[]): string[] {
   // A row without an estimate counts toward budget and throughput, never toward hit rate and bias.
-  const estimated = rows.filter((r) => r.est !== null);
+  const estimated = rows.filter((r): r is HistoryRow & { est: Size } => r.est !== null);
   const byDay = new Map<string, number>();
   for (const r of rows) byDay.set(r.date, (byDay.get(r.date) ?? 0) + POINTS[r.actual]);
-  const days = [...byDay.keys()].sort();
-  const totals = days.map((d) => byDay.get(d) as number);
+  const daily = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const days = daily.map(([d]) => d);
+  const totals = daily.map(([, points]) => points);
   const total = totals.reduce((a, b) => a + b, 0);
   const out: string[] = [];
   if (days.length >= MIN_DAYS) out.push(`budget: ${fmt(median(totals))} points (median of ${days.length} days)`);
   else out.push(`budget: ${DEFAULT_TASKS} tasks (default — fewer than ${MIN_DAYS} days measured)`);
   out.push(`hit rate: ${hits(estimated)}/${estimated.length}`);
-  const index = (s: Size | null): number => SIZES.indexOf(s as Size);
+  const index = (s: Size): number => SIZES.indexOf(s);
   const over = estimated.filter((r) => index(r.est) > index(r.actual)).length;
   const under = estimated.filter((r) => index(r.est) < index(r.actual)).length;
   out.push(`bias: ${over} over, ${under} under`);
   out.push(`throughput: ${total} points / ${days.length} days`);
   out.push(days.length >= MIN_DAYS
-    ? `calibration: budget = median daily actual points of ${days.map((d) => `${d} (${byDay.get(d)})`).join(", ")}`
+    ? `calibration: budget = median daily actual points of ${daily.map(([d, points]) => `${d} (${points})`).join(", ")}`
     : "calibration: none yet");
   const kinds = [...new Set(estimated.map((r) => r.kind))].sort();
   for (const k of kinds) {
@@ -179,7 +182,7 @@ export function statsLines(rows: HistoryRow[]): string[] {
     const bias = same.reduce((a, r) => a + index(r.actual) - index(r.est), 0) / same.length;
     const f = factorFor(rows, k);
     const factor = f.raw === null ? `factor 1 (defaults — ${f.usable} rows with estmin, needs ${LEARN_FLOOR})`
-      : `factor ${factorText(f)} (median of last ${f.window} rows)`;
+      : `factor ${factorText(f.factor, f.raw)} (median of last ${f.window} rows)`;
     out.push(`kind ${k}: hit rate ${hits(same)}/${same.length}, bias ${bias > 0 ? "+" : ""}${bias.toFixed(1)} sizes, ${factor}`);
   }
   if (days.length > 0) {
@@ -204,14 +207,18 @@ export function overlapVerdict(a: string, b: string): "sequential" | "parallel" 
   return filesOverlap(filesCell(a), filesCell(b)) ? "sequential" : "parallel";
 }
 
-function rowNumber(where: string, name: string, raw: string | undefined, integer: boolean): number {
-  if (raw === undefined || raw === "" || !/^\d+(\.\d+)?$/.test(raw)) {
-    throw new EstimateHistoryError(`${where}: ${name} must be a non-negative number: ${raw ?? "(missing)"}`);
-  }
+/**
+ * The script's number check, with its messages: a non-negative decimal, or a whole number when `integer`.
+ * `error` builds what is thrown, so the CLI reports bad input and the history reader a malformed row.
+ */
+export function parseNumber(name: string, raw: string | undefined, integer: boolean, error: (message: string) => Error): number {
+  if (raw === undefined || raw === "" || !/^\d+(\.\d+)?$/.test(raw)) throw error(`${name} must be a non-negative number: ${raw ?? "(missing)"}`);
   const n = Number(raw);
-  if (integer && !Number.isInteger(n)) throw new EstimateHistoryError(`${where}: ${name} must be a whole number: ${raw}`);
+  if (integer && !Number.isInteger(n)) throw error(`${name} must be a whole number: ${raw}`);
   return n;
 }
+
+const historyError = (message: string): EstimateHistoryError => new EstimateHistoryError(message);
 
 function parseLegacy(text: string, file: string): HistoryRow[] {
   const rows: HistoryRow[] = [];
@@ -223,25 +230,23 @@ function parseLegacy(text: string, file: string): HistoryRow[] {
     if (cells.length !== FIELDS.length && cells.length !== FIELDS.length - 1) {
       throw new EstimateHistoryError(`${where}: expected ${FIELDS.length} fields (${HEADER}), or ${FIELDS.length - 1} without estmin, got ${cells.length}`);
     }
-    const cell = Object.fromEntries(FIELDS.map((f, k) => [f, cells[k]])) as Record<string, string | undefined>;
-    const date = cell.date as string;
+    const [date, id, feature, kind, est, actual, work, , filesCount] = cells;
+    // A 13-field row was written before estmin existed.
+    const estmin = cells.length === FIELDS.length ? cells[FIELDS.length - 1] : undefined;
     if (!realDate(date)) throw new EstimateHistoryError(`${where}: date must be a real YYYY-MM-DD day: ${date}`);
-    if (!isSize(cell.est)) throw new EstimateHistoryError(`${where}: est must be S|M|L|XL: ${cell.est}`);
-    if (cell.actual !== "-" && !isSize(cell.actual)) throw new EstimateHistoryError(`${where}: actual must be S|M|L|XL or -: ${cell.actual}`);
-    const measured = isSize(cell.actual);
-    const workMinutes = measured ? rowNumber(where, "work", cell.work, false) : 0;
-    const files = measured ? rowNumber(where, "files", cell.files, true) : 0;
+    if (!isSize(est)) throw new EstimateHistoryError(`${where}: est must be S|M|L|XL: ${est}`);
+    if (actual !== "-" && !isSize(actual)) throw new EstimateHistoryError(`${where}: actual must be S|M|L|XL or -: ${actual}`);
+    const measured = isSize(actual);
+    const workMinutes = measured ? parseNumber(`${where}: work`, work, false, historyError) : 0;
+    const files = measured ? parseNumber(`${where}: files`, filesCount, true, historyError) : 0;
     let estMinutes: number | null = null;
-    if (cell.estmin !== undefined) {
-      estMinutes = rowNumber(where, "estmin", cell.estmin, false);
-      if (estMinutes === 0) throw new EstimateHistoryError(`${where}: estmin must be above 0: ${cell.estmin}`);
+    if (estmin !== undefined) {
+      estMinutes = parseNumber(`${where}: estmin`, estmin, false, historyError);
+      if (estMinutes === 0) throw new EstimateHistoryError(`${where}: estmin must be above 0: ${estmin}`);
     }
     // A cancelled row (actual `-`) is checked but left out: it measured nothing.
-    if (!isSize(cell.actual)) return;
-    rows.push({
-      date, id: cell.id as string, feature: cell.feature as string, kind: cell.kind as string,
-      est: cell.est, actual: cell.actual, workMinutes, files, estMinutes,
-    });
+    if (!isSize(actual)) return;
+    rows.push({ date, id, feature, kind, est, actual, workMinutes, files, estMinutes });
   });
   return rows;
 }

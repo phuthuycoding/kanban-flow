@@ -3,6 +3,7 @@ import {
   KINDS,
   defaultSizeLines,
   overlapVerdict,
+  parseNumber,
   readEstimateHistory,
   sizeLines,
   statsLines,
@@ -19,25 +20,20 @@ function fail(message: string): never {
   throw new EstimateInputError(message);
 }
 
-function number(name: string, raw: string | undefined, integer: boolean): number {
-  if (raw === undefined || raw === "" || !/^\d+(\.\d+)?$/.test(raw)) fail(`${name} must be a non-negative number: ${raw ?? "(missing)"}`);
-  const n = Number(raw);
-  if (integer && !Number.isInteger(n)) fail(`${name} must be a whole number: ${raw}`);
-  return n;
-}
+const inputError = (message: string): EstimateInputError => new EstimateInputError(message);
 
 async function history(cwd: string): Promise<HistoryRow[]> {
   const root = await findRoot(cwd);
-  if (!root.ok) fail(root.err!);
+  if (!root.ok) fail(root.err ?? "No .works found. Run: kf init");
   return readEstimateHistory(root.root);
 }
 
 async function size(args: string[], kind: string | undefined, cwd: string): Promise<string[]> {
   if (args.length !== 2) fail("usage: estimates size <minutes> <files|unknown> [--kind feature|bug|pr]");
-  const minutes = number("minutes", args[0], false);
-  const files = args[1] === "unknown" ? null : number("files", args[1], true);
+  const minutes = parseNumber("minutes", args[0], false, inputError);
+  const files = args[1] === "unknown" ? null : parseNumber("files", args[1], true, inputError);
   if (kind === undefined) return defaultSizeLines(minutes, files);
-  if (!(KINDS as readonly string[]).includes(kind)) fail(`kind must be feature|bug|pr: ${kind}`);
+  if (!KINDS.includes(kind)) fail(`kind must be feature|bug|pr: ${kind}`);
   return sizeLines(minutes, files, await history(cwd), kind);
 }
 
@@ -53,7 +49,7 @@ function overlap(args: string[], kind: string | undefined): string[] {
 
 async function run(args: ParsedArgs, cwd: string): Promise<string[]> {
   const [sub, ...rest] = args.positionals;
-  const kind = args.options.kind as string | undefined;
+  const kind = typeof args.options.kind === "string" ? args.options.kind : undefined;
   switch (sub) {
     case "size":
       return size(rest, kind, cwd);
