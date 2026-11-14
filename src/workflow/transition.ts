@@ -10,7 +10,7 @@ import { withLock } from "../shared/lock.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
 import { recordBypasses, bypassNote } from "./bypass.js";
 import { readProjectConfig } from "../project/config.js";
-import { worktreeBranch, worktreeConfig, type WorktreeConfig } from "../worktree/config.js";
+import { LEGACY_BRANCH_PREFIX, worktreeBranch, worktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
 import { evaluateStageEvidence, stageEvidenceFindings } from "./stage-evidence.js";
@@ -303,8 +303,16 @@ function countFilesChanged(root: string, feature: string, meta: FeatureMeta, wtC
   const counted = meta.worktree
     ? changedFileCount(root, meta.worktree.branch)
     : wtCfg.enabled
-      ? changedFileCount(root, worktreeBranch(wtCfg, feature))
+      ? itemBranchCount(root, feature, wtCfg)
       : checkoutChangedFileCount(root);
   const at = new Date().toISOString();
   return counted.count === null ? { count: null, reason: counted.reason, at } : { count: counted.count, at };
+}
+
+/** The removed worktree's branch under the configured prefix; when it is gone, a branch kf made under the legacy prefix. */
+function itemBranchCount(root: string, feature: string, wtCfg: WorktreeConfig): ReturnType<typeof changedFileCount> {
+  const counted = changedFileCount(root, worktreeBranch(wtCfg, feature));
+  if (counted.count !== null || wtCfg.branchPrefix === LEGACY_BRANCH_PREFIX) return counted;
+  const legacy = changedFileCount(root, `${LEGACY_BRANCH_PREFIX}${feature}`);
+  return legacy.count !== null ? legacy : counted;
 }

@@ -318,4 +318,33 @@ describe("entering review after the worktree was removed", () => {
     expect(fc.reason).not.toMatch(/\/(home|tmp|var|root)\//);
     expect(feature().stage).toBe("review");
   });
+
+  it("counts the legacy kf/ branch when the branch under the configured prefix does not exist", async () => {
+    addOrigin();
+    await configure(true);
+    // A prefix other than the legacy "kf/" makes the configured branch and the legacy branch two different refs.
+    const configFile = join(root, ".kf", "config.json");
+    const config = JSON.parse(readFileSync(configFile, "utf8")) as { worktree: Record<string, unknown> };
+    config.worktree.branchPrefix = "team/";
+    writeFileSync(configFile, JSON.stringify(config));
+    await implementationItem();
+    const wt = feature().meta!.worktree!; // configure(true) registers a worktree on approve
+    expect(wt.branch).toBe("team/demo");
+    const removed = await cmdWorktree(args("worktree", ["remove", "demo"]), root);
+    expect(removed.code, removed.stdout).toBe(0);
+    expect(feature().meta!.worktree).toBeUndefined();
+    // The item's commits live only on the legacy branch, as for an item whose branch predates the configured prefix.
+    git(root, "branch", "-D", "team/demo");
+    git(root, "checkout", "-q", "-b", "kf/demo", "main");
+    commitFiles(root, ["a.txt", "b.txt", "c.txt"]);
+    // A different count on the checkout's branch tells a count of the legacy branch from a count of the checkout.
+    git(root, "checkout", "-q", "-b", "unrelated", "main");
+    commitFiles(root, ["only.txt"]);
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count, fc.reason).toBe(3);
+    expect(fc.reason).toBeUndefined();
+  });
 });
