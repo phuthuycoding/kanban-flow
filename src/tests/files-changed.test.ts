@@ -15,6 +15,7 @@ import { grantStageWaiver } from "./support/stage-waiver.js";
 import { cmdNew } from "../cli/commands/new.js";
 import { cmdStage } from "../cli/commands/stage.js";
 import { cmdApprove } from "../cli/commands/approve.js";
+import { cmdWorktree } from "../cli/commands/worktree.js";
 import type { ParsedArgs } from "../cli/args.js";
 
 let scratch: string;
@@ -272,5 +273,49 @@ describe("renames", () => {
     renameOnly();
     git(root, "config", "diff.renames", "true");
     expect(changedFileCount(root, "work")).toEqual({ count: 2 });
+  });
+});
+
+describe("entering review after the worktree was removed", () => {
+  /** Worktrees on, the item's branch carries three files, the worktree is removed (branch kept), the checkout sits on another branch with one file. */
+  async function removedWorktreeItem(): Promise<string> {
+    addOrigin();
+    await configure(true);
+    await implementationItem();
+    const wt = feature().meta!.worktree!; // configure(true) registers a worktree on approve
+    commitFiles(wt.path, ["a.txt", "b.txt", "c.txt"]);
+    const removed = await cmdWorktree(args("worktree", ["remove", "demo"]), root);
+    expect(removed.code, removed.stdout).toBe(0);
+    expect(feature().meta!.worktree).toBeUndefined();
+    // A different count on the checkout's branch tells a count of the item's branch from a count of the checkout.
+    git(root, "checkout", "-q", "-b", "unrelated");
+    commitFiles(root, ["only.txt"]);
+    return wt.branch;
+  }
+
+  it("counts the item's own branch, not the main checkout's branch", async () => {
+    const branch = await removedWorktreeItem();
+    expect(git(root, "rev-parse", "--verify", branch)).not.toBe("");
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count).toBe(3);
+    expect(fc.reason).toBeUndefined();
+  });
+
+  it("records null with a pathless reason and still moves when the item's branch is gone", async () => {
+    const branch = await removedWorktreeItem();
+    git(root, "branch", "-D", branch);
+
+    await enterReview();
+
+    const fc = filesChangedOf(snapshot());
+    expect(fc.count).toBeNull();
+    expect(fc.reason).toEqual(expect.any(String));
+    expect(fc.reason).not.toBe("");
+    expect(fc.reason).not.toContain(scratch);
+    expect(fc.reason).not.toMatch(/\/(home|tmp|var|root)\//);
+    expect(feature().stage).toBe("review");
   });
 });

@@ -10,7 +10,7 @@ import { withLock } from "../shared/lock.js";
 import { runHook, resolveHook, type HookResult, type HookSource } from "../integrations/hooks.js";
 import { recordBypasses, bypassNote } from "./bypass.js";
 import { readProjectConfig } from "../project/config.js";
-import { worktreeConfig } from "../worktree/config.js";
+import { worktreeBranch, worktreeConfig, type WorktreeConfig } from "../worktree/config.js";
 import { ensureWorktree, forceRemoveWorktree } from "../worktree/lifecycle.js";
 import { syncBase } from "../project/base-sync.js";
 import { evaluateStageEvidence, stageEvidenceFindings } from "./stage-evidence.js";
@@ -209,7 +209,7 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   }
 
   // Counted outside the lock, like the gates; a count that cannot be made is recorded as null and never refuses the move.
-  const filesChanged = to === "review" ? countFilesChanged(root, f.meta) : null;
+  const filesChanged = to === "review" ? countFilesChanged(root, f.name, f.meta, wtCfg) : null;
   const recorded = recordBypasses(f.stage, to, forcedCodes, skippedHook);
   /** Roll back a worktree this transition created; returns the cleanup failure so the caller reports it. */
   const removeNewWorktree = async (): Promise<unknown> => {
@@ -295,9 +295,16 @@ async function runTransition(root: string, name: string, to: Stage, opts: Transi
   };
 }
 
-/** The files the item changed, counted on entering review: its worktree branch, or the checkout's branch without one. */
-function countFilesChanged(root: string, meta: FeatureMeta): FilesChanged {
-  const counted = meta.worktree ? changedFileCount(root, meta.worktree.branch) : checkoutChangedFileCount(root);
+/**
+ * The files the item changed, counted on entering review: its worktree branch; with worktrees on and the worktree
+ * removed, its own branch from the config (never the checkout's); with worktrees off, the checkout's branch.
+ */
+function countFilesChanged(root: string, feature: string, meta: FeatureMeta, wtCfg: WorktreeConfig): FilesChanged {
+  const counted = meta.worktree
+    ? changedFileCount(root, meta.worktree.branch)
+    : wtCfg.enabled
+      ? changedFileCount(root, worktreeBranch(wtCfg, feature))
+      : checkoutChangedFileCount(root);
   const at = new Date().toISOString();
   return counted.count === null ? { count: null, reason: counted.reason, at } : { count: counted.count, at };
 }
