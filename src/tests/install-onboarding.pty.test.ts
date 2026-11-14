@@ -25,7 +25,7 @@ const DRIVER = [
   "steps=json.loads(sys.argv[1]);argv=sys.argv[2:]",
   "m,s=pty.openpty()",
   "p=subprocess.Popen(argv,stdin=s,stdout=s,stderr=s)",
-  "buf=b'';mark=0;failed=''",
+  "buf=b'';mark=0;failed='';sent=time.time()",
   "def pump(t):",
   "  global buf",
   "  if select.select([m],[],[],t)[0]:",
@@ -39,19 +39,19 @@ const DRIVER = [
   "  q=time.time()+0.4",
   "  while time.time()<q: pump(0.1)",
   "  mark=len(buf)",
-  "  os.write(m,keys.encode())",
+  "  os.write(m,keys.encode());sent=time.time()",
   "if failed: p.kill()",
   "end=time.time()+20",
   "while time.time()<end and p.poll() is None: pump(0.1)",
   "if p.poll() is None: p.kill();failed=failed or 'did not exit'",
-  "code=p.wait()",
+  "code=p.wait();after=time.time()-sent",
   "q=time.time()+0.3",
   "while time.time()<q: pump(0.1)",
   "echo=bool(termios.tcgetattr(s)[3]&termios.ECHO)",
-  "sys.stdout.write(json.dumps({'code':code,'echo':echo,'failed':failed,'out':re.sub(r'\\x1b\\[[0-9;?]*[A-Za-z]','',buf.decode('utf8','replace'))}))",
+  "sys.stdout.write(json.dumps({'code':code,'echo':echo,'failed':failed,'after':after,'out':re.sub(r'\\x1b\\[[0-9;?]*[A-Za-z]','',buf.decode('utf8','replace'))}))",
 ].join("\n");
 
-type Run = { code: number; echo: boolean; failed: string; out: string };
+type Run = { code: number; echo: boolean; failed: string; after: number; out: string };
 
 let dir: string;
 let bin: string;
@@ -95,6 +95,28 @@ async function writeUserScopeStub(): Promise<void> {
   ].join("\n");
   await writeFile(join(bin, "claude"), script);
   await chmod(join(bin, "claude"), 0o755);
+}
+
+/** A `claude` whose plugin list never answers in time: the probe hangs until it is killed. */
+async function writeHangingStub(): Promise<void> {
+  const script = [
+    "#!/bin/sh",
+    'echo "$*" >> "$KF_STUB_LOG"',
+    'if [ "$1 $2" = "plugin list" ]; then echo $$ > "$KF_STUB_LOG.pid"; exec sleep 60; fi',
+    "exit 0",
+    "",
+  ].join("\n");
+  await writeFile(join(bin, "claude"), script);
+  await chmod(join(bin, "claude"), 0o755);
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const calls = async () => (existsSync(log) ? (await readFile(log, "utf8")).split("\n").filter(Boolean) : []);
@@ -217,11 +239,12 @@ describe.skipIf(process.platform === "win32")("kf install and kf uninstall onboa
       expect(res.echo, "terminal echo is back on").toBe(true);
     }, 130_000);
 
-    it("offers the user-scope removal step and carries the choice into the summary", async () => {
+    it("offers the user-scope removal step after Enter on the unavailable project row shows its reason", async () => {
       const res = kfOnPty(ws, [
         ["Setup mode", DOWN + ENTER],
         ["Step 1/3", ENTER],
-        ["Step 2/3", DOWN + DOWN + ENTER],
+        ["Step 2/3", DOWN + ENTER],
+        ["project — this project only is unavailable: no .works/ — run kf init", DOWN + ENTER],
         ["Step 3/4", DOWN + ENTER],
         ["Step 4/4", DOWN + ENTER],
       ], "install");
@@ -234,6 +257,24 @@ describe.skipIf(process.platform === "win32")("kf install and kf uninstall onboa
       expect(res.out).toContain("Nothing changed.");
       const log = await calls();
       expect(log.filter((c) => c.startsWith("plugin install") || c.startsWith("plugin uninstall"))).toEqual([]);
+      expect(res.echo, "terminal echo is back on").toBe(true);
+    }, 130_000);
+
+    it("exits at once on Ctrl+C during a probe that hangs, and kills the claude child", async () => {
+      await writeHangingStub();
+      const res = kfOnPty(ws, [
+        ["Setup mode", DOWN + ENTER],
+        ["Step 1/3", ENTER],
+        ["Step 2/3", DOWN + DOWN + ENTER],
+        ["Checking the Claude Code plugin install", CTRL_C],
+      ], "install");
+      expect(res.failed, res.out).toBe("");
+      expect(res.code, res.out).toBe(1);
+      expect(res.out).toContain("Aborted — nothing changed.");
+      expect(res.after, "seconds from Ctrl+C to exit").toBeLessThan(2);
+      const pid = Number((await readFile(`${log}.pid`, "utf8")).trim());
+      expect(alive(pid), "the probe's claude process is gone").toBe(false);
+      expect(existsSync(join(ws, ".kf", "workspace.json"))).toBe(false);
       expect(res.echo, "terminal echo is back on").toBe(true);
     }, 130_000);
   });
