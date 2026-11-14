@@ -71,6 +71,24 @@ export function claudeScope(scope: SkillScope): "user" | "project" {
   return scope === "global" ? "user" : "project";
 }
 
+/** A kf skill scope, or a workspace folder: Claude Code's `local` scope, which claude records with the folder as `projectPath`. */
+export type PluginTarget = SkillScope | { workspace: string };
+
+function targetScope(target: PluginTarget): "user" | "project" | "local" {
+  return typeof target === "string" ? claudeScope(target) : "local";
+}
+
+/** Claude Code's `local` scope writes `.claude/settings.local.json` in the folder claude runs in, so a workspace runs claude there. */
+function runnerFor(target: PluginTarget): ClaudeRun {
+  return typeof target === "string" ? defaultRun : claudeRunner(target.workspace);
+}
+
+/** A `local` entry belongs to one folder only; `user` and `project` entries match by scope alone. */
+function matchesTarget(entry: Record<string, unknown>, target: PluginTarget): boolean {
+  if (typeof target === "string") return entry.scope === claudeScope(target);
+  return entry.scope === "local" && typeof entry.projectPath === "string" && resolve(entry.projectPath) === resolve(target.workspace);
+}
+
 function quote(res: ClaudeRunResult): string {
   return [res.stdout.trim(), res.stderr.trim()].filter(Boolean).join("\n") || "(no output)";
 }
@@ -85,8 +103,8 @@ async function call(run: ClaudeRun, args: string[]): Promise<ClaudeRunResult> {
   return res;
 }
 
-/** The kf plugin's state; with a scope, an install at the other scope counts as missing here. */
-export async function pluginState(run: ClaudeRun = defaultRun, scope?: SkillScope): Promise<PluginState> {
+/** Every kf@kanban-flow entry `claude plugin list` reports, at any scope and folder. */
+async function kfEntries(run: ClaudeRun): Promise<Record<string, unknown>[]> {
   const args = ["plugin", "list", "--json"];
   const res = await call(run, args);
   let list: unknown;
@@ -98,11 +116,12 @@ export async function pluginState(run: ClaudeRun = defaultRun, scope?: SkillScop
   if (!Array.isArray(list)) {
     throw new ClaudePluginError(`\`claude ${args.join(" ")}\` did not print a JSON array:\n${quote(res)}`);
   }
-  const wanted = scope === undefined ? undefined : claudeScope(scope);
-  const entry = list.find(
-    (e): e is Record<string, unknown> =>
-      typeof e === "object" && e !== null && e.id === PLUGIN_ID && (wanted === undefined || e.scope === wanted),
-  );
+  return list.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null && e.id === PLUGIN_ID);
+}
+
+/** The kf plugin's state; with a target, an install at another scope or folder counts as missing here. */
+export async function pluginState(run: ClaudeRun = defaultRun, scope?: PluginTarget): Promise<PluginState> {
+  const entry = (await kfEntries(run)).find((e) => scope === undefined || matchesTarget(e, scope));
   if (!entry) return { status: "missing" };
   // installPath is the plugin cache, never the package root, so only readFromFolder says where the plugin reads from.
   const folder = typeof entry.readFromFolder === "string" ? entry.readFromFolder : undefined;
@@ -124,16 +143,16 @@ function manualSteps(): string {
 }
 
 /** Bring the cached copy up to the folder's version and prove it: an update claude accepted without changing the copy is a failure. */
-async function updatePlugin(run: ClaudeRun, scope: SkillScope, installed: string, available: string): Promise<string> {
+async function updatePlugin(run: ClaudeRun, scope: PluginTarget, installed: string, available: string): Promise<string> {
   await call(run, ["plugin", "marketplace", "update", MARKETPLACE_NAME]);
-  await call(run, ["plugin", "update", PLUGIN_ID, "--scope", claudeScope(scope)]);
+  await call(run, ["plugin", "update", PLUGIN_ID, "--scope", targetScope(scope)]);
   const after = await pluginState(run, scope);
   if (after.status === "outdated") throw new ClaudePluginError(`\`claude plugin update\` left ${PLUGIN_ID} at ${after.installed}, the folder is ${after.available}.`);
   return `✓ Claude Code: plugin ${PLUGIN_ID} updated from ${installed} to ${available}`;
 }
 
 /** A repoint or an enable can reveal a cached copy behind the folder; update it in the same run. */
-async function withUpdate(run: ClaudeRun, scope: SkillScope, line: string): Promise<string> {
+async function withUpdate(run: ClaudeRun, scope: PluginTarget, line: string): Promise<string> {
   const after = await pluginState(run, scope);
   return after.status === "outdated" ? `${line}\n${await updatePlugin(run, scope, after.installed, after.available)}` : line;
 }
@@ -146,8 +165,8 @@ function failureReason(err: unknown): string {
 }
 
 /** Bring the kf plugin to the state the package root asks for, writing only what differs. */
-export async function ensurePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<PluginReport> {
-  const target = claudeScope(scope);
+export async function ensurePlugin(scope: PluginTarget, run: ClaudeRun = runnerFor(scope)): Promise<PluginReport> {
+  const target = targetScope(scope);
   try {
     const state = await pluginState(run, scope);
     switch (state.status) {
@@ -194,14 +213,16 @@ async function removeStep(run: ClaudeRun, args: string[], absentPattern: RegExp,
   throw failed(args, res);
 }
 
-export async function removePlugin(scope: SkillScope, run: ClaudeRun = defaultRun): Promise<PluginReport> {
-  const other: SkillScope = scope === "global" ? "project" : "global";
+export async function removePlugin(scope: PluginTarget, run: ClaudeRun = runnerFor(scope)): Promise<PluginReport> {
   const lines: string[] = [];
   try {
-    lines.push(await removeStep(run, ["plugin", "uninstall", PLUGIN_NAME, "--scope", claudeScope(scope)], PLUGIN_ABSENT, `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`));
-    // The marketplace is registered per user, so a kf install at the other scope still reads from it.
-    if ((await pluginState(run, other)).status !== "missing") {
-      lines.push(`· Claude Code: marketplace ${MARKETPLACE_NAME} kept (kf still installed at ${claudeScope(other)} scope)`);
+    lines.push(await removeStep(run, ["plugin", "uninstall", PLUGIN_NAME, "--scope", targetScope(scope)], PLUGIN_ABSENT, `✗ Claude Code: plugin ${PLUGIN_ID} uninstalled`, `· Claude Code: plugin ${PLUGIN_ID} not installed`));
+    // The marketplace is registered per user, so any kf install claude still lists, at any scope or folder, reads from it;
+    // the target's own entry counts too, since an uninstall run outside its folder answers "not installed" and leaves it.
+    const remaining = await kfEntries(run);
+    if (remaining.length > 0) {
+      const where = remaining.map((e) => (e.scope === "local" && typeof e.projectPath === "string" ? `local scope in ${e.projectPath}` : `${String(e.scope)} scope`));
+      lines.push(`· Claude Code: marketplace ${MARKETPLACE_NAME} kept (kf still installed at ${[...new Set(where)].join(", ")})`);
     } else {
       lines.push(await removeStep(run, ["plugin", "marketplace", "remove", MARKETPLACE_NAME], MARKETPLACE_ABSENT, `✗ Claude Code: marketplace ${MARKETPLACE_NAME} removed`, `· Claude Code: marketplace ${MARKETPLACE_NAME} not added`));
     }
