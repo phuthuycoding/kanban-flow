@@ -7,7 +7,19 @@ import { effectiveDefaultContext } from "../../project/contexts.js";
 import { readProjectConfig, detectStacks, configPath, projectKabanDir, effectiveSkillsScope, type ProjectConfig } from "../../project/config.js";
 import { AGENTS, DEFAULT_AGENT, projectAgentsDir, projectSkillsDir, userAgentsDir, userSkillsDir, type AgentId, type SkillScope } from "../../integrations/agents.js";
 import { ClaudePluginError, PLUGIN_ID, claudeRunner, claudeScope, pluginState, type ClaudeRun, type PluginState } from "../../integrations/claude-plugin.js";
-import { agentSkillsState, agentsAreHealthy, agentsState, foreignSkills, hasOwnedEntries, MANAGED_AGENTS, unhealthySkills } from "../../integrations/install.js";
+import {
+  agentSkillsState,
+  agentsAreHealthy,
+  agentsState,
+  agyForeignSkills,
+  agyUnhealthySkills,
+  foreignSkills,
+  hasOwnedAgyEntries,
+  hasOwnedEntries,
+  MANAGED_AGENTS,
+  MANAGED_SKILLS,
+  unhealthySkills,
+} from "../../integrations/install.js";
 import { PKG_RULES_DIR, USER_KABAN_DIR, resolveRule } from "../../shared/paths.js";
 import type { CmdResult } from "../result.js";
 import type { ParsedArgs } from "../args.js";
@@ -53,7 +65,9 @@ function installedAgents(root: string, scope: SkillScope, probe: PluginProbe | u
   return AGENTS.filter((a) => {
     if (a.id === "claude") return probe !== undefined && "state" in probe && (probe.state.status === "current" || probe.state.status === "unknown");
     const dir = skillsDirAtScope(a, root, scope);
-    return unhealthySkills(dir, foreignSkills(dir)).length === 0;
+    const agy = a.kind === "agy";
+    const foreign = agy ? agyForeignSkills(dir) : foreignSkills(dir);
+    return (agy ? agyUnhealthySkills(dir, foreign) : unhealthySkills(dir, foreign)).length === 0;
   }).map((a) => a.id);
 }
 
@@ -81,10 +95,15 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
       continue;
     }
     const dir = skillsDirAtScope(a, root, scope);
+    const agy = a.kind === "agy";
     // A user's own skill at a managed name is left alone by kf install, so it is neither stale nor pending.
-    const foreign = foreignSkills(dir);
-    const bad = unhealthySkills(dir, foreign);
-    const state = foreign.length === 0 ? agentSkillsState(dir) : bad.length > 0 ? "incomplete" : "installed";
+    const foreign = agy ? agyForeignSkills(dir) : foreignSkills(dir);
+    const bad = agy ? agyUnhealthySkills(dir, foreign) : unhealthySkills(dir, foreign);
+    const state = foreign.length > 0
+      ? (bad.length > 0 ? "incomplete" : "installed")
+      : agy
+        ? (bad.length === 0 ? "copied" : bad.length >= MANAGED_SKILLS.length ? "missing" : "stale")
+        : agentSkillsState(dir);
     items.push({
       done: bad.length === 0,
       label: `Skills for ${a.label} (scope: ${scope}, ${dir}/) — ${state}${foreign.length > 0 ? ` (your own ${foreign.join(", ")} kept)` : ""}`,
@@ -105,7 +124,7 @@ function checklist(root: string, stacks: string[], agents: AgentId[], cfg: Parti
     const dupes = agents
       .map((id) => AGENTS.find((x) => x.id === id))
       .filter((a): a is NonNullable<typeof a> => Boolean(a))
-      .filter((a) => hasOwnedEntries(projectSkillsDir(a, root)));
+      .filter((a) => (a.kind === "agy" ? hasOwnedAgyEntries(projectSkillsDir(a, root)) : hasOwnedEntries(projectSkillsDir(a, root))));
     items.push({
       done: dupes.length === 0,
       label: dupes.length === 0

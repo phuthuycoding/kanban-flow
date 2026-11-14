@@ -21,7 +21,7 @@ import {
 } from "./agents.js";
 import { copyName, LEGACY_AGENTS_DIR, LEGACY_SKILL_DIRS, LEGACY_SKILLS, MANAGED_AGENTS, MANAGED_SKILLS } from "./managed.js";
 import { ClaudePluginError, claudeRunner, ensurePlugin, pluginState, removePlugin } from "./claude-plugin.js";
-import { ephemeralPackageWarning, renderForCopy, renderSkillMd } from "./skill-render.js";
+import { ephemeralPackageWarning, renderAgentForAgy, renderAgySkillBundle, renderForAgy, renderForCopy, renderSkillMd } from "./skill-render.js";
 
 export { MANAGED_AGENTS, MANAGED_SKILLS };
 
@@ -240,6 +240,290 @@ export function globalLinkRefusal(): string | null {
 export async function linkOrCopySkillsTo(skillsDir: string): Promise<SkillInstallResult> {
   const res = await copySkillsTo(skillsDir);
   return { ...res, mode: "copy" };
+}
+
+const AGY_PLUGIN_MARK = "Antigravity plugin";
+
+function agyPluginManifest(): string {
+  const version = (JSON.parse(readFileSync(join(PKG_ROOT, "package.json"), "utf8")) as { version?: string }).version ?? "0.0.0";
+  return `${JSON.stringify({
+    name: "kf",
+    version,
+    description: `Artifact-gated kanban workflow (${AGY_PLUGIN_MARK}).`,
+  }, null, 2)}\n`;
+}
+
+function agyPluginJsonIsOurs(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text) as { name?: unknown; description?: unknown };
+    return parsed.name === "kf" && typeof parsed.description === "string" && parsed.description.includes(AGY_PLUGIN_MARK);
+  } catch (err) {
+    if (err instanceof SyntaxError) return false;
+    throw err;
+  }
+}
+
+/** Every file of managed skill <name> rendered for the Antigravity plugin root, keyed by relative path under skills/kf-<name>. */
+function renderedAgySkill(pluginRoot: string, name: string): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (const [rel, bytes] of dirSnapshot(join(PKG_SKILLS_DIR, name))) {
+    const text = bytes.toString("utf8");
+    if (rel === "SKILL.md") {
+      const bundle = renderAgySkillBundle(text, pluginRoot, name);
+      out.set(rel, Buffer.from(bundle.skillMd));
+      for (const [extraRel, extraText] of bundle.extraFiles) {
+        out.set(extraRel, Buffer.from(extraText));
+      }
+      continue;
+    }
+    out.set(rel, rel.endsWith(".md") ? Buffer.from(renderForAgy(text, pluginRoot)) : bytes);
+  }
+  return out;
+}
+
+function renderedAgyShared(pluginRoot: string): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  for (const [rel, bytes] of dirSnapshot(PKG_SHARED_DIR)) {
+    out.set(rel, rel.endsWith(".md") ? Buffer.from(renderForAgy(bytes.toString("utf8"), pluginRoot)) : bytes);
+  }
+  return out;
+}
+
+function renderedAgyAgent(pluginRoot: string, name: string): Buffer {
+  return Buffer.from(renderAgentForAgy(readFileSync(join(PKG_AGENTS_DIR, `${name}.md`), "utf8"), pluginRoot));
+}
+
+function ownsAgySkillEntry(pluginRoot: string, name: string, manifest: Record<string, string>): boolean {
+  const entry = copyName(name);
+  const target = join(pluginRoot, "skills", entry);
+  let st;
+  try {
+    st = lstatSync(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw err;
+  }
+  if (!st.isDirectory()) return false;
+  if (sameFiles(dirSnapshot(target), renderedAgySkill(pluginRoot, name))) return true;
+  return manifest[entry] !== undefined && manifest[entry] === dirDigest(target);
+}
+
+function ownsAgyAgentEntry(pluginRoot: string, name: string, manifest: Record<string, string>): boolean {
+  const target = join(pluginRoot, "agents", `${name}.md`);
+  let st;
+  try {
+    st = lstatSync(target);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw err;
+  }
+  if (!st.isFile()) return false;
+  const bytes = readFileSync(target);
+  if (bytes.equals(renderedAgyAgent(pluginRoot, name))) return true;
+  return manifest[name] !== undefined && manifest[name] === sha256(bytes);
+}
+
+async function writeRenderedAgySkill(pluginRoot: string, name: string): Promise<string> {
+  const to = join(pluginRoot, "skills", copyName(name));
+  if (lstatSync(to, { throwIfNoEntry: false })?.isSymbolicLink()) await unlink(to);
+  else await rm(to, { recursive: true, force: true });
+  await cp(join(PKG_SKILLS_DIR, name), to, { recursive: true });
+  const files = renderedAgySkill(pluginRoot, name);
+  for (const [rel, bytes] of files) {
+    if (!rel.endsWith(".md")) continue;
+    await mkdir(dirname(join(to, rel)), { recursive: true });
+    await writeFile(join(to, rel), bytes);
+  }
+  return snapshotDigest(files);
+}
+
+/** Install the Antigravity (`agy`) plugin bundle (`plugin.json`, `skills/kf-*`, `agents/*`, `shared/*`). */
+export async function installAgyPlugin(pluginRoot: string): Promise<InstallReport> {
+  const missing = assertPackageSkills() ?? assertPackageAgents();
+  if (missing) return missing;
+  await mkdir(pluginRoot, { recursive: true });
+  const lines: string[] = [];
+  const manifestPath = join(pluginRoot, "plugin.json");
+  const existingManifest = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : null;
+  if (existingManifest !== null && !agyPluginJsonIsOurs(existingManifest)) {
+    lines.push(`⚠ left ${manifestPath} untouched — it is not kanban-flow's Antigravity plugin manifest`);
+  } else {
+    await writeFile(manifestPath, agyPluginManifest());
+  }
+
+  const agySkillsDir = join(pluginRoot, "skills");
+  await mkdir(agySkillsDir, { recursive: true });
+  const skillsCopied: string[] = [];
+  const skillsSkipped: string[] = [];
+  const skillsManifest = readSkillsManifest(agySkillsDir);
+  for (const name of MANAGED_SKILLS) {
+    const entry = copyName(name);
+    if (!ownsAgySkillEntry(pluginRoot, name, skillsManifest)) {
+      skillsSkipped.push(entry);
+      continue;
+    }
+    skillsManifest[entry] = await writeRenderedAgySkill(pluginRoot, name);
+    skillsCopied.push(entry);
+  }
+  await writeSkillsManifest(agySkillsDir, skillsManifest);
+
+  const agyAgentsDir = join(pluginRoot, "agents");
+  await mkdir(agyAgentsDir, { recursive: true });
+  const agentsCopied: string[] = [];
+  const agentsSkipped: string[] = [];
+  const agentsManifest = readAgentsManifest(agyAgentsDir);
+  for (const name of MANAGED_AGENTS) {
+    if (!ownsAgyAgentEntry(pluginRoot, name, agentsManifest)) {
+      agentsSkipped.push(`${name}.md`);
+      continue;
+    }
+    const bytes = renderedAgyAgent(pluginRoot, name);
+    await writeFile(join(agyAgentsDir, `${name}.md`), bytes);
+    agentsManifest[name] = sha256(bytes);
+    agentsCopied.push(name);
+  }
+  if (Object.keys(agentsManifest).length > 0) await writeAgentsManifest(agyAgentsDir, agentsManifest);
+  else await rm(join(agyAgentsDir, AGENTS_MANIFEST), { force: true });
+
+  const sharedDir = join(pluginRoot, "shared");
+  await rm(sharedDir, { recursive: true, force: true });
+  for (const [rel, bytes] of renderedAgyShared(pluginRoot)) {
+    const target = join(sharedDir, rel);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+  }
+
+  lines.push(`${skillsCopied.join(", ") || "no"} skills & ${agentsCopied.join(", ") || "no"} agents → ${pluginRoot}/${untouchedNote(agySkillsDir, skillsSkipped)}${untouchedNote(agyAgentsDir, agentsSkipped)}`);
+  return { code: 0, stdout: lines.join("\n") };
+}
+
+async function removeDirIfEmpty(dir: string): Promise<void> {
+  if (existsSync(dir) && readdirSync(dir).length === 0) await rm(dir, { recursive: true, force: true });
+}
+
+/** Remove Antigravity plugin skills, agents, shared docs, and manifest that kanban-flow owns; foreign entries are kept and named. */
+export async function removeAgyPlugin(pluginRoot: string): Promise<{ removed: string[]; kept: string[]; agentsRemoved: string[]; agentsKept: string[] }> {
+  const agySkillsDir = join(pluginRoot, "skills");
+  const skillsManifest = readSkillsManifest(agySkillsDir);
+  const removed: string[] = [];
+  const kept: string[] = [];
+  for (const name of MANAGED_SKILLS) {
+    const entry = copyName(name);
+    const target = join(agySkillsDir, entry);
+    let st;
+    try {
+      st = await lstat(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (!ownsAgySkillEntry(pluginRoot, name, skillsManifest)) {
+      kept.push(entry);
+      continue;
+    }
+    if (st.isSymbolicLink()) await unlink(target);
+    else await rm(target, { recursive: true, force: true });
+    delete skillsManifest[entry];
+    removed.push(entry);
+  }
+  if (removed.length > 0) await writeSkillsManifest(agySkillsDir, skillsManifest);
+
+  const agyAgentsDir = join(pluginRoot, "agents");
+  const agentsManifest = readAgentsManifest(agyAgentsDir);
+  const agentsRemoved: string[] = [];
+  const agentsKept: string[] = [];
+  for (const name of MANAGED_AGENTS) {
+    const target = join(agyAgentsDir, `${name}.md`);
+    let st;
+    try {
+      st = await lstat(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (!ownsAgyAgentEntry(pluginRoot, name, agentsManifest)) {
+      agentsKept.push(name);
+      continue;
+    }
+    if (st.isSymbolicLink()) await unlink(target);
+    else await rm(target, { force: true });
+    delete agentsManifest[name];
+    agentsRemoved.push(name);
+  }
+  if (agentsRemoved.length > 0) {
+    if (Object.keys(agentsManifest).length > 0) await writeAgentsManifest(agyAgentsDir, agentsManifest);
+    else await rm(join(agyAgentsDir, AGENTS_MANIFEST), { force: true });
+  }
+
+  if (kept.length === 0 && agentsKept.length === 0) {
+    await rm(join(pluginRoot, "shared"), { recursive: true, force: true });
+    const manifestPath = join(pluginRoot, "plugin.json");
+    if (existsSync(manifestPath) && agyPluginJsonIsOurs(readFileSync(manifestPath, "utf8"))) {
+      await rm(manifestPath, { force: true });
+    }
+  }
+  await removeDirIfEmpty(agySkillsDir);
+  await removeDirIfEmpty(agyAgentsDir);
+  await removeDirIfEmpty(pluginRoot);
+  return { removed, kept, agentsRemoved, agentsKept };
+}
+
+export function agyForeignSkills(pluginRoot: string): string[] {
+  const agySkillsDir = join(pluginRoot, "skills");
+  const skillsManifest = readSkillsManifest(agySkillsDir);
+  const skills = MANAGED_SKILLS.filter((s) => !ownsAgySkillEntry(pluginRoot, s, skillsManifest)).map(copyName);
+  const agyAgentsDir = join(pluginRoot, "agents");
+  const agentsManifest = readAgentsManifest(agyAgentsDir);
+  const agents = MANAGED_AGENTS.filter((a) => !ownsAgyAgentEntry(pluginRoot, a, agentsManifest)).map((a) => `agents/${a}.md`);
+  return [...skills, ...agents];
+}
+
+function agySkillMatches(pluginRoot: string, name: string): boolean {
+  const target = join(pluginRoot, "skills", copyName(name));
+  if (!existsSync(join(target, "SKILL.md"))) return false;
+  return sameFiles(dirSnapshot(target), renderedAgySkill(pluginRoot, name));
+}
+
+function agySharedMatches(pluginRoot: string): boolean {
+  const sharedDir = join(pluginRoot, "shared");
+  if (!existsSync(sharedDir)) return false;
+  return sameFiles(dirSnapshot(sharedDir), renderedAgyShared(pluginRoot));
+}
+
+function agyManifestHealthy(pluginRoot: string): boolean {
+  const manifestPath = join(pluginRoot, "plugin.json");
+  if (!existsSync(manifestPath)) return false;
+  const text = readFileSync(manifestPath, "utf8");
+  return !agyPluginJsonIsOurs(text) || text === agyPluginManifest();
+}
+
+export function agyUnhealthySkills(pluginRoot: string, foreign: string[]): string[] {
+  const bad: string[] = [];
+  for (const s of MANAGED_SKILLS) {
+    const entry = copyName(s);
+    if (!foreign.includes(entry) && !agySkillMatches(pluginRoot, s)) bad.push(entry);
+  }
+  for (const a of MANAGED_AGENTS) {
+    const entry = `agents/${a}.md`;
+    const target = join(pluginRoot, "agents", `${a}.md`);
+    if (!foreign.includes(entry) && (!existsSync(target) || !readFileSync(target).equals(renderedAgyAgent(pluginRoot, a)))) {
+      bad.push(entry);
+    }
+  }
+  if (!agySharedMatches(pluginRoot)) bad.push("shared");
+  if (!agyManifestHealthy(pluginRoot)) bad.push("plugin.json");
+  return bad;
+}
+
+export function hasOwnedAgyEntries(pluginRoot: string): boolean {
+  const agySkillsDir = join(pluginRoot, "skills");
+  const skillsManifest = readSkillsManifest(agySkillsDir);
+  if (MANAGED_SKILLS.some((s) => ownsAgySkillEntry(pluginRoot, s, skillsManifest) && lstatSync(join(agySkillsDir, copyName(s)), { throwIfNoEntry: false }) !== undefined)) {
+    return true;
+  }
+  const agyAgentsDir = join(pluginRoot, "agents");
+  const agentsManifest = readAgentsManifest(agyAgentsDir);
+  return MANAGED_AGENTS.some((a) => ownsAgyAgentEntry(pluginRoot, a, agentsManifest) && lstatSync(join(agyAgentsDir, `${a}.md`), { throwIfNoEntry: false }) !== undefined);
 }
 
 function assertPackageAgents(): InstallReport | null {
@@ -825,6 +1109,21 @@ export async function installSkills(root: string | null, agents: AgentId[], scop
     const a = AGENTS.find((x) => x.id === id);
     if (!a) continue;
     const dir = scope === "global" ? userSkillsDir(a) : projectSkillsDir(a, root!);
+    if (a.kind === "agy") {
+      const res = await installAgyPlugin(dir);
+      failed ||= res.code !== 0;
+      if (res.code === 0) writtenOk.push(dir);
+      lines.push(res.code === 0 ? `✓ ${a.label}: ${res.stdout}` : `⚠ ${a.label}: ${res.stdout}`);
+      if (res.code === 0 && scope === "global" && root && opts.declaredScope !== "project") {
+        const projectDir = projectSkillsDir(a, root);
+        const { removed, kept, agentsRemoved, agentsKept } = await removeAgyPlugin(projectDir);
+        const totalRemoved = removed.length + agentsRemoved.length;
+        if (totalRemoved > 0) cleaned.push(`  ${a.label}: removed ${removed.length} project skills and ${agentsRemoved.length} agents from ${projectDir}/`);
+        const allKept = [...kept, ...agentsKept.map((k) => `${k}.md`)];
+        if (allKept.length > 0) cleaned.push(`  ${a.label}: kept ${allKept.join(", ")} in ${projectDir}/ — not kanban-flow's`);
+      }
+      continue;
+    }
     const first = writtenBy.get(dir);
     if (first) {
       lines.push(`✓ ${a.label}: reads the copies written for ${first} in ${dir}/`);
@@ -985,6 +1284,22 @@ export async function cmdUninstall(agents: AgentId[] = [DEFAULT_AGENT], opts: In
     }
     const dirOf = (x: (typeof AGENTS)[number]): string => scope === "global" ? userSkillsDir(x) : projectSkillsDir(x, root);
     const dir = dirOf(a);
+    if (a.kind === "agy") {
+      if (handled.has(dir)) {
+        lines.push(`· ${a.label}: shares ${dir}/ — handled above`);
+        continue;
+      }
+      handled.add(dir);
+      const { removed, kept, agentsRemoved, agentsKept } = await removeAgyPlugin(dir);
+      lines.push(
+        removed.length + agentsRemoved.length > 0
+          ? `✗ ${a.label}: removed ${removed.length} skills and ${agentsRemoved.length} agents from ${dir}/`
+          : `· ${a.label}: already clean in ${dir}/`,
+      );
+      if (kept.length > 0) lines.push(`· ${a.label}: kept ${kept.join(", ")} in ${dir}/skills/ — not kanban-flow's`);
+      if (agentsKept.length > 0) lines.push(`· ${a.label}: kept ${agentsKept.map((k) => `${k}.md`).join(", ")} in ${dir}/agents/ — not kanban-flow's`);
+      continue;
+    }
     if (handled.has(dir)) {
       lines.push(`· ${a.label}: shares ${dir}/ — handled above`);
       continue;
