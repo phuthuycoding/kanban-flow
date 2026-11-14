@@ -252,6 +252,20 @@ function assertPackageAgents(): InstallReport | null {
   return null;
 }
 
+/**
+ * How one runtime's agent registry takes the managed seats — the managed-name transform, where
+ * the expected bytes come from and whether a link into the package is allowed. An adapter without
+ * one is the default target: a `<seat>.md` file holding the packaged bytes, links allowed.
+ */
+export interface AgentTarget {
+  /** The name a seat is managed under: the installed file is `<managedName>.md` and the manifest key is the managed name. Defaults to the seat itself. */
+  managedName?: (seat: string) => string;
+  /** The bytes an installed seat file must hold, derived from the packaged profile text. Defaults to the packaged text itself. */
+  expectedBytes?: (packagedText: string, seat: string) => string;
+  /** Whether a seat file may be installed as a symlink into the package. Defaults to true; rendered profiles are always copies. */
+  linkAllowed?: boolean;
+}
+
 export type AgentEntryState = "absent" | "linked" | "copied" | "stale" | "foreign" | "not-file";
 
 /**
