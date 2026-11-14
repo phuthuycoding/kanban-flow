@@ -229,8 +229,9 @@ export function readFeatureMeta(dir: string): FeatureMeta | null {
     || (meta.ship !== undefined && !isShipState(meta.ship))) {
     throw new Error(`Invalid feature metadata: ${f}`);
   }
-  // A measurement this release cannot read (malformed, or written by a later one) is treated as absent: it must never
-  // make the item unreadable, because an unreadable item cannot close.
+  // A measurement key this release cannot read (malformed, or a shape written by a later release) is dropped from the
+  // returned meta, so the next write of .kfw.json discards it. It must never make the item unreadable, because an
+  // unreadable item cannot close.
   if (meta.estimate !== undefined && !isItemEstimate(meta.estimate)) delete meta.estimate;
   if (meta.filesChanged !== undefined && !isFilesChanged(meta.filesChanged)) delete meta.filesChanged;
   assertPathName(meta.feature, "feature");

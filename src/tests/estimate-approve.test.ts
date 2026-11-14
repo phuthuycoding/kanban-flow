@@ -296,6 +296,46 @@ describe("a malformed legacy estimates history", () => {
   });
 });
 
+describe("a measurement the release cannot read", () => {
+  it("is dropped from the item's metadata and never makes the item unreadable", async () => {
+    await plannedItem("demo", planText("- Agent minutes: 30"));
+    const metaPath = join(feature().dir, ".kfw.json");
+    const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>;
+    await writeFile(metaPath, JSON.stringify({ ...raw, estimate: { size: "XXL" }, filesChanged: { count: "seven" } }));
+
+    const found = feature();
+    expect(found.metaError).toBeUndefined();
+    expect(found.meta).toBeDefined();
+    expect(found.meta!.feature).toBe("demo");
+    expect(Object.hasOwn(found.meta!, "estimate")).toBe(false);
+    expect(Object.hasOwn(found.meta!, "filesChanged")).toBe(false);
+
+    const status = await cmdStatus(args("status", [], { change: "demo" }), root);
+    expect(status.code, status.stdout).toBe(0);
+
+    const codes = await validateCodes("demo");
+    expect(codes.errors).not.toContain("metadata_invalid");
+    expect(codes.errors).not.toContain("metadata_missing");
+  });
+});
+
+describe("a malformed history with an estimate in the contract", () => {
+  it("is a status notice and never a validator warning", async () => {
+    await legacyLedger(`# Travel estimates\n\n${HEADER}\n2026-10-01 · a · demo · feature · M\n`);
+    await plannedItem("demo", planText("- Agent minutes: 30"));
+
+    // The unapproved planning item still fails strict validate on the approval gate alone; the history adds nothing.
+    const strict = await cmdValidate(args("validate", [], { change: "demo", strict: true, json: true }), root);
+    const [entry] = JSON.parse(strict.stdout) as Array<{ issues: Array<{ severity: string; code: string }> }>;
+    expect(entry.issues.map((i) => i.code)).toEqual(["approval_required"]);
+    expect(strict.stdout).not.toContain("estimate_history");
+
+    const json = await statusJson();
+    expect(json.notices).toContainEqual({ code: "estimate_history", file: expect.any(String), message: expect.stringContaining("estimates.md:4") });
+    expect(json.blockers).toEqual([]);
+  });
+});
+
 describe("a refused move puts the previous estimate back", () => {
   it("leaves no estimate when the first approval's move is refused", async () => {
     await plannedItem("demo", planText("- Agent minutes: 30"));
