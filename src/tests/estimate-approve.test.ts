@@ -5,8 +5,9 @@ import { mkdtemp, mkdir, writeFile, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ensureWorksStructure, findFeature } from "../workflow/features.js";
+import { ensureWorksStructure, findFeature, readFeatureMeta } from "../workflow/features.js";
 import { ARTIFACTS } from "../workflow/schema.js";
+import { readEstimateHistory } from "../workflow/estimate.js";
 import { withDocsImpact } from "./helpers/contract.js";
 import { foldItemLog, itemLogPath, readItemLog, sharedMeta } from "../workflow/item-log.js";
 import { checkItemLogs } from "../project/doctor-item-log.js";
@@ -316,6 +317,57 @@ describe("a measurement the release cannot read", () => {
     const codes = await validateCodes("demo");
     expect(codes.errors).not.toContain("metadata_invalid");
     expect(codes.errors).not.toContain("metadata_missing");
+  });
+});
+
+describe("a hand-edited estimate that is not a positive number of minutes", () => {
+  const goodEstimate = { at: "2026-11-01T10:00:00.000Z", minutes: 30, files: 2, filesMark: "exact", size: "M", factor: 1 };
+  const badEstimates: Array<[string, Record<string, unknown>]> = [
+    ["zero minutes", { minutes: 0 }],
+    ["negative minutes", { minutes: -5 }],
+    ["a zero factor", { factor: 0 }],
+    ["a negative factor", { factor: -1 }],
+    ["a factor that is not finite", { factor: 1e999 }],
+  ];
+
+  async function handEdit(name: string, patch: Record<string, unknown>): Promise<string> {
+    await plannedItem(name, planText("- Agent minutes: 30"));
+    const dir = feature(name).dir;
+    const metaPath = join(dir, ".kfw.json");
+    const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>;
+    // The estimate is spliced in as text so a factor of 1e999 reaches the file and parses back as Infinity.
+    const { factor, ...rest } = { ...goodEstimate, ...patch };
+    const estimateText = JSON.stringify(rest).slice(0, -1) + `,"factor":${factor === Infinity ? "1e999" : JSON.stringify(factor)}}`;
+    await writeFile(metaPath, JSON.stringify({ ...raw, estimate: "__ESTIMATE__" }).replace('"__ESTIMATE__"', estimateText));
+    return dir;
+  }
+
+  for (const [label, patch] of badEstimates) {
+    it(`is dropped on read for ${label}`, async () => {
+      const dir = await handEdit("demo", patch);
+      expect(feature().metaError).toBeUndefined();
+      const meta = readFeatureMeta(dir);
+      expect(meta).not.toBeNull();
+      expect(Object.hasOwn(meta!, "estimate")).toBe(false);
+    });
+  }
+
+  it("keeps a positive estimate on read", async () => {
+    const dir = await handEdit("demo", {});
+    expect(readFeatureMeta(dir)!.estimate).toMatchObject({ minutes: 30, factor: 1 });
+  });
+
+  it("never makes the estimate history throw once the item is done", async () => {
+    const dir = await handEdit("demo", { minutes: 0 });
+    // What the close writes into metrics.json: the estimate from the meta, or "none" when the meta carries none.
+    const estimate = readFeatureMeta(dir)?.estimate ?? { none: true, reason: "no estimate was recorded at approval" };
+    const doneDir = join(root, ".works", "done", "demo_20261101_0000");
+    await mkdir(doneDir, { recursive: true });
+    await writeFile(join(doneDir, "metrics.json"), JSON.stringify({
+      closedAt: "2026-11-02T10:00:00.000Z", id: "demo", feature: "demo", kind: "feature",
+      estimate, actual: { size: "M", workMinutes: 30 }, filesChanged: { count: 2 },
+    }));
+    expect(() => readEstimateHistory(root)).not.toThrow();
   });
 });
 

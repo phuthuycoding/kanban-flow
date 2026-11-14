@@ -256,9 +256,14 @@ function isItemEstimate(value: unknown): value is ItemEstimate {
   const e = value as Record<string, unknown>;
   if (typeof e.at !== "string") return false;
   if (e.none === true) return typeof e.reason === "string";
-  return typeof e.minutes === "number" && (e.files === null || typeof e.files === "number")
+  // Minutes and factor must be finite and above 0, as the estimate history requires of a done item (metricsRow).
+  return isPositiveNumber(e.minutes) && (e.files === null || typeof e.files === "number")
     && (e.filesMark === "exact" || e.filesMark === "partial" || e.filesMark === "unknown")
-    && (e.size === "S" || e.size === "M" || e.size === "L" || e.size === "XL") && typeof e.factor === "number";
+    && (e.size === "S" || e.size === "M" || e.size === "L" || e.size === "XL") && isPositiveNumber(e.factor);
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function isFilesChanged(value: unknown): value is FilesChanged {
