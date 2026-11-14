@@ -138,6 +138,29 @@ describe("schedule: an item with exactly one task", () => {
     expect(result.inFlight, show(result)).toContainEqual(expect.objectContaining({ task: "TASK-001", seat: "test-writer" }));
   });
 
+  it("points the controller at the only task again after a reopen, with no seat round", () => {
+    const reopened = [...START, IMPLEMENTED, "Note TASK-001: reopened — review 1a2b3c4d"];
+    const result = run(reopened, inputsOf([task("TASK-001")]));
+
+    expect(dispatches(result), show(result)).toEqual([]);
+    expect(result.inFlight, show(result)).toEqual([]);
+    expect(oneTaskDecides(result), show(result)).toEqual([ONE_TASK_DECIDE]);
+
+    const closed = run([...reopened, IMPLEMENTED], inputsOf([task("TASK-001")]));
+    expect(dispatches(closed), show(closed)).toEqual([]);
+    expect(actionsFor(closed, "TASK-001"), show(closed)).toEqual([]);
+  });
+
+  it("stops at the five-round cap when the only task is reopened a sixth time", () => {
+    const bodies = [...START, IMPLEMENTED];
+    for (let i = 1; i <= 6; i++) bodies.push(`Note TASK-001: reopened — review ${String(i).repeat(8)}`, ...(i < 6 ? [IMPLEMENTED] : []));
+    const result = run(bodies, inputsOf([task("TASK-001")]));
+
+    expect(dispatches(result), show(result)).toEqual([]);
+    expect(oneTaskDecides(result), show(result)).toEqual([]);
+    expect(result.actions, show(result)).toContainEqual(expect.objectContaining({ kind: "stop", task: "TASK-001" }));
+  });
+
   it("still dispatches the seats of an item with two tasks", () => {
     const result = run(START, inputsOf([task("TASK-001"), task("TASK-002")]));
 
